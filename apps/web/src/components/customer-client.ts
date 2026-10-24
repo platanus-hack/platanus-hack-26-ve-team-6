@@ -4,6 +4,7 @@ import {
   customerCreateApplicationSchema,
   customerCreateWorkspaceSchema,
   customerEnrollTargetSchema,
+  customerScanProfileSchema,
   customerEnrollmentSchema,
   customerReportSummarySchema,
   customerSourceSummarySchema,
@@ -49,6 +50,7 @@ const deletedSourceSchema = z.union([z.undefined(), z.object({ deleted: z.litera
 
 export type CustomerSession = z.infer<typeof customerSessionSchema>;
 export type CustomerJob = z.infer<typeof customerJobSchema>;
+export type CustomerScanProfile = z.infer<typeof customerScanProfileSchema>;
 
 export class CustomerApiError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) {
@@ -168,11 +170,11 @@ export const customerApi = {
     });
   },
   targets: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/targets`, targetListSchema),
-  enrollTarget: (input: { organizationId: string; applicationId: string; origin: string; authorized: true }) => {
-    const { organizationId, applicationId, origin, authorized } = input;
-    const validated = customerEnrollTargetSchema.parse({ organizationId, applicationId, origin, authorized });
+  enrollTarget: (input: { organizationId: string; applicationId: string; origin: string; authorized: true; scanProfile?: CustomerScanProfile }) => {
+    const { organizationId, applicationId, origin, authorized, scanProfile } = input;
+    const validated = customerEnrollTargetSchema.parse({ organizationId, applicationId, origin, authorized, ...(scanProfile === undefined ? {} : { scanProfile }) });
     return request(`${applicationPath(organizationId, applicationId)}/targets`, customerEnrollmentSchema, {
-      method: 'POST', ...jsonBody({ origin: validated.origin, authorized: validated.authorized }),
+      method: 'POST', ...jsonBody({ origin: validated.origin, authorized: validated.authorized, ...(validated.scanProfile === undefined ? {} : { scanProfile: validated.scanProfile }) }),
     });
   },
   verifyTarget: (organizationId: string, applicationId: string, targetId: string) => {
@@ -192,7 +194,7 @@ export const customerApi = {
   },
   deleteSource: (organizationId: string, applicationId: string, sourceId: string) => {
     const input = customerSourceSummarySchema.pick({ organizationId: true, applicationId: true, id: true }).parse({ organizationId, applicationId, id: sourceId });
-    return request(`${applicationPath(input.organizationId, input.applicationId)}/sources/${encodeURIComponent(input.id)}/delete`, deletedSourceSchema, { method: 'POST', ...jsonBody({}) });
+    return request(`${applicationPath(input.organizationId, input.applicationId)}/sources/${encodeURIComponent(input.id)}`, deletedSourceSchema, { method: 'DELETE' });
   },
   reports: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/reports`, reportListSchema),
   report: (organizationId: string, applicationId: string, reportId: string) => request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(reportId)}`, customerAssessmentReportSchema),

@@ -78,6 +78,33 @@ describe('customer API client', () => {
     });
   });
 
+  it('sends the explicitly selected public-surface profile with fresh target consent', async () => {
+    fetchMock.mockResolvedValueOnce(json({
+      target: {
+        organizationId,
+        applicationId,
+        id: targetId,
+        origin: 'https://app.customer.net',
+        version: 1,
+        status: 'pending',
+        consentActor: 'user:owner',
+        consentAt: '2026-10-24T08:00:00.000Z',
+        challengeExpiresAt: '2026-10-24T08:30:00.000Z',
+        verifiedAt: null,
+        expiresAt: null,
+        scanProfile: 'public_surface',
+      },
+      challenge: { name: '_gotchu.app.customer.net', value: 'gotchu-verification=challenge', expiresAt: '2026-10-24T08:30:00.000Z' },
+    }, 201));
+
+    const enrolled = await customerApi.enrollTarget({ organizationId, applicationId, origin: 'https://app.customer.net', authorized: true, scanProfile: 'public_surface' });
+
+    expect(enrolled.target.scanProfile).toBe('public_surface');
+    const [path, init] = fetchMock.mock.calls[0] ?? [];
+    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/targets`);
+    expect(JSON.parse(String(init?.body))).toEqual({ origin: 'https://app.customer.net', authorized: true, scanProfile: 'public_surface' });
+  });
+
   it('rejects unsupported source paths before upload', () => {
     expect(() => customerApi.uploadSource({
       organizationId,
@@ -121,15 +148,15 @@ describe('customer API client', () => {
     await expect(result).rejects.toMatchObject({ status: 200, code: 'invalid_response' });
   });
 
-  it('deletes a source snapshot through the tenant-scoped delete action', async () => {
-    fetchMock.mockResolvedValueOnce(json({ deleted: true }));
+  it('deletes a source snapshot with the tenant-scoped DELETE endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
-    await expect(customerApi.deleteSource(organizationId, applicationId, sourceId)).resolves.toEqual({ deleted: true });
+    await expect(customerApi.deleteSource(organizationId, applicationId, sourceId)).resolves.toBeUndefined();
 
     const [path, init] = fetchMock.mock.calls[0] ?? [];
-    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/sources/${sourceId}/delete`);
-    expect(init?.method).toBe('POST');
+    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/sources/${sourceId}`);
+    expect(init?.method).toBe('DELETE');
     expect(init?.credentials).toBe('same-origin');
-    expect(JSON.parse(String(init?.body))).toEqual({});
+    expect(init?.body).toBeUndefined();
   });
 });
