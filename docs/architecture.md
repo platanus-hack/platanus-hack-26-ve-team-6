@@ -1,113 +1,98 @@
-# Gotchu architecture: foundation status
+# Gotchu controlled assessment architecture
 
-Gotchu currently has a backend and infrastructure foundation. The code includes a TanStack Start HTTP adapter, an Auth.js Core integration, a separate backend domain package, Postgres persistence with a transactional outbox, a BullMQ coordinator, an isolated LangGraph HTTP worker, a run-capability gateway, and an independent executor ledger.
+The current product slice is a controlled assessment application with a minimal Spanish dashboard. It performs bounded checks against a fixed fictional store in two independent ways: a source/configuration profile and a live HTTP profile. It compares and persists their evidence as scoped reports. These are real executions against controlled fixtures, not prefilled results.
 
-These components do not make Gotchu a completed or production-ready security product. Hosted model calls return `503` until a provider adapter exists; provider writes are frozen. Production MFA and trusted approval verifiers, cloud connectors, scanner services, customer-code execution, a production TLS deployment, restore evidence, and capacity evidence are not available.
+This is a narrow demonstration, not general SAST, an exploitation service, or a production security product. It does not require a model API, GitHub repository access, or an external paid service.
 
-## Service boundaries and request flow
+## Assessment flow
 
 ```mermaid
 flowchart LR
-  subgraph clients[Clients]
-    owner[Owner browser]
-    sdk[Node event SDK]
-  end
+  browser[Spanish dashboard]
+  web[TanStack Start web process]
+  demo[Fixed public demo API]
+  backend[@gotchu/backend]
+  pg[(Postgres<br/>tenant-scoped rows and durable reports)]
+  redis[BullMQ on Redis]
+  coordinator[@gotchu/coordinator<br/>separate durable worker]
+  runner[@gotchu/assessment<br/>one active runner slot]
+  source[Controlled fixture repository<br/>three allowlisted files]
+  target[Private HTTP target<br/>literal IPv4 origin]
+  reports[Evidence and comparison report]
+  auth[Auth.js Core<br/>member sign-in, optional]
 
-  subgraph web[Web process · TanStack Start]
-    routes[HTTP routes and API adapter]
-    auth[Auth.js Core HTTP bridge]
-  end
-
-  subgraph domain[Framework-independent domain]
-    backend[@gotchu/backend]
-    contracts[@gotchu/contracts]
-    database[@gotchu/database]
-  end
-
-  subgraph durable[Durable job path]
-    pg[(Postgres · source of truth)]
-    coordinator[@gotchu/coordinator]
-    queue[BullMQ on Redis · separate delivery lanes]
-  end
-
-  subgraph investigation[Bounded investigation]
-    worker[LangGraph HTTP worker<br/>no DB, Redis, provider key, or signing private key]
-    gateway[Run-capability gateway<br/>TLS-capable · scoped reads · sanitized checkpoints]
-    model[Hosted model provider adapter<br/>not configured]
-  end
-
-  subgraph execution[Independent execution boundary]
-    executor[@gotchu/executor ledger]
-    github[GitHub provider writes<br/>disabled]
-  end
-
-  owner -->|session request| routes
-  routes --> auth
-  routes --> backend
-  sdk -->|HMAC-signed raw event batch| routes
-  backend --> database
-  database --> pg
-  pg -->|committed job and outbox| coordinator
-  coordinator -->|job ID| queue
-  queue -->|at-least-once delivery| coordinator
-  coordinator -->|claim and aggregate via domain| backend
-  coordinator -->|short-lived signed run capability| worker
-  worker -->|run-scoped HTTPS requests<br/>loopback HTTP only in dev/test| gateway
-  gateway -->|authorized evidence reads and checkpoint writes| pg
-  gateway -.->|503 · no call and no spend| model
-  routes -.->|approval returns 503<br/>trusted step-up verifier absent| backend
-  executor -->|separate runtime role and ledger| pg
-  executor -.->|writes frozen| github
+  browser -->|assessment request| web
+  web --> demo --> backend
+  backend -->|job and outbox transaction| pg
+  pg -->|durable job| coordinator
+  coordinator --> redis --> coordinator
+  coordinator --> runner
+  runner -->|bounded source reads| source
+  runner -->|one source-independent GET| target
+  runner -->|internal/external comparison| reports
+  reports -->|persist in fixed demo scope| pg
+  pg -->|scoped report data| backend
+  backend --> demo --> web -->|history, evidence, coverage| browser
+  browser -.-> auth
 ```
 
-The diagram shows code boundaries and disabled edges. It does not imply that every adapter is configured or deployed. The coordinator’s durable work path currently handles event aggregation and investigation jobs; scan and notification adapters are not wired.
+The assessment job is processed outside the web request. The coordinator owns a single active assessment runner slot per process and applies a 60-second overall timeout. Postgres holds the durable job, outbox, and report; Redis is a delivery queue. Repeated delivery is handled through the durable job state.
 
-## Components
+## Fixed public demo boundary
 
-### TanStack Start and Auth.js Core
+An operator-only seed creates one dedicated organization, application, public demo principal, and target key. The public API injects this fixed scope and can request only an assessment mode and one of the two fixture revisions. It accepts no caller-selected tenant, application, target, URL, or path. Runtime API and coordinator roles can read the target configuration but cannot change it. The operator-only seed validates existing state and refuses conflicting configuration rather than overwriting it.
 
-The web application hosts user and integration HTTP endpoints in TanStack Start server routes. A small server-side adapter calls Auth.js Core for `/api/auth/*`, validates the configured request origin, and uses JWT sessions. GitHub OAuth can be configured for sign-in. That sign-in is not a GitHub repository integration.
+Core customer data stays behind membership checks and Postgres row-level security. Public demo operations use only the reserved seeded scope and its fictional reports. The demo principal is not a customer login and is denied general business-data operations.
 
-The route layer delegates to `@gotchu/backend`, keeping domain decisions out of route files. The backend derives organization access from stored membership and application relationships rather than trusting a client-supplied user or tenant header. Fresh second-factor approval is not implemented. The approval endpoint returns unavailable until a trusted step-up verifier is supplied.
+Capacity is bounded at two layers:
 
-### Domain and durable state
+- The backend transaction allows at most three unfinished assessment jobs and 100 total assessment jobs for this demo scope. The lifetime cap requires deliberate operator cleanup in a disposable demo environment.
+- Each web process allows at most 10 new idempotency keys in a rolling minute and 30 well-formed assessment POSTs in a 60-second window. These in-memory HTTP limits are per process; they are not global quotas or throughput guarantees.
 
-`@gotchu/contracts` owns runtime input schemas. `@gotchu/backend` owns event intake, authorization, job, proposal, approval, run, budget, and execution-ledger operations. `@gotchu/database` owns connection setup, runtime-role provisioning, migrations, and tenant-scoped transactions.
+Exact idempotent retries do not create additional jobs. These limits make the public demo finite; there is no unlimited assessment endpoint.
 
-Postgres is authoritative for accepted events, job intent, outbox delivery state, incidents, proposals, run budgets and checkpoints, and executor ledger records. Runtime roles are separated for the web API, event intake, coordinator/gateway, and executor. A valid event batch and its outbox job are committed together before the API acknowledges the event.
+## Assessment profiles and report semantics
 
-The coordinator polls and leases committed outbox entries, enqueues job IDs in BullMQ, and reconciles missing, failed, or completed Redis deliveries against Postgres. One deterministic processing slot and two investigation slots use separate queues per coordinator, so slow investigations cannot consume event-processing capacity. Outbox publication and reconciliation share the same routing. Consumers claim durable jobs in Postgres and check the queue envelope against stored tenant and application scope before processing.
+### Internal source/configuration profile
 
-The event contract rejects year-zero timestamps before persistence. If legacy rows contain timestamps that PostgreSQL cannot parse, aggregation quarantines those rows from detector windows, retains the original events, and marks detection coverage degraded. This keeps malformed stored data from poisoning later valid event aggregation.
+The profile reads only store.ts, settings.json, and package.json from a selected revision in the controlled fixture repository. Each file is capped at 16 KiB and each read has a two-second deadline. It uses TypeScript AST inspection for one exported literal, supported configuration parsing for the response-header settings, and an exact direct lodash version declaration check against one pinned offline record: GHSA-35jh-r3h4-6jhm / CVE-2021-23337.
 
-### Investigation worker and run gateway
+The vulnerable fixture enables the audit-email literal, omits Content-Security-Policy, and declares lodash 4.17.20. The corrected fixture disables the literal, adds a policy, and removes the unused lodash declaration. Removing that declaration does not establish a safe replacement version or prove anything about installed/transitive packages. The advisory has no run-time freshness check.
 
-The coordinator gives the worker a short-lived EdDSA run capability scoped to one organization, application, run, allowed read tools, and evidence IDs. The LangGraph worker exposes an HTTP endpoint and has no database connection, Redis connection, provider credential, or capability-signing private key. It receives only the public key needed to validate the capability and reaches input, reads, model calls, and checkpoint persistence through the gateway.
+This deterministic profile is not whole-program analysis or general SAST. It does not inspect a customer repository, lockfile, installed dependencies, reachability, or other advisories. It does not execute source, install packages, run scripts or tests, or attempt an exploit.
 
-If a worker saved a validated terminal checkpoint and the coordinator stopped before finalizing the job, the next consumer can finalize that checkpoint using its current job lease. Recovery checks run and evidence scope and can settle the saved result even after the investigation deadline; it does not repeat the worker call.
+### Independent external HTTP profile
 
-The run gateway validates the capability and rechecks scope and budgets against Postgres. It stores bounded, sanitized checkpoints with optimistic versioning. It can serve HTTPS directly and fails closed on non-loopback plaintext outside development or test. Local HTTP/TLS fixtures exercise the transport, but there is no production certificate provisioning or deployed TLS path.
+The external profile does not read source or package data. It makes one GET to the fixed vulnerable or corrected route at an operator-configured HTTP origin spelled as a literal loopback or RFC1918 IPv4 address. The origin cannot be supplied by a public request. The profile has a maximum two-second deadline, 2 KiB body cap, 8 KiB header cap, and retains at most 512 bytes of selected headers. It sends no credentials, refuses redirects, and does not retry.
 
-Investigation limits in the code cap a run at four model calls, eight additional read-tool calls, and five active minutes. The agent also has provisional token and currency guardrails. Authoritative per-run token and spend accounting must be implemented at the provider gateway before enabling models; the existing backend tracks call counts, reservations, and an organization spend ceiling. The model operation is intentionally unavailable: requests return `503`; the live pipeline test expects the run to finish as unavailable with no model calls or spend. Deterministic event processing remains separate from model investigation.
+It observes only a complete catalog response, Content-Security-Policy presence, and an X-Powered-By banner. It does not test authentication, other routes, JavaScript behavior, policy effectiveness, TLS, injection, exploitation, or cloud resources. A banner is an indication, not verified inventory.
 
-### Proposals and executor ledger
+### Correlation and evidence
 
-The backend has typed proposal and approval contracts and persists exact action identity. Approval requires a trusted verifier for fresh second-factor proof; that production adapter is absent, so approval is unavailable. `@gotchu/executor` uses a separate narrow ledger role and can record/claim execution state. It has no enabled GitHub write adapter or provider credential. PR creation, merge, deployment, and other provider writes remain disabled.
+Reports persist provenance, checksums, bounded evidence excerpts, limitations, coverage, findings, and comparisons. Findings keep severity, confidence, and exploitability as separate fields. The report distinguishes matching internal and external observations from internal-only, external-only, and unverified comparisons.
 
-### Local and cloud infrastructure
+A package declaration matching an advisory is not proof that the package is installed, reachable, exploited, or responsible for an incident. A high advisory severity does not grant authority. Missing, partial, unsupported, or failed coverage remains visible as unknown; absence of a finding is not a secure result. Correlation does not prove that the inspected source is what the HTTP service deployed.
 
-Docker Compose starts local Postgres and Redis. Optional web and coordinator profiles build and run the real applications as nonroot users with read-only roots, resource limits, and loopback-published ports. The live check verifies persistence, repeatable restricted-role bootstrap, readiness, outbound GitHub TLS, graceful shutdown, and complete test-project cleanup. Gateway, worker, executor, and scanner profiles still exit unavailable. Public TLS ingress and restricted provider egress remain deployment gates; see [the local runtime](../infra/README.md).
+The public demo is observation-only and reports no performed actions. Incident severity never expands permissions. Exact approval and bounded preauthorized automation are separate modes; response automation and provider recovery remain later release gates.
 
-The Pulumi TypeScript program defines a DigitalOcean VPC, firewalls, droplets, and a private Space. Its resource-policy tests use mocks. No DigitalOcean deployment has been made, and the program does not install the application services or provide a VM sandbox.
+## Web, identity, and tenant data
 
-## Not available in this foundation
+The web layer uses TanStack Start. Demo routes call a fixed-scope server adapter; domain rules live in framework-independent contracts and backend packages. Auth.js Core supports a generic HTTPS OIDC issuer or optional GitHub OAuth sign-in for member flows. No live OAuth integration has been demonstrated, and GitHub sign-in does not provide repository access. No identity vendor is mandatory for the controlled demo.
 
-- Production MFA, trusted approval verification, and production integration-secret custody.
-- GitHub repository access and write adapters, AWS coverage, Cloudflare telemetry, or other customer provider integrations.
-- A model-provider adapter, model spend, or externally hosted investigation.
-- Runnable scanner services for Semgrep, OSV-Scanner, Gitleaks, or Trivy.
-- Customer dependency installation, customer tests, or any customer-code execution. The VM-class isolation gate is closed; containers are not a substitute.
-- Production TLS termination/certificate management for the worker and run gateway.
-- Cloud deployment, tested backup restoration, measured capacity, verified recovery objectives, or measured operating cost.
+Tenant-owned business tables use Postgres row-level security and runtime roles. The public demo is intentionally different: its reserved identity may read and create only controlled assessment jobs and read reports from the seeded demo application. It cannot use general customer API operations or choose another scope.
 
-These are release gates, not capabilities implied by interface types, mocks, local fixtures, or the historical product decisions in the [definition interview](definition-interview.md).
+## Local runtime and AWS direction
+
+After the frozen pnpm install, scripts/controlled-demo.mjs builds relevant packages, starts Compose Postgres and Redis, applies the operator-only seed, and runs the built web and coordinator processes with an inline HTTP target. Defaults bind web to loopback port 3000, coordinator to loopback port 3003, and the target to loopback port 4100. Web and coordinator port overrides are GOTCHU_DEMO_WEB_PORT and GOTCHU_DEMO_COORDINATOR_PORT. The script records its PIDs, ports, logs, and state under .local/demo. Its stop command stops only the recorded web/coordinator processes. scripts/infra-local-down.sh separately stops the data services and retains their volumes.
+
+Node 24, pnpm 11, and Docker are required for this local workflow. Local runs and mock tests do not establish cloud behavior.
+
+AWS is the primary deployment target. Pulumi describes a control EC2 instance, a separate scanner/assessment EC2 instance, private S3 artifact storage, network policy, and role-scoped storage access. The resource-policy tests use Pulumi mocks; no AWS deployment or live AWS check has been performed. Deployment, TLS, restore, capacity, and cost evidence remain open.
+
+The domain contracts and storage/runtime adapters keep the core flow portable. AWS is the first deployment target, not a required provider dependency. GitHub, hosted models, any particular OIDC provider, and paid external services remain optional integrations.
+
+## Later release gates
+
+Monitoring integrations and alerts, general scanners, customer-code execution, production identity verification and MFA, exact approval, provider writes, bounded automatic response, cross-provider recovery, public TLS, deployed cloud services, restore evidence, and measured capacity/cost are outside this demonstration. Customer-code execution remains disabled until disposable VM-class isolation is demonstrated. The older event and investigation foundation is separate from this assessment flow; model requests remain unavailable without an explicitly configured provider.
+
+See [implementation status and release gates](implementation-plan.md), the [architecture overview](architecture-overview.html), and the [current accepted demo direction in the definition interview](definition-interview.md#current-accepted-direction-controlled-assessment-demo).

@@ -2,91 +2,73 @@
 
 ## Current stage
 
-Gotchu is in foundation implementation. The code establishes core package and trust boundaries, durable event/job state, a bounded investigation protocol, and infrastructure definitions. Several flows have local and database-backed tests, but tests do not turn missing external adapters or deployments into available product capabilities.
+The current deliverable is a controlled assessment demonstration: a fixed vulnerable/corrected application, bounded source and independent HTTP profiles, persisted evidence-backed comparison reports, and a minimal Spanish dashboard. The public surface is scoped to an operator-seeded demo tenant and target. This is a narrow assessment profile, not general SAST or a production monitoring and response service.
 
-Hosted model requests currently return `503` without spending. The executor's provider writes are frozen. There is no production MFA or trusted approval verifier, cloud deployment, scanner service, customer-code execution, production TLS deployment, restore evidence, capacity evidence, or production operating-cost measurement.
+The demo runs in observation mode and requires no model API, repository provider, identity vendor, or paid external service. Auth.js supports generic OIDC or optional GitHub sign-in, but live OAuth has not been demonstrated. AWS is the primary deployment target; the Pulumi foundation is mock-checked and not deployed.
 
-## Foundation status
+## Current implementation
 
-| Area | Present in code | Current limit |
+| Area | Present | Limit |
 | --- | --- | --- |
-| HTTP and sign-in | TanStack Start server routes; Auth.js Core invoked by a custom server-side HTTP adapter; conditional GitHub OAuth sign-in; JWT sessions. | Auth.js sign-in is not repository access. Fresh MFA, a trusted step-up verifier, and production authentication configuration are not complete. |
-| Domain and contracts | `@gotchu/contracts`, framework-independent `@gotchu/backend`, and `@gotchu/database` with migrations and separated runtime roles. | A production secret store and the trusted external identity/verifier adapters are absent. |
-| Event intake and jobs | HMAC verification over exact raw event bytes, tenant derivation, duplicate/replay handling, and event-plus-outbox commit. Coordinator dispatches and reconciles Redis deliveries; Postgres owns durable intent. | Current coordinator jobs process event aggregation and investigation. Scanner scheduling, notification delivery, AWS, Cloudflare, and GitHub repository adapters are not wired. |
-| Investigation | Bounded LangGraph worker over HTTP with run-scoped capabilities. Worker has no database, Redis, provider credentials, or signing private key. | The provider endpoint returns `503`; investigation is stored as unavailable with no model spend. |
-| Run gateway | Run-capability validation, tenant-scoped reads, persistent sanitized checkpoints, budget enforcement, and HTTPS transport support. Loopback HTTP is limited to development/test. | There is no production certificate provisioning, deployed TLS path, or configured provider adapter. |
-| Execution | Executor orchestration and a backend-ledger adapter using the restricted executor role. | A runnable provider service, trusted production approval verifiers, and GitHub write/provider adapters are absent. Provider writes stay disabled. |
-| Local infrastructure | Persistent Compose data services and real nonroot web/coordinator images, with repeatable role bootstrap, readiness probes, and complete cleanup. | Gateway, worker, executor, and scanner profiles remain disabled. Public ingress TLS and restricted GitHub egress are not configured. |
-| Cloud infrastructure | Pulumi definitions and mock policy tests for DigitalOcean network, firewall, droplets, and private object storage. | No cloud deployment. No application installation, scanner host runtime, VM sandbox, restore drill, or measured capacity/cost evidence. |
-| Scanning and customer code | The customer-code execution gate is explicitly closed. | Scanner services are not runnable; customer dependency installation and customer tests are disabled. Docker is not the required VM-class isolation boundary. |
+| Dashboard and public demo API | Minimal Spanish dashboard loads persisted reports, shows evidence and coverage, starts a run, compares revisions, and exports JSON. The API injects a fixed operator-seeded organization, application, principal, and target. | Demo routes are public and intended only for fictional fixture data. They cannot access customer scopes or accept a target URL/path. This is not an authenticated customer workspace. |
+| Admission bounds | Backend caps the fixed demo scope at three unfinished jobs and 100 lifetime jobs. Each web process also caps new idempotency keys at 10 per rolling minute and well-formed assessment POSTs at 30 per 60-second window. | HTTP limits are in-memory and per web process, not global quotas or measured throughput guarantees. The backend lifetime cap requires operator cleanup in a disposable demo environment. |
+| Internal profile | Reads three fixed source/configuration files from a selected fixture; applies TypeScript AST/literal and configuration checks and one pinned offline lodash advisory, GHSA-35jh-r3h4-6jhm. | No general SAST, advisory freshness, lockfile/transitive/installed-package analysis, reachability, customer repository access, scripts, package installation, or customer-code execution. The corrected fixture removes an unused lodash declaration. |
+| External profile | Source-independent, bounded GET to one fixed route on an operator-configured literal loopback/RFC1918 IPv4 HTTP origin; checks selected response headers and catalog response. | No arbitrary user URL, DNS target, redirect, retry, authentication, TLS, JavaScript execution, exploit attempt, or general web scan. A banner is only an indication. |
+| Reports and comparison | Findings and reports preserve evidence provenance, checksums, coverage, confidence, severity, exploitability, limitations, and internal/external comparison classes. Reports are persisted under the fixed demo application. | Correlation does not prove source/deployment equivalence or exploitation. Missing or partial coverage stays unknown; no finding is not a secure result. |
+| Tenant data | Customer/business tables use membership authorization, Postgres row-level security, and separate runtime roles. The public demo principal is restricted to assessment and job operations for the seeded scope. | The seeded demonstration scope and fictional reports are public by design; they contain no customer business data. |
+| Durable processing | Assessment jobs are persisted with their outbox; the independent coordinator dispatches work through Redis/BullMQ and persists completed reports. The runner has one active slot per coordinator process and a 60-second overall timeout. | Local durability and tests do not establish production recovery, multi-region behavior, or measured capacity. |
+| Identity | Auth.js Core supports a generic HTTPS OIDC issuer or optional GitHub OAuth sign-in. | No live OAuth provider has been verified. Sign-in does not imply repository access. Production MFA and trusted approval verification are absent. |
+| Cloud foundation | AWS Pulumi definitions include two EC2 instances, private S3 artifact storage, network controls, and role-scoped storage policies. | Pulumi policy tests use mocks. There is no AWS deployment, live AWS check, configured customer connector, TLS ingress, restore drill, or measured capacity/cost. |
+| Other product capabilities | Existing event intake, durable event pipeline, investigation worker/gateway, and executor ledger remain in the repository as separate foundation work. | Model calls return 503 without an explicitly configured provider. GitHub writes, monitoring integrations, alerts, approvals, containment, automatic response, recovery actions, scanners, and customer-code execution are not enabled by this demo. |
 
-## Test coverage in the repository
+Incident severity never expands action authority. Observation, exact human approval, and bounded preauthorized automation remain distinct modes. Automatic response and cross-provider recovery are later release gates. No customer code, package scripts, or tests execute; that remains disabled until VM-class isolation is demonstrated.
 
-This inventory describes test sources and their boundary; it is not a report that the checks were run for this documentation change.
+## Test sources and evidence boundaries
 
-- `@gotchu/contracts`: event and runtime-schema validation, including rejection of year-zero event timestamps.
-- `@gotchu/database` and `@gotchu/backend`: tenant isolation, Postgres roles, signed intake, replay and duplicate behavior, outbox persistence, budget accounting, and exact proposal/approval/execution invariants.
-- `@gotchu/web`: Auth.js HTTP behavior and authenticated API routes.
-- `@gotchu/agent` and `@gotchu/worker`: run-capability checks, bounded investigation behavior, typed results, and HTTP worker boundaries.
-- `@gotchu/gateway`: capability scope, tenant reads, budgets and idempotency, sanitized durable checkpoints, Postgres access, and HTTP/TLS transport fixtures.
-- `@gotchu/executor`: independent ledger and execution policy, including Postgres-backed ledger behavior.
-- `@gotchu/infra`: Pulumi resource/configuration policy under mocks; this does not contact DigitalOcean.
-- `@gotchu/coordinator` and `test/integration/pipeline.test.ts`: event aggregation quarantines incompatible legacy timestamps and degrades coverage while retaining source events; a later valid batch can still produce an incident. Investigation recovery can atomically finalize a saved terminal checkpoint under the current lease after coordinator interruption and an expired run deadline, without calling the worker again.
-- `test/integration/pipeline.test.ts`: isolated Postgres and Redis with web HTTP intake, coordinator/BullMQ delivery and recovery, aggregation, tenant isolation, and the investigation HTTP path. Two blocked investigation fixtures cannot stall deterministic jobs; a third investigation waits. Both outbox and recovery routes use the tested production transport factory. The model response is expected to be unavailable because no provider adapter is configured.
+This inventory describes repository test sources, not checks run for this documentation change. Test existence is not a live infrastructure result.
 
-The live integration command exercises isolated local services. It does not prove production TLS, provider behavior, cloud deployment, restoration, scanner isolation, customer-code isolation, capacity, or cost.
+- `@gotchu/contracts`: assessment request/report schemas and event/runtime validation.
+- `@gotchu/assessment`: fixed source rules, pinned advisory behavior, bounded HTTP evidence, comparison classifications, and unavailable/partial coverage.
+- `@gotchu/demo-target`: controlled HTTP fixture behavior for vulnerable and corrected revisions.
+- `@gotchu/backend` and `@gotchu/database`: tenant/RLS boundaries, operator-seeded target, assessment job admission bounds, durable report persistence, and existing event/outbox behavior. Postgres suites use isolated test services.
+- `@gotchu/web`: fixed-scope demo API constraints, same-origin/body/input validation, Auth.js adapter behavior, and API routes. These sources do not establish a live OAuth-provider login.
+- `@gotchu/coordinator`: assessment runner boundary, bounded execution behavior, and existing durable event/investigation processing. Local integration fixtures do not establish cloud deployment.
+- `@gotchu/infra`: Pulumi resource/configuration policy under mocks only; no AWS account is contacted.
+- `test/integration/pipeline.test.ts`: the separate event-pipeline path with temporary Postgres and Redis. It does not substitute for cloud, restore, production identity, scanner, or customer-code isolation evidence.
 
-## Commands
+## Local commands
 
-Root scripts are defined in `package.json`:
+Use Node 24, pnpm 11, and Docker. The controlled demo workflow is:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm build:packages
-pnpm build
-pnpm typecheck
-pnpm test
+pnpm demo:start
+pnpm demo:stop
+```
+
+The root commands use `scripts/controlled-demo.mjs`. It builds the relevant packages, starts Compose Postgres and Redis, applies the operator-only demo seed, and starts the built web/coordinator processes with the inline target. Defaults bind web to loopback port 3000, coordinator to loopback port 3003, and the target to loopback port 4100. GOTCHU_DEMO_WEB_PORT and GOTCHU_DEMO_COORDINATOR_PORT override the first two ports. PID, port, log, and state records are kept under `.local/demo`. Stop only terminates the recorded web/coordinator processes. `scripts/infra-local-down.sh` separately stops data services and retains their volumes.
+
+Workspace checks and the separate event-pipeline integration command are:
+
+```sh
 pnpm check
 pnpm test:integration
 ```
 
-`pnpm check` runs the workspace build, typecheck, and package tests; it does not include the live integration command. `pnpm test:integration` requires Docker and creates isolated, temporary Postgres and Redis containers for the HTTP pipeline.
+The root `check` script builds, typechecks, and runs package tests. Integration tests require Docker and use isolated local services. See [the verification record](validation.md) for checks actually run and their limits. Do not treat Pulumi mocks or local service tests as an AWS deployment or live cloud check.
 
-The packages with explicit PostgreSQL test scripts expose:
+## Later release gates
 
-```sh
-pnpm --filter @gotchu/database test:postgres
-pnpm --filter @gotchu/gateway test:postgres
-pnpm --filter @gotchu/executor test:postgres
-```
-
-Each `test:postgres` script launches an isolated temporary PostgreSQL container, sets `GOTCHU_TEST_DATABASE_URL` for its test process, and requires Docker. Infrastructure scripts provide local setup and policy/live checks:
-
-```sh
-scripts/infra-local-setup.sh
-scripts/infra-compose-validate.sh
-scripts/infra-local-up.sh
-scripts/infra-live-check.sh
-scripts/infra-local-down.sh
-pnpm --filter @gotchu/infra test
-pnpm --filter @gotchu/infra typecheck
-```
-
-The Compose validation and live dependency check are separate from `pnpm check`. The Pulumi unit test uses mocks; it is not a cloud preview or deployment.
-
-## Release gates
-
-| Gate | Evidence required before enabling the capability |
+| Gate | Evidence needed before claiming the capability |
 | --- | --- |
-| Production user authorization and approvals | Production Auth.js configuration, organization/membership policy, a trusted fresh-second-factor verifier, replay/expiry protection, and end-to-end negative authorization fixtures. Approval remains unavailable until then. |
-| Integration credential custody | A production secret-store adapter for event signing keys and scoped provider credentials; key rotation and revocation behavior. Environment-provided local keys do not satisfy this gate. |
-| Model investigation | A provider adapter behind the gateway; external-processing opt-in and data minimization; authoritative per-run token/spend ceilings in addition to existing organization reservations and call limits; settlement, timeouts, and unknown-outcome reconciliation. Agent-local guardrails are insufficient. Until configured, model requests stay `503` and spend zero. |
-| Run gateway and worker transport | Deployed TLS with certificate/key lifecycle and authenticated coordinator-to-worker transport. Local TLS fixtures and fail-closed configuration are not production TLS evidence. |
-| Provider writes | Trusted approval verification plus a real provider adapter that rechecks the exact approved action, target state, and automation safety; durable uncertain-outcome reconciliation. Until then, provider writes stay frozen. |
-| Cloud coverage | Scoped, least-privilege AWS and any selected Cloudflare adapters, with their authorization, freshness, and coverage behavior verified. No cloud connector or deployment is present now. |
-| Static scanners | Runnable pinned scanner images/profiles, scoped input and result paths, resource/output limits, and evidence provenance. Scanner Compose profile currently exits unavailable. |
-| Customer-code execution | A demonstrated disposable VM-class boundary per job, controlled networking, bounded resources, no credentials, and independent rescanning/relevant validation. Customer tests and dependency installation remain disabled. |
-| Cloud deployment | Reviewable Pulumi plan and operator-controlled deployment followed by service configuration and health checks. Current DigitalOcean definitions and mock tests do not show a deployed environment. |
-| Restore and operations | A clean-environment restore drill, recovery authorization reconciliation, measured capacity/load behavior, provider pricing, and an evidenced operating-cost estimate. Existing recovery, capacity, and budget figures remain planning targets, not guarantees. |
+| General source and dependency assessment | Runnable pinned scanners, supported repository adapters, lockfile/installed dependency scope, advisory freshness, provenance, output/resource bounds, and representative accuracy evidence. The current three-file profile is not general SAST. |
+| External assessment beyond the fixture | Explicitly authorized target enrollment and ownership, a safe allowlist and network policy, broader route/protocol coverage, production transport controls, and measured limits. The demo endpoint accepts no arbitrary target. |
+| Production identity and approvals | Production Auth.js configuration, tenant membership policy, a trusted fresh-second-factor verifier, replay/expiry protection, live provider validation, and negative authorization fixtures. Approval stays unavailable until then. |
+| Monitoring and cloud coverage | Scoped AWS and any selected telemetry adapters, authorization and freshness behavior, alert delivery/response readiness, and verified coverage reporting. AWS infrastructure definitions alone do not provide a customer connector. |
+| Model investigation | Optional provider adapter behind the gateway, external-processing opt-in, data minimization, authoritative per-run token/spend enforcement, timeouts, and unknown-outcome reconciliation. Without configuration, model requests remain unavailable and spend zero. |
+| Provider writes and response | Exact action/target revalidation, trusted approvals, a separately held write adapter, durable uncertain-outcome reconciliation, and explicit authorization for each supported response mode. Severity cannot grant these permissions. |
+| Customer-code execution | Demonstrated disposable VM-class isolation per job, controlled network access, bounded resources, no credentials, and independent validation. Customer dependency installation and tests remain disabled. |
+| AWS deployment | Reviewable Pulumi plan, operator-controlled deployment, service installation/configuration, live health and security checks, and no claim based on mock tests alone. No deployment has occurred. |
+| Restore and operations | Clean-environment restore drill, authorization reconciliation after recovery, measured load/capacity behavior, current provider pricing, and evidenced operating costs. Earlier recovery/budget figures remain proposals, not guarantees. |
 
-The historical accepted requirements and provisional pilot targets remain in [the definition interview](definition-interview.md). Keep that record intact; update implementation status here only when the corresponding code, adapters, tests, or operational evidence exist.
+The earlier accepted product requirements and the current demo scope are recorded separately in the [definition interview](definition-interview.md). Keep implementation claims tied to code and operational evidence; a reference or proposed limit is not a measured guarantee.
