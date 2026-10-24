@@ -2,25 +2,28 @@
 
 ## Threshold summary
 
-- `42` commits exceed 300 authored changed lines. Every one is listed below and marked `auth>300` in the chronological inventory.
-- `8` commits exceed 1,000 raw changed lines.
+- `51` commits exceed 300 authored changed lines. Every one is listed below and marked `auth>300` in the chronological inventory.
+- `11` commits exceed 1,000 raw changed lines.
 - `5` commits exceed 1,000 authored changed lines.
 - `0` binary files changed in the measured history.
 - The largest authored change is 2,955 lines in `bb7c955342bd` (`feat(monitoring): add bounded read adapters`).
 
-The fixture-path correction restores 186 authored lines across two otherwise sub-threshold commits: 171 in `99dbfa939c9b` (demo target implementation) and 15 in `bda7955dc8d1` (validator harness). The pre-merge continuation adds one new row above the 300-authored-line threshold below.
+The fixture-path correction restores 186 authored lines across two otherwise sub-threshold commits: 171 in `99dbfa939c9b` (demo target implementation) and 15 in `bda7955dc8d1` (validator harness). The pre-merge continuation adds one commit above the 300-authored-line threshold. The latest 302-commit continuation adds nine more commits above that threshold, three raw outliers, and no authored outlier above 1,000 lines.
 
 ## Raw outliers with excluded-file contributions
 
-These commits exceed 1,000 raw lines and include large lockfile or generated-file deltas. The authored column applies the precise path exclusions defined in [the index](commit-history.md). The lockfile and generated contributions below are read directly from each commit’s first-parent numstat. No >1,000-raw commit is driven by fixture data.
+These commits exceed 1,000 raw lines and include large lockfile, generated, or vendored-data deltas. The authored column applies the precise path exclusions defined in [the index](commit-history.md). Contributions below are read directly from each commit’s first-parent numstat. No >1,000-raw commit is driven by the static npm fixture project.
 
 | Commit | Subject | Raw + / − / total | Authored + / − / total | Excluded contribution |
 |---|---|---:|---:|---|
 | `9e4bf68966d0` | build: lock workspace dependencies and allow esbuild for pnpm 11 | 1,063 / 2 / 1,065 | 2 / 2 / 4 | `pnpm-lock.yaml` +1,061; workspace manifest +2/−2 remains authored |
 | `8dae20edc35f` | feat(api): connect authenticated routes to durable backend services | 2,028 / 46 / 2,074 | 251 / 3 / 254 | `pnpm-lock.yaml` +1,732/−40; generated `apps/web/src/routeTree.gen.ts` +45/−3 |
 | `082914a457fa` | feat(coordinator): deliver durable jobs and fence investigation completion | 2,707 / 29 / 2,736 | 414 / 2 / 416 | `pnpm-lock.yaml` +2,293/−27 |
+| `debadba43fbd` | test(eval): store generated triage evaluation results | 11,746 / 0 / 11,746 | 0 / 0 / 0 | Generated evaluation JSON artifacts: `docs/triage-evaluation.json` +11,513 and `docs/triage-evaluation-holdout-repeat-v1.0.2.json` +233 |
+| `1f4e4af63430` | build(scanner): vendor pinned SAST and secret rule packs | 3,323 / 12 / 3,335 | 154 / 1 / 155 | Vendored upstream `profiles/gitleaks.toml` +3,169/−11; original Semgrep rules and license/docs remain authored |
+| `7513a2f39749` | test(assessment): vendor CycloneDX 1.5 JSON schema | 3,800 / 0 / 3,800 | 1 / 0 / 1 | Vendored schema +3,799; authored explanatory README +1 |
 
-The `9e4bf...` and `8dae20...` commits fall below 300 authored lines (4 and 254). `082914...` has 416 authored lines, so it remains a large authored change even though the lockfile accounts for most raw churn. The other five raw outliers are authored changes above 1,000 lines and appear in the table below.
+The `9e4bf...`, `8dae20...`, `debadba...`, `1f4e4a...`, and `7513a2...` commits fall below 300 authored lines (4, 254, 0, 155, and 1). `082914...` has 416 authored lines, so it remains a large authored change even though the lockfile accounts for most raw churn. The other five raw outliers are authored changes above 1,000 lines and appear in the table below.
 
 ## All commits above 300 authored lines
 
@@ -70,6 +73,38 @@ The `9e4bf...` and `8dae20...` commits fall below 300 authored lines (4 and 254)
 | `755aba3ef069` | feat(triage): measure precision, recall and abstention per scenario | 3 | 316 / 0 / 316 | 316 / 0 / 316 | — |
 | `748843c0c235` | test(triage): rebuild independent tuning and holdout corpus | 4 | 646 / 82 / 728 | 646 / 82 / 728 | — |
 | `e797c16d00cc` | fix(validator): quarantine on first uncertain cleanup | 3 | 314 / 9 / 323 | 314 / 9 / 323 | — |
+| `956cd0e396e5` | feat(git-adapters): verify candidate trees and workflows | 2 | 285 / 33 / 318 | 285 / 33 / 318 | — |
+| `0c377c118e60` | feat(backend): add workspace notification outbox service | 2 | 301 / 2 / 303 | 301 / 2 / 303 | — |
+| `38e74ef88c43` | feat(coordinator): send signed webhooks and SMTP alerts | 1 | 358 / 0 / 358 | 358 / 0 / 358 | — |
+| `edaeaee898de` | test(coordinator): verify alert delivery against live services | 1 | 354 / 0 / 354 | 354 / 0 / 354 | — |
+| `209ebc5b2bc0` | feat(backend): prepare validated dependency candidates | 3 | 289 / 19 / 308 | 289 / 19 / 308 | — |
+| `751735ee5d7d` | feat(assessment): parse bounded npm pnpm and yarn lockfiles | 3 | 508 / 23 / 531 | 508 / 23 / 531 | — |
+| `3991b67a17de` | feat(gateway): add scoped investigation evidence and model calls | 7 | 445 / 59 / 504 | 445 / 59 / 504 | — |
+| `7a076b4066a6` | feat(gateway): adapt hosted model provider requests | 7 | 208 / 97 / 305 | 208 / 97 / 305 | — |
+| `9963b64d9583` | feat(sca): add static JS dependency reachability | 1 | 301 / 0 / 301 | 301 / 0 / 301 | — |
+
+## Continuation review notes
+
+Each new commit above a threshold has a concise reason for its size:
+
+- `956cd0e396e5`: pairs candidate-tree and workflow validation with symlink and policy regressions in the git adapter.
+- `0c377c118e60`: adds one backend notification outbox service plus its public export.
+- `38e74ef88c43`: adds a single coordinator module for signed webhook and SMTP delivery.
+- `edaeaee898de`: adds one end-to-end test for delivery against live notification services.
+- `209ebc5b2bc0`: extends candidate preparation across correction and validation facts in three focused backend modules.
+- `751735ee5d7d`: introduces the shared lockfile parser for npm, pnpm, and Yarn alongside advisory typing.
+- `3991b67a17de`: adds the D11 gateway's scoped investigation reads and model-call service path, migration, and Postgres coverage.
+- `7a076b4066a6`: implements replaceable hosted model request handling and its capability-focused tests.
+- `9963b64d9583`: adds one bounded static JavaScript dependency-reachability module.
+- `debadba43fbd`: stores generated evaluation JSON; all 11,746 raw lines are excluded from authored totals.
+- `1f4e4af63430`: imports the pinned upstream Gitleaks configuration; original Semgrep rules and licensing material account for the remaining 155 authored lines.
+- `7513a2f39749`: vendors the official CycloneDX schema for offline SBOM validation; the one README line remains authored.
+
+## Recent milestone: `7cbf3ed6cf977c55a17517f92c8d2ddecefa1816..8b940a853d2c94af08447ce4ec69eadd437cb577`
+
+This exclusive-left, inclusive-right range contains **302 commits**. It records GitHub onboarding and the local installer; validation artifacts and workflow exceptions; executor-backed exact approvals and live dependency PRs; runtime protection, monitoring alerts, and workspace decision history; Kubernetes and Trivy fixes; D15 triage evaluation; npm fix candidates, container/SAST coverage, SBOM and license controls; two-click onboarding; D12 dependency reachability; D11 investigation and hosted provider presets; Google sign-in; D14 retention and backup; and remaining-work documentation. These are repository changes, not a claim that every workflow has production verification.
+
+Maximum raw changed lines: **11,746** (`debadba43fbd`, generated evaluation artifacts). Maximum authored changed lines: **531** (`751735ee5d7d`, lockfile parser). No commit in this continuation exceeds 1,000 authored lines.
 
 ## Recent milestone: `8a7a43cfd07d30da52f59d9bdfe49e78d2752ce2..8c03aca79c9d60aa750f72818611131f86d55bfe`
 
