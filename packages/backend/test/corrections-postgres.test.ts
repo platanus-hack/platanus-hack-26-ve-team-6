@@ -28,7 +28,8 @@ function reportFor(input: CustomerRunInput, ruleId = 'gotchu.javascript.tls-disa
     applicationName: input.applicationName, mode: input.mode, startedAt: timestamp, finishedAt: timestamp, internal: external ? null : analysis, external: external ? analysis : null,
     comparison: [{ key: 'test-finding', classification: 'unverified', internalFindingIds: external ? [] : [findingId], externalFindingIds: external ? [findingId] : [], explanation: 'Single profile' }],
     limitations: ['Synthetic report'], responseMode: 'observation', actionsPerformed: [],
-    subject: { sourceSnapshotId: input.source?.id ?? null, sourceDigest: input.source?.digest ?? null, targetId: input.target?.id ?? null, targetVersion: input.target?.version ?? null, origin: input.target?.origin ?? null } });
+    subject: { sourceSnapshotId: input.source?.id ?? null, sourceDigest: input.source?.digest ?? null, targetId: input.target?.id ?? null, targetVersion: input.target?.version ?? null, origin: input.target?.origin ?? null,
+      containerImageId: null, containerImageDigest: null, containerImageReference: null } });
 }
 
 live('private corrections on real PostgreSQL with synthetic scanner evidence', () => {

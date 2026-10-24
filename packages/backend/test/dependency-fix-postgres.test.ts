@@ -88,7 +88,8 @@ live('dependency candidate action persistence on real PostgreSQL (synthetic vali
     await f.admin.query('INSERT INTO gotchu.customer_requests(organization_id,application_id,job_id,source_id,target_id,input) VALUES($1,$2,$3,$4,NULL,$5::jsonb)', [organizationId, applicationId, jobId, baseSourceId, JSON.stringify(requestInput)]);
     await f.admin.query(`INSERT INTO gotchu.customer_reports(organization_id,application_id,id,job_id,body) VALUES($1,$2,$3,$4,$5::jsonb)`, [
       organizationId, applicationId, reportId, jobId, JSON.stringify({ version: 2, id: reportId, organizationId, applicationId, jobId, applicationName: 'Test', mode: 'internal', responseMode: 'observation', actionsPerformed: [],
-        subject: { sourceSnapshotId: baseSourceId, sourceDigest: baseDigest, targetId: null, targetVersion: null, origin: null } }),
+        subject: { sourceSnapshotId: baseSourceId, sourceDigest: baseDigest, targetId: null, targetVersion: null, origin: null,
+          containerImageId: null, containerImageDigest: null, containerImageReference: null } }),
     ]);
     await f.admin.query(`INSERT INTO gotchu.validation_runs(organization_id,application_id,id,action_ref,target_finding_id,target_finding_ids,validation_mode,dependency_allowlist,
       candidate_source_id,base_source_id,base_snapshot_digest,candidate_tree_digest,patch_digest,runner_profile,sandbox_kind,limits,state,finished_at)
