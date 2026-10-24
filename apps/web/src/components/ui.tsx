@@ -2,6 +2,8 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import './ui.css';
 
 const paths = {
+  code: 'm8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 16',
+  globe: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z',
   shield: 'M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3ZM8 12l3 3 5-6',
   home: 'm3 11 9-8 9 8M5 10v11h5v-7h4v7h5V10',
   grid: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',

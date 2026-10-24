@@ -3,7 +3,7 @@
 .ds-brand { display: inline-flex; align-items: center; gap: 12px; color: var(--gc-paper); font: 650 30px/1 var(--gc-font-display); letter-spacing: -.025em; text-decoration: none; min-height: var(--gc-control); }
 .ds-brand > svg, .ds-brand-dot { color: var(--gc-accent-ink); }
 .ds-button { display: inline-flex; justify-content: center; align-items: center; gap: var(--gc-space-2); min-height: var(--gc-control); padding: 10px 18px; border: 1px solid var(--gc-line); border-radius: var(--gc-radius); background: var(--gc-surface); color: var(--gc-paper); font: 600 var(--gc-text-sm)/1.4 var(--gc-font-body); cursor: pointer; transition: background-color var(--gc-duration) var(--gc-ease), border-color var(--gc-duration) var(--gc-ease); }
-.ds-button-primary { background: var(--gc-accent); border-color: var(--gc-accent); }
+.ds-button-primary { background: var(--gc-action); border-color: var(--gc-action); }
 .ds-button-quiet { background: transparent; border-color: transparent; color: var(--gc-accent-ink); }
 .ds-button-danger { background: var(--gc-danger-bg); color: var(--gc-danger); }
 @media (hover: hover) {

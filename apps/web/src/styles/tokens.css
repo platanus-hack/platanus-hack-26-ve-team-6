@@ -5,7 +5,7 @@
   font-display: swap;
 }
 
-:root {
+.g-page {
   color-scheme: dark;
   --gc-canvas: #191923;
   --gc-surface: #21212e;
@@ -17,7 +17,8 @@
   --gc-line: #646174;
   --gc-line-soft: #3d3b4c;
   --gc-accent: #e7147d;
-  --gc-accent-hover: #c80c68;
+  --gc-action: #c80c68;
+  --gc-accent-hover: #ac0957;
   --gc-accent-ink: #ff8fbe;
   --gc-accent-soft: #3c2035;
   --gc-focus: #ffabd0;
@@ -55,14 +56,12 @@
   --gc-content-width: 1440px;
 }
 
-body { margin: 0; background: var(--gc-canvas); color: var(--gc-paper); }
-::selection { background: var(--gc-accent); color: var(--gc-paper); }
-:root { scrollbar-color: var(--gc-line) var(--gc-canvas); }
-input, textarea { caret-color: var(--gc-accent-ink); }
-a { text-underline-offset: .22em; }
-:where(button, a, input, select, textarea, summary):focus-visible {
+/* Scope the landing identity; customer and demo surfaces retain their own styles. */
+body:has(.g-page) { margin: 0; }
+.g-page ::selection { background: var(--gc-action); color: var(--gc-paper); }
+.g-page { scrollbar-color: var(--gc-line) var(--gc-canvas); }
+.g-page a { text-underline-offset: .22em; }
+.g-page :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--gc-focus);
   outline-offset: 4px;
 }
-.gc-skip-link { position: fixed; left: 16px; top: -80px; z-index: 100; padding: 12px 20px; color: var(--gc-paper); background: var(--gc-accent-hover); }
-.gc-skip-link:focus { top: 16px; }
