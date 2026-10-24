@@ -72,6 +72,10 @@ for (const stage of ['web', 'coordinator']) {
       requireValue(runtimeStage.includes(copy), `${stage} runtime image must include @gotchu/${packageName} ${description}.`);
     }
   }
+  if (stage === 'web') {
+    const runnerImagesLock = 'COPY --from=web-build --chown=node:node /workspace/packages/runner/images.lock.json /workspace/packages/runner/images.lock.json';
+    requireValue(runtimeStage.includes(runnerImagesLock), 'web runtime image must include the pinned runner image lockfile.');
+  }
 }
 
 process.stdout.write('Demo, identity, database, private-port, and runtime package image checks passed.\n');

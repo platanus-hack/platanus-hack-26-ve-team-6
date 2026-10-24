@@ -27,6 +27,7 @@ ENV NODE_ENV=production
 WORKDIR /workspace
 COPY --from=web-production-dependencies --chown=node:node /workspace/node_modules /workspace/node_modules
 COPY --from=web-production-dependencies --chown=node:node /workspace/apps/web/node_modules /workspace/apps/web/node_modules
+COPY --from=web-build --chown=node:node /workspace/packages/runner/images.lock.json /workspace/packages/runner/images.lock.json
 COPY --from=web-build --chown=node:node /workspace/apps/web/package.json /workspace/apps/web/package.json
 COPY --from=web-build --chown=node:node /workspace/apps/web/.output /workspace/apps/web/.output
 COPY --from=web-build --chown=node:node /workspace/packages/contracts/package.json /workspace/packages/contracts/package.json
