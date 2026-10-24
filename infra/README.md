@@ -9,15 +9,12 @@ The customer application is the product: authenticated workspaces, authorized so
 ## Start locally
 
 ```sh
-scripts/infra-local-setup.sh
-scripts/infra-compose-validate.sh
-scripts/infra-local-up.sh
-docker compose -p "gotchu-$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-')" \
-  --env-file infra/.env -f infra/compose.yaml \
-  --profile web --profile coordinator up -d --build web coordinator
+./gotchu up
+./gotchu status
+./gotchu down
 ```
 
-The setup script creates `infra/.env` with mode `0600`. It contains local database passwords and `AUTH_SECRET`; it does not create identity-provider credentials, organization assignments, an event-signing key, or a worker signing key. GitHub and generic OIDC sign-in are optional. Set `AUTH_OIDC_ISSUER`, `AUTH_OIDC_CLIENT_ID`, `AUTH_OIDC_CLIENT_SECRET`, and optionally `AUTH_OIDC_NAME` in the local environment file when configuring an OIDC provider. `GOTCHU_EVENT_SIGNING_KEYS_JSON` is an optional web-only local credential-map adapter, with JSON keys mapped to base64-encoded signing keys. It is empty by default and is not production secret custody. Keep this file local. The root `.dockerignore` excludes it and other environment files from image build contexts.
+The installer stores its private environment and runtime credentials under `.gotchu/`. The lower-level `scripts/infra-local-*` commands use `infra/.env` for Compose boundary checks; they are not the app start path above. Compose's web, coordinator, and executor profiles remain separate packaging boundaries, while normal self-host setup starts only Postgres and Redis in Compose.
 
 Both app profiles use the root Dockerfile. The build stages use Node 24.18.1, pnpm 11.21.0, and `pnpm install --frozen-lockfile`; runtime images contain production dependencies and compiled output only. The coordinator image also includes `@gotchu/assessment` compiled output, its production dependencies and offline advisory snapshot, plus `@gotchu/demo-target` compiled output, dependencies, and trusted fixture files at their workspace paths. Containers run as the invoking unprivileged UID/GID (1000:1000 by default) with a read-only root filesystem, a writable `/tmp` tmpfs, dropped capabilities, `no-new-privileges`, and CPU, memory, and process limits.
 

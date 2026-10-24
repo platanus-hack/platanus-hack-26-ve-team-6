@@ -142,7 +142,7 @@ async function main() {
       response.end(JSON.stringify({ status: ready ? 'ready' : 'disabled', providerConfigured: Boolean(worker), customerCodeExecution: false }));
     }).catch(error => { report('executor_not_ready', error); response.writeHead(503); response.end('{"status":"unavailable"}'); });
   });
-  server.listen(config.port, '0.0.0.0');
+  server.listen(config.port, '127.0.0.1');
   const shutdown = () => closing ??= (async () => {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     if (availabilityHeartbeat) clearInterval(availabilityHeartbeat);

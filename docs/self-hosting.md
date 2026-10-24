@@ -133,7 +133,7 @@ Después, añade al archivo privado `.gotchu/monitoring-repositories.json` una e
 }
 ```
 
-Mantén catálogo y credencial con permisos privados. El catálogo limita el destino que web y executor pueden resolver; sólo el executor recibe la clave Writer. `./gotchu up` genera un token aleatorio compartido sólo por web y executor en la red interna de datos; el endpoint para verificar la instalación Writer no se publica en el host. No reutilices ese token como credencial de GitHub.
+Mantén catálogo y credencial con permisos privados. El catálogo limita el destino que web y executor pueden resolver; sólo el executor recibe la clave Writer. `./gotchu up` configura un token aleatorio que comparten web y executor. El executor escucha sólo en `127.0.0.1`, así que la verificación Writer no acepta conexiones remotas. No reutilices ese token como credencial de GitHub.
 
 Conecta primero la GitHub App Reader y vincula un repositorio verificado con lectura concedida. En el panel de repositorios, un Owner puede **Conceder escritura con WebAuthn**. Gotchu verifica por medio del executor que la instalación Writer configurada puede leer el repositorio y su rama base; sólo entonces guarda el ID verificado, la hora y el commit base. El Owner puede revocar ese permiso con otra prueba WebAuthn. La revocación invalida las aprobaciones pendientes de PR para ese repositorio. Las migraciones 038 y posteriores requieren volver a conceder permisos anteriores, porque un valor histórico `granted` no demuestra cobertura de la Writer App actual. Las propuestas npm también requieren una suite `npm test` configurada y validada para el repositorio; sin ella, D06 no habilita una aprobación.
 
@@ -143,7 +143,7 @@ El validator VM aún no se inicia desde Compose. Requiere Linux, `/dev/kvm`, `bw
 
 ## Seguridad y exposición
 
-- Los puertos de web, coordinator, scanner, Postgres y Redis enlazan sólo a `127.0.0.1`. No cambies el bind a una interfaz pública.
+- Web, coordinator, scanner y executor son procesos host enlazados a `127.0.0.1`, igual que los puertos de Postgres y Redis. No cambies esos binds a una interfaz pública.
 - Mantén `${state_dir:-.gotchu}` privado: `.env`, el secreto HMAC, la clave TLS local del scanner, las credenciales GitHub, archivos de identidad de procesos y registros viven ahí con permisos `0600`; el directorio de estado y `github/` usan `0700`. El coordinator confía en el certificado local sólo para la conexión HTTPS al scanner. No subas estos archivos a Git ni compartas enlaces de configuración.
 - `./gotchu up` verifica por HTTPS el mismo endpoint de readiness que ejecuta los perfiles fijados del scanner antes de anunciar que está listo. Web, coordinator y scanner son procesos locales; Compose inicia sólo Postgres y Redis. Así, el tráfico del scanner no cruza el host INPUT y la instalación no requiere cambios de firewall.
 - El bootstrap inicial usa el flujo local `/setup` para crear el primer Owner. Google, GitHub y OIDC no pueden sustituirlo. Las contraseñas locales usan el hash scrypt existente y los límites actuales de autenticación.

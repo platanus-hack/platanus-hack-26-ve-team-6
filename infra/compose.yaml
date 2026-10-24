@@ -109,17 +109,13 @@ services:
       GOTCHU_GITHUB_READER_APP_FILE: ${GOTCHU_GITHUB_READER_APP_FILE:-}
       GOTCHU_GITHUB_READER_APP_CREDENTIALS_FILE: ${GOTCHU_GITHUB_READER_APP_CREDENTIALS_FILE:-}
       GOTCHU_GITHUB_READER_INSTALLATION_ID: ${GOTCHU_GITHUB_READER_INSTALLATION_ID:-}
-      GOTCHU_GITHUB_WRITER_INSTALLATION_ID: ${GOTCHU_GITHUB_WRITER_INSTALLATION_ID:-}
       GOTCHU_GITHUB_APP_SLUG: ${GOTCHU_GITHUB_APP_SLUG:-}
-      GOTCHU_EXECUTOR_INTERNAL_URL: ${GOTCHU_EXECUTOR_INTERNAL_URL:-}
-      GOTCHU_EXECUTOR_INTERNAL_TOKEN: ${GOTCHU_EXECUTOR_INTERNAL_TOKEN:-}
       AUTH_OIDC_ISSUER: ${AUTH_OIDC_ISSUER:-}
       AUTH_OIDC_CLIENT_ID: ${AUTH_OIDC_CLIENT_ID:-}
       AUTH_OIDC_CLIENT_SECRET: ${AUTH_OIDC_CLIENT_SECRET:-}
       AUTH_OIDC_NAME: ${AUTH_OIDC_NAME:-}
       GOTCHU_DEMO_ENABLED: ${GOTCHU_DEMO_ENABLED:-false}
       GOTCHU_EVENT_SIGNING_KEYS_JSON: ${GOTCHU_EVENT_SIGNING_KEYS_JSON:-}
-      GOTCHU_MONITORING_CONFIG_FILE: /run/config/monitoring-repositories.json
       GOTCHU_API_DATABASE_URL: postgresql://${GOTCHU_API_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_API_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
       GOTCHU_INGEST_DATABASE_URL: postgresql://${GOTCHU_INGEST_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_INGEST_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
       PORT: 3000
@@ -140,9 +136,6 @@ services:
       retries: 3
       start_period: 30s
     user: "${GOTCHU_CONTAINER_UID:-1000}:${GOTCHU_CONTAINER_GID:-1000}"
-    volumes:
-      - ${GOTCHU_STATE_DIR:-../.gotchu}/monitoring-repositories.json:/run/config/monitoring-repositories.json:ro
-      - ${GOTCHU_STATE_DIR:-../.gotchu}/github:/run/secrets/github:ro
     mem_limit: 512m
     cpus: 1.0
     ports:
@@ -151,6 +144,8 @@ services:
         published: ${WEB_HOST_PORT:-3000}
         host_ip: 127.0.0.1
         protocol: tcp
+    volumes:
+      - ${GOTCHU_STATE_DIR:-../.gotchu}/github:/run/secrets/github:ro
     networks:
       control-plane: {}
       data: {}
@@ -180,7 +175,6 @@ services:
       GOTCHU_RUN_CAPABILITY_PRIVATE_KEY: ${GOTCHU_RUN_CAPABILITY_PRIVATE_KEY:-}
       GOTCHU_DEMO_ENABLED: ${GOTCHU_DEMO_ENABLED:-false}
       GOTCHU_DEMO_TARGET_ORIGIN:
-      GOTCHU_MONITORING_CONFIG_FILE: /run/config/monitoring-repositories.json
       PORT: 3003
       GOTCHU_COORDINATOR_HOST: 0.0.0.0
     depends_on:
@@ -204,7 +198,6 @@ services:
     volumes:
       - ${GOTCHU_STATE_DIR:-../.gotchu}/scanner.secret:/run/secrets/scanner.secret:ro
       - ${GOTCHU_STATE_DIR:-../.gotchu}/scanner.crt:/run/secrets/scanner.crt:ro
-      - ${GOTCHU_STATE_DIR:-../.gotchu}/monitoring-repositories.json:/run/config/monitoring-repositories.json:ro
     mem_limit: 768m
     cpus: 1.0
     ports:
@@ -238,47 +231,14 @@ services:
       HOST: 0.0.0.0
     networks: [agent-link]
 
+  # The self-host installer runs the opt-in executor as a loopback host process.
   executor:
-    <<: *hardened-service
+    <<: *disabled-service
     profiles: [executor]
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      target: executor
-    restart: unless-stopped
-    init: true
+    command: ["console.error('apps/executor is not wired into Compose yet; provider writes are disabled'); process.exit(78)"]
     environment:
-      NODE_ENV: development
       GOTCHU_EXECUTOR_DATABASE_URL: postgresql://${GOTCHU_EXECUTOR_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_EXECUTOR_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
-      GOTCHU_REDIS_URL: redis://:${REDIS_PASSWORD:?run scripts/infra-local-setup.sh first}@redis:6379
-      GOTCHU_GITHUB_WRITER_APP_FILE: /run/secrets/github-writer-app.json
-      GOTCHU_GITHUB_WRITER_INSTALLATION_ID: ${GOTCHU_GITHUB_WRITER_INSTALLATION_ID:-}
-      GOTCHU_EXECUTOR_INTERNAL_TOKEN: ${GOTCHU_EXECUTOR_INTERNAL_TOKEN:-}
-      GOTCHU_MONITORING_CONFIG_FILE: /run/config/monitoring-repositories.json
-      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
-      PORT: 3004
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1:3004/health/ready').then(async (response) => { const body = await response.json(); process.exit(response.ok && body.status === 'ready' ? 0 : 1); }).catch(() => process.exit(1))"
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    user: "${GOTCHU_CONTAINER_UID:-1000}:${GOTCHU_CONTAINER_GID:-1000}"
-    volumes:
-      - ${GOTCHU_STATE_DIR:-../.gotchu}/github-writer-app.json:/run/secrets/github-writer-app.json:ro
-      - ${GOTCHU_STATE_DIR:-../.gotchu}/monitoring-repositories.json:/run/config/monitoring-repositories.json:ro
-    mem_limit: 512m
-    cpus: 1.0
-    networks: [data, executor-egress]
+    networks: [control-plane, data]
 
   scanner-boundary:
     <<: *disabled-service
@@ -306,10 +266,6 @@ networks:
   control-plane:
     internal: true
   web-egress:
-    driver: bridge
-    driver_opts:
-      com.docker.network.bridge.enable_ip_masquerade: "true"
-  executor-egress:
     driver: bridge
     driver_opts:
       com.docker.network.bridge.enable_ip_masquerade: "true"

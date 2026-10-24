@@ -45,8 +45,6 @@ test_coordinator_password="$(openssl rand -hex 32)"
 test_gateway_password="$(openssl rand -hex 32)"
 test_executor_password="$(openssl rand -hex 32)"
 test_auth_secret="$(openssl rand -hex 32)"
-test_container_uid="$(id -u)"
-test_container_gid="$(id -g)"
 project="gotchu-infra-check-$(date +%s)-$$"
 temp_dir="$(mktemp -d)"
 env_file="${temp_dir}/compose.env"
@@ -60,8 +58,6 @@ REDIS_HOST_PORT=${test_redis_port}
 WEB_HOST_PORT=${test_web_port}
 COORDINATOR_HOST_PORT=${test_coordinator_port}
 PUBLIC_APP_URL=http://localhost:${test_web_port}
-GOTCHU_CONTAINER_UID=${test_container_uid}
-GOTCHU_CONTAINER_GID=${test_container_gid}
 AUTH_SECRET=${test_auth_secret}
 AUTH_GITHUB_ID=
 AUTH_GITHUB_SECRET=
@@ -80,29 +76,8 @@ GOTCHU_GATEWAY_DB_PASSWORD=${test_gateway_password}
 GOTCHU_RUN_CAPABILITY_PUBLIC_KEY=
 GOTCHU_EXECUTOR_DB_USERNAME=gotchu_executor_login
 GOTCHU_EXECUTOR_DB_PASSWORD=${test_executor_password}
-GOTCHU_EXECUTOR_ENABLED=true
-GOTCHU_EXECUTOR_INTERNAL_URL=http://executor:3004
-GOTCHU_EXECUTOR_INTERNAL_TOKEN=$(openssl rand -hex 32)
-GOTCHU_GITHUB_WRITER_INSTALLATION_ID=1
-GOTCHU_STATE_DIR=${temp_dir}/state
 EOF
 chmod 600 "$env_file"
-mkdir -m 700 "${temp_dir}/state"
-node --input-type=module - "${temp_dir}/state" <<'NODE'
-import { chmod, writeFile } from 'node:fs/promises';
-import { generateKeyPairSync } from 'node:crypto';
-const [stateDir] = process.argv.slice(2);
-const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
-const writer = JSON.stringify({ id: '1', privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() });
-await writeFile(`${stateDir}/github-writer-app.json`, writer, { mode: 0o600, flag: 'wx' });
-await writeFile(`${stateDir}/monitoring-repositories.json`, JSON.stringify({ repositoryRoot: '/run/repos', repositories: [] }), { mode: 0o600, flag: 'wx' });
-await chmod(stateDir, 0o700);
-NODE
-openssl rand -hex 32 > "${temp_dir}/state/scanner.secret"
-openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=Gotchu Infra Check Scanner CA' \
-  -addext 'basicConstraints=critical,CA:TRUE' -keyout "${temp_dir}/state/scanner-ca.key" \
-  -out "${temp_dir}/state/scanner.crt" >/dev/null 2>&1
-chmod 600 "${temp_dir}/state/scanner.secret" "${temp_dir}/state/scanner-ca.key" "${temp_dir}/state/scanner.crt"
 
 cleanup() {
   docker compose -p "$project" --profile '*' --env-file "$env_file" -f "$compose_file" down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
@@ -190,14 +165,12 @@ INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" scripts/infra-db-bootst
 INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" scripts/infra-db-bootstrap.sh
 printf '%s\n' 'Live database bootstrap passed on first run and repeat run, including role capabilities, ownership, exact memberships, and login connectivity.'
 
-docker compose -p "$project" --profile web --profile coordinator --profile executor --env-file "$env_file" -f "$compose_file" build web coordinator executor
+docker compose -p "$project" --profile web --profile coordinator --env-file "$env_file" -f "$compose_file" build web coordinator
 # Compose tags an unnamed service image as <project>-<service>; run the bundled runtime checks before waiting on app readiness.
 coordinator_image="${project}-coordinator"
-executor_image="${project}-executor"
 docker image inspect "$coordinator_image" >/dev/null
-docker image inspect "$executor_image" >/dev/null
-docker compose -p "$project" --profile '*' --env-file "$env_file" -f "$compose_file" config --format json | node scripts/infra-check.mjs "$coordinator_image" "$executor_image"
-docker compose -p "$project" --profile web --profile coordinator --profile executor --env-file "$env_file" -f "$compose_file" up -d web coordinator executor
+docker compose -p "$project" --profile '*' --env-file "$env_file" -f "$compose_file" config --format json | node scripts/infra-check.mjs "$coordinator_image"
+docker compose -p "$project" --profile web --profile coordinator --env-file "$env_file" -f "$compose_file" up -d web coordinator
 
 node --input-type=module - "$test_web_port" "$test_coordinator_port" <<'NODE'
 import assert from 'node:assert/strict';
@@ -238,19 +211,16 @@ NODE
 
 web_container="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" ps -q web)"
 coordinator_container="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" ps -q coordinator)"
-executor_container="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" ps -q executor)"
 web_user="$(docker inspect --format '{{.Config.User}}' "$web_container")"
 coordinator_user="$(docker inspect --format '{{.Config.User}}' "$coordinator_container")"
-executor_user="$(docker inspect --format '{{.Config.User}}' "$executor_container")"
-if [[ "$web_user" != "${test_container_uid}:${test_container_gid}" || "$coordinator_user" != "${test_container_uid}:${test_container_gid}" || "$executor_user" != "${test_container_uid}:${test_container_gid}" ]]; then
+if [[ "$web_user" != 1000:1000 || "$coordinator_user" != 1000:1000 ]]; then
   printf '%s\n' 'Built applications are not running as the configured nonroot UID.' >&2
   exit 1
 fi
 web_workspace_owner="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" exec -T web stat -c '%u:%g' /workspace/apps/web)"
 coordinator_workspace_owner="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" exec -T coordinator stat -c '%u:%g' /workspace/apps/coordinator)"
-executor_workspace_owner="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" exec -T executor stat -c '%u:%g' /workspace/apps/executor)"
-if [[ "${web_workspace_owner%%:*}" == 0 || "${coordinator_workspace_owner%%:*}" == 0 || "${executor_workspace_owner%%:*}" == 0 ]]; then
-  printf '%s\n' 'Built app work directories are root-owned.' >&2
+if [[ "$web_workspace_owner" != 1000:1000 || "$coordinator_workspace_owner" != 1000:1000 ]]; then
+  printf '%s\n' 'Built app work directories are not owned by the nonroot runtime user.' >&2
   exit 1
 fi
 node scripts/infra-check-loopback-ports.mjs "$test_pg_port" "$test_redis_port" "$test_web_port" "$test_coordinator_port"
@@ -261,27 +231,20 @@ docker compose -p "$project" --env-file "$env_file" -f "$compose_file" exec -T w
 
 web_health=starting
 coordinator_health=starting
-executor_health=starting
 for _ in $(seq 1 50); do
   web_health="$(docker inspect --format '{{.State.Health.Status}}' "$web_container")"
   coordinator_health="$(docker inspect --format '{{.State.Health.Status}}' "$coordinator_container")"
-  executor_health="$(docker inspect --format '{{.State.Health.Status}}' "$executor_container")"
-  if [[ "$web_health" == unhealthy && "$coordinator_health" == unhealthy && "$executor_health" == unhealthy ]]; then break; fi
+  if [[ "$web_health" == unhealthy && "$coordinator_health" == unhealthy ]]; then break; fi
   sleep 2
 done
-if [[ "$web_health" != unhealthy || "$coordinator_health" != unhealthy || "$executor_health" != healthy ]]; then
-  printf 'Health must follow configured dependencies (web=%s, coordinator=%s, executor=%s).\n' \
-    "$web_health" "$coordinator_health" "$executor_health" >&2
+if [[ "$web_health" != unhealthy || "$coordinator_health" != unhealthy ]]; then
+  printf 'Missing OAuth/org assignment should produce visible unhealthy status (web=%s, coordinator=%s).\n' \
+    "$web_health" "$coordinator_health" >&2
   exit 1
 fi
-printf '%s\n' 'Web and coordinator remained unhealthy without OAuth/organization assignment; the configured executor became ready.'
-executor_instances="$(pg_query "SELECT count(*) FROM gotchu.action_executor_instances WHERE capability_id='repository.source_patch_pr' AND heartbeat_at>clock_timestamp()-interval '90 seconds';")"
-if [[ "$executor_instances" != 1 ]]; then
-  printf '%s\n' 'Executor readiness was not registered for server-side action eligibility.' >&2
-  exit 1
-fi
+printf '%s\n' 'Container health follows the routes: missing OAuth and organization assignment report unhealthy.'
 
-for disabled_service in agent gateway scanner-boundary; do
+for disabled_service in agent gateway executor scanner-boundary; do
   set +e
   docker compose -p "$project" --profile "$(case "$disabled_service" in scanner-boundary) printf scanner ;; *) printf '%s' "$disabled_service" ;; esac)" \
     --env-file "$env_file" -f "$compose_file" run --rm --no-deps "$disabled_service" >/dev/null 2>&1
@@ -292,9 +255,9 @@ for disabled_service in agent gateway scanner-boundary; do
     exit 1
   fi
 done
-printf '%s\n' 'Agent, gateway, and scanner-boundary profiles remain explicitly disabled; the executor is opt-in and ran with an isolated writer fixture.'
+printf '%s\n' 'Agent, gateway, executor, and scanner service profiles remain explicitly disabled.'
 
-docker compose -p "$project" --env-file "$env_file" -f "$compose_file" stop --timeout 20 web coordinator executor >/dev/null
+docker compose -p "$project" --env-file "$env_file" -f "$compose_file" stop --timeout 20 web coordinator >/dev/null
 web_exit="$(docker inspect --format '{{.State.ExitCode}}' "$web_container")"
 coordinator_exit="$(docker inspect --format '{{.State.ExitCode}}' "$coordinator_container")"
 if [[ "$web_exit" != 0 || "$coordinator_exit" != 0 ]]; then
