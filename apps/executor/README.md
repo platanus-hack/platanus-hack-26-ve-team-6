@@ -34,9 +34,9 @@ const executor = createExecutor({ ledger }); // The generic v1 executor stays di
 // The process owns database.close() during shutdown.
 ```
 
-This server-only adapter requires the backend instance with its isolated executor login. Every execution method explicitly checks the trusted `database.role`; `createDatabase` verifies that the runtime login belongs to only that service role. FORCE RLS remains in force. Migrations 023 and 032 add the executor ledger, repository lock, policy registry, attempt history, and service heartbeat. Never send this adapter, execution records, or claim tokens through a public route.
+This server-only adapter requires the backend instance with its isolated executor login. Every execution method explicitly checks the trusted `database.role`; `createDatabase` verifies that the runtime login belongs to only that service role. FORCE RLS remains in force. Migrations 023, 032, and 038 add the executor ledger, repository lock, policy registry, attempt history, service heartbeat, and Owner-verified Writer App grant. Never send this adapter, execution records, or claim tokens through a public route.
 
-The generic v1 executor port intentionally returns `unknown` across its boundary. The source PR executor separately validates the stored v2 action and recomputes its epoch-bound action hash before provider I/O. Jobs use lowercase UUIDs: the ledger rejects non-normalized organization/approval spellings before claiming because the executor compares strings. Backend ledger methods normalize valid UUID spellings for database identity checks without changing hashed proposal bodies.
+The generic v1 executor port intentionally returns `unknown` across its boundary. The v2 executor validates stored source-patch and npm dependency actions and recomputes their epoch-bound action hash before provider I/O. Jobs use lowercase UUIDs: the ledger rejects non-normalized organization/approval spellings before claiming because the executor compares strings. Backend ledger methods normalize valid UUID spellings for database identity checks without changing hashed proposal bodies.
 
 Stale head, policy, artifacts, failed eligibility, and invalidation fail closed before provider writes. Expired/rejected authority also stops the job. Duplicate claims map to the existing-record reconciliation path.
 
@@ -49,7 +49,15 @@ Stale head, policy, artifacts, failed eligibility, and invalidation fail closed 
 
 `@gotchu/git-adapters` contains local Git and GitHub App adapters. Before publishing, the GitHub adapter reads `.github/workflows/*` from the pinned base and parses each workflow with the pinned `js-yaml` dependency. It denies malformed YAML, `pull_request_target`, unfiltered `push`, `push` filters matching `gotchu/**`, and non-`GITHUB_TOKEN` secrets in `pull_request` workflows. Workflow exceptions are Owner-managed, repository-scoped, versioned, audited records and are checked by both the independent verifier and writer.
 
-The independent process loads the GitHub adapter only when the writer App file, installation ID, and operator repository catalog are all configured. It publishes the exact stored artifact to a deterministic branch, opens a draft PR, then rereads the PR, base head, and candidate tree from GitHub. A changed base invalidates the action and requires fresh validation and approval.
+The independent process loads the GitHub adapter only when the Writer App file, installation ID, and operator repository catalog are all configured. It publishes the exact stored artifact to a deterministic branch, opens a draft PR, then rereads the PR, base head, commit parent, and candidate tree from GitHub. Source-patch actions bind their approved tree SHA. Dependency actions are limited to the stored `package.json` and `package-lock.json`; they bind the npm candidate tree plus a deterministic commit SHA whose author, committer, timestamp, and message are fixed. The PR body lists package version changes, linked OSV advisories, signed validation evidence, and the action review URL. A changed base invalidates the action and requires fresh candidate validation and approval.
+
+The executor calls `assertWritable` before every provider write. Ref creation is conditional; a timeout triggers remote reconciliation before any retry. An existing branch or PR is accepted only when its commit parent, base, head and tree match the stored action. Unknown state stays uncertain, and a new base requires a new approval.
+
+### Owner grant for repository writes
+
+Repository links start with `write_access='not_granted'`. A workspace Owner can grant or revoke access in the repository panel after a fresh WebAuthn assertion bound to the grant/revocation hash. Granting calls the private executor verification endpoint; the Writer App must successfully read the linked repository's current base through the configured installation. Only the verified installation ID, timestamp and base commit are stored. The web process never loads the Writer App key. Revocation invalidates pending source and dependency approvals and consumes their outstanding approvals.
+
+Compose shares `GOTCHU_EXECUTOR_INTERNAL_TOKEN` only between web and executor over the internal `data` network. The executor verification endpoint has no host-published port. The token authenticates repository coverage checks and is not a GitHub credential.
 
 ## Writer App credentials for the sandbox check
 
@@ -57,19 +65,14 @@ Keep the Writer App JSON outside the repository with mode `0600`. The live execu
 
 ```sh
 GOTCHU_TEST_GITHUB=1 \
+GOTCHU_TEST_VM=1 \
 GOTCHU_TEST_GITHUB_WRITER_APP_FILE=/absolute/path/to/gotchu-dev-writer-0bkevin.json \
-pnpm --filter @gotchu/executor test:postgres
+sg kvm -c 'PATH=/home/ubuntu/.local/gotchu-bin:$PATH pnpm --filter @gotchu/executor test:postgres'
 ```
 
 The executor uses `loadGitHubWriterAppCredentials`, which rejects symlinked or broadly readable files and requires an RSA key of at least 2048 bits. Configure `GOTCHU_GITHUB_WRITER_APP_FILE` and `GOTCHU_GITHUB_WRITER_INSTALLATION_ID` only for the executor service. Reader tokens, webhook secrets, and web authentication credentials are not passed to it.
 
-The source PR provider implements:
-
-- `publish({ executionId, actionHash, proposal })`: make only the exact supported PR write, using `executionId` as provider idempotency identity;
-- `reconcile({ executionId, actionHash, proposal })`: return strict `found`, `definitely_not_applied`, or `unknown` state after an ambiguous timeout;
-- `verify({ executionId, providerReference, actionHash, proposal })`: independently inspect the provider and exact candidate artifact, returning the matching reference, action hash, base commit, and candidate commit.
-
-On a publish timeout the executor reconciles before retrying. It permits one retry with the same execution ID only when reconciliation proves that the first request was not applied and `assertWritable` succeeds again. An unknown result is durably marked uncertain; duplicate deliveries only reconcile and never publish. A provider response alone never yields `verified`; independent post-write verification must match the exact action hash, base SHA, candidate SHA, and provider reference.
+The action provider exposes four separately checked operations: `reconcile`, `publishBranch`, `openPullRequest`, and `verify`. Before publishing, it recomputes the complete candidate tree from the approved base and artifact. On a timeout the executor reconciles remote refs/PRs before retrying. It permits a bounded retry only when reconciliation proves the effect was not applied and `assertWritable` succeeds again. Unknown results remain uncertain; duplicate deliveries do not create another PR. A provider response alone never yields `verified`: remote action branch, parent, base, candidate tree, deterministic dependency commit (when applicable), draft state, and PR URL all must match.
 
 Customer-code execution has no implementation and stays disabled until a disposable VM-class boundary is independently demonstrated. Merge, deploy, rollback, and production deployment remain separate release gates. Local development writes remain opt-in and limited to repositories explicitly present in the operator catalog.
 
@@ -85,6 +88,6 @@ pnpm --filter @gotchu/executor test:postgres
 
 Typecheck covers both actual source and tests under the root strict TypeScript settings. There is no package lint script. `test` runs unit fixtures and explicitly skips the live suite unless `GOTCHU_TEST_DATABASE_URL` points to an operator connection for a disposable `gotchu_test_*` database.
 
-`test:postgres` starts disposable PostgreSQL 17.11 and Redis 7.4.11 containers on random loopback ports with random credentials and temporary storage, then removes only those named containers. It tests durable outbox/job approval, real Postgres leases and attempt history, Redis duplicates, and injected result loss after branch creation, PR creation, and verification. Other tests cover missing approval, revoked credentials, stale base, closed PR, and unknown remote state. The opt-in GitHub case creates one draft PR from a real stored artifact in the authorized private sandbox, verifies its tree digest, redelivers the job, then closes the PR and deletes its branch. Its signed validation and WebAuthn proof data are test fixtures; this is not live WebAuthn or a production rollout.
+`test:postgres` starts disposable PostgreSQL 17.11 and Redis 7.4.11 containers on random loopback ports with random credentials and temporary storage, then removes only those named containers. It tests durable outbox/job approval, real Postgres leases and attempt history, Redis duplicates, and injected result loss after branch creation, PR creation, and verification. Other tests cover missing approval, revoked credentials, stale base, closed PR, and unknown remote state. The opt-in GitHub run is designed to create one source-patch draft PR and one dependency draft PR from a live D06 candidate, verify their remote digests, redeliver both jobs without creating second PRs, then close the PRs and delete their branches. D06 requires a real `scripts.test` suite on the sandbox default branch before it starts; the configured sandbox currently has no such script, so its live D06 case stops at that precondition and makes no dependency PR. No live D06 publication is claimed. WebAuthn and the source-patch validation attestations remain fixtures. This is not a production rollout.
 
 The Postgres/Redis crash tests use an injected provider and fixture WebAuthn/validation attestations. Only the opt-in GitHub case demonstrates a live provider write and exact tree verification. These checks do not prove live WebAuthn enrollment, VM isolation, production operations, merge, or deploy.

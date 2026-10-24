@@ -4,7 +4,7 @@ Este flujo ejecuta Gotchu en la máquina del operador. No publica imágenes ni e
 
 ## Requisitos
 
-- Linux x86_64 con Docker Engine activo y Docker Compose v2. Ejecuta `./gotchu` desde una cuenta sin privilegios que ya tenga acceso al daemon Docker; no se requiere `sudo`. Docker Desktop en macOS/Windows no está validado.
+- Linux x86_64 con Docker Engine activo y Docker Compose v2. Ejecuta `./gotchu` desde una cuenta sin privilegios con acceso al daemon Docker; Gotchu usa ese UID/GID para mantener privados los montajes. Docker Desktop en macOS/Windows no está validado; la conexión del scanner necesita acceso desde el host al puente de Docker.
 - Node.js 24, pnpm 11, OpenSSL y al menos 5 GiB libres en el almacenamiento de Docker. Hace falta Internet la primera vez para instalar dependencias y descargar imágenes.
 - Puertos loopback libres: web `3000`, coordinator `3003`, scanner `4400`, PostgreSQL `55432` y Redis `56379`. Configúralos con `GOTCHU_WEB_PORT`, `GOTCHU_COORDINATOR_PORT`, `GOTCHU_SCANNER_PORT`, `GOTCHU_POSTGRES_PORT` y `GOTCHU_REDIS_PORT` antes del primer arranque.
 
@@ -18,7 +18,7 @@ cd gotchu
 ./gotchu up
 ```
 
-`up` instala dependencias si faltan, comprueba Docker/Compose, puertos y espacio, genera secretos con permisos privados, prepara las imágenes Semgrep/Gitleaks/Trivy y Postgres/Redis, ejecuta migraciones y provisioning de roles, inicia los datos en Compose y ejecuta web, coordinator y scanner como procesos locales enlazados sólo a `127.0.0.1`. El coordinator y el scanner se comunican por HTTPS con certificado local y HMAC; el readiness espera los perfiles reales del scanner. El scanner usa el daemon Docker del operador para ejecutar sus contenedores fijados; esos contenedores de análisis usan `--network none`. Ninguna conexión entre contenedores y el scanner cruza el host ni depende de una regla en `INPUT`, por lo que no hay que editar `firewalld`, `ufw` ni reglas de iptables. La primera preparación puede tardar varios minutos mientras Docker descarga imágenes. No imprime las credenciales.
+`up` instala dependencias si faltan, comprueba Docker/Compose, puertos y espacio, genera secretos con permisos privados, prepara las imágenes Semgrep/Gitleaks/Trivy y Postgres/Redis, ejecuta migraciones y provisioning de roles, inicia los servicios y espera su readiness. La primera preparación puede tardar varios minutos mientras Docker descarga imágenes. No imprime las credenciales.
 
 Abre el enlace `/setup?token=…` que imprime `up`. Caduca en una hora y sólo se puede usar una vez. El formulario crea en una operación atómica la cuenta, el primer workspace y su membership Owner. Después de bootstrap, el registro abierto permanece deshabilitado; invita a las demás personas desde **Personas y acceso**. Para emitir otro enlace antes de que exista un Owner:
 
@@ -83,16 +83,16 @@ El arranque local de esta guía mantiene Agent y Gateway deshabilitados; en esa 
 
 ### Configurar GitHub App
 
-`./gotchu github setup` muestra callbacks absolutos derivados del `PUBLIC_APP_URL` configurado y prepara la carpeta privada de credenciales. En GitHub configura una GitHub App con `Contents: Read-only` y `Metadata: Read-only`, instala sólo los repositorios autorizados y guarda su JSON en `${state_dir}/github/reader-app.json` con permisos `0600`. En `${state_dir}/.env` configura:
+`./gotchu github setup` muestra la URL de callback de autorización que usa **Conectar GitHub** para el `PUBLIC_APP_URL` actual y prepara la carpeta privada de credenciales. En GitHub configura una App con `Contents: Read-only` y `Metadata: Read-only`, instala sólo los repositorios autorizados y guarda el JSON de credenciales en `${state_dir}/github/reader-app.json` con permisos `0600`. El Web monta esa carpeta como sólo lectura. En `${state_dir}/.env` configura:
 
 ```dotenv
-GOTCHU_GITHUB_READER_APP_FILE=${state_dir}/github/reader-app.json
+GOTCHU_GITHUB_READER_APP_FILE=/run/secrets/github/reader-app.json
 GOTCHU_GITHUB_APP_SLUG=<slug-de-la-app>
 ```
 
-En la configuración de la GitHub App, registra la URL exacta que imprime `./gotchu github setup` para la instalación, normalmente `http://localhost:3000/api/customer/github/callback`. Ejecuta `./gotchu up` para aplicar la configuración. Después, **Conectar GitHub** abre la instalación autorizada y vuelve a Gotchu; cada repositorio autorizado aparece con su botón **Analizar**, que guarda una instantánea y encola la primera evaluación. El permiso `Contents` permanece en sólo lectura.
+La App debe incluir el callback de autorización que imprime `./gotchu github setup`, normalmente `http://localhost:3000/api/customer/github/callback` en el perfil local. Ejecuta `./gotchu up` para aplicar la configuración. Después, **Conectar GitHub** abre la instalación autorizada, vuelve a Gotchu, lista los repositorios de esa instalación y **Analizar repositorio** guarda una instantánea para la primera evaluación. El permiso `Contents` permanece en sólo lectura.
 
-Para ofrecer además **Iniciar sesión con GitHub**, registra la URL exacta `<origin>/api/auth/callback/github` que imprime `./gotchu github setup` como callback URL de autorización de la GitHub App. Mantén también `<origin>/api/customer/github/callback` para **Conectar GitHub**. En `${state_dir}/.env`, define `AUTH_GITHUB_ID=<client-id>` y `AUTH_GITHUB_SECRET=<client-secret>` con las credenciales de esa App. También puedes crear una OAuth App separada, registrar allí `<origin>/api/auth/callback/github` y usar su client ID/secret en esas mismas variables. Gotchu muestra el botón de GitHub en la página de inicio de sesión sólo cuando ambas variables están configuradas. Reinicia con `./gotchu up` para aplicar cambios. No copies IDs ni secrets a páginas ni a logs. OIDC y el inicio local siguen disponibles. Consulta [callbacks de autorización de GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/about-the-user-authorization-callback-url) y la [configuración del proveedor GitHub de Auth.js](https://authjs.dev/guides/configuring-github).
+El bootstrap inicial usa correo y contraseña. Para ofrecer además **Iniciar sesión con GitHub**, configura `AUTH_GITHUB_ID` y `AUTH_GITHUB_SECRET` con el client ID y secret de una GitHub App y registra también `<PUBLIC_APP_URL>/api/auth/callback/github` entre sus callback URLs. GitHub admite hasta 10 URLs de callback en una App; conserva `/api/customer/github/callback` como primera URL para Conectar GitHub y agrega la ruta de Auth.js. Al configurar varias URLs, cada flujo OAuth debe solicitar la URL de retorno correspondiente. Si no puedes cambiar la configuración de callbacks, el botón de inicio de sesión con GitHub no funcionará. Los IDs y secrets no deben copiarse a páginas ni registrarse en logs. OIDC y el inicio local siguen disponibles. Consulta [callbacks de autorización de GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/about-the-user-authorization-callback-url) y la [configuración del proveedor GitHub de Auth.js](https://authjs.dev/guides/configuring-github).
 
 ### Iniciar sesión con Google
 
@@ -106,7 +106,7 @@ Si el correo verificado ya pertenece a una cuenta local, Gotchu no vincula Googl
 
 ### Activar el executor de PR
 
-El executor de PR está desactivado por defecto. Para habilitarlo en desarrollo local, crea una GitHub App Writer instalada sólo en los repositorios que autorizas. Dale permisos de lectura/escritura de Contents y Pull requests; Gotchu abre PRs draft y no hace merge. Guarda fuera de Git el JSON de la App en `.gotchu/github-writer-app.json`, con campos `id` y `privateKeyPem`, permisos `0600`. Usa una clave RSA de 2048 bits o más. La clave debe pertenecer a una App de escritura; no reutilices el token o la clave del Reader.
+El executor de PR está desactivado por defecto. Para habilitarlo en desarrollo local, crea una GitHub App Writer instalada sólo en los repositorios que autorizas. Dale permisos de lectura/escritura de Contents y Pull requests; Gotchu abre PRs draft y no hace merge. Guarda fuera de Git el JSON de la App en `.gotchu/github-writer-app.json`, con campos `id` y `privateKeyPem`, permisos `0600`. Usa una clave RSA de 2048 bits o más. La clave debe pertenecer a una App de escritura; no reutilices el token o la clave del Reader. El Writer App installation ID puede ser distinto del Reader installation ID.
 
 Edita `.gotchu/.env` y configura el ID de instalación de esa App y `GOTCHU_EXECUTOR_ENABLED=true`:
 
@@ -133,9 +133,13 @@ Después, añade al archivo privado `.gotchu/monitoring-repositories.json` una e
 }
 ```
 
-Mantén catálogo y credencial con permisos privados. El catálogo limita el destino que web, coordinator y executor pueden resolver; sólo el executor recibe la clave Writer. Reinicia con `./gotchu up`; el comando valida la configuración y espera readiness. La UI habilita **Aprobar PR** únicamente para acciones elegibles del Owner con validación vigente y WebAuthn reciente. El executor publica la rama y abre un PR draft después de reclamar la aprobación exacta. Revisa y cierra PRs manualmente: merge, deploy, respuesta automática y recuperación no están habilitados. Esta configuración es para desarrollo local; la activación en producción sigue bloqueada.
+Mantén catálogo y credencial con permisos privados. El catálogo limita el destino que web y executor pueden resolver; sólo el executor recibe la clave Writer. `./gotchu up` genera un token aleatorio compartido sólo por web y executor en la red interna de datos; el endpoint para verificar la instalación Writer no se publica en el host. No reutilices ese token como credencial de GitHub.
 
-El validator VM aún no se inicia desde Compose. Requiere Linux, `/dev/kvm`, `bwrap`, una sesión systemd de usuario, runtime login, clave privada y preparación de imágenes; el worker se puede ejecutar manualmente después de configurar esos valores con `GOTCHU_VALIDATOR_DATABASE_URL=… GOTCHU_VALIDATOR_KEY_PATH=… pnpm --filter @gotchu/validator start`. `doctor` indica cuando faltan esos requisitos. No hay una promesa de aislamiento VM lista para producción.
+Conecta primero la GitHub App Reader y vincula un repositorio verificado con lectura concedida. En el panel de repositorios, un Owner puede **Conceder escritura con WebAuthn**. Gotchu verifica por medio del executor que la instalación Writer configurada puede leer el repositorio y su rama base; sólo entonces guarda el ID verificado, la hora y el commit base. El Owner puede revocar ese permiso con otra prueba WebAuthn. La revocación invalida las aprobaciones pendientes de PR para ese repositorio. Las migraciones 038 y posteriores requieren volver a conceder permisos anteriores, porque un valor histórico `granted` no demuestra cobertura de la Writer App actual. Las propuestas npm también requieren una suite `npm test` configurada y validada para el repositorio; sin ella, D06 no habilita una aprobación.
+
+Reinicia con `./gotchu up`; el comando valida la configuración y espera readiness. La UI ofrece **Aprobar PR** para correcciones de código y **Aprobar PR de dependencias** para candidatos npm elegibles después de la validación vigente y WebAuthn del Owner. El executor publica la rama y abre un PR draft después de reclamar la aprobación exacta. Revisa y cierra PRs manualmente: merge, deploy, respuesta automática y recuperación no están habilitados. Esta configuración es para desarrollo local; la activación en producción sigue bloqueada.
+
+El validator VM aún no se inicia desde Compose. Requiere Linux, `/dev/kvm`, `bwrap`, una sesión systemd de usuario, runtime login, clave privada y preparación de imágenes; el worker se puede ejecutar manualmente después de configurar esos valores con `GOTCHU_VALIDATOR_DATABASE_URL=… GOTCHU_VALIDATOR_KEY_PATH=… pnpm --filter @gotchu/validator start`. Para que el usuario de desarrollo acceda a `/dev/kvm`, añádelo al grupo `kvm` y abre una sesión nueva. `doctor` indica cuando faltan esos requisitos. La prueba de desarrollo verifica el flujo Firecracker configurado; no es una garantía de aislamiento para producción.
 
 ## Seguridad y exposición
 
@@ -144,7 +148,7 @@ El validator VM aún no se inicia desde Compose. Requiere Linux, `/dev/kvm`, `bw
 - `./gotchu up` verifica por HTTPS el mismo endpoint de readiness que ejecuta los perfiles fijados del scanner antes de anunciar que está listo. Web, coordinator y scanner son procesos locales; Compose inicia sólo Postgres y Redis. Así, el tráfico del scanner no cruza el host INPUT y la instalación no requiere cambios de firewall.
 - El bootstrap inicial usa el flujo local `/setup` para crear el primer Owner. Google, GitHub y OIDC no pueden sustituirlo. Las contraseñas locales usan el hash scrypt existente y los límites actuales de autenticación.
 - `PUBLIC_APP_URL` es el origen canónico usado por Auth.js. En producción detrás de un proxy reverso, configúralo como `https://gotchu.kevinbravo.com`; TLS debe terminar en el proxy, que debe limitar tamaños y tiempos de petición y reenviar únicamente a la dirección loopback del puerto web configurado. `GOTCHU_PUBLIC_URL` sólo establece el valor inicial al crear `${state_dir}/.env`; después, edita `PUBLIC_APP_URL` en ese archivo y reinicia con `./gotchu up`. Gotchu no termina TLS y no afirma que esta topología esté endurecida para producción.
-- La evaluación externa sólo debe apuntar a un origen cuya autorización tenga el cliente. Las acciones de proveedor, ejecución de código cliente, respuesta automática y recuperación permanecen deshabilitadas.
+- La evaluación externa sólo debe apuntar a un origen cuya autorización tenga el cliente. Las únicas escrituras opcionales habilitables aquí son PR draft acotados a propuestas exactas; ejecución del cliente fuera de la VM, merge, deploy, respuesta automática y recuperación permanecen deshabilitados.
 - `./gotchu backup [archivo]` y `./gotchu restore <archivo>` usan un respaldo local cifrado y probado contra Postgres desechable. La restauración incrementa el epoch, deja las escrituras de proveedor congeladas y los servicios detenidos. La copia por defecto permanece en el mismo disco; la réplica externa, retención de archivos y objetivos medidos de recuperación siguen pendientes.
 
 ## Actualizar y desinstalar
