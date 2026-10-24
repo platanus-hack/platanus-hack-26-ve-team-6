@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { OsvAdvisoryMetadata, CustomerSourceSnapshot } from '@gotchu/contracts';
 import { z } from 'zod';
-import { parseNpmAdvisoryEvidence, prepareNpmDependencyPatch, selectNpmFixVersion } from '../src/npm-dependency-fix.js';
+import { createNpmRegistryAdapter, parseNpmAdvisoryEvidence, prepareNpmDependencyPatch, selectNpmFixVersion } from '../src/npm-dependency-fix.js';
 
 const lodashPackage = { ecosystem: 'npm', name: 'lodash' };
 function advisory(id: string, fixed: string, withdrawn?: string): OsvAdvisoryMetadata {
@@ -35,6 +35,18 @@ function source(manifest = JSON.stringify({ name: 'small-project', dependencies:
 }
 
 describe('npm dependency fix selection', () => {
+  it('requests full registry metadata to verify fields already recorded in the lockfile', async () => {
+    let acceptHeader: string | null = null;
+    const adapter = createNpmRegistryAdapter(async (_input, init) => {
+      acceptHeader = new Headers(init?.headers).get('accept');
+      return new Response(JSON.stringify({ versions: {} }), { status: 200 });
+    });
+
+    await adapter.getPackument('lodash', AbortSignal.timeout(1_000));
+
+    expect(acceptHeader).toBe('application/json');
+  });
+
   it('accepts D12 versioned advisory evidence while preserving legacy evidence', () => {
     const excerpt = (schemaVersion: number) => JSON.stringify({
       schemaVersion,

@@ -30,7 +30,7 @@ export const createNpmRegistryAdapter = (fetcher: typeof globalThis.fetch = glob
     const signal = AbortSignal.any([parentSignal, AbortSignal.timeout(8_000)]);
     const response = await fetcher('https://registry.npmjs.org/' + encodeURIComponent(name), {
       method: 'GET', redirect: 'error', signal,
-      headers: { accept: 'application/vnd.npm.install-v1+json', 'accept-encoding': 'identity' },
+      headers: { accept: 'application/json', 'accept-encoding': 'identity' },
     });
     if (!response.ok) throw new Error('npm_registry_http_failed');
     if (response.headers.get('content-encoding') && response.headers.get('content-encoding') !== 'identity') throw new Error('npm_registry_encoding_unsupported');
