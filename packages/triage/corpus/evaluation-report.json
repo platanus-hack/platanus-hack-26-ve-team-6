@@ -3,7 +3,7 @@
     "corpusVersion": "1.0.0",
     "rulesVersion": "1.0.0",
     "split": "tuning",
-    "caseCount": 15,
+    "caseCount": 19,
     "scenarios": [
       {
         "scenario": "abuse",
@@ -103,19 +103,19 @@
       },
       {
         "scenario": "pre-deployment-errors",
-        "cases": 1,
+        "cases": 2,
         "truePositives": 0,
         "predictedPositives": 0,
         "actualPositives": 0,
         "precision": null,
         "recall": null,
         "falseAlarms": 0,
-        "abstained": 1,
+        "abstained": 2,
         "abstentionRate": 1,
         "confidenceErrors": 0,
         "confidenceDenominator": 0,
-        "impactCorrect": 1,
-        "impactDenominator": 1
+        "impactCorrect": 2,
+        "impactDenominator": 2
       },
       {
         "scenario": "provider-and-control-fail",
@@ -135,19 +135,19 @@
       },
       {
         "scenario": "provider-compatible-failure",
-        "cases": 1,
+        "cases": 2,
         "truePositives": 1,
         "predictedPositives": 1,
         "actualPositives": 1,
         "precision": 1,
         "recall": 1,
         "falseAlarms": 0,
-        "abstained": 0,
-        "abstentionRate": 0,
+        "abstained": 1,
+        "abstentionRate": 0.5,
         "confidenceErrors": 0,
         "confidenceDenominator": 1,
-        "impactCorrect": 1,
-        "impactDenominator": 1
+        "impactCorrect": 2,
+        "impactDenominator": 2
       },
       {
         "scenario": "provider-down-dependent-healthy",
@@ -199,19 +199,19 @@
       },
       {
         "scenario": "stale-telemetry",
-        "cases": 1,
+        "cases": 3,
         "truePositives": 0,
         "predictedPositives": 0,
         "actualPositives": 0,
         "precision": null,
         "recall": null,
         "falseAlarms": 0,
-        "abstained": 1,
+        "abstained": 3,
         "abstentionRate": 1,
         "confidenceErrors": 0,
         "confidenceDenominator": 0,
-        "impactCorrect": 1,
-        "impactDenominator": 1
+        "impactCorrect": 3,
+        "impactDenominator": 3
       },
       {
         "scenario": "unknown-deployment-state",
@@ -247,8 +247,8 @@
       }
     ],
     "impactAccuracy": 1,
-    "impactCorrect": 15,
-    "impactDenominator": 15,
+    "impactCorrect": 19,
+    "impactDenominator": 19,
     "mismatchedCaseIds": [],
     "impactMismatchCaseIds": [],
     "causeMismatchCaseIds": []
@@ -257,7 +257,7 @@
     "corpusVersion": "1.0.0",
     "rulesVersion": "1.0.0",
     "split": "holdout",
-    "caseCount": 15,
+    "caseCount": 19,
     "scenarios": [
       {
         "scenario": "abuse",
@@ -373,19 +373,19 @@
       },
       {
         "scenario": "pre-deployment-errors",
-        "cases": 1,
+        "cases": 2,
         "truePositives": 0,
         "predictedPositives": 0,
         "actualPositives": 0,
         "precision": null,
         "recall": null,
         "falseAlarms": 0,
-        "abstained": 1,
+        "abstained": 2,
         "abstentionRate": 1,
         "confidenceErrors": 0,
         "confidenceDenominator": 0,
-        "impactCorrect": 1,
-        "impactDenominator": 1
+        "impactCorrect": 2,
+        "impactDenominator": 2
       },
       {
         "scenario": "provider-and-control-fail",
@@ -405,19 +405,19 @@
       },
       {
         "scenario": "provider-compatible-failure",
-        "cases": 1,
+        "cases": 2,
         "truePositives": 1,
         "predictedPositives": 1,
         "actualPositives": 1,
         "precision": 1,
         "recall": 1,
         "falseAlarms": 0,
-        "abstained": 0,
-        "abstentionRate": 0,
+        "abstained": 1,
+        "abstentionRate": 0.5,
         "confidenceErrors": 0,
         "confidenceDenominator": 1,
-        "impactCorrect": 1,
-        "impactDenominator": 1
+        "impactCorrect": 2,
+        "impactDenominator": 2
       },
       {
         "scenario": "provider-down-dependent-healthy",
@@ -469,19 +469,19 @@
       },
       {
         "scenario": "stale-telemetry",
-        "cases": 1,
+        "cases": 3,
         "truePositives": 0,
         "predictedPositives": 0,
         "actualPositives": 0,
         "precision": null,
         "recall": null,
         "falseAlarms": 0,
-        "abstained": 1,
+        "abstained": 3,
         "abstentionRate": 1,
         "confidenceErrors": 0,
         "confidenceDenominator": 0,
-        "impactCorrect": 1,
-        "impactDenominator": 1
+        "impactCorrect": 3,
+        "impactDenominator": 3
       },
       {
         "scenario": "unknown-deployment-state",
@@ -501,8 +501,8 @@
       }
     ],
     "impactAccuracy": 1,
-    "impactCorrect": 15,
-    "impactDenominator": 15,
+    "impactCorrect": 19,
+    "impactDenominator": 19,
     "mismatchedCaseIds": [],
     "impactMismatchCaseIds": [],
     "causeMismatchCaseIds": []
