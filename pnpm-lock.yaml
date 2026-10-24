@@ -245,6 +245,9 @@ importers:
       '@gotchu/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@gotchu/git-adapters':
+        specifier: workspace:*
+        version: link:../../packages/git-adapters
       '@gotchu/monitoring':
         specifier: workspace:*
         version: link:../../packages/monitoring
@@ -362,6 +365,9 @@ importers:
       '@gotchu/database':
         specifier: workspace:*
         version: link:../database
+      '@gotchu/git-adapters':
+        specifier: workspace:*
+        version: link:../git-adapters
       '@gotchu/scenarios':
         specifier: workspace:*
         version: link:../scenarios
