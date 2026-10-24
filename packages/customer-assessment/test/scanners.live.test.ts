@@ -1,7 +1,10 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createServer } from 'node:https';
+import type { RequestListener } from 'node:http';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
@@ -69,4 +72,98 @@ describe('actual local Docker scanners (no simulated findings)',()=>{
     const matches=await createOsvAdapter().query([{name:'lodash',version:'4.17.20'},{name:'lodash',version:'4.17.21'}],AbortSignal.timeout(15000));
     expect(matches[0]?.ids).toContain('GHSA-35jh-r3h4-6jhm');expect(matches[1]?.ids).not.toContain('GHSA-35jh-r3h4-6jhm');
   },20000);
+  it('correlates only actual pinned Semgrep CSP candidates with scoped local TLS responses',async()=>{
+    const directory=await mkdtemp(join(tmpdir(),'gotchu-csp-correlation-'));
+    let server: ReturnType<typeof createServer> | undefined;
+    try {
+      execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',join(directory,'key.pem'),'-out',join(directory,'cert.pem'),'-days','1','-subj','/CN=customer.org','-addext','subjectAltName=DNS:customer.org'],{stdio:'ignore'});
+      const ca=await readFile(join(directory,'cert.pem'),'utf8');
+      let responseMode:'missing'|'present'|'incomplete'='missing';
+      const handler:RequestListener=(_,response)=>{
+        if(responseMode==='incomplete'){response.writeHead(302,{location:'/elsewhere'}).end('redirect');return;}
+        response.writeHead(200,responseMode==='present'?{'content-security-policy':"default-src 'self'"}:{}).end('ok');
+      };
+      const tlsServer=createServer({cert:ca,key:await readFile(join(directory,'key.pem'),'utf8')},handler);
+      await new Promise<void>((resolve,reject)=>{
+        tlsServer.once('error',reject);
+        tlsServer.listen(0,'127.0.0.1',resolve);
+      });
+      server=tlsServer;
+      const address=server.address();
+      if(!address||typeof address==='string')throw new Error('missing_fixture_address');
+      const docker=createDockerScanners();
+      let latestSemgrepOutput:unknown;
+      const scanners={
+        async run(name:Parameters<typeof docker.run>[0],source:Parameters<typeof docker.run>[1],signal:Parameters<typeof docker.run>[2]){
+          if(name!=='semgrep')throw new Error('live_csp_case_runs_semgrep_only');
+          const result=await docker.run(name,source,signal);
+          latestSemgrepOutput=result.output;
+          return result;
+        },
+        async readiness(){return {ready:true,tools:[{name:'semgrep',available:true}]};},
+      };
+      const runner=createCustomerAssessmentRunner({scanners,https:{lookup:async()=>[{address:'127.0.0.1',family:4}],testFixture:{hostname:'customer.org',port:address.port,ca}}});
+      const disabledTs="// 😀 exercises UTF-8 byte offsets and CRLF parsing\r\nimport h from 'helmet';\r\nconst app = {use(handler: unknown) { return handler; }};\r\napp.use(h({contentSecurityPolicy: false}));\r\n";
+      const enabledTs="// 😀 exercises UTF-8 byte offsets and CRLF parsing\r\nimport h from 'helmet';\r\nconst app = {use(handler: unknown) { return handler; }};\r\napp.use(h());\r\n";
+      const disabledJs="import shield from 'helmet';\nconst app = {use(handler) { return handler; }};\napp.use(shield({contentSecurityPolicy: false}));";
+      const enabledJs="import shield from 'helmet';\nconst app = {use(handler) { return handler; }};\napp.use(shield());";
+      const runFiles=async(files:{path:string;content:string}[])=>{
+        const request=input(files);
+        request.mode='both';
+        request.target={id:request.jobId,origin:'https://customer.org',version:1,verifiedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+300_000).toISOString()};
+        return runner.run(request);
+      };
+      const run=async(disabled:boolean)=>runFiles([
+          {path:'src/app.ts',content:disabled?disabledTs:enabledTs},
+          {path:'src/app.js',content:disabled?disabledJs:enabledJs},
+        ]);
+
+      responseMode='missing';
+      const both=await run(true);
+      const sourceCandidates=both.internal?.findings.filter(f=>f.correlationKey==='http:content-security-policy')??[];
+      expect(sourceCandidates).toHaveLength(2);
+      expect(sourceCandidates.every(f=>/^(?:gotchu|profile\.gotchu)\.javascript\.helmet-csp-disabled$/.test(f.ruleId))).toBe(true);
+      expect(sourceCandidates.map(f=>f.location).sort()).toEqual(['src/app.js:3','src/app.ts:4']);
+      expect(both.external?.findings.find(f=>f.ruleId==='https.missing-content-security-policy')).toBeDefined();
+      expect(both.comparison.find(item=>item.key==='http:content-security-policy')?.classification).toBe('both');
+
+      const falsePositiveFiles=[
+        {path:'src/shadowed.ts',content:"import h from 'helmet';\nfunction configure(h: unknown) { h({contentSecurityPolicy: false}); }"},
+        {path:'src/duplicate.js',content:"import h from 'helmet';\nh({contentSecurityPolicy: false, contentSecurityPolicy: true});"},
+        {path:'src/spread.js',content:"import h from 'helmet';\nh({contentSecurityPolicy: false, ...defaults});"},
+        {path:'src/type-only.ts',content:"import type h from 'helmet';\nh({contentSecurityPolicy: false});"},
+        {path:'src/conflicting.ts',content:"import h from 'helmet';\nimport { other as h } from 'other';\nh({contentSecurityPolicy: false});"},
+        {path:'src/hoisted.ts',content:"import h from 'helmet';\nh({contentSecurityPolicy: false});\nfunction unrelated() { if (false) var h; }"},
+      ];
+      responseMode='missing';
+      const falsePositiveReport=await runFiles(falsePositiveFiles);
+      const semgrepCandidates=z.object({results:z.array(z.object({check_id:z.string(),path:z.string()}))}).parse(latestSemgrepOutput).results;
+      const candidatePaths=semgrepCandidates
+        .filter(candidate=>candidate.check_id==='profile.gotchu.javascript.helmet-csp-disabled'||candidate.check_id==='gotchu.javascript.helmet-csp-disabled')
+        .map(candidate=>candidate.path.replace(/^\/?source\//,''))
+        .sort();
+      expect(candidatePaths).toEqual(falsePositiveFiles.map(file=>file.path).sort());
+      expect(falsePositiveReport.internal?.findings.some(f=>f.correlationKey==='http:content-security-policy')).toBe(false);
+      expect(falsePositiveReport.external?.findings.find(f=>f.ruleId==='https.missing-content-security-policy')).toBeDefined();
+      expect(falsePositiveReport.comparison.find(item=>item.key==='http:content-security-policy')).toMatchObject({classification:'unverified',internalFindingIds:[]});
+
+      responseMode='present';
+      const sourceOnly=await run(true);
+      expect(sourceOnly.comparison.find(item=>item.key==='http:content-security-policy')).toMatchObject({classification:'unverified',externalFindingIds:[]});
+
+      responseMode='missing';
+      const responseOnly=await run(false);
+      expect(responseOnly.internal?.findings.find(f=>f.correlationKey==='http:content-security-policy')).toBeUndefined();
+      expect(responseOnly.comparison.find(item=>item.key==='http:content-security-policy')).toMatchObject({classification:'unverified',internalFindingIds:[]});
+
+      responseMode='incomplete';
+      const incomplete=await run(true);
+      expect(incomplete.external?.findings.find(f=>f.ruleId==='https.missing-content-security-policy')).toBeUndefined();
+      expect(incomplete.comparison.find(item=>item.key==='http:content-security-policy')).toMatchObject({classification:'unverified',externalFindingIds:[]});
+    } finally {
+      server?.closeAllConnections();
+      if(server)await new Promise<void>((resolve,reject)=>server?.close(error=>error?reject(error):resolve()));
+      await rm(directory,{recursive:true,force:true});
+    }
+  },120000);
 });
