@@ -59,7 +59,7 @@ export function LandingPage() {
         <a className="g-brand" href="/" aria-label="Gotchu, inicio"><GotchuMark size={30} /><span>Gotchu</span></a>
         <button ref={menuButton} className="g-menu-button" type="button" aria-expanded={menuOpen} aria-controls="gotchu-nav" onKeyDown={event => { if (event.key === 'Escape') closeMenu(); }} onClick={() => setMenuOpen(!menuOpen)}><UiIcon name={menuOpen ? 'close' : 'grid'} />{menuOpen ? 'Cerrar' : 'Menú'}</button>
         <nav id="gotchu-nav" className={menuOpen ? 'g-nav is-open' : 'g-nav'} aria-label="Navegación principal" onKeyDown={event => { if (event.key === 'Escape') { setMenuOpen(false); menuButton.current?.focus(); } }}>
-          <a href="#codigo" onClick={closeMenu}>Cómo funciona</a><a href="#perspectivas" onClick={closeMenu}>Alcance</a><a href="#preguntas" onClick={closeMenu}>Preguntas</a>
+          <a href="#codigo" onClick={closeMenu}><span className="g-nav-number" aria-hidden="true">01 /</span>Cómo funciona</a><a href="#perspectivas" onClick={closeMenu}><span className="g-nav-number" aria-hidden="true">02 /</span>Alcance</a><a href="#preguntas" onClick={closeMenu}><span className="g-nav-number" aria-hidden="true">03 /</span>Preguntas</a>
           <a className="g-button g-button-small" href="/dashboard" data-catch>Abrir Gotchu <UiIcon name="arrow" /></a>
         </nav>
       </div>
