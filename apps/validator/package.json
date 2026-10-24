@@ -1,0 +1,11 @@
+{
+  "name": "@gotchu/validator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.test.json", "test": "vitest run", "test:vm": "node test/run-vm.mjs", "start": "node dist/main.js" },
+  "dependencies": { "@gotchu/backend": "workspace:*", "@gotchu/contracts": "workspace:*", "@gotchu/database": "workspace:*", "@gotchu/runner": "workspace:*", "@gotchu/customer-assessment": "workspace:*", "pg": "^8.16.3", "zod": "^4.0.0" },
+  "devDependencies": { "@types/pg": "^8.15.5", "typescript": "~5.9.3", "vitest": "^3.2.4" }
+}
