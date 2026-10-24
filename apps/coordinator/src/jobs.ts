@@ -12,14 +12,20 @@ const WINDOW_MS = 600_000;
 const MAX_WINDOW_EVENTS = 10_000;
 // CASE guards the cast even when PostgreSQL reorders query predicates.
 const eventTimeSql = "CASE WHEN pg_input_is_valid(payload->>'occurredAt','timestamptz') THEN (payload->>'occurredAt')::timestamptz END";
-const payloadSchema = z.object({ incidentId: z.uuid(), evidenceIds: z.array(z.uuid()).min(1).max(20) }).strict();
+const investigationPayloadSchema = z.union([
+  z.object({ incidentId: z.uuid(), evidenceIds: z.array(z.uuid()).min(1).max(20) }).strict(),
+  z.object({ version: z.literal(2), subject: z.object({
+    kind: z.enum(['finding', 'alert', 'incident']), subjectId: z.uuid(), reportId: z.uuid().optional(),
+  }).strict(), evidenceIds: z.array(z.uuid()).min(1).max(20), resumeOf: z.uuid().optional() }).strict(),
+]);
+type D11InvestigationPayload = Extract<z.infer<typeof investigationPayloadSchema>, { version: 2 }>;
 const projectionPayloadSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('assessment_observation'), reportId: z.uuid() }).strict(),
   z.object({ kind: z.literal('triage_evaluation'), windowBucket: z.number().int().nonnegative() }).strict(),
   z.object({ kind: z.literal('alert_delivery'), eventId: z.uuid() }).strict(),
 ]);
 export interface Investigator {
-  investigate(input: { organizationId: string; applicationId: string; runId: string; deadline: Date; evidenceIds: readonly string[] }): Promise<InvestigationResult>;
+  investigate(input: { organizationId: string; applicationId: string; runId: string; deadline: Date; evidenceIds: readonly string[]; subject?: D11InvestigationPayload['subject'] }): Promise<InvestigationResult>;
 }
 export interface NotificationEventWorker { deliverEvent(input: { organizationId: string; eventId: string }): Promise<void> }
 export interface CoordinatorDependencies { readonly database: Database; readonly backend: Backend; readonly investigator?: Investigator; readonly assessmentRunner?: AssessmentRunner; readonly customerAssessmentRunner?: CustomerAssessmentRunner; readonly notificationEventWorker?: NotificationEventWorker }
@@ -103,15 +109,16 @@ type InvestigationCompletion = { status: 'result'; result: InvestigationResult }
 export async function finalizeInvestigation(dependencies: CoordinatorDependencies, claim: JobClaim, runId: string, completion: InvestigationCompletion) {
   const { organizationId, applicationId, id: jobId } = claim.envelope;
   await dependencies.database.tenant(organizationId, async (tx) => {
-    const locked = await tx.query<{ state: string; reserved_micros: string }>(`SELECT r.state,r.reserved_micros FROM gotchu.agent_runs r
+    const locked = await tx.query<{ state: string; reserved_micros: string; tokens_reserved: string }>(`SELECT r.state,r.reserved_micros,r.tokens_reserved FROM gotchu.agent_runs r
       JOIN gotchu.jobs j ON j.organization_id=r.organization_id AND j.application_id=r.application_id AND j.id=r.job_id
       WHERE r.organization_id=$1 AND r.application_id=$2 AND r.id=$3 AND j.id=$4
         AND j.lease_token=$5 AND j.state='running' AND j.lease_until>clock_timestamp() FOR UPDATE OF r,j`, [organizationId, applicationId, runId, jobId, claim.leaseToken]);
     const run = locked.rows[0];
     if (!run) throw new BackendError('stale_lease', 'Investigation finalization requires the current job claim', 409);
     if (run.state === 'running') {
-      if (BigInt(run.reserved_micros) !== 0n) {
-        if (completion.status !== 'failed') throw new BackendError('run_unsettled', 'Unsettled provider work requires reconciliation', 409);
+      if (BigInt(run.reserved_micros) !== 0n || BigInt(run.tokens_reserved) !== 0n) {
+        await failJob(tx, claim, 'investigation_reconciliation_required');
+        return;
       } else {
         const scopedRuns = createRunService({ database: {
           ...dependencies.database,
@@ -129,7 +136,7 @@ export async function finalizeInvestigation(dependencies: CoordinatorDependencie
 }
 
 async function investigate(dependencies: CoordinatorDependencies, claim: JobClaim) {
-  const payload = payloadSchema.parse(claim.payload);
+  const payload = investigationPayloadSchema.parse(claim.payload);
   const { organizationId, applicationId, id: jobId } = claim.envelope;
   const run = await dependencies.backend.runs.start({ organizationId, applicationId, jobId, leaseToken: claim.leaseToken });
   const currentRun = await dependencies.backend.runs.load({ organizationId, runId: run.runId });
@@ -150,7 +157,8 @@ async function investigate(dependencies: CoordinatorDependencies, claim: JobClai
   }
   let result: InvestigationResult;
   try {
-    result = investigationResultSchema.parse(await dependencies.investigator.investigate({ organizationId, applicationId, ...run, evidenceIds: payload.evidenceIds }));
+    result = investigationResultSchema.parse(await dependencies.investigator.investigate({ organizationId, applicationId, ...run, evidenceIds: payload.evidenceIds,
+      ...('version' in payload ? { subject: payload.subject } : {}) }));
   } catch (error) {
     // The worker may have reached its provider before its response was lost.
     // Stop automatic replay; durable reservations remain held for reconciliation.
