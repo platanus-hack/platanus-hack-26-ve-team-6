@@ -204,8 +204,8 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
   return <main className="customer-auth-page">
     <section className="customer-auth-card" aria-labelledby="auth-title">
       <a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>
-      <h1 id="auth-title">{registering ? 'Crea tu espacio de trabajo' : 'Inicia sesión en Gotchu'}</h1>
-      <p className="customer-auth-copy">Accede para revisar tus espacios de trabajo y las aplicaciones que administra tu equipo.</p>
+      <h1 id="auth-title">{registering ? 'Crea tu cuenta en Gotchu' : 'Inicia sesión en Gotchu'}</h1>
+      <p className="customer-auth-copy">{registering ? 'Crea tu cuenta y empieza a revisar tus aplicaciones.' : 'Accede para revisar tus espacios de trabajo y las aplicaciones que administra tu equipo.'}</p>
 
       {error && <div className="customer-inline-error" role="alert">{error}</div>}
 
@@ -228,9 +228,9 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
         <div className="customer-auth-password"><input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete={registering ? 'new-password' : 'current-password'} required minLength={registering ? 15 : undefined} maxLength={128} value={password} onChange={event => setPassword(event.target.value)} /><button type="button" className="customer-auth-password-toggle" aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'} aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.6"/>{showPassword && <path d="m4 4 16 16"/>}</svg></button></div>
         {!registering && <label className="customer-auth-remember"><input type="checkbox" checked={rememberAccess} onChange={event => changeRememberAccess(event.target.checked)} /><span>Recordar email y método de acceso en este dispositivo</span></label>}
         {rememberAccess && lastMethodLabel && <p className="customer-auth-last-method" role="status">Último método: {lastMethodLabel}</p>}
-        {registering && <p className="customer-field-note">Usa al menos 15 caracteres. La autenticación local está habilitada para este entorno.</p>}
+        {registering && <p className="customer-field-note">Usa al menos 15 caracteres.</p>}
         <button className="customer-button customer-button-primary customer-button-full" disabled={busy || loadingProvider !== null}>{busy ? <><span className="customer-spinner" />Conectando…</> : registering ? 'Crear cuenta' : 'Iniciar sesión'}</button>
-        {session.registrationEnabled && <button className="customer-link-button customer-auth-switch" type="button" onClick={() => { setRegistering(value => !value); setError(null); }}>{registering ? 'Ya tienes cuenta: iniciar sesión' : 'Crear una cuenta de desarrollo'}</button>}
+        {session.registrationEnabled && <button className="customer-link-button customer-auth-switch" type="button" onClick={() => { setRegistering(value => !value); setError(null); }}>{registering ? 'Ya tienes cuenta: iniciar sesión' : 'Crear una cuenta'}</button>}
       </form>}
 
       {!session.localAuthEnabled && oauthProviders.length === 0 && <div className="customer-inline-error" role="status">El inicio de sesión todavía no está configurado para este entorno.</div>}

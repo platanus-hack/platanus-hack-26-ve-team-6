@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Navigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import { customerApi } from '../components/customer-client.js';
 
 export const Route = createFileRoute('/setup')({
@@ -11,6 +12,14 @@ export const Route = createFileRoute('/setup')({
 });
 
 function SetupPage() {
+  const session = useQuery({ queryKey: ['customer-session'], queryFn: customerApi.session, retry: false });
+  if (session.isPending) return <main><p role="status">Cargando…</p></main>;
+  if (session.isError) return <main><p role="alert">No se pudo conectar con Gotchu.</p><a href="/dashboard">Ir a Gotchu</a></main>;
+  if (session.data.registrationEnabled) return <Navigate to="/dashboard" replace />;
+  return <SetupForm />;
+}
+
+function SetupForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   async function submit(event: FormEvent<HTMLFormElement>) {
