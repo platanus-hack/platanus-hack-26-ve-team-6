@@ -5,9 +5,6 @@ Estado al 24 de octubre de 2026. Lista viva de lo que falta, ordenada por priori
 ## 1. Núcleo: terminar antes de cualquier capacidad nueva
 
 - **Integrar el executor con D12.** Integrar el worker independiente, el registro de políticas, los permisos de escritura verificados (migración 038) y la alcanzabilidad de dependencias (migración 043) sobre la topología nueva del instalador. Falta la prueba en vivo de un PR de dependencia npm en el sandbox; el PR de corrección de código ya se probó.
-- **Revocación inmediata (D14).** Revocar GitHub, la firma de eventos, un canal de notificación o una credencial WebAuthn debe invalidar en la misma operación las aprobaciones pendientes y las pruebas de segundo factor, y quedar en el historial de decisiones.
-- **Borrado permanente (D14).** Borrar aplicaciones y espacios de trabajo, con un Owner y segundo factor reciente, auditado.
-- **Vincular Google desde la configuración de la cuenta.** Hoy un email local existente recibe un mensaje y no se vincula automáticamente.
 - **Historial de commits.** Actualizar `commit-history*.md` y documentar las excepciones de tamaño: `lockfiles.ts` (501 líneas) y el gateway de D11 (445 líneas).
 
 ## 2. Al pasar a producción y al final
@@ -25,6 +22,9 @@ Acordado el 24 de octubre de 2026: no bloquean el cierre del núcleo.
 
 ## 3. Seguridad y operación (D14, resto)
 
+- **Revocación inmediata (D14).** Protege la garantía central: nada se escribe sin una aprobación exacta y vigente. Desconectar GitHub, rotar la firma de eventos, borrar un canal de notificación o quitar una llave WebAuthn (por ejemplo, tras perder el dispositivo) debe cancelar en la misma operación las aprobaciones pendientes y las pruebas de segundo factor, y quedar en el historial de decisiones. Hoy una aprobación previa podría seguir vigente y ejecutarse después.
+- **Borrado permanente (D14).** Hoy sólo se puede archivar. Los clientes necesitan borrar del todo aplicaciones y espacios de trabajo por privacidad, cierre de cuenta o GDPR. Debe exigir un Owner y segundo factor reciente, para que un error o una sesión robada no borre todo, y quedar auditado.
+- **Vincular Google desde la configuración de la cuenta.** Sólo afecta a quien ya tiene cuenta con contraseña y entra con Google usando el mismo email. Hoy recibe un mensaje y no se une automáticamente, para que nadie se apodere de una cuenta ajena; la vinculación debe hacerse después de entrar con la contraseña.
 - Confirmar el destinatario de email antes de enviar.
 - Rotar el secreto de webhook con una ventana de solapamiento.
 - Añadir un watchdog independiente del coordinator.
