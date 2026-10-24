@@ -15,12 +15,9 @@ install -o root -g root -m 750 "$source/install-release.sh" /usr/local/sbin/gotc
 printf '{"bucket":"gotchu-prod-releases-477010601418-us-east-1"}\n' >/etc/gotchu-deploy.json
 chmod 600 /etc/gotchu-deploy.json
 # Let in-flight maintenance finish before changing its lock contract.
+trap 'systemctl start gotchu-backup.timer gotchu-scanner-refresh.timer' EXIT
 systemctl stop gotchu-backup.timer gotchu-scanner-refresh.timer
-for attempt in $(seq 1 120); do
-  if ! systemctl is-active --quiet gotchu-backup.service && ! systemctl is-active --quiet gotchu-scanner-refresh.service; then break; fi
-  [[ $attempt != 120 ]] || { echo 'Maintenance is still active; retry installation later.' >&2; exit 1; }
-  sleep 5
-done
+bash "$source/wait-maintenance.sh"
 resume() {
   systemctl start gotchu@scanner gotchu@coordinator gotchu@web
   node /usr/local/lib/gotchu-deploy/release-health.mjs
@@ -29,7 +26,10 @@ resume() {
 trap resume EXIT
 exec 8>/run/lock/gotchu-maintenance.lock
 flock -w 180 8
+marker=$(mktemp /var/lib/gotchu-deploy/backup-marker.XXXXXX)
 GOTCHU_MAINTENANCE_LOCK_HELD=true "$app/infra/aws/backup.sh"
+[[ /var/lib/gotchu-backup/last-success -nt $marker ]] || { echo 'A fresh completed backup is required.' >&2; exit 1; }
+unlink "$marker"
 systemctl stop caddy
 systemctl stop gotchu@coordinator
 systemctl stop gotchu@web gotchu@scanner
