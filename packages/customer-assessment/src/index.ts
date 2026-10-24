@@ -13,7 +13,7 @@ export type { ScannerAdapter, ScannerName, ToolResult } from './docker.js';
 export { createOsvAdapter, parseLockfile } from './advisory.js';
 export type { AdvisoryAdapter, AdvisoryMatch, LockedPackage } from './advisory.js';
 export { isPublicAddress, createHttpsProbe } from './https.js';
-export type { HttpsOptions } from './https.js';
+export type { HttpsOptions, HttpsObservation } from './https.js';
 export { assessPublicSurface, createPublicSurfaceProbe, publicSurfaceTargetSchema } from './public-surface.js';
 export type { PublicSurfaceTarget, PublicSurfaceInventory, PublicSurfaceEntrypoint, PublicSurfaceDiscoverySource, PublicSurfaceStopReason, PublicSurfaceCoverageGap } from './public-surface.js';
 export interface CustomerAssessmentOptions { scanners?: ScannerAdapter; advisory?: AdvisoryAdapter; https?: HttpsOptions; deadlineMs?: number }

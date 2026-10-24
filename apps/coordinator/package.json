@@ -27,6 +27,7 @@
     "ioredis": "^6.0.0",
     "jose": "^6.2.13",
     "zod": "^4.0.0",
-    "@gotchu/scanner": "workspace:*"
+    "@gotchu/scanner": "workspace:*",
+    "@gotchu/monitoring": "workspace:*"
   }
 }

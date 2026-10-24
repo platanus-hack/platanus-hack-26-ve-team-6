@@ -23,6 +23,9 @@ importers:
       '@gotchu/backend':
         specifier: workspace:*
         version: link:packages/backend
+      '@gotchu/contracts':
+        specifier: workspace:*
+        version: link:packages/contracts
       '@gotchu/coordinator':
         specifier: workspace:*
         version: link:apps/coordinator
@@ -38,9 +41,15 @@ importers:
       '@gotchu/gateway':
         specifier: workspace:*
         version: link:apps/gateway
+      '@gotchu/monitoring':
+        specifier: workspace:*
+        version: link:packages/monitoring
       '@gotchu/scanner':
         specifier: workspace:*
         version: link:apps/scanner
+      '@gotchu/scenarios':
+        specifier: workspace:*
+        version: link:packages/scenarios
       '@gotchu/sdk':
         specifier: workspace:*
         version: link:packages/sdk
@@ -95,6 +104,9 @@ importers:
       '@gotchu/demo-target':
         specifier: workspace:*
         version: link:../demo-target
+      '@gotchu/monitoring':
+        specifier: workspace:*
+        version: link:../../packages/monitoring
       '@gotchu/scanner':
         specifier: workspace:*
         version: link:../scanner
@@ -187,6 +199,12 @@ importers:
       '@gotchu/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@gotchu/monitoring':
+        specifier: workspace:*
+        version: link:../../packages/monitoring
+      '@gotchu/scenarios':
+        specifier: workspace:*
+        version: link:../../packages/scenarios
       '@tanstack/react-query':
         specifier: ^5.104.5
         version: 5.104.5(@types/react@19.3.0)(react@19.3.1)
@@ -292,6 +310,9 @@ importers:
       '@gotchu/database':
         specifier: workspace:*
         version: link:../database
+      '@gotchu/scenarios':
+        specifier: workspace:*
+        version: link:../scenarios
       zod:
         specifier: ^4.0.0
         version: 4.6.7
@@ -323,6 +344,30 @@ importers:
       '@types/pg':
         specifier: ^8.15.5
         version: 8.23.1
+
+  packages/monitoring:
+    dependencies:
+      '@gotchu/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@gotchu/customer-assessment':
+        specifier: workspace:*
+        version: link:../customer-assessment
+      zod:
+        specifier: ^4.0.0
+        version: 4.6.7
+
+  packages/scenarios:
+    dependencies:
+      '@gotchu/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      zod:
+        specifier: ^4.0.0
+        version: 4.6.7
 
   packages/sdk:
     dependencies:
