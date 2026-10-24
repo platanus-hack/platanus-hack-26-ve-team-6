@@ -86,12 +86,14 @@ D01/D02 preparan D03. D04 puede avanzar independientemente del triage; D05 y D06
 
 Trabajo:
 
-- [ ] Incorporar entorno, servicio, origen autorizado, relación de dependencia, proveedor/componente y versión de despliegue. Cada relación conserva origen, fecha y estado declarado/verificado/desconocido.
+- [x] Incorporar entorno, servicio, origen autorizado, relación de dependencia, proveedor/componente y versión de despliegue. Cada relación conserva origen, fecha y estado declarado/verificado/desconocido.
 - [ ] Vincular repositorio autorizado, commit, subdirectorio, snapshot digest y artefacto desplegado; conservar identidad de imagen/build cuando exista. Un cliente puede empezar sólo con HTTPS o sólo con fuente.
-- [ ] Extender eventos mediante una versión compatible para identificar release, servicio y dependencia/ruta lógica sin capturar secretos, cuerpos o URLs sensibles. La firma prueba procedencia de la integración, no veracidad absoluta del emisor comprometido.
-- [ ] Añadir onboarding y revocación de repositorio en la interfaz. Empezar con catálogo local administrado y adaptador GitHub opcional; permisos de lectura y escritura separados. No exponer tokens al navegador.
+- [x] Extender eventos mediante una versión compatible para identificar release, servicio y dependencia/ruta lógica sin capturar secretos, cuerpos o URLs sensibles. La firma prueba procedencia de la integración, no veracidad absoluta del emisor comprometido.
+- [x] Añadir onboarding y revocación de repositorio en la interfaz. Empezar con catálogo local administrado y adaptador GitHub opcional; permisos de lectura y escritura separados. No exponer tokens al navegador.
 - [ ] Permitir varias aplicaciones y relaciones de una empresa sin asumir propiedad de dominios descubiertos; cada nuevo activo requiere autorización específica antes de probarlo.
 - [ ] Evolucionar el target único actual hacia un inventario de orígenes y APIs autorizados por entorno. Importar candidatos desde inventario aportado, DNS y referencias públicas dentro de una política acotada; descubrimiento, propiedad y permiso de prueba son estados separados. Un enlace a un tercero no autoriza escanearlo.
+
+**Nota D01:** el catálogo, las relaciones tenant-scoped, el alta/revocación del enlace de repositorio y los atributos opcionales de telemetría están implementados. Siguen parciales la unión de repositorio↔commit/snapshot↔despliegue, la materialización automática de deployments desde eventos firmados y la importación/discovery de orígenes desde DNS o referencias públicas; los candidatos actuales no conceden permiso de prueba.
 
 **Componentes:** `@gotchu/contracts`, database/backend, monitoring, SDK y workspace web. Nuevas tablas/migraciones con FKs tenant-aware y RLS; no sobrecargar texto libre de reportes como inventario.
 
