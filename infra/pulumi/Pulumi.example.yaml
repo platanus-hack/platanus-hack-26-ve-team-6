@@ -1,0 +1,11 @@
+# Copy to Pulumi.<stack>.yaml only through Pulumi CLI configuration.
+# Set these with `pulumi config set --secret` so values are encrypted in stack state.
+config:
+  gotchu:digitalOceanRegion: fra1
+  gotchu:spacesRegion: fra1
+  gotchu:spacesBucketName: replace-with-a-globally-unique-private-bucket-name
+  gotchu:sshAdminCidrs:
+    - 198.51.100.12/32
+  gotchu:sshPublicKey: ssh-ed25519 replace-with-the-operator-public-key
+  gotchu:controlDropletSize: s-1vcpu-2gb
+  gotchu:runnerDropletSize: s-2vcpu-4gb

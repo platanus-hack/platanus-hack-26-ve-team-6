@@ -1,0 +1,7 @@
+name: gotchu-infra
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: Proposed two-VPS foundation and private encrypted object storage for Gotchu.
+main: .
