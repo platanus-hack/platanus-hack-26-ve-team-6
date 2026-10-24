@@ -8,6 +8,7 @@ describe('triage input adapter',()=>{
       id:'observation-1',acceptedAt:'2026-10-24T12:09:00.000Z',body:{kind:'application_error',observedAt:'2026-10-24T12:08:00.000Z',metrics:{windowStartedAt:'2026-10-24T12:00:00.000Z',windowEndedAt:'2026-10-24T12:08:00.000Z',requestCount:20,errorCount:10,latencyP95Ms:900,capacityUtilization:null}},
     }]});
     expect(input.signals).toHaveLength(3);
+    expect(input.signals.every(signal=>signal.environment==='application')).toBe(true);
     expect(input.baselines).toEqual([]);
     expect(input.providerStatuses).toEqual([]);
     expect(input.probes).toEqual([]);
