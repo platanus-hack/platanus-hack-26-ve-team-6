@@ -2,7 +2,7 @@ import { z } from 'zod';
 import {
   contextInventorySchema, contextScopeSchema, createDependencyRelationSchema, createDeploymentSchema,
   createEnvironmentSchema, createOriginCandidateSchema, createRepositoryLinkSchema, createServiceSchema,
-  updateEnvironmentSchema, updateServiceSchema, archiveEnvironmentSchema, revokeRepositoryLinkSchema,
+  updateServiceSchema, archiveEnvironmentSchema, revokeRepositoryLinkSchema,
   environmentSchema, serviceSchema, repositoryLinkSchema, deploymentSchema, dependencyRelationSchema,
   originCandidateSchema,
 } from '@gotchu/contracts';
@@ -11,6 +11,9 @@ import { errorResponse, HttpError, json, readBoundedBody } from './http.js';
 
 export type ContextApiService = Backend['context'];
 const uuid = z.uuid();
+const updateEnvironmentBodySchema = z.object({
+  name: environmentSchema.shape.name.optional(), kind: environmentSchema.shape.kind.optional(),
+}).strict().refine(value => value.name !== undefined || value.kind !== undefined);
 async function readBody(request: Request): Promise<unknown> {
   if (request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') throw new HttpError(415, 'content_type', 'Utiliza application/json.');
   try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await readBoundedBody(request, 16_384))); }
@@ -33,16 +36,15 @@ export async function handleContextApi(request: Request, identity: Identity, ser
       const input = parse(createEnvironmentSchema.omit({ organizationId: true, applicationId: true, observedAt: true }), await readBody(request));
       return json(environmentSchema.parse(await service.createEnvironment(identity, { ...scope, ...input, observedAt: new Date().toISOString() })), 201);
     }
-    if (resource === 'environments' && parts.length === 10) {
+    if (resource === 'environments' && parts.length === 9 && request.method === 'PATCH') {
       const environmentId = parse(uuid, parts[8]);
-      if (request.method === 'PATCH') {
-        const input = parse(updateEnvironmentSchema.omit({ organizationId: true, applicationId: true, environmentId: true }), await readBody(request));
-        return json(environmentSchema.parse(await service.updateEnvironment(identity, { ...scope, environmentId, ...input })));
-      }
-      if (request.method === 'POST' && parts[9] === 'archive') {
-        parse(z.object({}).strict(), await readBody(request));
-        return json(environmentSchema.parse(await service.archiveEnvironment(identity, { ...scope, environmentId, archived: true })));
-      }
+      const input = parse(updateEnvironmentBodySchema, await readBody(request));
+      return json(environmentSchema.parse(await service.updateEnvironment(identity, { ...scope, environmentId, ...input })));
+    }
+    if (resource === 'environments' && parts.length === 10 && parts[9] === 'archive' && request.method === 'POST') {
+      const environmentId = parse(uuid, parts[8]);
+      parse(z.object({}).strict(), await readBody(request));
+      return json(environmentSchema.parse(await service.archiveEnvironment(identity, { ...scope, environmentId, archived: true })));
     }
     if (resource === 'services' && parts.length === 8 && request.method === 'POST') {
       const input = parse(createServiceSchema.omit({ organizationId: true, applicationId: true, observedAt: true }), await readBody(request));

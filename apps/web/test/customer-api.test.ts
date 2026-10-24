@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { BackendError } from '@gotchu/backend';
 import { createCustomerApi, type CustomerServices } from '../src/server/customer-api.js';
+import { contextClient } from '../src/components/context-client.js';
 import type { AuthService } from '../src/server/auth.js';
 import { operationPlanSchema } from '@gotchu/contracts';
 const origin = 'http://localhost:3000';
@@ -318,5 +319,50 @@ describe('authenticated context inventory HTTP adapter', () => {
     const repoWithTrust = new Request(`${origin}/api/customer/${prefix}/repositories`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ repositoryKey: 'repo-main', defaultBranch: 'main', readAccess: 'granted' }) });
     trustRequests[2] = repoWithTrust;
     for (const invalid of trustRequests) expect((await handle(invalid)).status).toBe(400);
+  });
+
+  it('accepts the client environment PATCH path and only the exact archive suffix', async () => {
+    const { services, auth } = ports();
+    const environmentId = randomUUID();
+    const environment = { id: environmentId, applicationId, name: 'staging', kind: 'staging' as const, archived: false,
+      state: 'declared' as const, source: 'customer_declared' as const, observedAt: null, createdAt: new Date().toISOString() };
+    const updateEnvironment = vi.fn(async () => environment);
+    const archiveEnvironment = vi.fn(async () => ({ ...environment, archived: true }));
+    services.context = {
+      list: async () => ({ environments: [], services: [], repositoryLinks: [], deployments: [], dependencies: [], origins: [] }),
+      createEnvironment: async () => undefined, updateEnvironment, archiveEnvironment,
+      createService: async () => undefined, updateService: async () => undefined,
+      createRepositoryLink: async () => undefined, revokeRepositoryLink: async () => undefined,
+      createDeployment: async () => undefined, createDependency: async () => undefined, createOriginCandidate: async () => undefined,
+    };
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const prefix = `workspaces/${organizationId}/applications/${applicationId}/context/environments/${environmentId}`;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const headers = new Headers(init?.headers);
+      headers.set('origin', origin);
+      return handle(new Request(new URL(String(input), origin), { ...init, headers }));
+    });
+    const patch = (suffix = '') => new Request(`${origin}/api/customer/${prefix}${suffix}`, {
+      method: 'PATCH', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'staging' }),
+    });
+    try {
+      const updated = await contextClient.updateEnvironment({ organizationId, applicationId, environmentId, name: 'staging' });
+      expect(updated).toEqual(environment);
+      expect(fetchMock).toHaveBeenCalledWith(`/api/customer/${prefix}`, expect.objectContaining({ method: 'PATCH' }));
+      expect(updateEnvironment).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, environmentId, name: 'staging' });
+      expect((await handle(patch('/extra'))).status).toBe(404);
+      expect((await handle(patch('/archive'))).status).toBe(404);
+      expect(updateEnvironment).toHaveBeenCalledTimes(1);
+
+      const archived = await contextClient.archiveEnvironment({ organizationId, applicationId, environmentId });
+      expect(archived).toMatchObject({ id: environmentId, archived: true });
+      expect(archiveEnvironment).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, environmentId, archived: true });
+      expect((await handle(new Request(`${origin}/api/customer/${prefix}/archive/extra`, {
+        method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: '{}',
+      }))).status).toBe(404);
+      expect(archiveEnvironment).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 });
