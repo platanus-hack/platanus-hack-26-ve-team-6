@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { assessmentModeSchema, assessmentReportFields, refineAssessmentReport } from './assessment.js';
+import { licensePolicySchema } from './supply-chain.js';
 
 const uuid = z.uuid().transform(value => value.toLowerCase());
 const timestamp = z.iso.datetime().refine(value => !value.startsWith('0000-'));
@@ -42,11 +43,13 @@ export const customerEnrollmentSchema = z.object({ target: customerTargetSchema,
 export const customerSourceFileSchema = z.object({
   path: z.string().min(1).max(512).refine(path => {
     const parts = path.split('/');
+    const lockFiles = new Set(['bun.lock', 'bun.lockb', 'cargo.lock', 'composer.lock', 'gemfile.lock', 'pipfile.lock', 'poetry.lock', 'uv.lock', 'go.sum', 'gradle.lockfile', 'yarn.lock']);
     return !/[\\\x00-\x1f\x7f:]/.test(path) && parts.every(part => part !== '' && part !== '.' && part !== '..'
       && !['.git', 'node_modules'].includes(part.toLowerCase()) && !part.toLowerCase().startsWith('.env'))
       && (/(?:^|\/)(?:dockerfile|containerfile)(?:\.[a-z0-9_-]+)?$/i.test(path)
-        || /\.(?:[cm]?[jt]sx?|json|ya?ml|toml|py|go|java|tf|tfvars|hcl|dockerfile)$/i.test(path));
-  }, 'Only normalized relative JS/TS, Python, Go, Java, Dockerfile/Containerfile, Terraform, JSON, YAML and TOML paths are supported'),
+        || /\.(?:[cm]?[jt]sx?|json|ya?ml|toml|py|go|java|tf|tfvars|hcl|dockerfile)$/i.test(path)
+        || lockFiles.has(parts.at(-1)?.toLowerCase() ?? ''));
+  }, 'Only normalized relative JS/TS, Python, Go, Java, Dockerfile/Containerfile, Terraform, JSON, YAML, TOML and recognized lockfile paths are supported'),
   content: z.string().refine(value => !value.includes('\0') && bytes(value) <= CUSTOMER_MAX_SOURCE_FILE_BYTES, 'File exceeds 1 MiB or contains NUL'),
 }).strict();
 export const customerSourceSnapshotSchema = z.object({ revision: z.string().min(1).max(200).refine(value => !value.includes('\0')), files: z.array(customerSourceFileSchema).min(1).max(CUSTOMER_MAX_SOURCE_FILES) }).strict().superRefine((value, context) => {
@@ -107,6 +110,7 @@ export const customerRunInputSchema = customerScopeSchema.extend({
   source: customerSourceSnapshotSchema.safeExtend({ id: uuid, digest }).nullable(),
   containerImage: customerRunContainerImageSchema.nullable().optional(),
   target: z.object({ id: uuid, origin: customerOriginSchema, version: z.number().int().positive(), verifiedAt: timestamp, expiresAt: timestamp, scanProfile: customerScanProfileSchema.optional() }).strict().nullable(),
+  licensePolicy: licensePolicySchema.optional(),
 }).strict().superRefine((value, context) => {
   const inputKind = value.inputKind ?? 'source_snapshot';
   const hasSource = value.mode !== 'external';

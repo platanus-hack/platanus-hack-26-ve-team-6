@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dependencyInventorySchema } from './supply-chain.js';
 
 export const assessmentModeSchema = z.enum(['internal', 'external', 'both']);
 export const demoRevisionSchema = z.enum(['vulnerable', 'corrected']);
@@ -49,6 +50,7 @@ export const assessmentAnalysisSchema = z.object({
   tool,
   findings: z.array(assessmentFindingSchema).max(100),
   evidence: z.array(assessmentEvidenceSchema).max(200),
+  dependencyInventory: dependencyInventorySchema.optional(),
   coverage: z.array(z.object({
     capability: z.string().min(1).max(128),
     state: z.enum(['inspected', 'not_requested', 'unsupported', 'unavailable']),

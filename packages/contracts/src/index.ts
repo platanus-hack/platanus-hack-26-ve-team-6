@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { runtimeAttackEventAttributesSchema, runtimeProtectionHeartbeatAttributesSchema } from './telemetry.js';
 export * from './assessment.js';
+export * from './supply-chain.js';
 export * from './demo-api.js';
 
 export const idSchema = z.uuid();
