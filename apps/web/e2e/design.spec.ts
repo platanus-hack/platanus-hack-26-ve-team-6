@@ -94,10 +94,15 @@ test('the theme switch moves between pure white, pure black and the system prefe
     const viewport = page.viewportSize();
     if (!viewport) throw new Error('Theme synchronization needs a configured viewport');
     await page.setViewportSize({ width: 1440, height: 1000 });
+    // Resizing reflows the long page and can move its scroll position; return to the header.
+    await page.evaluate(() => scrollTo({ top: 0, behavior: 'instant' }));
+    await expect(page.locator('.gl-header')).not.toHaveClass(/is-tucked/);
     await openThemeMenu(page);
     await expect(page.getByRole('menuitemradio', { name: 'Claro', exact: true })).toBeChecked();
     await page.keyboard.press('Escape');
     await page.setViewportSize(viewport);
+    await page.evaluate(() => scrollTo({ top: 0, behavior: 'instant' }));
+    await expect(page.locator('.gl-header')).not.toHaveClass(/is-tucked/);
   }
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
