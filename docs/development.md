@@ -24,7 +24,7 @@ Deterministic source/HTTPS assessments do not need a model key. Keep `LANGSMITH_
 
 If a pinned image is missing, startup stops before launching the Node services and names the missing image. `dev:prepare` builds the small profile package and checks Docker storage before pulling only missing pinned scanner and data-service images. It requires at least 5 GiB free in Docker storage before beginning any pull. With less free space, it pulls nothing and asks you to free space first. The scanner profile pins Semgrep 1.90.0 and is enforced as development/test-only; scanner production readiness is not established.
 
-An authorized `public_surface` assessment stays on the consented origin and makes at most ten serial GETs, reading up to 64 KiB total and 16 KiB per response. It discovers safe same-origin links from HTML, robots, and sitemap responses without JavaScript execution. It does not query APIs, inspect subdomains, use authentication, or follow redirects. Only complete TLS responses support path-specific CSP, HSTS, and nosniff observations; these do not prove software identity or exploitation.
+An authorized `public_surface` assessment stays on the consented origin and makes at most ten serial GETs, reading up to 64 KiB total and 16 KiB per response. It discovers safe same-origin links from HTML, robots, and sitemap responses without JavaScript execution. It may GET safe discovered same-origin public paths; it performs no authenticated or state-changing API exercise or API introspection. It does not inspect subdomains or follow redirects. Only complete TLS responses support path-specific CSP, HSTS, and nosniff observations; these do not prove software identity or exploitation.
 
 Useful local locations:
 
