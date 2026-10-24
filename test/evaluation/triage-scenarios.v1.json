@@ -1,5 +1,5 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "rulesVersion": "triage.rules.v1",
   "repetitions": 5,
   "protocol": {
@@ -20,6 +20,7 @@
     "minimumRepetitionsPerCase": 5,
     "negativeControlFalseAlarmsPerAppWindow": 0,
     "supportedScenarioRecall": 0.8,
+    "maximumConfidenceErrorRate": 0.1,
     "triageDecisionP95Ms": 5000
   },
   "cases": [

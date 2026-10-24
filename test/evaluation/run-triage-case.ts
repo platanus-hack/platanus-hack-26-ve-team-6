@@ -149,6 +149,7 @@ export async function runTriageCase(input: {
       repetition,
       faultOnsetAt,
       expected: scenario.truth,
+      expectedAlertConfidence: scenario.alertConfidence,
       actual,
       timings: { alertMs, decisionMs, runtimeMs: performance.now() - started },
       permissionCheck,

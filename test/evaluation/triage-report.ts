@@ -9,6 +9,7 @@ export interface TrialResult {
   readonly repetition: number;
   readonly faultOnsetAt: string;
   readonly expected: ScenarioCase['truth'];
+  readonly expectedAlertConfidence: ScenarioCase['alertConfidence'];
   readonly actual: {
     readonly impact: string | null;
     readonly hypotheses: readonly { kind: string; status: string; confidence: string }[];
@@ -175,6 +176,10 @@ export function buildEvaluationReport(input: {
         supportedCauseRecallTarget: input.acceptanceTargets.supportedScenarioRecall,
         supportedCauseRecall: causeRecall,
         supportedCauseRecallMet: causeRecall !== null && causeRecall >= input.acceptanceTargets.supportedScenarioRecall,
+        maximumConfidenceErrorRateTarget: input.acceptanceTargets.maximumConfidenceErrorRate,
+        confidenceErrorRate: confidenceDenominator ? confidenceErrors / confidenceDenominator : null,
+        confidenceErrorRateMet: confidenceDenominator > 0
+          && confidenceErrors / confidenceDenominator <= input.acceptanceTargets.maximumConfidenceErrorRate,
         negativeControlFalseAlarmTargetPerAppWindow: input.acceptanceTargets.negativeControlFalseAlarmsPerAppWindow,
         negativeControlFalseAlarmRate,
         negativeControlFalseAlarmRateMet: negativeControlFalseAlarmRate !== null
@@ -231,6 +236,11 @@ export function buildEvaluationReport(input: {
         kind: 'alert', expected: rule, actual: 'missing' });
       for (const rule of trial.expected.incidentRules) if (!trial.actual.incidentRules.includes(rule)) failures.push({ caseId: trial.caseId, repetition: trial.repetition,
         kind: 'incident', expected: rule, actual: 'missing' });
+      for (const [rule, confidence] of Object.entries(trial.expectedAlertConfidence)) {
+        const actual = trial.actual.dimensions.find(item => item.rule === rule)?.confidence;
+        if (actual !== confidence) failures.push({ caseId: trial.caseId, repetition: trial.repetition, kind: 'alert_confidence',
+          expected: confidence, actual: actual ?? 'missing' });
+      }
       for (const rule of trial.actual.falseAlarmRules) failures.push({ caseId: trial.caseId, repetition: trial.repetition,
         kind: 'false_alarm', expected: 'no unlabelled operational signal', actual: rule });
       const expectedKinds = new Set<string>(trial.expected.hypotheses.map(item => item.kind));
@@ -254,7 +264,7 @@ export function formatEvaluationMarkdown(report: ReturnType<typeof buildEvaluati
     const scenarios = item.scenarios.map(scenario => `| ${item.split} | ${scenario.scenario} | ${percent(scenario.alerts.precision)}/${percent(scenario.alerts.recall)} (${scenario.alerts.truePositives}/${scenario.alerts.predictedPositives}/${scenario.alerts.actualPositives}) | ${percent(scenario.triageCauses.precision)}/${percent(scenario.triageCauses.recall)} (${scenario.triageCauses.truePositives}/${scenario.triageCauses.predictedPositives}/${scenario.triageCauses.actualPositives}) | ${scenario.alerts.falseAlarmAppWindows}/${scenario.repetitions} | ${scenario.abstention.cases}/${scenario.abstention.denominator} | ${scenario.confidence.errors}/${scenario.confidence.denominator} | ${scenario.impact.denominator - scenario.impact.correct}/${scenario.impact.denominator} | ${metricNumber(scenario.timingMs.alertP50)}/${metricNumber(scenario.timingMs.alertP95)} (${scenario.timingMs.alertCount}/${scenario.timingMs.alertDenominator}) | ${metricNumber(scenario.timingMs.decisionP50)}/${metricNumber(scenario.timingMs.decisionP95)} (${scenario.timingMs.decisionCount}/${scenario.timingMs.decisionDenominator}) |`);
     return scenarios.join('\n');
   }).join('\n');
-  const summary = splits.map(item => `- **${item.split}:** ${item.caseCount} cases × ${report.repetitionsPerCase} = ${item.trialCount} app/windows; alerts P/R ${percent(item.alertMetrics.precision)}/${percent(item.alertMetrics.recall)} (TP/predicted/actual ${item.alertMetrics.truePositives}/${item.alertMetrics.predictedPositives}/${item.alertMetrics.actualPositives}); triage causes P/R ${percent(item.triageCauseMetrics.precision)}/${percent(item.triageCauseMetrics.recall)} (${item.triageCauseMetrics.truePositives}/${item.triageCauseMetrics.predictedPositives}/${item.triageCauseMetrics.actualPositives}); false alarms ${item.falseAlarms.count} across ${item.falseAlarms.denominator} windows (${item.falseAlarms.perAppWindow.toFixed(3)} windows/app-window); abstention ${item.abstention.count}/${item.abstention.denominator}; confidence errors ${item.confidence.errors}/${item.confidence.denominator}; impact errors ${item.impact.denominator - item.impact.correct}/${item.impact.denominator}; explicit unknown coverage ${item.unknownCoverage.visible}/${item.unknownCoverage.denominator}; alert p50/p95 ${metricNumber(item.timingMs.alertP50)}/${metricNumber(item.timingMs.alertP95)} ms (${item.timingMs.alertCount}/${item.timingMs.alertDenominator} alert-bearing windows); triage p50/p95 ${metricNumber(item.timingMs.decisionP50)}/${metricNumber(item.timingMs.decisionP95)} ms (${item.timingMs.decisionCount}/${item.timingMs.decisionDenominator} windows); fixed acceptance targets met: cases ${item.acceptance.minimumCaseCountMet}, repetitions ${item.acceptance.minimumRepetitionsPerCaseMet}, cause recall ${item.acceptance.supportedCauseRecallMet}, traffic control ${item.acceptance.negativeControlFalseAlarmRateMet}, triage p95 ${item.acceptance.triageDecisionP95Met}.`).join('\n');
+  const summary = splits.map(item => `- **${item.split}:** ${item.caseCount} cases × ${report.repetitionsPerCase} = ${item.trialCount} app/windows; alerts P/R ${percent(item.alertMetrics.precision)}/${percent(item.alertMetrics.recall)} (TP/predicted/actual ${item.alertMetrics.truePositives}/${item.alertMetrics.predictedPositives}/${item.alertMetrics.actualPositives}); triage causes P/R ${percent(item.triageCauseMetrics.precision)}/${percent(item.triageCauseMetrics.recall)} (${item.triageCauseMetrics.truePositives}/${item.triageCauseMetrics.predictedPositives}/${item.triageCauseMetrics.actualPositives}); false alarms ${item.falseAlarms.count} across ${item.falseAlarms.denominator} windows (${item.falseAlarms.perAppWindow.toFixed(3)} windows/app-window); abstention ${item.abstention.count}/${item.abstention.denominator}; confidence errors ${item.confidence.errors}/${item.confidence.denominator}; impact errors ${item.impact.denominator - item.impact.correct}/${item.impact.denominator}; explicit unknown coverage ${item.unknownCoverage.visible}/${item.unknownCoverage.denominator}; alert p50/p95 ${metricNumber(item.timingMs.alertP50)}/${metricNumber(item.timingMs.alertP95)} ms (${item.timingMs.alertCount}/${item.timingMs.alertDenominator} alert-bearing windows); triage p50/p95 ${metricNumber(item.timingMs.decisionP50)}/${metricNumber(item.timingMs.decisionP95)} ms (${item.timingMs.decisionCount}/${item.timingMs.decisionDenominator} windows); fixed acceptance targets met: cases ${item.acceptance.minimumCaseCountMet}, repetitions ${item.acceptance.minimumRepetitionsPerCaseMet}, cause recall ${item.acceptance.supportedCauseRecallMet}, confidence error rate ${item.acceptance.confidenceErrorRateMet}, traffic control ${item.acceptance.negativeControlFalseAlarmRateMet}, triage p95 ${item.acceptance.triageDecisionP95Met}.`).join('\n');
   const failureKinds = new Map<string, number>();
   for (const failure of report.failures) failureKinds.set(failure.kind, (failureKinds.get(failure.kind) ?? 0) + 1);
   const failureSummary = failureKinds.size ? [...failureKinds].sort(([left], [right]) => left.localeCompare(right))

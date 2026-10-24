@@ -67,6 +67,7 @@ const scenarioMatrixSchema = z.object({
     minimumRepetitionsPerCase: z.number().int().positive(),
     negativeControlFalseAlarmsPerAppWindow: z.number().int().nonnegative(),
     supportedScenarioRecall: z.number().gt(0).lte(1),
+    maximumConfidenceErrorRate: z.number().min(0).lte(1),
     triageDecisionP95Ms: z.number().positive(),
   }).strict(),
   cases: z.array(scenarioCaseSchema),
