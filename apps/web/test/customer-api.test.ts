@@ -8,6 +8,7 @@ import type { AuthService } from '../src/server/auth.js';
 import type { LocalAccounts } from '../src/server/local-accounts.js';
 import { decisionRecordPageSchema, operationPlanSchema } from '@gotchu/contracts';
 import type { LicensePolicy } from '@gotchu/contracts';
+import type { WorkspaceRetentionPolicy } from '@gotchu/contracts';
 import { customerAssessmentReportSchema } from '@gotchu/contracts';
 import { buildCycloneDx } from '@gotchu/customer-assessment';
 const origin = 'http://localhost:3000';
@@ -113,6 +114,28 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect(await response.json()).toMatchObject({ error: { code: 'self_host_setup_required' } });
     expect(bootstrapComplete).toHaveBeenCalledExactlyOnceWith();
     expect(createWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('reads and updates workspace retention through the authenticated workspace path', async () => {
+    const { services, auth } = ports();
+    const policy: WorkspaceRetentionPolicy = { organizationId, sourceSnapshotDays: 90, containerImageDays: 30, reportDays: 365,
+      observationDays: 30, runDays: 30, notificationDeliveryDays: 90, protectionEventDays: 30, updatedAt: new Date().toISOString() };
+    const getPolicy = vi.fn(async () => policy);
+    const updatePolicy = vi.fn(async (_identity: { userId: string }, input: { organizationId: string; sourceSnapshotDays: number; containerImageDays: number; reportDays: number; observationDays: number; runDays: number; notificationDeliveryDays: number; protectionEventDays: number }) => ({ ...input, updatedAt: new Date().toISOString() }));
+    services.retention = { getPolicy, updatePolicy, claimDue: async () => [], purge: async () => ({ sourceSnapshots: 0, containerImages: 0, reports: 0, observations: 0, runs: 0, notificationDeliveries: 0, protectionEvents: 0, proposalsInvalidated: 0 }) };
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `/api/customer/workspaces/${organizationId}/retention`;
+    const fetched = await handle(new Request(`${origin}${path}`));
+    expect(fetched.status).toBe(200);
+    expect(await fetched.json()).toMatchObject(policy);
+    expect(getPolicy).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId });
+    const invalid = await handle(new Request(`${origin}${path}`, { method: 'PUT', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ ...policy, sourceSnapshotDays: 0 }) }));
+    expect(invalid.status).toBe(400);
+    expect(updatePolicy).not.toHaveBeenCalled();
+    const updated = await handle(new Request(`${origin}${path}`, { method: 'PUT', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ ...policy, updatedAt: undefined, organizationId: undefined }) }));
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({ ...policy, updatedAt: expect.any(String) });
+    expect(updatePolicy).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, sourceSnapshotDays: 90, containerImageDays: 30, reportDays: 365, observationDays: 30, runDays: 30, notificationDeliveryDays: 90, protectionEventDays: 30 });
   });
 
   it('fails closed when step-up routes are unavailable', async () => {
