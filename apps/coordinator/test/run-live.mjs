@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
@@ -42,12 +43,13 @@ try {
   const smtpPort = command('docker', ['port', mailpit, '1025/tcp']).split(':').at(-1);
   const mailpitPort = command('docker', ['port', mailpit, '8025/tcp']).split(':').at(-1);
   if (!pgPort || !redisPort || !smtpPort || !mailpitPort || !/^\d+$/.test(pgPort) || !/^\d+$/.test(redisPort) || !/^\d+$/.test(smtpPort) || !/^\d+$/.test(mailpitPort)) throw new Error('Invalid Docker loopback mapping');
-  console.log(`Live assessment checks: Postgres 127.0.0.1:${pgPort}, Redis 127.0.0.1:${redisPort}, Mailpit SMTP 127.0.0.1:${smtpPort}; synthetic runner evidence.`);
+  console.log(`Live assessment checks: Postgres 127.0.0.1:${pgPort}, Redis 127.0.0.1:${redisPort}, Mailpit SMTP 127.0.0.1:${smtpPort}; test runner path.`);
   const testFile = process.env.GOTCHU_TEST_FILE;
   const result = spawnSync('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/coordinator', 'exec', 'vitest', 'run', ...(testFile ? [testFile] : []), '--fileParallelism=false'], {
     cwd: root, stdio: 'inherit', env: { ...process.env,
       GOTCHU_TEST_DATABASE_URL: `postgres://postgres:${pgPassword}@127.0.0.1:${pgPort}/gotchu_test_assessments`,
       GOTCHU_TEST_REDIS_URL: `redis://:${redisPassword}@127.0.0.1:${redisPort}/0`,
+      GOTCHU_SCANNER_TRIVY_DB_DIRECTORY: join(root, '.local/dev/trivy-db'),
       GOTCHU_TEST_SMTP_URL: `smtp://127.0.0.1:${smtpPort}`,
       GOTCHU_TEST_MAILPIT_API: `http://127.0.0.1:${mailpitPort}`,
     },

@@ -13,7 +13,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run",
-    "test:live": "node test/run-live.mjs",
+    "test:live": "node ../../scripts/update-trivy-db.mjs && node test/run-live.mjs",
     "start": "node dist/main.js"
   },
   "dependencies": {
@@ -30,5 +30,8 @@
     "@gotchu/scanner": "workspace:*",
     "@gotchu/monitoring": "workspace:*",
     "@gotchu/triage": "workspace:*"
+  },
+  "devDependencies": {
+    "@gotchu/customer-assessment": "workspace:*"
   }
 }
