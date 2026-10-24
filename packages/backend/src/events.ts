@@ -29,7 +29,7 @@ export function createEventService(deps: BaseDependencies & { credentials?: Cred
       const credentials = deps.credentials;
       if (!credentials) throw new BackendError('credential_unavailable', 'No signing credential store is configured', 503);
       return deps.database.integration(input.integrationId, async tx => {
-        await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [input.integrationId]);
+        await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [input.integrationId.toLowerCase()]);
         const context = await tx.query<{ organization_id: string; application_id: string; credential_ref: string }>(`SELECT i.organization_id, i.application_id, c.credential_ref
           FROM gotchu.integrations i JOIN gotchu.integration_credentials c ON c.organization_id=i.organization_id AND c.integration_id=i.id
           WHERE i.id=$1 AND i.status='active' AND i.kind='signed_events'`, [input.integrationId]);

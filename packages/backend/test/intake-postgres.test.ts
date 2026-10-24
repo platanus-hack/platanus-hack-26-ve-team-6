@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
-import { createBackend, enqueue, signEventBody, type EventIntakeInput } from '../src/index.js';
+import { createBackend, completeJob, enqueue, signEventBody, type EventIntakeInput } from '../src/index.js';
 const live = liveUrl ? describe : describe.skip;
 live('real Postgres signed intake, outbox, and membership', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
@@ -33,8 +33,12 @@ live('real Postgres signed intake, outbox, and membership', () => {
   });
   it('deduplicates UUID spellings without changing identity', async () => {
     const original = event();
-    await intake.events.ingest(signed([original]));
-    expect(await intake.events.ingest(signed([{ ...original, id: original.id.toUpperCase() }]))).toMatchObject({ accepted: 0, duplicates: 1 });
+    const replay = signed([{ ...original, id: original.id.toUpperCase() }]);
+    replay.integrationId = replay.integrationId.toUpperCase();
+    replay.signature = signEventBody(secret, replay.integrationId, replay.timestamp, replay.rawBody);
+    const results = await Promise.all([intake.events.ingest(signed([original])), intake.events.ingest(replay)]);
+    expect(results.map(result => result.accepted).sort()).toEqual([0, 1]);
+    expect(results.map(result => result.duplicates).sort()).toEqual([0, 1]);
   });
   it('rejects forged, expired, wrong-application and changed-content replay batches', async () => {
     const original = event();
@@ -79,7 +83,17 @@ live('real Postgres signed intake, outbox, and membership', () => {
     await f.admin.query("UPDATE gotchu.jobs SET lease_until=now()-interval '1 second' WHERE organization_id=$1 AND id=$2", [f.a.organizationId, accepted.jobId]);
     const newer = await coordinator.jobs.claim({ organizationId: f.a.organizationId, jobId: present(accepted.jobId) });
     await expect(coordinator.jobs.complete({ organizationId: f.a.organizationId, jobId: present(accepted.jobId), leaseToken: job.leaseToken })).rejects.toMatchObject({ code: 'stale_lease' });
-    await coordinator.jobs.complete({ organizationId: f.a.organizationId, jobId: present(accepted.jobId), leaseToken: present(newer).leaseToken });
+    const incidentId = randomUUID();
+    async function effectAndComplete(leaseToken: string) {
+      await f.databases.gotchu_coordinator.tenant(f.a.organizationId, async tx => {
+        await tx.query("INSERT INTO gotchu.incidents(organization_id,application_id,id,rule_id,dedupe_key,summary,severity) VALUES ($1,$2,$3,'test.rule',$4,'Deterministic test effect','low') ON CONFLICT DO NOTHING", [f.a.organizationId, f.a.applicationId, incidentId, present(accepted.jobId)]);
+        await completeJob(tx, { organizationId: f.a.organizationId, jobId: present(accepted.jobId), leaseToken });
+      });
+    }
+    await expect(effectAndComplete(job.leaseToken)).rejects.toMatchObject({ code: 'stale_lease' });
+    expect((await f.admin.query('SELECT 1 FROM gotchu.incidents WHERE id=$1', [incidentId])).rowCount).toBe(0);
+    await effectAndComplete(present(newer).leaseToken);
+    expect((await f.admin.query('SELECT 1 FROM gotchu.incidents WHERE id=$1', [incidentId])).rowCount).toBe(1);
     expect(await coordinator.jobs.claim({ organizationId: f.a.organizationId, jobId: present(accepted.jobId) })).toBeNull();
   });
   it('authorizes the trusted user on every request and keeps unavailable coverage explicit', async () => {
