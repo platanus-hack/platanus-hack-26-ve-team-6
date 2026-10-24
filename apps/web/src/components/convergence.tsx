@@ -91,14 +91,14 @@ export function Convergence() {
       <p ref={bind('right')} className="g-tag g-stage-label g-stage-label-right" aria-hidden="true">[ HTTPS ]</p>
       <div className="g-stage-step g-stage-two">
         <div ref={bind('two')} className="g-stage-copy">
-          <h2 id="stage-title">Por dentro y por fuera.<br /><span>A la vez.</span></h2>
-          <p>Revisamos tu código y lo que tu web le muestra al mundo. Cuando los dos apuntan al mismo problema, lo verás juntos.</p>
+          <h2 id="stage-title">Dos miradas.<br /><span>Más contexto.</span></h2>
+          <p>Revisa el código y la web juntos para distinguir qué coincide y qué aparece en una sola revisión.</p>
         </div>
       </div>
       <div className="g-stage-step g-stage-one">
         <div ref={bind('one')} className="g-stage-copy">
-          <h2>Nada de alertas<br /><span>sin pruebas.</span></h2>
-          <p>Cada hallazgo llega con su gravedad, qué tan seguros estamos y el fragmento que lo demuestra. Y si algo no se pudo revisar, también te lo decimos.</p>
+          <h2>Cada hallazgo.<br /><span>Su evidencia.</span></h2>
+          <p>Cada hallazgo indica gravedad y confianza, con evidencia; el reporte aclara qué se revisó, qué quedó fuera y sus límites.</p>
         </div>
         <div ref={bind('report')} className="g-stage-report"><ReportCard /></div>
       </div>

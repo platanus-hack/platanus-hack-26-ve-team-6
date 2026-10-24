@@ -21,8 +21,8 @@ export function Hero() {
       <span className="g-hero-scan" aria-hidden="true" />
       <div className="g-hero-inner g-wrap">
         <div className="g-hero-copy">
-          <h1 id="hero-title">Tu código y tu web. <span>Bajo la misma lupa.</span></h1>
-          <p className="g-hero-lead">Sube tu código o conecta tu dominio. Gotchu te dice qué encontró, cómo lo sabe y qué le faltó por revisar.</p>
+          <h1 id="hero-title">Mira de cerca. <span>Decide con pruebas.</span></h1>
+          <p className="g-hero-lead">Revisa el código de tu app, tu web o ambos, con evidencia para entender cada hallazgo y saber por dónde seguir.</p>
           <div className="g-hero-actions">
             <a className="g-button g-button-paper" href="/dashboard" data-catch>Revisar mi aplicación <UiIcon name="arrow" /></a>
             <a className="g-text-link" href="#codigo">Cómo funciona <span className="g-arrow-down"><UiIcon name="arrow" size={16} /></span></a>

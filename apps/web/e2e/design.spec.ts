@@ -19,8 +19,8 @@ test('landing is server-rendered without a loader, fabricated results or explana
   page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/')) apiRequests.push(request.url()); });
   const response = await page.goto('/', { waitUntil: 'networkidle' });
   expect(response?.status()).toBe(200);
-  expect(await response?.text()).toContain('Tu código y tu web.');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Tu código y tu web. Bajo la misma lupa.');
+  expect(await response?.text()).toContain('Mira de cerca.');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Mira de cerca. Decide con pruebas.');
   await expect(page.locator('body')).not.toContainText(/ilustración conceptual|ejemplo ilustrativo|no es un análisis en vivo|cambiar de pestaña solo|cargando/i);
   await expect(page.locator('.g-page img')).toHaveCount(0);
   await expect(page.locator('.g-hero-mark .g-ascii')).toHaveAttribute('data-ready', 'true');
@@ -93,7 +93,7 @@ test('scrolling separates the perspectives, closes them on a finding and brings 
   await expect.poll(() => opacity('.g-stage-flash')).toBeGreaterThan(.5);
   await stage.evaluate(element => window.scrollTo(0, element.offsetTop + element.offsetHeight - innerHeight));
   await expect.poll(() => opacity('.g-stage-report')).toBeGreaterThan(.95);
-  await expect(page.getByRole('heading', { name: /Nada de alertas/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeVisible();
   await expect(page.locator('.g-report-card')).toContainText('Lo que se revisó y lo que quedó fuera');
   await page.locator('.g-footer').scrollIntoViewIfNeeded();
   await expect(page.getByRole('link', { name: 'Gotchu, volver al inicio' })).toBeVisible();
@@ -119,7 +119,7 @@ test('reduced motion and a 320px viewport retain all content without pointer or 
   await page.getByRole('tab', { name: 'HTTPS', exact: true }).click();
   await expect(page.getByRole('tabpanel')).toContainText('sin compartir el código fuente');
   expect(await page.locator('.g-hero-scan').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
-  await expect(page.getByRole('heading', { name: /Nada de alertas/ })).toBeAttached();
+  await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeAttached();
   await checkLayout(page); await checkA11y(page);
 });
 
@@ -137,8 +137,8 @@ test('the product journey presents source versioning, DNS authorization and pers
     await expect(flow.getByRole('heading', { name: step.title, exact: true })).toBeVisible();
     await expect(flow).toContainText(step.text);
   }
-  await expect(page.locator('.g-workflow')).toContainText('Un historial que no se pierde');
-  await expect(page.locator('.g-workflow')).toContainText('Tus datos, en JSON');
+  await expect(page.locator('.g-workflow')).toContainText('Cada revisión, en su lugar');
+  await expect(page.locator('.g-workflow')).toContainText('Llévate los datos contigo');
   await expect(page.getByRole('link', { name: 'Ir a mis aplicaciones', exact: true })).toHaveAttribute('href', '/dashboard');
   await page.locator('.g-workflow').scrollIntoViewIfNeeded();
   await checkLayout(page); await checkA11y(page);
@@ -147,8 +147,8 @@ test('the product journey presents source versioning, DNS authorization and pers
 test('the headline and primary CTA remain usable without JavaScript', async ({ browser, baseURL }) => {
   const context = await browser.newContext({ javaScriptEnabled: false }); const page = await context.newPage();
   await page.goto(baseURL ?? 'http://127.0.0.1:3085/');
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('Bajo la misma lupa.');
-  await expect(page.getByRole('heading', { name: /Nada de alertas/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Decide con pruebas.');
+  await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Revisar mi aplicación', exact: true })).toHaveAttribute('href', '/dashboard');
   await context.close();
 });

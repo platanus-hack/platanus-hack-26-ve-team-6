@@ -3,8 +3,8 @@ import { LandingPage } from '../components/landing';
 
 export const Route = createFileRoute('/')({
   head: () => ({ meta: [
-    { title: 'Gotchu · Tu código y tu web, bajo la misma lupa.' },
-    { name: 'description', content: 'Sube tu código o conecta tu dominio. Gotchu te dice qué encontró, cómo lo sabe y qué le faltó por revisar.' },
+    { title: 'Gotchu · Mira de cerca. Decide con pruebas.' },
+    { name: 'description', content: 'Revisa el código de tu app, tu web o ambos, con evidencia para entender cada hallazgo y saber por dónde seguir.' },
   ] }),
   component: LandingPage,
 });
