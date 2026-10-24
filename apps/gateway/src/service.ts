@@ -4,8 +4,8 @@ import {
   safeCheckpointSchema, verifyRunCapability,
   type EvidenceRecord, type RunScope, type SafeInvestigationCheckpoint, type VerifiedRunCapability,
 } from '@gotchu/agent';
-import { createModelEndpointValidator, createRunService, modelConfigurationFingerprint, type ModelEndpointValidator, type ModelSecretStore } from '@gotchu/backend';
-import { customerAssessmentReportSchema, customerSourceSnapshotSchema, eventTypeSchema, investigationDataScopeSchema, investigationModelEndpointSchema, investigationProviderCatalog, investigationProviderPresetIdSchema, modelProviderSchema, operationObservationSchema } from '@gotchu/contracts';
+import { createModelEndpointValidator, createRunService, modelConfigurationFingerprint, verifyModelProbeToken, type ModelEndpointValidator, type ModelProbeClaims, type ModelSecretStore } from '@gotchu/backend';
+import { customerAssessmentReportSchema, customerSourceSnapshotSchema, eventTypeSchema, investigationDataScopeSchema, investigationModelEndpointSchema, investigationModelProbeRequestSchema, investigationModelProbeResultSchema, investigationModelProviderForPreset, investigationProviderCatalog, investigationProviderPresetIdSchema, modelProviderSchema, operationObservationSchema } from '@gotchu/contracts';
 import type { Database, Transaction } from '@gotchu/database';
 import type { CryptoKey } from 'jose';
 import { z } from 'zod';
@@ -14,7 +14,7 @@ import {
   inputRequestSchema, modelRequestSchema, readRequestSchema, type GatewayOperation,
 } from './contracts.js';
 import { GatewayError } from './errors.js';
-import { createModelPort, type ModelPort } from './model-provider.js';
+import { createModelPort, ModelProviderError, type ModelPort } from './model-provider.js';
 
 const runRowSchema = z.object({
   applicationId: z.uuid(), state: z.enum(['pending', 'running', 'succeeded', 'unavailable', 'failed']),
@@ -253,6 +253,7 @@ export interface GatewayRequest {
 export function createGatewayService(options: {
   database: Database;
   capabilityPublicKey: CryptoKey;
+  modelProbeSecret?: Uint8Array;
   modelPort?: ModelPort;
   modelSecrets?: ModelSecretStore;
   modelEndpointValidator?: ModelEndpointValidator;
@@ -267,6 +268,19 @@ export function createGatewayService(options: {
   async function authenticate(token: string) {
     if (token.length > 16_000) throw new GatewayError('invalid_capability', 401);
     return verifyRunCapability(token, capabilityPublicKey);
+  }
+
+  async function probe(token: string, raw: unknown): Promise<ModelProbeResult> {
+    if (!options.modelProbeSecret) return probeUnavailable();
+    const input = investigationModelProbeRequestSchema.parse(raw);
+    let claims: ModelProbeClaims;
+    try { claims = verifyModelProbeToken(options.modelProbeSecret, token); }
+    catch { throw new GatewayError('invalid_probe_capability', 401); }
+    if (claims.organizationId !== input.organizationId || claims.requestId !== input.requestId) {
+      throw new GatewayError('probe_capability_scope_mismatch', 403);
+    }
+    return invokeModelProbe({ database, modelPort, ...(options.modelSecrets ? { modelSecrets: options.modelSecrets } : {}),
+      ...(options.modelEndpointValidator ? { modelEndpointValidator: options.modelEndpointValidator } : {}), ...input });
   }
 
   async function request(request: GatewayRequest): Promise<unknown> {
@@ -380,7 +394,7 @@ export function createGatewayService(options: {
     });
   }
 
-  return { authenticate, request };
+  return { authenticate, request, probe };
 }
 
 function sanitizeCheckpoint(
@@ -415,7 +429,7 @@ const modelSettingsSchema = z.object({
   output_price_micro_usd_per_million_tokens: z.union([z.string(), z.number()]),
 }).strict().superRefine((value, context) => {
   const preset = investigationProviderCatalog.find(item => item.id === value.provider_preset_id);
-  if (!preset || preset.adapterKind !== value.provider) {
+  if (!preset || investigationModelProviderForPreset(preset) !== value.provider) {
     context.addIssue({ code: 'custom', path: ['provider_preset_id'], message: 'Provider preset and adapter do not match' });
   } else if (preset.baseUrl !== null && preset.baseUrl !== value.endpoint) {
     context.addIssue({ code: 'custom', path: ['endpoint'], message: 'Hosted provider endpoint differs from the fixed preset URL' });
@@ -437,6 +451,193 @@ function jobDataScope(job: z.infer<typeof gatewayJobPayloadSchema>, tool: z.infe
 function pricedUsage(inputTokens: number, outputTokens: number, inputRate: bigint, outputRate: bigint): number {
   const numerator = BigInt(inputTokens) * inputRate + BigInt(outputTokens) * outputRate;
   return Number((numerator + 999_999n) / 1_000_000n);
+}
+
+const probeTokens = 64;
+const probeOutputSchema = z.object({ ok: z.literal(true) }).strict();
+const probeFailureSchema = investigationModelProbeResultSchema;
+type ModelProbeResult = z.infer<typeof investigationModelProbeResultSchema>;
+
+function probeReason(error: unknown): ModelProbeResult['reason'] {
+  if (!(error instanceof ModelProviderError)) return 'network_error';
+  if (error.code === 'invalid_response') return 'invalid_response';
+  if (error.code === 'missing_usage') return 'missing_usage';
+  if (error.code === 'aborted') return 'provider_unavailable';
+  switch (error.status) {
+    case 401: return 'invalid_api_key';
+    case 402: return 'billing_or_credits';
+    case 403: return 'access_denied';
+    case 404: return 'model_or_endpoint_not_found';
+    case 429: return 'rate_limited';
+    case 400: case 422: return 'request_rejected';
+    default: return error.status !== undefined && error.status >= 500 ? 'provider_unavailable' : 'network_error';
+  }
+}
+
+function modelSnapshot(settings: z.infer<typeof modelSettingsSchema>) {
+  const inputPrice = Number(settings.input_price_micro_usd_per_million_tokens);
+  const outputPrice = Number(settings.output_price_micro_usd_per_million_tokens);
+  return {
+    provider: settings.provider, providerPresetId: settings.provider_preset_id, endpoint: settings.endpoint,
+    modelId: settings.model_id, secretRef: settings.secret_ref,
+    consentToExternalProcessing: settings.consent_to_external_processing, dataScopes: settings.data_scopes,
+    inputPriceMicroUsdPerMillionTokens: inputPrice, outputPriceMicroUsdPerMillionTokens: outputPrice,
+  };
+}
+
+function probeConfigurationError(settings: z.infer<typeof modelSettingsSchema> | null): ModelProbeResult | null {
+  if (!settings || !settings.consent_to_external_processing || settings.data_scopes.length === 0 || !settings.secret_ref) {
+    return probeFailureSchema.parse({ status: 'failed', reason: 'probe_unavailable', inputTokens: null, outputTokens: null });
+  }
+  return null;
+}
+
+function probeUnavailable(reason: ModelProbeResult['reason'] = 'probe_unavailable'): ModelProbeResult {
+  return probeFailureSchema.parse({ status: 'failed', reason, inputTokens: null, outputTokens: null });
+}
+
+async function invokeModelProbe(options: {
+  database: Database; modelPort: ModelPort; modelSecrets?: ModelSecretStore;
+  modelEndpointValidator?: ModelEndpointValidator; organizationId: string; requestId: string;
+}): Promise<ModelProbeResult> {
+  const { database, modelPort, modelSecrets, organizationId, requestId } = options;
+  const settingsResult = await database.tenant(organizationId, async tx => {
+    const result = await tx.query(`SELECT s.provider,s.provider_preset_id,s.endpoint,s.model_id,s.secret_ref,s.consent_to_external_processing,s.data_scopes,
+      s.input_price_micro_usd_per_million_tokens,s.output_price_micro_usd_per_million_tokens
+      FROM gotchu.investigation_model_settings s JOIN gotchu.organizations o ON o.id=s.organization_id
+      WHERE s.organization_id=$1 AND o.model_opt_in=true`, [organizationId]);
+    return modelSettingsSchema.safeParse(result.rows[0]);
+  });
+  const settings = settingsResult.success ? settingsResult.data : null;
+  const unavailable = probeConfigurationError(settings);
+  if (unavailable || !settings) return unavailable ?? probeUnavailable();
+  if (!modelSecrets) return probeUnavailable();
+
+  if (settings.provider_preset_id === 'custom_openai_compatible') {
+    const validator = options.modelEndpointValidator ?? createModelEndpointValidator();
+    try { await validator.validate(settings.endpoint); }
+    catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      return code === 'model_endpoint_nonpublic' || code === 'model_endpoint_https_required' || code === 'model_endpoint_invalid'
+        ? probeUnavailable('unsafe_endpoint') : probeUnavailable();
+    }
+  }
+
+  let apiKey: string;
+  try { apiKey = new TextDecoder('utf-8', { fatal: true }).decode(await modelSecrets.get(settings.secret_ref ?? '')); }
+  catch { return probeUnavailable(); }
+  if (!apiKey) return probeUnavailable();
+
+  const snapshot = modelSnapshot(settings);
+  const reservation = await database.tenant(organizationId, async tx => {
+    const existing = await tx.query<{ state: string; result: unknown }>(`SELECT state,result FROM gotchu.investigation_model_probes
+      WHERE organization_id=$1 AND request_id=$2 FOR UPDATE`, [organizationId, requestId]);
+    const previous = existing.rows[0];
+    if (previous) {
+      const saved = investigationModelProbeResultSchema.safeParse(previous.result);
+      return { kind: 'existing' as const, result: saved.success ? saved.data : probeUnavailable() };
+    }
+    const currentResult = await tx.query(`SELECT s.provider,s.provider_preset_id,s.endpoint,s.model_id,s.secret_ref,s.consent_to_external_processing,s.data_scopes,
+      s.input_price_micro_usd_per_million_tokens,s.output_price_micro_usd_per_million_tokens,
+      o.model_budget_micros,o.model_spent_micros,o.model_reserved_micros,o.model_token_budget,o.model_tokens_spent,o.model_tokens_reserved
+      FROM gotchu.investigation_model_settings s JOIN gotchu.organizations o ON o.id=s.organization_id
+      WHERE s.organization_id=$1 AND o.model_opt_in=true FOR UPDATE OF s,o`, [organizationId]);
+    const row = currentResult.rows[0];
+    const current = modelSettingsSchema.safeParse(row ? {
+      provider: row.provider, provider_preset_id: row.provider_preset_id, endpoint: row.endpoint, model_id: row.model_id,
+      secret_ref: row.secret_ref, consent_to_external_processing: row.consent_to_external_processing, data_scopes: row.data_scopes,
+      input_price_micro_usd_per_million_tokens: row.input_price_micro_usd_per_million_tokens,
+      output_price_micro_usd_per_million_tokens: row.output_price_micro_usd_per_million_tokens,
+    } : undefined);
+    if (!current.success || !current.data.consent_to_external_processing || current.data.data_scopes.length === 0
+      || !current.data.secret_ref || modelConfigurationFingerprint(modelSnapshot(current.data)) !== modelConfigurationFingerprint(snapshot)) {
+      return { kind: 'existing' as const, result: probeUnavailable() };
+    }
+    const limits = z.object({
+      model_budget_micros: z.union([z.string(), z.number()]), model_spent_micros: z.union([z.string(), z.number()]),
+      model_reserved_micros: z.union([z.string(), z.number()]), model_token_budget: z.union([z.string(), z.number()]),
+      model_tokens_spent: z.union([z.string(), z.number()]), model_tokens_reserved: z.union([z.string(), z.number()]),
+    }).safeParse(row);
+    if (!limits.success) return { kind: 'existing' as const, result: probeUnavailable() };
+    const budgetMicros = BigInt(limits.data.model_budget_micros);
+    const spendAndReserve = BigInt(limits.data.model_spent_micros) + BigInt(limits.data.model_reserved_micros);
+    const tokenBudget = BigInt(limits.data.model_token_budget);
+    const tokensAndReserve = BigInt(limits.data.model_tokens_spent) + BigInt(limits.data.model_tokens_reserved);
+    if (tokenBudget - tokensAndReserve < BigInt(probeTokens)) return { kind: 'existing' as const, result: probeUnavailable('budget_exhausted') };
+    const inputRate = BigInt(current.data.input_price_micro_usd_per_million_tokens);
+    const outputRate = BigInt(current.data.output_price_micro_usd_per_million_tokens);
+    const reserveCost = Number((BigInt(probeTokens) * (inputRate > outputRate ? inputRate : outputRate) + 999_999n) / 1_000_000n) || 1;
+    if (budgetMicros - spendAndReserve < BigInt(reserveCost)) return { kind: 'existing' as const, result: probeUnavailable('budget_exhausted') };
+    const inserted = await tx.query(`INSERT INTO gotchu.investigation_model_probes(organization_id,request_id,state,reserved_micros,reserved_tokens)
+      VALUES($1,$2,'in_flight',$3,$4) ON CONFLICT DO NOTHING RETURNING request_id`, [organizationId, requestId, reserveCost, probeTokens]);
+    if (!inserted.rowCount) return { kind: 'existing' as const, result: probeUnavailable() };
+    const reserved = await tx.query(`UPDATE gotchu.organizations SET model_reserved_micros=model_reserved_micros+$2,
+      model_tokens_reserved=model_tokens_reserved+$3 WHERE id=$1`, [organizationId, reserveCost, probeTokens]);
+    if (!reserved.rowCount) throw new GatewayError('probe_unavailable', 503);
+    return { kind: 'reserved' as const, settings: current.data, reserveCost, inputRate, outputRate };
+  });
+  if (reservation.kind === 'existing') return reservation.result;
+
+  const requestController = new AbortController();
+  const requestTimeout = setTimeout(() => requestController.abort(), 25_000);
+  requestTimeout.unref();
+  let polling = false;
+  const cancelPoll = setInterval(() => {
+    if (polling) return;
+    polling = true;
+    database.tenant(organizationId, async tx => {
+      const currentResult = await tx.query(`SELECT o.model_opt_in,s.provider,s.provider_preset_id,s.endpoint,s.model_id,s.secret_ref,
+        s.consent_to_external_processing,s.data_scopes,s.input_price_micro_usd_per_million_tokens,s.output_price_micro_usd_per_million_tokens
+        FROM gotchu.organizations o LEFT JOIN gotchu.investigation_model_settings s ON s.organization_id=o.id WHERE o.id=$1`, [organizationId]);
+      const row = currentResult.rows[0];
+      if (!row || row.model_opt_in !== true) return null;
+      const current = modelSettingsSchema.safeParse({
+        provider: row.provider, provider_preset_id: row.provider_preset_id, endpoint: row.endpoint, model_id: row.model_id,
+        secret_ref: row.secret_ref, consent_to_external_processing: row.consent_to_external_processing, data_scopes: row.data_scopes,
+        input_price_micro_usd_per_million_tokens: row.input_price_micro_usd_per_million_tokens,
+        output_price_micro_usd_per_million_tokens: row.output_price_micro_usd_per_million_tokens,
+      });
+      return current.success && current.data.consent_to_external_processing && current.data.data_scopes.length > 0
+        && modelConfigurationFingerprint(modelSnapshot(current.data)) === modelConfigurationFingerprint(snapshot);
+    }).then(stillAuthorized => { if (!stillAuthorized) requestController.abort(); })
+      .catch(() => requestController.abort()).finally(() => { polling = false; });
+  }, 1_000);
+  cancelPoll.unref();
+  let result: ModelProbeResult;
+  try {
+    const completion = await modelPort.complete({
+      provider: reservation.settings.provider, providerPresetId: reservation.settings.provider_preset_id,
+      endpoint: new URL(reservation.settings.endpoint), modelId: reservation.settings.model_id, apiKey,
+      systemInstruction: 'Reply with exactly this JSON object and no other text: {"ok":true}',
+      userContext: 'Connection test. Return the requested JSON.', maxOutputTokens: 16, signal: requestController.signal,
+    });
+    const actualUsage = { inputTokens: completion.inputTokens, outputTokens: completion.outputTokens };
+    if (!Number.isSafeInteger(actualUsage.inputTokens + actualUsage.outputTokens) || actualUsage.inputTokens + actualUsage.outputTokens > probeTokens) {
+      throw new ModelProviderError('missing_usage');
+    }
+    const cost = pricedUsage(actualUsage.inputTokens, actualUsage.outputTokens, reservation.inputRate, reservation.outputRate);
+    if (cost > reservation.reserveCost) throw new ModelProviderError('missing_usage');
+    const output = probeOutputSchema.safeParse(completion.output);
+    result = output.success
+      ? investigationModelProbeResultSchema.parse({ status: 'succeeded', reason: null, ...actualUsage })
+      : investigationModelProbeResultSchema.parse({ status: 'failed', reason: 'model_output_invalid', ...actualUsage });
+    await database.tenant(organizationId, async tx => {
+      await tx.query(`UPDATE gotchu.organizations SET model_reserved_micros=model_reserved_micros-$2,
+        model_spent_micros=model_spent_micros+$3,model_tokens_reserved=model_tokens_reserved-$4,
+        model_tokens_spent=model_tokens_spent+$5 WHERE id=$1`, [organizationId, reservation.reserveCost, cost, probeTokens, actualUsage.inputTokens + actualUsage.outputTokens]);
+      await tx.query(`UPDATE gotchu.investigation_model_probes SET state='settled',input_tokens=$3,output_tokens=$4,
+        charged_micros=$5,result=$6::jsonb,settled_at=clock_timestamp()
+        WHERE organization_id=$1 AND request_id=$2 AND state='in_flight'`, [organizationId, requestId, actualUsage.inputTokens, actualUsage.outputTokens, cost, JSON.stringify(result)]);
+    });
+    return result;
+  } catch (error) {
+    result = probeUnavailable(probeReason(error));
+    await database.tenant(organizationId, async tx => {
+      await tx.query(`UPDATE gotchu.investigation_model_probes SET state='unknown',result=$3::jsonb
+        WHERE organization_id=$1 AND request_id=$2 AND state='in_flight'`, [organizationId, requestId, JSON.stringify(result)]);
+    });
+    return result;
+  } finally { clearTimeout(requestTimeout); clearInterval(cancelPoll); }
 }
 
 const gatewaySystemInstruction = [
