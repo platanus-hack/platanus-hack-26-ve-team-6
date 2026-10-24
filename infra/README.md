@@ -1,5 +1,7 @@
 # Local runtime and AWS pilot foundation
 
+For the operator-selected single $24/month AWS host, see the [Lightsail deployment runbook](aws/README.md). The older Pulumi foundation below remains a separate, unapplied topology.
+
 Compose provides persistent local Postgres and Redis. `./gotchu up` builds the app and runs web, coordinator, scanner, and (when enabled) executor as host processes bound to loopback; Compose starts only the two data services. The scanner can call Docker with host-visible temporary source paths, and the coordinator reaches it over loopback HTTPS with a private certificate. The executor is disabled by default and starts only when `GOTCHU_EXECUTOR_ENABLED=true`, the private Writer App file, installation ID, repository catalog, and internal verification token are configured. Its Writer App credentials remain in the private state directory. `gateway`, `agent` (`apps/worker`), and the VM validator remain separately gated. For the development launcher, see [development](../docs/development.md).
 
 Self-host uses a private `.gotchu/.env`, its own Compose project name, and the one-time Owner bootstrap described in [self-hosting](../docs/self-hosting.md). The legacy `infra-local-*` scripts continue using `infra/.env` by default.

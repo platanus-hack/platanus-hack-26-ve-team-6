@@ -218,9 +218,9 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     scannerOrigin = `http://127.0.0.1:${await listen(scanner)}`; cleanup.push(() => closeServer(scanner));
     const webPort = await unusedPort(); origin = `http://localhost:${webPort}`;
     const web = childProcess('Nitro web', 'apps/web/.output/server/index.mjs', webPort, {
-      NODE_ENV: 'development', HOST: '127.0.0.1', NITRO_HOST: '127.0.0.1', PUBLIC_APP_URL: origin,
+      NODE_ENV: 'production', GOTCHU_AUTH_MODE: 'public', HOST: '127.0.0.1', NITRO_HOST: '127.0.0.1', PUBLIC_APP_URL: origin,
       GOTCHU_API_DATABASE_URL: f.runtimeConnectionString('gotchu_api'), GOTCHU_INGEST_DATABASE_URL: f.runtimeConnectionString('gotchu_ingest'),
-      AUTH_SECRET: randomBytes(48).toString('base64url'), GOTCHU_LOCAL_AUTH_ENABLED: 'true', GOTCHU_ALLOW_LOCAL_REGISTRATION: 'true', GOTCHU_DNS_SERVERS_JSON: JSON.stringify([dns.nameserver]),
+      AUTH_SECRET: randomBytes(48).toString('base64url'), GOTCHU_DNS_SERVERS_JSON: JSON.stringify([dns.nameserver]),
       GOTCHU_EVENT_CREDENTIAL_DIRECTORY: join(directory, 'event-credentials'),
     });
     const worker = childProcess('coordinator', 'apps/coordinator/dist/main.js', await unusedPort(), {
