@@ -146,7 +146,7 @@ export function correlate(inputValue: unknown, options: CorrelationOptions): Tri
   const anyElevatedAfterRelease = releaseMatches.some(item => item.matchingErrors.length > 0);
   const anyElevatedBeforeRelease = releaseMatches.some(item => item.earlierErrors.length > 0);
   if (releaseCandidates.length > 0 || errors.some(({ series, sample }) => errorThreshold(input, series.service, series.environment, sample.value)) || deploymentUnknown.length > 0 || staleReleaseEvidence.length > 0) {
-    const supported = verifiedAfterRelease.length > 0 && failingControls.length === 0;
+    const supported = verifiedAfterRelease.some(item => item.earlierErrors.length === 0) && failingControls.length === 0;
     const weak = !supported && (declaredDeployments.length > 0 || verifiedAfterRelease.length > 0 || failingControls.length > 0 || staleReleaseEvidence.length > 0);
     const evidenceFor = releaseMatches.flatMap(({ deployment, matchingErrors }, index) => [
       ref(`deployment:${index}:${deployment.releaseId ?? 'unknown'}`, `${deployment.state} deployment of ${deployment.service} at ${deployment.deployedAt}`),

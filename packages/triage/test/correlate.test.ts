@@ -144,6 +144,22 @@ describe('correlation acceptance cases', () => {
     expect(forCase(declared).hypotheses.find(item => item.kind === 'application_regression')?.missingData.join(' ')).toContain('Verify deployment');
   });
 
+  it('keeps a deployment hypothesis weak when elevated errors predate the same release', () => {
+    const labeled = tuningCases.find(item => item.id === 'tuning-errors-before-deploy');
+    if (!labeled) throw new Error('missing_test_case');
+    const input = {
+      ...labeled.input,
+      signals: labeled.input.signals.map(series => series.metric === 'error_rate'
+        ? { ...series, samples: [...series.samples, {
+          eventAt: '2026-10-24T11:44:00.000Z', acceptedAt: '2026-10-24T11:44:02.000Z', value: 0.35,
+        }] }
+        : series),
+    };
+    const regression = result(input, '2026-10-24T11:46:00.000Z').hypotheses.find(item => item.kind === 'application_regression');
+    expect(regression).toMatchObject({ status: 'weak', ruleIds: expect.arrayContaining(['release.errors_precede_deployment.v1']) });
+    expect(regression?.evidenceAgainst.some(item => item.ref.startsWith('pre-release-error:'))).toBe(true);
+  });
+
   it('ignores unknown deployment state and reports it as missing evidence', () => {
     const labeled = tuningCases.find(item => item.id === 'tuning-unknown-deployment');
     if (!labeled) throw new Error('missing_test_case');
