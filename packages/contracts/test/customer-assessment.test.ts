@@ -1,0 +1,52 @@
+import { randomUUID } from 'node:crypto';
+import { describe, expect, it } from 'vitest';
+import { CUSTOMER_MAX_SOURCE_BYTES, CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES, customerOriginSchema, customerSourceSnapshotSchema, customerQueueSchema, customerRunInputSchema, customerAssessmentIntentSchema, customerAssessmentReportSchema } from '../src/index.js';
+
+const snapshot = () => ({ revision: 'real-revision', files: [{ path: 'src/index.ts', content: 'export const value = 1;' }] });
+describe('customer assessment input boundaries', () => {
+  it('normalizes public DNS HTTPS origins and rejects URL ambiguity', () => {
+    expect(customerOriginSchema.parse('https://APP.acme.com:443/')).toBe('https://app.acme.com');
+    for (const origin of ['http://acme.com', 'https://127.0.0.1', 'https://[::1]', 'https://2130706433', 'https://user@acme.com', 'https://acme.com:444', 'https://acme.com/a', 'https://acme.com/../', 'https://acme.com?', 'https://acme.com#', 'https://acme.com.', 'https://localhost', 'https://app.local', 'https://a_b.acme.com', 'https://acme.com\\@127.0.0.1']) expect(customerOriginSchema.safeParse(origin).success, origin).toBe(false);
+  });
+  it('rejects traversal, secret/dependency directories, unsupported files and link metadata', () => {
+    for (const path of ['/a.ts', '../a.ts', 'a/../b.ts', 'a//b.ts', './a.ts', 'a\\b.ts', 'C:/a.ts', '.git/a.json', 'a/node_modules/p.json', '.env', '.env.json', 'a/.ENV.local.json', 'a.sh', 'a\0.ts']) expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: [{ path, content: '' }] }).success, path).toBe(false);
+    expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: [{ path: 'a.ts', content: '', type: 'symlink', target: '/etc/passwd' }] }).success).toBe(false);
+    expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: [...snapshot().files, ...snapshot().files] }).success).toBe(false);
+  });
+  it('counts UTF-8 bytes and bounds source revision, count, individual and aggregate size', () => {
+    expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: [{ path: 'a.ts', content: 'é'.repeat(CUSTOMER_MAX_SOURCE_FILE_BYTES / 2 + 1) }] }).success).toBe(false);
+    expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: Array.from({ length: CUSTOMER_MAX_SOURCE_FILES + 1 }, (_, i) => ({ path: `${i}.ts`, content: '' })) }).success).toBe(false);
+    expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: Array.from({ length: 5 }, (_, i) => ({ path: `${i}.ts`, content: 'x'.repeat(CUSTOMER_MAX_SOURCE_FILE_BYTES) })) }).success).toBe(false);
+    expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), revision: 'r'.repeat(201) }).success).toBe(false);
+    expect(CUSTOMER_MAX_SOURCE_BYTES).toBe(4 * CUSTOMER_MAX_SOURCE_FILE_BYTES);
+    expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: [{ path: 'package-lock.json', content: ' '.repeat(100_000) }] }).success).toBe(true);
+    expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: Array.from({ length: CUSTOMER_MAX_SOURCE_FILES }, (_, i) => ({ path: `${i}.ts`, content: '' })) }).success).toBe(true);
+  });
+  it('requires exactly the requested source/target capabilities', () => {
+    const scope = { organizationId: randomUUID(), applicationId: randomUUID(), idempotencyKey: 'key' };
+    expect(customerQueueSchema.safeParse({ ...scope, mode: 'external', sourceSnapshotId: null, targetId: randomUUID() }).success).toBe(true);
+    expect(customerQueueSchema.safeParse({ ...scope, mode: 'both', sourceSnapshotId: null, targetId: randomUUID() }).success).toBe(false);
+    expect(customerQueueSchema.safeParse({ ...scope, mode: 'internal', sourceSnapshotId: randomUUID(), targetId: randomUUID() }).success).toBe(false);
+  });
+  it('keeps durable source pointers compact while materialized inputs accept the full source limit', () => {
+    const input = { version: 2, organizationId: randomUUID(), applicationId: randomUUID(), jobId: randomUUID(), applicationName: 'Customer', mode: 'internal', target: null,
+      source: { id: randomUUID(), digest: 'a'.repeat(64), revision: 'r', files: Array.from({ length: 4 }, (_, i) => ({ path: `${i}.ts`, content: 'x'.repeat(CUSTOMER_MAX_SOURCE_FILE_BYTES - 1000) })) } };
+    expect(customerRunInputSchema.safeParse(input).success).toBe(true);
+    const source = { id: input.source.id, digest: input.source.digest, revision: input.source.revision };
+    expect(customerAssessmentIntentSchema.safeParse({ ...input, source }).success).toBe(true);
+    expect(customerAssessmentIntentSchema.safeParse(input).success).toBe(false);
+  });
+
+  it('does not accept a v1 fixture report or mismatched subject', () => {
+    const timestamp = new Date().toISOString();
+    const report = { version: 2, id: randomUUID(), organizationId: randomUUID(), applicationId: randomUUID(), jobId: randomUUID(), applicationName: 'Customer', mode: 'internal', startedAt: timestamp, finishedAt: timestamp,
+      internal: { origin: 'internal', status: 'unavailable', startedAt: timestamp, finishedAt: timestamp, snapshotRef: 'sha256:test', tool: { name: 'test', version: '1' }, findings: [], evidence: [], coverage: [], limitations: ['unavailable'] }, external: null, comparison: [], limitations: [], responseMode: 'observation', actionsPerformed: [],
+      subject: { sourceSnapshotId: randomUUID(), sourceDigest: 'a'.repeat(64), targetId: null, targetVersion: null, origin: null } };
+    expect(customerAssessmentReportSchema.safeParse(report).success).toBe(true);
+    expect(customerAssessmentReportSchema.safeParse({ ...report, revision: 'vulnerable' }).success).toBe(false);
+    expect(customerAssessmentReportSchema.safeParse({ ...report, subject: { ...report.subject, targetId: randomUUID() } }).success).toBe(false);
+    expect(customerAssessmentReportSchema.safeParse({ ...report, internal: { ...report.internal, origin: 'external' } }).success).toBe(false);
+    const evidence = Array.from({ length: 200 }, () => ({ id: randomUUID(), origin: 'internal', kind: 'source', locator: 'src/index.ts', collectedAt: timestamp, snapshotRef: 'sha256:test', tool: { name: 'test', version: '1' }, checksum: 'a'.repeat(64), excerpt: 'é'.repeat(4096) }));
+    expect(customerAssessmentReportSchema.safeParse({ ...report, internal: { ...report.internal, status: 'completed', evidence } }).success).toBe(false);
+  });
+});
