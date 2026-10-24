@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="120" viewBox="0 0 440 120" role="img" aria-label="Gotchu">
+  <g fill="#e7147d">
+    <circle cx="28" cy="36" r="7"/><circle cx="48" cy="36" r="7" opacity=".55"/><circle cx="68" cy="36" r="7" opacity=".25"/>
+    <circle cx="28" cy="58" r="7" opacity=".55"/><circle cx="48" cy="58" r="10"/><circle cx="68" cy="58" r="7" opacity=".55"/>
+    <circle cx="28" cy="80" r="7" opacity=".25"/><circle cx="48" cy="80" r="7" opacity=".55"/><circle cx="68" cy="80" r="7"/>
+  </g>
+  <text x="96" y="78" fill="#191923" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="56" font-weight="700" letter-spacing="1">gotchu<tspan fill="#e7147d">.</tspan></text>
+  <text x="99" y="104" fill="#5b5a66" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" letter-spacing="3">MIRA DE CERCA · DECIDE CON PRUEBAS</text>
+</svg>

@@ -1,65 +1,158 @@
-# Gotchu
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo-light.svg" alt="Gotchu" width="440">
+  </picture>
+</p>
 
-Gotchu combines security assessments, continuous selected-input monitoring and evidence-backed correction preparation. Customers manage private workspaces, inspect authorized source and HTTPS applications, receive in-app alerts, and prepare supported corrections through the dashboard. The current runtime is local development.
+<p align="center">
+  <strong>Revisa el código de tu app, tu web o ambos. Cada hallazgo trae su evidencia.</strong>
+</p>
 
-The fictional vulnerable and corrected applications are regression fixtures only. They are not the product, are not seeded by the customer-development launcher, and do not limit customer assessments. The current product runs locally in development; no cloud deployment is claimed.
+<p align="center">
+  <a href="#ejecutar-en-tu-máquina">Ejecutar</a> ·
+  <a href="docs/self-hosting.md">Self-hosting</a> ·
+  <a href="docs/architecture.md">Arquitectura</a> ·
+  <a href="docs/implementation-plan.md">Estado</a> ·
+  <a href="docs/validation.md">Verificación</a>
+</p>
 
-## Customer workflows
+<p align="center">
+  <img alt="Node 24" src="https://img.shields.io/badge/node-24-e7147d?style=flat-square&labelColor=191923">
+  <img alt="pnpm 11" src="https://img.shields.io/badge/pnpm-11-191923?style=flat-square">
+  <img alt="TanStack Start" src="https://img.shields.io/badge/TanStack-Start-191923?style=flat-square">
+  <img alt="Auth.js" src="https://img.shields.io/badge/Auth.js-191923?style=flat-square">
+  <img alt="Runtime local" src="https://img.shields.io/badge/runtime-desarrollo%20local-191923?style=flat-square">
+</p>
 
-- Auth.js authenticates customer sessions. The local development launcher enables email/password registration without an OAuth provider; registration is only enabled when `NODE_ENV=development` and the explicit local-registration flag is set.
-- Users create and list workspaces. A workspace creator becomes its Owner. Applications can be created, listed, renamed, archived, and restored within a workspace. Membership roles scope access; Owners and Operators can change applications and assessment inputs, while Viewers have read access.
-- Customers upload immutable source snapshots, or select an operator-authorized local Git/GitHub repository for periodic capture at an exact commit. Source deletion is supported when no queued/running assessment depends on it. No source, package scripts or customer tests are executed.
-- Source reports include bounded exact-version inventories from npm, pnpm, and Yarn lockfiles, declared-license policy findings, and a downloadable CycloneDX 1.5 SBOM. Unsupported or partial lockfile coverage stays visible; license declarations are not verified against package contents.
-- An Owner or Operator can enroll a public HTTPS origin after explicitly confirming authorization. The customer adds the issued TXT value at `_gotchu.<hostname>`; successful verification authorizes that application's origin for seven days. The customer can revoke it sooner. The external check uses the authorized origin, not a caller-supplied URL or path.
-- An assessment can inspect a source snapshot (`internal`), an authorized HTTPS target (`external`), or both. External-only assessment does not require source access. Jobs and reports are tenant-scoped and persisted.
-- Explicit `public_surface` consent expands the root check to bounded same-origin public paths and discoveries. It never grants access to every domain or asset belonging to a company.
-- **Vigilancia** configures scheduled source/target checks and optional Cloudflare/Railway status feeds. Repository changes and current npm advisory metadata can produce alerts; unchanged commits are checked again for new advisories. Operator-scoped repository setup is required.
-- Signed application events produce grouped alerts for observed errors, service pressure and supported suspicious activity. A busy but healthy API does not automatically produce an attack or load-balancer recommendation.
-- **Historial de decisiones** shows workspace members the recorded actor, action, subject category, time, outcome and a safe summary, with filters and pagination. It includes audited alert acknowledgments/resolutions, operation-plan changes, correction/rescan requests, report creation/download requests, workspace/member changes, and other recorded actions; raw audit details, credentials and IP addresses are omitted. It is not a complete incident execution timeline.
-- Versioned correction recipes select options from actual findings and literal repository context. A Semgrep disabled TLS-verification finding bound to one `rejectUnauthorized: false` literal, or a Trivy KSV001/KSV012/KSV014/KSV017 finding with exactly one corresponding container `securityContext` literal inside Trivy's reported range (`allowPrivilegeEscalation: true`, `runAsNonRoot: false`, `readOnlyRootFilesystem: false`, or `privileged: true`), can create a private candidate snapshot and queue an independent rescan. Other findings stay guidance-only unless a separate integration is available. Capacity/migration plans provide guided preparation and show missing requirements. Provider writes and production deployment remain disabled.
+---
 
-Reports retain evidence provenance and checksums, scanner coverage, severity, confidence, exploitability, limitations, and internal/external comparisons. Missing or partial coverage remains unknown, not clean. A match, response header, or correlation does not prove that source is deployed, that a package is reachable, or that exploitation occurred. The assessment does not attempt exploitation or make exploitability claims.
+> **¿Qué riesgos tiene mi aplicación, qué prueba cada uno y qué hago después?**
 
-## Ejecutar en tu propia máquina
+Gotchu responde a esa pregunta. Revisa el código fuente, el origen HTTPS o los dos. Después, te da un reporte con evidencia y te ayuda a preparar correcciones.
 
-Con Docker iniciado, Node 24 y pnpm 11 disponibles:
+- **Tú eliges.** Revisa solo el código, solo la web o ambos. La revisión externa no necesita tu código.
+- **Muestra la evidencia.** Cada hallazgo enlaza su evidencia, su severidad y su confianza.
+- **No oculta lo que no revisó.** Una cobertura parcial queda como desconocida, no como limpia.
+- **No ejecuta tu código.** Gotchu no instala paquetes, no ejecuta scripts y no intenta explotar nada.
+
+## Cómo funciona
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#fffefa','primaryTextColor':'#191923','primaryBorderColor':'#e7147d','lineColor':'#e7147d','fontFamily':'Saira, Helvetica, sans-serif'}}}%%
+flowchart LR
+  A[Espacio de trabajo] --> B[Aplicación]
+  B --> C[Código fuente<br/>internal]
+  B --> D[Origen HTTPS verificado<br/>external]
+  C --> E[Evaluación]
+  D --> E
+  E --> F[Reporte con evidencia]
+  F --> G[Alertas y vigilancia]
+  F --> H[Corrección y nueva evaluación]
+```
+
+| Paso | Qué hace Gotchu |
+|---|---|
+| 1. Espacio de trabajo | Crea un espacio privado. El creador es su Owner. Los roles controlan el acceso. |
+| 2. Código fuente | Sube una instantánea o conecta un repositorio Git o GitHub autorizado. Gotchu guarda el commit exacto. |
+| 3. Origen HTTPS | Publica un registro TXT en `_gotchu.<hostname>`. Gotchu verifica el control DNS antes de consultar el origen. |
+| 4. Evaluación | Ejecuta una evaluación `internal`, `external` o de los dos tipos. |
+| 5. Reporte | Muestra la evidencia, la cobertura, la severidad, la confianza y las limitaciones. |
+| 6. Corrección | Prepara correcciones compatibles en una instantánea privada y pide una nueva evaluación. |
+
+## Qué puedes hacer
+
+| Función | Descripción |
+|---|---|
+| Espacios de trabajo | Roles Owner, Operator y Viewer. Los Viewer solo pueden leer. |
+| Revisión del código | Inventario de versiones exactas de npm, pnpm y Yarn. Política de licencias declaradas. SBOM CycloneDX 1.5 para descargar. |
+| Revisión externa | Con el perfil raíz, una sola petición GET a `/`. Con el consentimiento `public_surface`, hasta diez peticiones GET al mismo origen. |
+| Vigilancia | Revisiones programadas del código y del origen. Alertas por cambios del repositorio y por nuevos avisos de npm. |
+| Eventos firmados | Agrupa errores, presión del servicio y actividad sospechosa compatible en alertas. |
+| Historial de decisiones | Muestra quién hizo cada acción, cuándo y con qué resultado. No muestra credenciales ni direcciones IP. |
+| Correcciones | Recetas versionadas para hallazgos de Semgrep (TLS desactivado) y de Trivy (KSV001, KSV012, KSV014, KSV017). Los otros hallazgos solo reciben guía. |
+
+## Qué no afirma Gotchu
+
+- Una coincidencia no prueba que el código esté desplegado.
+- Un paquete vulnerable no prueba que el código vulnerable se pueda alcanzar.
+- Un pico de tráfico no prueba un ataque.
+- "Sin hallazgos" no es una garantía de seguridad. Solo describe lo que la evaluación revisó.
+- La severidad de un incidente no da más permisos de acción.
+
+## Ejecutar en tu máquina
+
+Necesitas Docker iniciado, Node 24 y pnpm 11.
 
 ```sh
-git clone <url-del-repositorio>
+git clone https://github.com/0bkevin/gotchu.git
 cd gotchu
 ./gotchu up
 ```
 
-Abre el enlace de configuración de un solo uso que imprime el comando, crea el Owner y el primer espacio de trabajo, y luego sube una carpeta de código desde el dashboard para lanzar una evaluación `internal`. Los detalles, requisitos, componentes opcionales y límites están en [self-hosting](docs/self-hosting.md). El runtime se enlaza a loopback; no expongas el puerto sin configurar `GOTCHU_PUBLIC_URL` HTTPS y un proxy TLS.
+1. Abre el enlace de configuración. El comando lo imprime y solo funciona una vez.
+2. Crea el Owner y el primer espacio de trabajo.
+3. Sube una carpeta de código desde el dashboard.
+4. Inicia una evaluación `internal`.
 
-## Run in local development
+El runtime escucha solo en loopback. No expongas el puerto sin `GOTCHU_PUBLIC_URL` con HTTPS y un proxy TLS. Los requisitos y los componentes opcionales están en [self-hosting](docs/self-hosting.md).
 
-Use Node 24, pnpm 11, and Docker. After preparing the local dependencies, start the customer application:
+## Desarrollo local
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm dev:prepare # only when pinned images are missing
+pnpm dev:prepare   # solo si faltan las imágenes fijadas
 pnpm dev:start
 ```
 
-Open http://localhost:3000/dashboard. Registration is enabled in this local development runtime, and no account, workspace, application, or assessment target is pre-created.
+Abre http://localhost:3000/dashboard. El registro está activo solo en desarrollo. No hay cuentas, espacios ni datos de demostración precargados.
 
-To enable self-hosted GitHub onboarding, create a GitHub App with repository permissions **Contents: read-only**, **Checks: read-only**, and **Pull requests: read-only** (Metadata is always read-only). Leave webhooks disabled unless you configure them separately. Set the App Callback URL to `http://localhost:3000/api/customer/github/callback` for local development and enable **Request user authorization (OAuth) during installation**. Set `GOTCHU_GITHUB_READER_APP_FILE` to a server-readable JSON credentials file containing `id`, `clientId`, `clientSecret`, `privateKeyPem`, and `webhookSecret`; include the App's `slug` in that file or set `GOTCHU_GITHUB_APP_SLUG` as an override. Never expose that file to the browser or commit it. Install the App only on repositories whose source you are authorized to assess. Installation tokens are minted server-side and kept only in memory until shortly before expiry.
+| Servicio | Puerto | Variable para cambiarlo |
+|---|---|---|
+| Web | 3000 | `GOTCHU_DEV_WEB_PORT` |
+| Coordinator | 3003 | `GOTCHU_DEV_COORDINATOR_PORT` |
+| Scanner | 4400 | `GOTCHU_DEV_SCANNER_PORT` |
 
-To move an installation between workspaces, disconnect it in the current workspace first. An Owner must authorize connecting that revoked installation in the destination workspace; only one workspace can hold an active binding at a time.
+Postgres y Redis usan volúmenes locales persistentes. El launcher guarda los PID, los puertos, los logs y las credenciales locales del scanner en `.local/dev`. `pnpm dev:stop` detiene las apps y deja Postgres, Redis y sus datos activos. Más detalles en [desarrollo local](docs/development.md).
 
-The launcher runs the web application on port 3000, the coordinator on port 3003, and the separate scanner service on port 4400. The web, coordinator, and scanner ports can be overridden with `GOTCHU_DEV_WEB_PORT`, `GOTCHU_DEV_COORDINATOR_PORT`, and `GOTCHU_DEV_SCANNER_PORT`. Postgres and Redis run as local data services with persistent local volumes. The launcher records app process IDs, ports, logs, and local scanner credentials under `.local/dev`; it does not create a demo seed. `pnpm dev:stop` stops the recorded app processes and leaves Postgres, Redis, and their data volumes running.
+<details>
+<summary><strong>Conectar una GitHub App en desarrollo</strong></summary>
 
-The development launcher uses bounded scanner profiles, including pinned Semgrep CE 1.182.0. The scanner supports direct production HTTPS; the local development launcher uses loopback HTTP. Local Linux/amd64 checks completed the production TLS and durable assessment path after CA certificate canonicalization. This does not establish an AWS deployment or broad scanner accuracy; see the [verification record](docs/validation.md) for test scope and limits. Read [local development instructions](docs/development.md) for preparation requirements and lifecycle details. See [architecture](docs/architecture.md), [implementation status and release gates](docs/implementation-plan.md), and the [architecture overview](docs/architecture-overview.html).
+1. Crea una GitHub App con estos permisos de repositorio: **Contents: read-only**, **Checks: read-only** y **Pull requests: read-only**.
+2. Deja los webhooks desactivados, salvo que los configures aparte.
+3. Usa esta Callback URL: `http://localhost:3000/api/customer/github/callback`.
+4. Activa **Request user authorization (OAuth) during installation**.
+5. Guarda las credenciales en un archivo JSON con `id`, `clientId`, `clientSecret`, `privateKeyPem` y `webhookSecret`. Agrega `slug` o define `GOTCHU_GITHUB_APP_SLUG`.
+6. Define `GOTCHU_GITHUB_READER_APP_FILE` con la ruta de ese archivo.
+7. Instala la App solo en repositorios que tienes autorización para evaluar.
 
-## Product and release boundaries
+No envíes ese archivo al navegador y no lo agregues a Git. Gotchu crea los tokens de instalación en el servidor y los guarda solo en memoria.
 
-The core flow uses shared contracts and replaceable adapters, with AWS as the eventual primary hosting target. The current runtime is local development, not an AWS deployment. Scanner HTTPS is implemented and exercised locally; hosted web ingress, cloud network policy, production secret lifecycle, backups and restore, representative capacity, and validation on architectures beyond Linux/amd64 remain open. Customer-code execution and provider writes remain disabled, and assessments take no response action. Auth.js local registration is development-only; configured local sign-in, WebAuthn step-up, and tenant-scoped workspace invitation/member operations exist, but production identity configuration and operational validation are not certified.
+Para mover una instalación a otro espacio de trabajo, desconéctala primero del espacio actual. Después, un Owner del espacio de destino autoriza la conexión. Solo un espacio puede tener la instalación activa.
 
-The repository contains customer-flow integration coverage in `test/integration/customer-applications.test.ts` and a production-mode scanner TLS path in `test/integration/production-scanner.test.ts`. The [verification record](docs/validation.md) distinguishes the combined local integration run from the final focused post-canonicalization reruns, and documents their boundaries. These checks do not establish a cloud deployment or a live customer-owned domain.
+</details>
 
-Earlier product decisions and the subsequent correction that the customer application is the product are preserved in the [definition interview](docs/definition-interview.md#current-user-correction-actual-customer-application-in-development).
+## Estado y límites
 
-See [monitoring, alerts and correction setup](docs/operations.md) for the working paths, evidence boundaries and admission limits. In-app alerts do not imply delivered email, continuous third-party repository-source auditing, proven exploitation or completed production recovery.
+| Área | Estado |
+|---|---|
+| Runtime | Desarrollo local. Este README no afirma un despliegue en la nube. AWS es el objetivo principal futuro. |
+| Scanner HTTPS | Implementado y probado en local en Linux/amd64, con Semgrep CE 1.182.0 fijado. |
+| Abierto | Ingress web alojado, política de red en la nube, ciclo de secretos de producción, backups y restauración, capacidad representativa y otras arquitecturas. |
+| Desactivado | Ejecución del código del cliente, escrituras en proveedores y acciones de respuesta automáticas. |
+| Identidad | El registro local es solo para desarrollo. Existen el inicio de sesión local, WebAuthn step-up e invitaciones por espacio. La identidad de producción no está certificada. |
 
-The [autonomous defense and differentiation plan](docs/plan-defensa-autonoma.md) audits the remaining gaps and defines staged work for application-impact triage, independently validated corrections, authorized PRs and delivery, and later response capabilities. It is a roadmap, not a list of available features.
+Las pruebas de integración del flujo del cliente están en `test/integration/customer-applications.test.ts`. La ruta TLS de producción del scanner está en `test/integration/production-scanner.test.ts`. El [registro de verificación](docs/validation.md) describe el alcance y los límites de cada prueba.
+
+Las aplicaciones ficticias vulnerables y corregidas son fixtures de regresión. No son el producto y no limitan las evaluaciones de los clientes.
+
+## Documentación
+
+| Documento | Contenido |
+|---|---|
+| [Arquitectura](docs/architecture.md) · [Vista general](docs/architecture-overview.html) | Componentes y contratos |
+| [Plan de implementación](docs/implementation-plan.md) | Estado y release gates |
+| [Operaciones](docs/operations.md) | Monitoreo, alertas y correcciones |
+| [Self-hosting](docs/self-hosting.md) | Instalación en tu propia máquina |
+| [Entrevista de definición](docs/definition-interview.md#current-user-correction-actual-customer-application-in-development) | Decisiones de producto |
+| [Plan de defensa autónoma](docs/plan-defensa-autonoma.md) | Hoja de ruta. No es una lista de funciones disponibles. |
