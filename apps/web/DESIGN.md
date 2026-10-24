@@ -209,7 +209,7 @@ Gotchu reads like a case file someone has already worked through with a pen: gia
 
 Art is digital and made of the world's own materials: ASCII plates drawn from a character grid (the snapshot folder with its fingerprint, the two overlapping looks) and dot fields of square pixels and glyphs on canvas (the `[◆]` mark in the hero, the domain globe, the closing GOTCHU wordmark). The finding diamond `◆` is the only coloured glyph. The fields ripple away from a fine pointer, gather on their finding while a primary action is hovered or focused, and hold still when paused. Content is real product vocabulary (SHA-256, `_gotchu.<dominio>`, report JSON keys) and is never padded with invented results.
 
-The landing follows a light, dark or system theme. Every rule below holds in both; values are shadcn tokens scoped to `.gl` so they cannot restyle `/dashboard` or `/demo`.
+The whole app (landing, `/dashboard`, `/setup`, `/privacy`, `/terms`) follows a light, dark or system theme. Every rule below holds in both; values are shadcn tokens on page roots that carry the `.gl` class, loaded once from the root route. App CSS lives in `src/components/customer-shell.css` (shared primitives), `customer-report.css` and `customer-operations.css`.
 
 **Key Characteristics:**
 - Pure white (light) or pure black (dark) ground; graphite or porcelain ink; magenta as highlighter, bullet, rule and finding.

@@ -2,7 +2,9 @@
 
 Read `PRODUCT.md`, `DESIGN.md` and `design/landing.direction.md` before changing public web presentation. They are scoped to this package. Product truth comes from existing contracts and repository architecture; visual references do not grant product capabilities.
 
-Current iteration owns only the landing at `/`. Do not restyle `/dashboard` or `/demo`, alter auth/permissions, introduce customer-code execution, or deploy to a public host without a new request. Scope identity variables and browser-surface rules to `.g-page` so the landing stylesheet cannot recolor the customer application after navigation.
+The brand applies to the whole app: the landing at `/` and the customer application (`/dashboard`, `/setup`, `/privacy`, `/terms`). Do not alter auth/permissions, introduce customer-code execution, or deploy to a public host without a new request. Landing-only rules stay scoped to `.g-page`; page roots elsewhere carry the `.gl` class to receive the tokens.
+
+App styles: `src/components/customer-shell.css` (shell, auth page, shared buttons/forms/cards/chips), `customer-report.css`, `customer-operations.css`, `public-legal.css`. The theme switch is `src/components/theme-switch.tsx`; `THEME_SCRIPT` runs from the root route.
 
 ## Tools
 
@@ -25,7 +27,7 @@ The landing lives in `src/landing/` (route `/`). Dot fields (`src/components/dot
 
 ## Components and themes
 
-Controls are shadcn/ui (style `base-nova` on Base UI, see `components.json`; the shadcn skill is in `.agents/skills/shadcn`). Add components with `npx shadcn@latest add <name>` from `apps/web`, then restyle them in `src/components/ui/` to DESIGN.md instead of overriding them from page CSS. Navigation styled as a button is a real `<a>` with `buttonVariants`, because Base UI's Button announces anchors as buttons. Theme tokens are the shadcn slots in `src/styles/landing-ui.css`, scoped to `.gl` so they cannot restyle `/dashboard` or `/demo`; Tailwind loads without preflight for the same reason. Page CSS sits in `@layer components` so utility classes win. Light is pure `#ffffff`, dark is pure `#000000`, and system follows the OS; `THEME_SCRIPT` applies the stored choice before paint.
+Controls are shadcn/ui (style `base-nova` on Base UI, see `components.json`; the shadcn skill is in `.agents/skills/shadcn`). Add components with `npx shadcn@latest add <name>` from `apps/web`, then restyle them in `src/components/ui/` to DESIGN.md instead of overriding them from page CSS. Navigation styled as a button is a real `<a>` with `buttonVariants`, because Base UI's Button announces anchors as buttons. Theme tokens are the shadcn slots in `src/styles/landing-ui.css`, applied to every page root with the `.gl` class and loaded from the root route; Tailwind loads without preflight so it cannot reset unbranded markup. Page CSS sits in `@layer components` so utility classes win. Light is pure `#ffffff`, dark is pure `#000000`, and system follows the OS; `THEME_SCRIPT` applies the stored choice before paint.
 
 After the finished surface, run the detector and triage real findings rather than suppressing them broadly:
 
