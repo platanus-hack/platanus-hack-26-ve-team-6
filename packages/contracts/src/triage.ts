@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { customerScopeSchema } from './customer-assessment.js';
-import { triageRevisionSchema } from '@gotchu/triage';
+import { triageRevisionSchema } from '@gotchu/triage/output';
 export { triageRevisionSchema };
 
 const timestamp = z.iso.datetime();
