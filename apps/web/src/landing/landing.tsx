@@ -1,7 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowRightIcon, PauseIcon, PlayIcon } from 'lucide-react';
-import '../styles/tokens.css';
-import '../styles/landing-ui.css';
 import './landing.css';
 import { GotchuMark } from '../components/gotchu-mark';
 import { DotPlate } from '../components/dot-field/dot-plate';

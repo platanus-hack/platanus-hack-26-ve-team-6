@@ -7,7 +7,7 @@ export const Route = createFileRoute('/terms')({
 });
 
 function TermsPage() {
-  return <main className="customer-legal-page"><article className="customer-legal-document" aria-labelledby="terms-title">
+  return <main className="gl customer-legal-page"><article className="customer-legal-document" aria-labelledby="terms-title">
     <a className="customer-legal-brand" href="/dashboard"><span className="customer-legal-brand-mark" aria-hidden="true">g</span>gotchu.</a>
     <h1 id="terms-title">Términos de uso</h1>
     <p className="customer-legal-draft"><strong>Borrador:</strong> la persona operadora debe revisar y completar estos términos antes de ofrecer Gotchu a otras personas.</p>

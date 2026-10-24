@@ -32,7 +32,7 @@ function SetupPage() {
       setBusy(false);
     }
   }
-  return <main className="self-host-setup">
+  return <main className="gl self-host-setup">
     <section>
       <span>GOTCHU · PRIMER ARRANQUE</span>
       <h1>Crea tu espacio de trabajo</h1>

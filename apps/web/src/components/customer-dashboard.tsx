@@ -203,7 +203,7 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
   const ssoProviders = oauthProviders.filter(provider => provider.id !== 'google' && provider.id !== 'github');
   const lastProvider = oauthProviders.find(provider => provider.id === lastMethod);
   const lastMethodLabel = lastMethod === 'credentials' ? 'correo y contraseña' : lastProvider?.name ?? (lastMethod ? 'SSO' : null);
-  return <main className="customer-auth-page">
+  return <main className="gl customer-auth-page">
     <section className="customer-auth-card" aria-labelledby="auth-title">
       <a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>
       <h1 id="auth-title">{registering ? 'Crea tu espacio de trabajo' : 'Inicia sesión en Gotchu'}</h1>
@@ -766,10 +766,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const selectedSummary = applicationReports.find(item => item.id === visibleReportId);
   const needsReportData = page === 'overview' || page === 'reports';
 
-  if (workspaces.isPending) return <main className="customer-app-shell"><Loading label="Cargando tus espacios de trabajo…" /></main>;
-  if (workspaces.error) return <main className="customer-app-shell"><ErrorNotice message={readableError(workspaces.error)} retry={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} /></main>;
+  if (workspaces.isPending) return <main className="gl customer-app-shell"><Loading label="Cargando tus espacios de trabajo…" /></main>;
+  if (workspaces.error) return <main className="gl customer-app-shell"><ErrorNotice message={readableError(workspaces.error)} retry={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} /></main>;
 
-  return <div className="customer-app-shell">
+  return <div className="gl customer-app-shell">
     <aside className="customer-sidebar">
       <a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>
       <div className="customer-workspace-select"><label htmlFor="workspace-select">ESPACIO DE TRABAJO</label><select id="workspace-select" value={organizationId ?? ''} onChange={event => { setSelectedWorkspaceId(event.target.value); setSelectedApplicationId(null); setSelectedReportId(null); setNotice(null); }}><option value="" disabled>Selecciona un espacio</option>{workspaces.data?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>{workspace && <span>{workspace.role === 'owner' ? 'Propietario' : workspace.role === 'operator' ? 'Operador' : 'Sólo lectura'}</span>}{workspace && <WorkspaceSettings key={workspace.id} organizationId={workspace.id} name={workspace.name} canManage={canManage} onSaved={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); setNotice('El espacio de trabajo se actualizó.'); }} />}</div>
@@ -901,8 +901,8 @@ export function CustomerDashboard() {
   const invitationMessage = acceptedInvitation ? 'Invitación aceptada. Se abrió el nuevo espacio de trabajo.' : null;
   const invitationBanner = invitationError ? <div role="alert" className="customer-error"><p>No se pudo aceptar la invitación: {invitationError}</p><button type="button" className="customer-link-button" onClick={() => setAcceptAttempt(value => value + 1)}>Volver a intentar</button></div>
     : invitationToken && !session.data?.user ? <p role="status" className="customer-success">Inicia sesión con la cuenta invitada para aceptar esta invitación.</p> : null;
-  if (session.isPending) return <main className="customer-auth-page"><Loading label="Comprobando tu sesión…" /></main>;
-  if (session.error) return <main className="customer-auth-page"><section className="customer-auth-card"><a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>{invitationBanner}<ErrorNotice message={readableError(session.error)} retry={() => session.refetch()} /></section></main>;
+  if (session.isPending) return <main className="gl customer-auth-page"><Loading label="Comprobando tu sesión…" /></main>;
+  if (session.error) return <main className="gl customer-auth-page"><section className="customer-auth-card"><a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>{invitationBanner}<ErrorNotice message={readableError(session.error)} retry={() => session.refetch()} /></section></main>;
   if (!session.data.user) return <>{invitationBanner}<AuthPanel session={session.data} onAuthenticated={value => { queryClient.setQueryData(['customer-session'], value); }} /></>;
   return <><CustomerWorkspace key={session.data.user.id} session={session.data} userId={session.data.user.id} acceptedInvitationId={acceptedInvitation?.organizationId ?? null} invitationMessage={invitationMessage} />{invitationBanner}</>;
 }
