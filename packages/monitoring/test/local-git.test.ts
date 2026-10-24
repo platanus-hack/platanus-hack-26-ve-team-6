@@ -19,6 +19,9 @@ afterEach(async () => {
 function git(args: string[], cwd?: string) {
   execFileSync('git', args, { cwd, stdio: 'ignore', timeout: 10_000 });
 }
+function gitOutput(args: string[], cwd?: string): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 }).trim();
+}
 
 async function repositoryFixture(root: string) {
   const managed = join(root, 'managed');
@@ -80,6 +83,29 @@ describe('local bare Git reader', () => {
     expect(changed.candidate?.kind).toBe('repository_change');
     expect(changed.candidate?.evidence[0]?.checksum).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(changed)).not.toContain('not read by the monitoring adapter');
+  });
+
+  it('excludes a real gitlink while retaining source files from the bare repository', async () => {
+    const root = await tempDirectory();
+    const fixture = await repositoryFixture(root);
+    const linkedRepository = join(root, 'linked-repository');
+    await mkdir(linkedRepository);
+    await writeFile(join(linkedRepository, 'secret.ts'), 'export const linkedSecret = "must stay outside the snapshot";\n');
+    git(['init', '--initial-branch=main', linkedRepository]);
+    git(['add', 'secret.ts'], linkedRepository);
+    git(['-c', 'user.name=Test Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'linked repository'], linkedRepository);
+    const linkedCommit = gitOutput(['rev-parse', 'HEAD'], linkedRepository);
+    git(['update-index', '--add', '--cacheinfo', '160000,' + linkedCommit + ',linked-module'], fixture.working);
+    git(['-c', 'user.name=Test Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'add gitlink'], fixture.working);
+    git(['push', fixture.bare, 'HEAD:refs/heads/main'], fixture.working);
+
+    const { catalog, scope } = scopedCatalog(fixture.managed);
+    const reader = createLocalGitRepositoryReader(catalog);
+    const result = await reader.read({ ...scope, repositoryKey: 'customer-product' });
+
+    expect(result.snapshot.files).toEqual([{ path: 'src.ts', content: 'export const value = 1;\n' }]);
+    expect(result.excludedSubmodules).toBe(1);
+    expect(JSON.stringify(result)).not.toContain('must stay outside the snapshot');
   });
 
   it('rejects a repository path that crosses a symlink beneath the managed root', async () => {

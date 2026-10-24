@@ -248,8 +248,15 @@ async function readTree(run: GitRunner, revision: string): Promise<SourceTreeEnt
     const type = header[1] ?? '';
     const sha = header[2] ?? '';
     if (!/^(?:100644|100755|120000|160000)$/.test(mode) || !['blob', 'commit'].includes(type) || !commitShaSchema.test(sha)) throw new Error('repository_tree_invalid');
-    const size = header[3] === '-' ? undefined : Number(header[3]);
-    if (header[3] !== undefined && (!Number.isSafeInteger(size) || (size as number) < 0)) throw new Error('repository_tree_invalid');
+    if ((mode === '160000') !== (type === 'commit')) throw new Error('repository_tree_invalid');
+    let size: number | undefined;
+    if (mode === '160000') {
+      if (header[3] !== '-') throw new Error('repository_tree_invalid');
+    } else {
+      if (header[3] === undefined || header[3] === '-') throw new Error('repository_tree_invalid');
+      size = Number(header[3]);
+      if (!Number.isSafeInteger(size) || size < 0) throw new Error('repository_tree_invalid');
+    }
     entries.push({ path, mode, type: type as SourceTreeEntry['type'], sha, ...(size === undefined ? {} : { size }) });
   }
   return entries;
