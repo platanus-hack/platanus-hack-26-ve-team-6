@@ -1,5 +1,6 @@
 import { z } from 'zod';
 export * from './assessment.js';
+export * from './demo-api.js';
 
 export const idSchema = z.uuid();
 export const eventTypeSchema = z.enum([
