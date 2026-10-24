@@ -120,8 +120,8 @@ Trabajo:
 
 - [x] Crear un resultado de triage tipado con impacto observado, servicios afectados, ventana, hipótesis, evidencia favorable/contraria, datos faltantes y próxima comprobación. Separar `impacto` de `causa probable`. Núcleo determinista; persistencia/UI pendiente.
 - [x] Evaluar hipótesis de regresión de aplicación, abuso, dependencia/proveedor y desconocido. Admitir varias simultáneas; no forzar un único culpable. Núcleo determinista; persistencia/UI pendiente.
-- [ ] Alinear tiempos de evento/aceptación, latencia de entrega, sampling, frescura y línea base por servicio/entorno. Un feed global del proveedor no confirma un fallo en la región o componente del cliente.
-- [ ] Relacionar errores por dependencia/ruta, cambios de release, métricas de recursos y comprobaciones HTTPS independientes dentro del consentimiento. Usar rutas de control cuando existan para evitar atribuciones por mera simultaneidad.
+- [x] Alinear tiempos de evento/aceptación, latencia de entrega, sampling, frescura y línea base por servicio/entorno. Los datos ausentes o caducos se excluyen y se muestran; un feed global no confirma región/componente. Implementado en el núcleo determinista; integración de persistencia pendiente.
+- [x] Relacionar errores por dependencia/ruta, cambios de release, métricas de recursos y comprobaciones HTTPS independientes dentro del consentimiento. La ruta de control sana aísla un fallo de proveedor; si también falla, la causa específica queda sin confirmar. Implementado en el núcleo; integración de la app pendiente.
 - [ ] Persistir cada revisión con versión del correlador y referencias de evidencia, sin mutar la historia. Evidencia posterior puede subir, bajar o retirar una hipótesis.
 - [x] Definir confianza por reglas auditables y resultados de evaluación. Reservar probabilidades numéricas para cuando haya calibración; no usar la seguridad verbal del modelo como medida. Núcleo determinista; persistencia/UI pendiente.
 - [ ] Mostrar una tarjeta de incidente con impacto, explicación, contradicciones, límites y botón para obtener evidencia faltante. “No se observó impacto en los puntos comprobados” no significa “toda tu empresa está sana”.
@@ -296,7 +296,7 @@ Trabajo:
 
 Trabajo:
 
-- [x] Construir un corpus versionado de incidentes y reparaciones con verdad conocida, controles negativos y un conjunto separado no usado para ajustar reglas. El equipo etiqueta impacto/causas con sus límites antes de ejecutar el correlador. Corpus de correlación etiquetado; reparaciones, persistencia/UI y evaluación integral pendientes.
+- [x] Construir un corpus versionado de incidentes y reparaciones con verdad conocida, controles negativos y un conjunto separado no usado para ajustar reglas. El equipo etiqueta impacto/causas con sus límites antes de ejecutar el correlador. Tuning y holdout independientes, 14+ casos por split; el holdout no se usa para ajustar reglas. Persistencia/UI y evaluación integral pendientes.
 - [ ] Medir precisión/recall por escenario, falsas alarmas por app/ventana, abstención, errores de confianza, demora hasta decisión, tiempo hasta reparación verificada, regresiones y coste. Reportar cobertura y denominadores; no sólo ejemplos que funcionan.
 - [ ] Comparar reglas solas, reglas+contexto y reglas+agente; medir aporte incremental de la IA. Para comparar con competidores usar el mismo caso autorizado y condiciones reproducibles, sin inventar sus resultados.
 - [ ] Establecer umbrales de aceptación por escenario antes del holdout. Seguridad de autorización, aislamiento y no escritura sin permiso son gates binarios; calidad/latencia/coste tienen umbrales documentados, todavía no medidos.
