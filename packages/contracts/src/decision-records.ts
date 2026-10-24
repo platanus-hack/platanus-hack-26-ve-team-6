@@ -14,7 +14,7 @@ export const decisionRecordOutcomeSchema = z.enum([
   'completed', 'failed', 'uncertain', 'changed', 'unknown',
 ]);
 export const decisionRecordActionSchema = z.enum([
-  'application.created', 'application.updated',
+  'workspace.created', 'application.created', 'application.updated',
   'target.enrolled', 'target.verified', 'target.revoked', 'source.uploaded', 'source.deleted',
   'assessment.queued', 'assessment.recorded', 'customer_assessment.queued', 'customer_assessment.recorded', 'report.download_requested',
   'monitor.configured', 'monitor.materialized', 'alert.acknowledged', 'alert.resolved',
