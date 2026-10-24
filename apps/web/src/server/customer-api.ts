@@ -18,6 +18,7 @@ import {
   licensePolicySchema, workspaceLicensePolicySchema,
   configureInvestigationModelSchema, investigationModelSettingsSchema,
   investigationActionSchema, investigationRunSchema, investigationSubjectSchema,
+  workspaceRetentionPolicyInputSchema, workspaceRetentionPolicySchema,
 } from '@gotchu/contracts';
 import { type Identity, type Backend } from '@gotchu/backend';
 import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, reportRecommendationsResponseSchema, type PrepareCorrectionRequest, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
@@ -50,6 +51,7 @@ export interface CustomerServices {
   operations?: Backend['operations'];
   decisionRecords?: Backend['decisionRecords'];
   notifications?: Backend['notifications'];
+  retention?: Backend['retention'];
   triage?: Backend['triage'];
   investigationModels?: Backend['investigationModels'];
   investigations?: Backend['investigations'];
@@ -144,6 +146,16 @@ export function createCustomerApi(options: {
       const headers = new Headers();
       for (const cookie of session.cookies) headers.append('set-cookie', cookie);
       const send = (value: unknown, status = 200) => json(value, status, headers);
+      const retentionParts=url.pathname.split('/').filter(Boolean);
+      if(retentionParts.length===5&&retentionParts[0]==='api'&&retentionParts[1]==='customer'&&retentionParts[2]==='workspaces'&&retentionParts[4]==='retention'){
+        if(!services.retention)throw new HttpError(503,'retention_not_configured','La retención no está configurada.');
+        const organizationId=parse(uuid,retentionParts[3]);
+        if(request.method==='GET')return send(workspaceRetentionPolicySchema.parse(await services.retention.getPolicy(identity,{organizationId})));
+        if(request.method==='PUT'){
+          const policy=parse(workspaceRetentionPolicyInputSchema,await body(request));
+          return send(workspaceRetentionPolicySchema.parse(await services.retention.updatePolicy(identity,{organizationId,...policy})));
+        }
+      }
       const notificationParts=url.pathname.split('/').filter(Boolean);
       if(notificationParts.length>=5&&notificationParts[0]==='api'&&notificationParts[1]==='customer'&&notificationParts[2]==='workspaces'&&notificationParts[4]==='notifications'){
         if(!services.notifications)throw new HttpError(503,'notifications_not_configured','Las notificaciones no están configuradas.');

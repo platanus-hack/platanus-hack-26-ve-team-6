@@ -21,6 +21,7 @@ import {
   decisionRecordPageSchema,
   decisionRecordQuerySchema,
   workspaceLicensePolicySchema,
+  workspaceRetentionPolicySchema, workspaceRetentionPolicyInputSchema,
   type AssessmentMode,
   type CustomerApplication,
   type CustomerAssessmentReport,
@@ -254,6 +255,8 @@ export const customerApi = {
   },
   cancelInvestigation: (organizationId: string, applicationId: string, jobId: string) => request(`${applicationPath(organizationId, applicationId)}/investigations/${encodeURIComponent(z.uuid().parse(jobId))}/cancel`, investigationActionSchema, { method: 'POST', ...jsonBody({}) }),
   resumeInvestigation: (organizationId: string, applicationId: string, jobId: string) => request(`${applicationPath(organizationId, applicationId)}/investigations/${encodeURIComponent(z.uuid().parse(jobId))}/resume`, investigationActionSchema, { method: 'POST', ...jsonBody({}) }),
+  retentionPolicy: (organizationId: string) => request(`${organizationPath(organizationId)}/retention`, workspaceRetentionPolicySchema),
+  updateRetentionPolicy: (organizationId: string, policy: unknown) => request(`${organizationPath(organizationId)}/retention`, workspaceRetentionPolicySchema, { method: 'PUT', ...jsonBody(workspaceRetentionPolicyInputSchema.parse(policy)) }),
   targets: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/targets`, targetListSchema),
   enrollTarget: (input: { organizationId: string; applicationId: string; origin: string; authorized: true; scanProfile?: CustomerScanProfile }) => {
     const { organizationId, applicationId, origin, authorized, scanProfile } = input;

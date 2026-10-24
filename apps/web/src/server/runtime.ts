@@ -165,6 +165,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
     members: web.members,
     github: web.github,
     notifications: web.notifications,
+    retention: web.retention,
     actions: web.actions,
     workflowExceptions: web.workflowExceptions,
     validations: web.validations,
