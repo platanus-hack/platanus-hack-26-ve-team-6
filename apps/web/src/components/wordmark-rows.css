@@ -1,0 +1,7 @@
+.g-wordrows { --rows-ink: var(--gc-canvas); position: absolute; inset: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: center; gap: .04em; font: 700 var(--rows-size, 8vw)/.92 var(--gc-font-display); letter-spacing: -.01em; color: var(--rows-ink); pointer-events: none; user-select: none; }
+.g-wordrows > div { display: flex; gap: .3em; white-space: nowrap; will-change: transform; transform: translate3d(-25%, 0, 0); }
+.g-wordrows > div > span { display: inline-flex; align-items: center; gap: .3em; }
+.g-wordrows .g-mark { width: .62em; height: .62em; color: var(--rows-ink); }
+.g-wordrows .g-mark path { fill: currentColor; }
+.g-wordrows > .is-outline { color: transparent; -webkit-text-stroke: max(1.5px, .018em) var(--rows-ink); }
+.g-wordrows > .is-outline .g-mark { color: var(--rows-ink); opacity: .9; }
