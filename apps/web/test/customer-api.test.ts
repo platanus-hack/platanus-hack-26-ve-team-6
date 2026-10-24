@@ -25,6 +25,23 @@ function operationPorts() {
   return { ...result, operations };
 }
 describe('authenticated customer HTTP adapter (injected services)', () => {
+  it('prepares only an exact finding/digest selection using authenticated path scope', async () => {
+    const { services, auth } = ports();
+    const reportId = randomUUID(); const findingId = randomUUID();
+    const selection = { recipeId: 'tls-certificate-verification', findingId, expectedSourceDigest: 'a'.repeat(64) };
+    const result = { sourceId: randomUUID(), jobId: randomUUID(), changes: [{ path: 'src/tls.ts', description: 'Enable certificate verification.' }], patchHash: 'b'.repeat(64) };
+    const prepare = vi.fn(async () => result);
+    services.corrections = { prepare, recommendations: async () => { throw new Error('Unexpected recommendations read'); } };
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `workspaces/${organizationId}/applications/${applicationId}/reports/${reportId}/corrections`;
+    for (const extra of [{ verified: true }, { command: 'arbitrary command' }, { organizationId: randomUUID() }, { source: { files: [] } }]) {
+      expect((await handle(request(path, { ...selection, ...extra }))).status).toBe(400);
+    }
+    expect(prepare).not.toHaveBeenCalled();
+    const response = await handle(request(path, selection));
+    expect(response.status).toBe(201); expect(await response.json()).toEqual(result);
+    expect(prepare).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, reportId, ...selection });
+  });
   it('exposes no customer data to anonymous sessions or identity headers', async () => {
     const { services, auth } = ports(); auth.identity = async () => null;
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
