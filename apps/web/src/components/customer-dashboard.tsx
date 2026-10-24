@@ -17,6 +17,7 @@ import { CustomerApiError, customerApi, type CustomerJob, type CustomerScanProfi
 import { OperationsPanel } from './operations-panel';
 import { ReportRecommendations } from './report-recommendations';
 import { ContextPanel } from './context-panel';
+import { IncidentList } from './incident-card';
 import { StepUpPanel } from './step-up-panel';
 import './customer-dashboard.css';
 
@@ -552,7 +553,7 @@ function CustomerWorkspace({ session, userId }: { session: CustomerSession; user
               {canManage && <StepUpPanel key={`${userId}:${organizationId}`} organizationId={organizationId} />}
             </>}
 
-            {page === 'operations' && <OperationsPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} />}
+            {page === 'operations' && <><IncidentList organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} /><OperationsPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} /></>}
 
           {page === 'reports' && <>
             {activeJob && activeJob.organizationId === organizationId && activeJob.applicationId === selectedApplication.applicationId && <JobStatusBanner purpose={activeJob.purpose} job={jobResult} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} />}
