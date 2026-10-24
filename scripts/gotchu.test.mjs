@@ -83,6 +83,14 @@ try {
   assert.deepEqual(await readFile(join(stateDir, 'scanner.secret')), scannerSecret);
   for (const secret of secrets) assert.equal(`${second.stdout}${second.stderr}`.includes(secret), false);
 
+  const githubSetup = run(['github', 'setup'], { GOTCHU_STATE_DIR: stateDir });
+  assert.equal(githubSetup.status, 0, githubSetup.stderr);
+  assert.match(githubSetup.stdout, new RegExp(`http://localhost:${webPort}/api/customer/github/callback`));
+  assert.match(githubSetup.stdout, new RegExp(`http://localhost:${webPort}/api/auth/callback/github`));
+  assert.match(githubSetup.stdout, /AUTH_GITHUB_ID=<client-id> y AUTH_GITHUB_SECRET=<client-secret>/);
+  assert.match(githubSetup.stdout, /botón aparece sólo cuando ambos están configurados/);
+  for (const secret of secrets) assert.equal(`${githubSetup.stdout}${githubSetup.stderr}`.includes(secret), false);
+
   const upgrade = run(['upgrade'], { GOTCHU_STATE_DIR: stateDir });
   assert.notEqual(upgrade.status, 0);
   assert.match(upgrade.stdout, /Se reconstruirá desde este checkout/);
@@ -90,4 +98,4 @@ try {
 } finally {
   await rm(temp, { recursive: true, force: true });
 }
-process.stdout.write('Self-host script tests passed (scanner TLS readiness, private secret generation, idempotent state, occupied port, missing Docker).\n');
+process.stdout.write('Self-host script tests passed (scanner TLS readiness, private secrets, idempotent state, occupied ports, GitHub callback instructions, missing Docker).\n');
