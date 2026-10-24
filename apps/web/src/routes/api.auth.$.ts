@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { authSettings, createAuthService } from '../server/auth.js';
+import { getWebRuntime } from '../server/runtime.js';
 import { errorResponse } from '../server/http.js';
 
 async function handle({ request }: { request: Request }) {
-  try { return await createAuthService(authSettings()).handle(request); }
+  try { return await getWebRuntime().handleAuth(request); }
   catch (error) { return errorResponse(error); }
 }
 

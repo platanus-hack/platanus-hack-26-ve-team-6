@@ -7,7 +7,7 @@ import { HttpError } from './http.js';
 import { bindDemoAssessmentServices, createDemoAssessmentApi } from './demo.js';
 import { createLocalAccounts } from './local-accounts.js';
 import { createCustomerApi } from './customer-api.js';
-import { customerDnsVerifier } from './customer-dns.js';
+import { createCustomerDnsVerifier } from './customer-dns.js';
 
 function credentialStore(value: string | undefined): CredentialStore | undefined {
   if (!value) return undefined;
@@ -57,7 +57,8 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const accounts = apiDatabase && env.GOTCHU_LOCAL_AUTH_ENABLED === 'true' ? createLocalAccounts(apiDatabase) : undefined;
   const settings = authSettings(env, accounts);
   const auth = createAuthService(settings);
-  const web = apiDatabase ? createBackend({ database: apiDatabase, customerDnsVerifier }) : null;
+  const dnsServers = env.GOTCHU_DNS_SERVERS_JSON ? z.array(z.string().min(1).max(100)).max(5).parse(JSON.parse(env.GOTCHU_DNS_SERVERS_JSON)) : [];
+  const web = apiDatabase ? createBackend({ database: apiDatabase, customerDnsVerifier: createCustomerDnsVerifier(dnsServers) }) : null;
   const credentials = credentialStore(env.GOTCHU_EVENT_SIGNING_KEYS_JSON);
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
@@ -69,6 +70,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   });
   return {
     handle,
+    handleAuth: auth.handle,
     handleCustomer,
     handleDemo,
     async readiness() {
