@@ -28,34 +28,35 @@ const artifactSchema = z.object({
 }).strict().refine(value => value.artifactSha256 === value.snapshotSha256
   && (value.treeComplete ? value.treeSha !== null && value.unsupportedReason === null : value.treeSha === null && value.unsupportedReason !== null));
 export type ExecutionArtifact = z.infer<typeof artifactSchema>;
-export type ArtifactDigestCheck = { valid: boolean; unsupportedReason: string | null };
+export type ArtifactDigestCheck = { valid: boolean; unsupportedReason: string | null; treeSha?: string };
 
 /** Private publication material; only the executor service role can read file bytes. */
 export function createExecutionArtifactService(database: Database) {
   return {
-    async readForExecutor(input: { organizationId: string; applicationId: string; proposalId: string }): Promise<ExecutionArtifact> {
+    async readForExecutor(input: { organizationId: string; applicationId: string; proposalId?: string; candidateSourceId?: string }): Promise<ExecutionArtifact> {
       if (database.role !== 'gotchu_executor') throw new BackendError('forbidden', 'Execution artifacts are available only to the executor service', 403);
+      if ((!input.proposalId && !input.candidateSourceId) || (input.proposalId && input.candidateSourceId)) throw new BackendError('invalid_input', 'Specify exactly one artifact identity');
       return readArtifact(database, input);
     },
     /** The web verifier can check integrity labels and eligibility without reading artifact bytes. */
     async verifyCandidateDigest(input: { organizationId: string; applicationId: string; candidateSourceId: string; snapshotSha256: string; patchSha256: string }): Promise<ArtifactDigestCheck> {
       if (database.role !== 'gotchu_api' && database.role !== 'gotchu_executor') throw new BackendError('forbidden', 'Execution artifact verification is unavailable to this service', 403);
       return database.tenant(input.organizationId, async tx => {
-        const result = await tx.query<{ snapshot_sha256: string; patch_sha256: string; artifact_sha256: string; tree_complete: boolean; unsupported_reason: string | null }>(`SELECT snapshot_sha256,patch_sha256,artifact_sha256,tree_complete,unsupported_reason
+        const result = await tx.query<{ snapshot_sha256: string; patch_sha256: string; artifact_sha256: string; tree_sha: string | null; tree_complete: boolean; unsupported_reason: string | null }>(`SELECT snapshot_sha256,patch_sha256,artifact_sha256,tree_sha,tree_complete,unsupported_reason
           FROM gotchu.execution_artifacts WHERE organization_id=$1 AND application_id=$2 AND candidate_source_id=$3`, [input.organizationId, input.applicationId, input.candidateSourceId]);
         const row = result.rows[0];
         if (!row) return { valid: false, unsupportedReason: 'execution_artifact_missing' };
         const digestsMatch = row.snapshot_sha256 === input.snapshotSha256
           && row.artifact_sha256 === input.snapshotSha256 && row.patch_sha256 === input.patchSha256;
         if (!digestsMatch) return { valid: false, unsupportedReason: 'execution_artifact_digest_mismatch' };
-        if (!row.tree_complete) return { valid: false, unsupportedReason: row.unsupported_reason ?? 'repository_tree_unavailable' };
-        return { valid: true, unsupportedReason: null };
+        if (!row.tree_complete || !row.tree_sha) return { valid: false, unsupportedReason: row.unsupported_reason ?? 'repository_tree_unavailable' };
+        return { valid: true, unsupportedReason: null, treeSha: row.tree_sha };
       });
     },
   };
 }
 
-async function readArtifact(database: Database, input: { organizationId: string; applicationId: string; proposalId: string }): Promise<ExecutionArtifact> {
+async function readArtifact(database: Database, input: { organizationId: string; applicationId: string; proposalId?: string; candidateSourceId?: string }): Promise<ExecutionArtifact> {
   const stored = await database.tenant(input.organizationId, async tx => {
     const result = await tx.query<{
       base_commit: string; files: unknown; candidate_tree_sha: string; tree_sha: string | null; tree_complete: boolean;
@@ -65,7 +66,7 @@ async function readArtifact(database: Database, input: { organizationId: string;
         a.snapshot_sha256,a.patch_sha256,a.artifact_sha256,a.size_bytes,s.body AS source_body,s.digest AS source_digest,s.deleted_at
       FROM gotchu.execution_artifacts a
       JOIN gotchu.customer_sources s ON s.organization_id=a.organization_id AND s.application_id=a.application_id AND s.id=a.candidate_source_id
-      WHERE a.organization_id=$1 AND a.application_id=$2 AND a.proposal_id=$3`, [input.organizationId, input.applicationId, input.proposalId]);
+      WHERE a.organization_id=$1 AND a.application_id=$2 AND (($3::uuid IS NOT NULL AND a.proposal_id=$3) OR ($4::uuid IS NOT NULL AND a.candidate_source_id=$4))`, [input.organizationId, input.applicationId, input.proposalId ?? null, input.candidateSourceId ?? null]);
     const row = result.rows[0];
     if (!row) throw new BackendError('not_found', 'Execution artifact not found', 404);
     if (row.deleted_at !== null || row.source_digest !== row.snapshot_sha256) throw new BackendError('artifact_corrupt', 'The candidate source is unavailable or its digest changed', 409);

@@ -70,9 +70,10 @@ function validationReason(raw: unknown, runner: {
     if (stored.expiresAt.getTime() !== Date.parse(attestation.payload.expiresAt)) return 'validation_tampered';
   }
   if (new Set(facts.attestations.map(attestation => attestation.payload.id)).size !== facts.attestations.length
-    || action.kind === 'source_patch_pull_request' && boundAttestationIds.length > 0 && (boundAttestationIds.length !== facts.attestations.length
+    || action.kind === 'source_patch_pull_request' && (boundAttestationIds.length === 0 || boundAttestationIds.length !== facts.attestations.length
       || boundAttestationIds.some(id => !facts.attestations.some(attestation => attestation.payload.id === id)))
-    || action.kind === 'dependency_pull_request' && boundAttestationIds.some(id => !facts.attestations.some(attestation => attestation.payload.id === id))) return 'validation_tampered';
+    || action.kind === 'dependency_pull_request' && (boundAttestationIds.length !== 2
+      || boundAttestationIds.some(id => !facts.attestations.some(attestation => attestation.payload.id === id)))) return 'validation_tampered';
   const keys = new Map(facts.keys.map(key => [key.keyId, key.publicKey]));
   if (facts.attestations.some(attestation => !keys.has(attestation.keyId))) return 'validation_unsigned';
   if (facts.attestations.some(attestation => {
@@ -118,6 +119,14 @@ export function createActionVerifier(input: {
   const rootfsDigest = digest.parse(input.pinnedRootfsDigest);
   const repository = input.repository;
   return {
+    async getValidationAttestationIds(action) {
+      if (action.kind !== 'source_patch_pull_request') return [];
+      const actionRef = action.evidence.find(item => item.kind === 'private_correction_candidate')?.id;
+      if (!actionRef) return [];
+      const raw = await input.validationFacts.getFacts({ organizationId: action.organizationId, actionRef });
+      const facts = validationFactsSchema.safeParse(raw);
+      return facts.success ? facts.data.attestations.map(attestation => attestation.payload.id) : [];
+    },
     async prepareArtifact(input: { organizationId: string; applicationId: string; repositoryKey: string; baseCommit: string; files: readonly PatchFile[] }) {
       if (!input.files.length || !repository.readTree) return { treeSha: null, unsupportedReason: input.files.length ? 'repository_tree_unavailable' : 'artifact_patch_unsupported' };
       let tree: GitTree;
@@ -226,6 +235,7 @@ export function createActionVerifier(input: {
           snapshotSha256:action.snapshotSha256,patchSha256:action.patchSha256,
         });
         artifactValid = artifactValid && artifactCheck.valid;
+      artifactValid = artifactValid && Boolean(action.expectedTreeSha && artifactCheck.treeSha === action.expectedTreeSha);
         artifactReason = artifactCheck.unsupportedReason ?? 'execution_artifact_digest_mismatch';
       }
       if (action.kind === 'dependency_pull_request' && dependencyCandidate?.success) {
@@ -300,7 +310,8 @@ export function createActionVerifier(input: {
       if (!linkValid) reasons.push('vínculo de repositorio no autorizado o cambiado');
       if (!githubConnectionValid) reasons.push('github_connection_unavailable');
       if (capability?.capability_id !== action.capabilityId || !capability.adapter_available) reasons.push('adaptador no habilitado para la capacidad');
-      if (!await input.repository.isPolicyCurrent({ organizationId:action.organizationId,applicationId:action.applicationId,capabilityId:action.capabilityId,policyVersion:action.policyVersion }).catch(() => false)) reasons.push('política vigente no verificada');
+      const policyCurrent = await input.repository.isPolicyCurrent({ organizationId:action.organizationId,applicationId:action.applicationId,capabilityId:action.capabilityId,policyVersion:action.policyVersion }).catch(() => false);
+      if (!policyCurrent) reasons.push('política vigente no verificada');
       if (!artifactValid) reasons.push(artifactReason);
       if (reason) reasons.push(reason);
       if (currentHead !== action.baseCommit) reasons.push('base cambió desde la propuesta');
@@ -330,7 +341,7 @@ export function createActionVerifier(input: {
           if (denied.length) reasons.push('repository_automation_unsafe', ...denied.map(violation => `workflow_policy_rule:${violation.rule}`));
         }
       }
-      return { eligible:reasons.length===0,blockingReasons:reasons,workflowExceptions };
+      return { eligible:reasons.length===0,blockingReasons:reasons,policyCurrent,workflowExceptions };
     },
   };
 }

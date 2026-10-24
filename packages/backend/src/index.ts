@@ -46,6 +46,7 @@ export * from './operations.js';
 export * from './step-up.js';
 export * from './members.js';
 export * from './actions.js';
+export * from './action-policies.js';
 export * from './validations.js';
 export * from './protection.js';
 export * from './action-verifier.js';

@@ -75,6 +75,7 @@ function transactionDatabase(database: Database, organizationId: string, tx: Tra
       return work(tx);
     },
     integration: unavailable,
+    system: unavailable,
     checkHealth: unavailable,
     close: unavailable,
   };

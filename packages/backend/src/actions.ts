@@ -7,6 +7,7 @@ import { audit, authorize, BackendError, canonicalJson, parse, sha256, systemClo
 import { APPROVAL_TTL_MS, STEP_UP_MAX_AGE_MS, assertStepUp, verifiedStepUpSchema, type StepUpVerifier } from './proposals.js';
 import { enqueue } from './jobs.js';
 import { dependencyCommitMessage, expectedDependencyCommitSha } from './git-commit.js';
+import { actionPolicyVersion } from './action-policies.js';
 
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
 const actionHashSchema = digest;
@@ -19,9 +20,10 @@ const proposeSchema = z.discriminatedUnion('kind', [
 ]);
 const actionRowSchema = z.object({ id: z.uuid(), actionHash: digest, action: actionV2Schema, state: z.enum(['proposed','eligible','ineligible','approved','expired','invalidated','executing','succeeded','failed','uncertain','reconciliation_required']), blockingReasons: z.array(z.string()), createdAt: z.date() }).strict();
 
-export type ActionEligibility = { eligible: boolean; blockingReasons: string[]; baseChanged?: boolean; workflowExceptions?: readonly WorkflowPolicyException[] };
+export type ActionEligibility = { eligible: boolean; blockingReasons: string[]; baseChanged?: boolean; policyCurrent?: boolean; workflowExceptions?: readonly WorkflowPolicyException[] };
 export interface ActionVerifier {
   verify(action: ActionV2, context: { phase: 'proposal' | 'approval' | 'execution' }): Promise<ActionEligibility>;
+  getValidationAttestationIds?(action: ActionV2): Promise<readonly string[]>;
   prepareArtifact?(input: { organizationId: string; applicationId: string; repositoryKey: string; baseCommit: string; files: readonly PatchFile[] }): Promise<{ treeSha: string | null; unsupportedReason: string | null }>;
 }
 export interface ActionDependencies extends BaseDependencies { actionVerifier?: ActionVerifier; stepUpVerifier?: StepUpVerifier }
@@ -30,13 +32,14 @@ export function hashActionV2(action: ActionV2, recoveryEpoch: string): string {
   return sha256('gotchu-action-v2\n' + canonicalJson({ action: parse(actionV2Schema, action), recoveryEpoch: parse(z.string().regex(/^[1-9][0-9]*$/), recoveryEpoch) }));
 }
 
-function publicProjection(row: z.infer<typeof actionRowSchema>, details: { path?: string; diffSummary?: string }) {
+function publicProjection(row: z.infer<typeof actionRowSchema>, details: { path?: string; diffSummary?: string }, execution: { status: string | null; pullRequestUrl: string | null; attempts: Array<Record<string, unknown>> } = { status:null,pullRequestUrl:null,attempts:[] }) {
   const kindLabel = row.action.kind === 'source_patch_pull_request' ? 'Abrir una solicitud de cambio para una corrección de código'
     : row.action.kind === 'dependency_pull_request' ? 'Abrir una solicitud de cambio para actualizar dependencias npm' : 'Acción propuesta';
   const blockerText: Record<string, string> = {
     'validación en VM no disponible': 'La validación en VM no está disponible. Mantén la propuesta en privado hasta configurar un verificador aislado.',
     'sin adaptador de escritura': 'No hay un adaptador de escritura disponible. No se modificará ningún repositorio.',
     'MFA requerido': 'Hace falta una verificación de seguridad reciente antes de aprobar.',
+    'executor no disponible': 'El ejecutor independiente no está disponible con permisos de escritura en este momento.',
     'vínculo de repositorio sin verificar': 'Verifica el vínculo del repositorio en el contexto de la aplicación.',
     'validaciones pendientes': 'Completa el reanálisis objetivo y la suite pertinente antes de solicitar aprobación.',
     'base cambió desde la propuesta': 'La rama base cambió. Prepara y valida una propuesta nueva antes de aprobar.',
@@ -51,12 +54,57 @@ function publicProjection(row: z.infer<typeof actionRowSchema>, details: { path?
       ? { path: 'package.json · package-lock.json', summary: details.diffSummary ?? row.action.changes.map(change => `${change.name}: ${change.from} → ${change.to}`).join('; ') }
       : details.path ? { path: details.path, summary: details.diffSummary ?? 'Cambio privado de una receta; el contenido del código no se comparte en esta vista.' } : null,
     validations: row.action.kind === 'dependency_pull_request'
-      ? [{ label: 'reanálisis objetivo', state: 'passed' }, { label: 'suite configurada', state: 'passed' }]
-      : [{ label: 'reanálisis objetivo', state: 'pending' }, { label: 'suite configurada', state: 'pending' }],
-    limits: ['No se ha escrito en Git ni en producción.', 'La severidad y el texto de una recomendación no conceden permisos.'],
+      ? [{ label: 'reanálisis objetivo', state: row.state === 'eligible' ? 'passed' : 'pending' }, { label: 'suite configurada', state: row.state === 'eligible' ? 'passed' : 'pending' }]
+      : [{ label: 'reanálisis objetivo', state: row.state === 'eligible' ? 'passed' : 'pending' }, { label: 'suite configurada', state: row.state === 'eligible' ? 'passed' : 'pending' }],
+    limits: [execution.status ? 'Gotchu no fusionó el cambio ni lo desplegó.' : 'No se ha escrito en Git ni en producción.', 'La severidad y el texto de una recomendación no conceden permisos.'],
     blockingReasons: row.blockingReasons.map(reason => blockerText[reason] ?? reason),
+    execution,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+const executionStateSchema = z.enum(['claimed','succeeded','failed','uncertain']);
+const attemptEventSchema = z.object({
+  attempt: z.number().int().positive(), step: z.enum(['claim','publish_branch','open_pr','verify']),
+  state: z.enum(['claimed','branch_published','pr_opened','verified','failed','uncertain','reconciliation_required']),
+  providerReference: z.string().min(1).max(1000).nullable(), detail: z.unknown(), occurredAt: z.date(),
+}).strict();
+const attemptDetailSchema = z.object({ reasonCode: z.string().max(100).optional(), branch: z.string().max(300).optional(), pullRequestNumber: z.number().int().positive().optional() }).strict();
+
+function publicProviderUrl(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === 'github.com' && /^\/[^/]+\/[^/]+\/pull\/\d+$/.test(url.pathname) ? url.toString() : null;
+  } catch { return null; }
+}
+
+async function loadExecutionHistory(tx: Transaction, organizationId: string, proposalIds: readonly string[]) {
+  const histories = new Map<string, { status: string | null; pullRequestUrl: string | null; attempts: Array<Record<string, unknown>> }>();
+  for (const proposalId of proposalIds) histories.set(proposalId, { status: null, pullRequestUrl: null, attempts: [] });
+  if (!proposalIds.length) return histories;
+  const result = await tx.query<{
+    proposal_id: string; execution_state: string; execution_reference: string | null; attempt: number | null;
+    step: string | null; state: string | null; provider_reference: string | null; detail: unknown; occurred_at: Date | null;
+  }>(`SELECT e.proposal_id,e.state AS execution_state,e.provider_reference AS execution_reference,
+      ev.attempt,ev.step,ev.state,ev.provider_reference,ev.detail,ev.occurred_at
+    FROM gotchu.executions e LEFT JOIN gotchu.executor_attempt_events ev
+      ON ev.organization_id=e.organization_id AND ev.execution_id=e.id
+    WHERE e.organization_id=$1 AND e.proposal_id=ANY($2::uuid[])
+    ORDER BY e.created_at,e.id,ev.occurred_at,ev.attempt,ev.step`, [organizationId, proposalIds]);
+  for (const row of result.rows) {
+    const history = histories.get(row.proposal_id);
+    if (!history) continue;
+    history.status = executionStateSchema.parse(row.execution_state);
+    history.pullRequestUrl = publicProviderUrl(row.execution_reference) ?? history.pullRequestUrl;
+    if (row.attempt === null || row.step === null || row.state === null || row.occurred_at === null) continue;
+    const event = attemptEventSchema.parse({ attempt:row.attempt,step:row.step,state:row.state,providerReference:row.provider_reference,detail:row.detail,occurredAt:row.occurred_at });
+    const detail = attemptDetailSchema.parse(event.detail);
+    const providerUrl = publicProviderUrl(event.providerReference);
+    history.pullRequestUrl = providerUrl ?? history.pullRequestUrl;
+    history.attempts.push({ attempt:event.attempt,step:event.step,state:event.state,reasonCode:detail.reasonCode ?? null,branch:detail.branch ?? null,pullRequestNumber:detail.pullRequestNumber ?? null,occurredAt:event.occurredAt.toISOString() });
+  }
+  return histories;
 }
 
 function publicReasons(blockingReasons: unknown, invalidationReason: string | null) {
@@ -64,6 +112,7 @@ function publicReasons(blockingReasons: unknown, invalidationReason: string | nu
   if (reasons.success && reasons.data.length) return reasons.data;
   const known: Record<string, string> = {
     recovery_epoch_changed: 'propuesta invalidada tras una recuperación', base_changed: 'La base del repositorio cambió; prepara y valida una propuesta nueva.',
+    policy_changed: 'La política de esta acción cambió; prepara y valida una propuesta nueva.',
     cancelled: 'La propuesta se canceló antes de ejecutarse.', rejected: 'La propuesta se rechazó antes de ejecutarse.',
   };
   return invalidationReason ? [known[invalidationReason] ?? 'La propuesta se invalidó y debe prepararse de nuevo.'] : [];
@@ -114,7 +163,7 @@ async function loadCandidate(tx: Transaction, scope: { organizationId: string; a
   const baseCommit = parse(gitCommit, snapshot.revision);
   const parsedAction = parse(actionV2Schema, {
     version: 2, kind: 'source_patch_pull_request', capabilityId: 'repository.source_patch_pr', organizationId: scope.organizationId, applicationId: scope.applicationId,
-    policyVersion: 'gotchu-action-policy-v2', target: { kind: 'repository', repositoryLinkId: link.id, repositoryKey: link.repository_key, branch: link.default_branch },
+    policyVersion: actionPolicyVersion('repository.source_patch_pr') ?? 'unregistered-policy', target: { kind: 'repository', repositoryLinkId: link.id, repositoryKey: link.repository_key, branch: link.default_branch },
     baseCommit, recipeId: detail.data.recipeId, recipeVersion: detail.data.recipeVersion, snapshotSha256: source.digest, patchSha256: detail.data.patchHash,
     findingIdentities: [detail.data.findingId], validationAttestationIds: [], evidence: [{ id: candidateId, sha256: source.digest, kind: 'private_correction_candidate' }],
   });
@@ -305,6 +354,14 @@ async function insertExecutionArtifact(tx: Transaction, scope: { organizationId:
     VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [scope.organizationId,scope.applicationId,proposalId,action.evidence[0]?.id,action.baseCommit,JSON.stringify(files),candidateTreeSha,completeTreeSha,completeTreeSha !== null,unsupported,commitMessage,snapshotSha256,action.patchSha256,snapshotSha256,sizeBytes]);
 }
 
+async function executorAvailable(tx: Transaction, capabilityId: string): Promise<boolean> {
+  const result = await tx.query<{ available: boolean }>(`SELECT EXISTS (
+    SELECT 1 FROM gotchu.action_executor_instances
+    WHERE capability_id=$1 AND heartbeat_at > clock_timestamp() - interval '90 seconds'
+  ) AS available`, [capabilityId]);
+  return result.rows[0]?.available === true;
+}
+
 export function createActionService(deps: ActionDependencies) {
   const clock = deps.clock ?? systemClock;
   return {
@@ -322,7 +379,8 @@ export function createActionService(deps: ActionDependencies) {
           if (hashActionV2(action, String(row.recovery_epoch)) !== row.action_hash) throw new BackendError('proposal_corrupt', 'Stored action does not match its immutable hash', 409);
           return actionRowSchema.parse({ id: row.id, actionHash: row.action_hash, action, state: row.state, blockingReasons: publicReasons(row.blocking_reasons,row.invalidation_reason), createdAt: row.created_at });
         });
-        return rows.map(row => publicProjection(row, {}));
+        const histories = await loadExecutionHistory(tx, scope.organizationId, rows.map(row => row.id));
+        return rows.map(row => publicProjection(row, {}, histories.get(row.id)));
       });
     },
     async get(identity: Identity, input: { organizationId: string; applicationId: string; proposalId: string }) {
@@ -344,7 +402,8 @@ export function createActionService(deps: ActionDependencies) {
           const parsed = z.object({ path: z.string().min(1).max(512) }).passthrough().safeParse(metadata.rows[0]?.detail);
           path = parsed.success ? parsed.data.path : undefined;
         }
-        return publicProjection(actionRowSchema.parse({ id: row.id, actionHash: row.action_hash, action, state: row.state, blockingReasons: publicReasons(row.blocking_reasons,row.invalidation_reason), createdAt: row.created_at }), path === undefined ? {} : { path });
+        const history = await loadExecutionHistory(tx, scope.organizationId, [scope.proposalId]);
+        return publicProjection(actionRowSchema.parse({ id: row.id, actionHash: row.action_hash, action, state: row.state, blockingReasons: publicReasons(row.blocking_reasons,row.invalidation_reason), createdAt: row.created_at }), path === undefined ? {} : { path }, history.get(scope.proposalId));
       });
     },
     async propose(identity: Identity, input: { organizationId: string; applicationId: string; kind: string; sourceRef: unknown }) {
@@ -382,9 +441,15 @@ export function createActionService(deps: ActionDependencies) {
       if (prepared.type === 'dependency' && (unsupportedReason || !treeSha)) {
         throw new BackendError('dependency_artifact_unavailable', 'A complete repository tree is required to bind this dependency proposal', 409);
       }
-      const action = prepared.type === 'correction'
-        ? prepared.value.action
+      const validationAttestationIds = prepared.type === 'correction' && deps.actionVerifier?.getValidationAttestationIds
+        ? await deps.actionVerifier.getValidationAttestationIds(prepared.value.action).catch(() => []) : [];
+      const proposedAction = prepared.type === 'correction'
+        ? parse(actionV2Schema, { ...prepared.value.action, expectedTreeSha: treeSha, validationAttestationIds })
         : createDependencyAction(value, prepared.value, treeSha ?? '');
+      if (prepared.type === 'correction' && proposedAction.kind !== 'source_patch_pull_request'
+        || prepared.type === 'dependency' && proposedAction.kind !== 'dependency_pull_request') {
+        throw new BackendError('candidate_invalid', 'The stored candidate resolved to the wrong pull request action', 409);
+      }
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, identity, ['owner', 'operator'], value.applicationId);
         const app = await tx.query<{ archived: boolean }>('SELECT archived FROM gotchu.applications WHERE organization_id=$1 AND id=$2 FOR UPDATE', [value.organizationId, value.applicationId]);
@@ -393,11 +458,13 @@ export function createActionService(deps: ActionDependencies) {
         const current = proposal.kind === 'source_patch_pull_request'
           ? { type: 'correction' as const, value: await loadCandidate(tx, value, candidateId) }
           : { type: 'dependency' as const, value: await loadDependencyCandidate(tx, value, candidateId) };
-        const currentAction = current.type === 'correction' ? current.value.action : createDependencyAction(value, current.value, treeSha ?? '');
+        const currentAction = current.type === 'correction'
+          ? parse(actionV2Schema, { ...current.value.action, expectedTreeSha: treeSha, validationAttestationIds })
+          : createDependencyAction(value, current.value, treeSha ?? '');
         const currentPatchFiles = current.value.patchFiles;
         const preparedUnsupported = prepared.type === 'correction' ? prepared.value.artifactUnsupportedReason : null;
         const currentUnsupported = current.type === 'correction' ? current.value.artifactUnsupportedReason : null;
-        if (canonicalJson(currentAction) !== canonicalJson(action)
+        if (canonicalJson(currentAction) !== canonicalJson(proposedAction)
           || canonicalJson(currentPatchFiles) !== canonicalJson(patchFiles)
           || currentUnsupported !== preparedUnsupported) {
           throw new BackendError('candidate_changed', 'The stored candidate changed while its repository tree was being read', 409);
@@ -412,10 +479,12 @@ export function createActionService(deps: ActionDependencies) {
         const id = randomUUID();
         const state = 'ineligible';
         const writeCapability = await tx.query<{ adapter_available: boolean }>('SELECT adapter_available FROM gotchu.action_capabilities WHERE kind=$1', [currentAction.kind]);
+        const workerAvailable = await executorAvailable(tx, currentAction.capabilityId);
         const reasons = [
           ...(current.type === 'correction' ? current.value.blockingReasons : []),
           ...(unsupportedReason ? [unsupportedReason] : []),
           ...(writeCapability.rows[0]?.adapter_available ? [] : ['sin adaptador de escritura']),
+          ...(workerAvailable ? [] : ['executor no disponible']),
           ...(!deps.actionVerifier ? ['validation_verifier_unavailable'] : []),
         ];
         const inserted = await tx.query('INSERT INTO gotchu.proposals(organization_id,application_id,id,action_hash,body,recovery_epoch,version,kind,capability_id,state,source_ref,blocking_reasons) VALUES($1,$2,$3,$4,$5::jsonb,$6,2,$7,$8,$9,$10::jsonb,$11::jsonb) ON CONFLICT(organization_id,action_hash) DO NOTHING RETURNING id', [value.organizationId,value.applicationId,id,actionHash,JSON.stringify(currentAction),recoveryEpoch,currentAction.kind,currentAction.capabilityId,state,JSON.stringify(value.sourceRef),JSON.stringify(reasons)]);
@@ -433,7 +502,7 @@ export function createActionService(deps: ActionDependencies) {
     async getEligibility(identity: Identity, input: { organizationId: string; applicationId: string; proposalId: string }) {
       const value = parse(z.object({ organizationId: z.uuid(), applicationId: z.uuid(), proposalId: z.uuid() }).strict(), input);
       return deps.database.tenant(value.organizationId, async tx => {
-        await authorize(tx, value.organizationId, identity, undefined, value.applicationId);
+        await authorize(tx, value.organizationId, identity, ['owner'], value.applicationId);
         const result = await tx.query<{ body: unknown; action_hash: string; recovery_epoch: string; state: string; adapter_available: boolean }>(`SELECT p.body,p.action_hash,p.recovery_epoch,p.state,c.adapter_available FROM gotchu.proposals p JOIN gotchu.action_capabilities c ON c.kind=p.kind WHERE p.organization_id=$1 AND p.application_id=$2 AND p.id=$3 AND p.version=2`, [value.organizationId,value.applicationId,value.proposalId]);
         const row = result.rows[0];
         if (!row) throw new BackendError('not_found', 'Action proposal not found', 404);
@@ -447,13 +516,15 @@ export function createActionService(deps: ActionDependencies) {
         const reasons: string[] = [];
         if (!deps.actionVerifier) reasons.push('validación en VM no disponible');
         if (!row.adapter_available) reasons.push('sin adaptador de escritura');
-        if (action.kind === 'provider_response') reasons.push('sin adaptador de escritura');
+        if (!await executorAvailable(tx, action.capabilityId)) reasons.push('executor no disponible');
+        if (action.kind !== 'source_patch_pull_request') reasons.push('sin adaptador de escritura');
         const verification = deps.actionVerifier ? await deps.actionVerifier.verify(action, { phase: 'proposal' }) : undefined;
         if (verification?.baseChanged) reasons.push('base cambió desde la propuesta');
         if (verification && !verification.eligible) reasons.push(...(verification.blockingReasons.length ? verification.blockingReasons : ['validaciones pendientes']));
         if (row.adapter_available && !deps.stepUpVerifier) reasons.push('MFA requerido');
         const eligible = reasons.length === 0;
-        await tx.query('UPDATE gotchu.proposals SET state=$4,blocking_reasons=$5::jsonb,invalidated_at=CASE WHEN $6 THEN clock_timestamp() ELSE invalidated_at END,invalidation_reason=CASE WHEN $6 THEN \'base_changed\' ELSE invalidation_reason END WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND state IN (\'proposed\',\'eligible\',\'ineligible\')', [value.organizationId,value.applicationId,value.proposalId,verification?.baseChanged ? 'invalidated' : eligible ? 'eligible' : 'ineligible',JSON.stringify(reasons),verification?.baseChanged ?? false]);
+        const invalidationReason = verification?.baseChanged ? 'base_changed' : verification?.policyCurrent === false ? 'policy_changed' : null;
+        await tx.query('UPDATE gotchu.proposals SET state=$4,blocking_reasons=$5::jsonb,invalidated_at=CASE WHEN $6 THEN clock_timestamp() ELSE invalidated_at END,invalidation_reason=CASE WHEN $6 THEN $7 ELSE invalidation_reason END WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND state IN (\'proposed\',\'eligible\',\'ineligible\')', [value.organizationId,value.applicationId,value.proposalId,invalidationReason ? 'invalidated' : eligible ? 'eligible' : 'ineligible',JSON.stringify(reasons),Boolean(invalidationReason),invalidationReason]);
         return { status: eligible ? 'eligible' as const : 'ineligible' as const, blockingReasons: reasons };
       });
     },
@@ -471,17 +542,17 @@ export function createActionService(deps: ActionDependencies) {
         const action = parse(actionV2Schema, row.body);
         const actionHash = hashActionV2(action, String(row.recovery_epoch));
         if (actionHash !== row.action_hash || actionHash !== value.actionHash) throw new BackendError('hash_mismatch', 'Approval must bind the exact stored action hash', 409);
-        if (action.kind === 'source_patch_pull_request') throw new BackendError('proposal_ineligible','The exact approved base commit is missing from this action',409);
         if (String(row.recovery_epoch) !== String(current.recovery_epoch)) {
           await tx.query(`UPDATE gotchu.proposals SET state='invalidated',invalidated_at=clock_timestamp(),invalidation_reason='recovery_epoch_changed',blocking_reasons='["propuesta invalidada tras una recuperación"]'::jsonb WHERE organization_id=$1 AND id=$2`, [value.organizationId,value.proposalId]);
           return new BackendError('stale_epoch', 'A new proposal is required after recovery', 409);
         }
         if (row.state !== 'eligible') throw new BackendError('proposal_ineligible', 'Action proposal is not eligible', 409);
-        if (!row.adapter_available || !deps.actionVerifier) throw new BackendError('proposal_ineligible', 'No eligible independent verifier and write adapter are configured', 409);
+        if (!row.adapter_available || !deps.actionVerifier || !(await executorAvailable(tx, action.capabilityId))) throw new BackendError('proposal_ineligible', 'No eligible independent verifier, write adapter, or live executor is configured', 409);
         const check = await deps.actionVerifier.verify(action, { phase: 'approval' });
-        if (check.baseChanged) {
-          await tx.query("UPDATE gotchu.proposals SET state='invalidated',invalidated_at=clock_timestamp(),invalidation_reason='base_changed' WHERE organization_id=$1 AND id=$2", [value.organizationId,value.proposalId]);
-          return new BackendError('stale_state', 'The target base changed; prepare and validate a new proposal', 409);
+        if (check.baseChanged || check.policyCurrent === false) {
+          const invalidationReason = check.baseChanged ? 'base_changed' : 'policy_changed';
+          await tx.query("UPDATE gotchu.proposals SET state='invalidated',invalidated_at=clock_timestamp(),invalidation_reason=$3 WHERE organization_id=$1 AND id=$2", [value.organizationId,value.proposalId,invalidationReason]);
+          return new BackendError(check.baseChanged ? 'stale_state' : 'stale_policy', check.baseChanged ? 'The target base changed; prepare and validate a new proposal' : 'The action policy changed; prepare and validate a new proposal', 409);
         }
         if (!check.eligible || check.blockingReasons.length) throw new BackendError('proposal_ineligible', 'Action became ineligible before approval', 409);
         const expected = { userId: identity.userId, organizationId: value.organizationId, actionHash };
@@ -493,7 +564,7 @@ export function createActionService(deps: ActionDependencies) {
         if (!inserted.rowCount) throw new BackendError('proof_replayed', 'Second-factor proof has already been used', 409);
         await tx.query("UPDATE gotchu.proposals SET state='approved' WHERE organization_id=$1 AND id=$2", [value.organizationId,value.proposalId]);
         await audit(tx, value.organizationId, identity.userId, 'action.approved', approvalId, { proposalId: value.proposalId, actionHash });
-        if (action.kind !== 'dependency_pull_request') throw new BackendError('proposal_ineligible','This action kind has no executor queue adapter',409);
+        if (action.kind !== 'source_patch_pull_request') throw new BackendError('proposal_ineligible','This action kind has no executor queue adapter',409);
         await enqueue(tx, { id:randomUUID(),organizationId:value.organizationId,applicationId:value.applicationId,kind:'execution',idempotencyKey:`execution:${approvalId}`,payload:{approvalId,expectedActionHash:actionHash,expectedResourceVersion:action.baseCommit} });
         return { approvalId, expiresAt };
       });
