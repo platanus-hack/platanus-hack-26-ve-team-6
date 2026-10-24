@@ -1,4 +1,4 @@
-import { createBackend, canonicalJson, sha256, type Backend, type JobClaim } from '@gotchu/backend';
+import { createBackend, BackendError, canonicalJson, sha256, type Backend, type JobClaim } from '@gotchu/backend';
 import { customerAssessmentReportSchema, securityEventSchema, type SecurityEvent, type RecordOperationObservation } from '@gotchu/contracts';
 import type { Database, Transaction } from '@gotchu/database';
 import { detectOperationalSignals } from './operational-detectors.js';
@@ -36,15 +36,21 @@ export async function observeRuntime(database: Database, tx: Transaction, claim:
         if (!row) throw new Error('signal_evidence_missing');
         return { source: 'signed_event' as const, reference: id, checksum: row.payload_hash, collectedAt: now.toISOString(), adapter: signal.rule, adapterVersion: '1' };
       });
-      await backend.operations.recordObservation({ organizationId, applicationId, idempotencyKey: key, basis: { kind: 'events', eventIds: signal.eventIds },
-        kind: signal.kind, summary: signal.summary, severity: signal.severity, confidence: signal.confidence,
-        observedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(), evidence: references,
-        metrics: signal.metrics, incidentId: null, upstreamImpact: 'not_applicable' });
+      try {
+        await backend.operations.recordObservation({ organizationId, applicationId, idempotencyKey: key, basis: { kind: 'events', eventIds: signal.eventIds },
+          kind: signal.kind, summary: signal.summary, severity: signal.severity, confidence: signal.confidence,
+          observedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(), evidence: references,
+          metrics: signal.metrics, incidentId: null, upstreamImpact: 'not_applicable' });
+      } catch (error) {
+        if (!(error instanceof BackendError) || error.code !== 'observation_capacity_exceeded') throw error;
+        limited = true; break;
+      }
     }
   }
   if (buckets.length) await tx.query(`INSERT INTO gotchu.coverage(organization_id,application_id,capability,state,reason,checked_at) VALUES($1,$2,'operational_detection',$3,$4,clock_timestamp())
     ON CONFLICT(organization_id,application_id,capability) DO UPDATE SET state=EXCLUDED.state,reason=EXCLUDED.reason,checked_at=EXCLUDED.checked_at`,
   [organizationId, applicationId, limited ? 'degraded' : 'active', limited ? 'Operational windows exceeded bounded processing limits; coverage is incomplete.' : 'Versioned observed-error, latency, resource, password-spray, route and privilege rules; thresholds require traffic calibration.']);
+  return limited ? 'degraded' as const : 'active' as const;
 }
 
 export async function observeAssessment(backend: Backend, tx: Transaction, scope: { organizationId: string; applicationId: string; reportId: string }) {

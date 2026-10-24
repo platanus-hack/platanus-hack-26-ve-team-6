@@ -114,8 +114,8 @@ live('operations durable domain with real Postgres roles (synthetic adapter evid
     await expect(coordinator.operations.recordObservation({ ...input, idempotencyKey: randomUUID(), observedAt: new Date(Date.now() - 7200000).toISOString(), expiresAt: new Date(Date.now() - 3600000).toISOString() })).rejects.toMatchObject({ code: 'evidence_stale' });
     await expect(api.operations.recordObservation(input)).rejects.toMatchObject({ status: 403 });
     await expect(api.operations.updateAlert({ userId: f.b.userId }, { ...c.scope, alertId: present(recorded.alertId), state: 'resolved' })).rejects.toMatchObject({ status: 403 });
-    await api.operations.updateAlert(c.identity, { ...c.scope, alertId: present(recorded.alertId), state: 'acknowledged' });
-    await api.operations.updateAlert(c.identity, { ...c.scope, alertId: present(recorded.alertId), state: 'resolved', resolution: 'Self-reported triage' });
+    expect(await api.operations.updateAlert(c.identity, { ...c.scope, alertId: present(recorded.alertId), state: 'acknowledged' })).toMatchObject({ id: recorded.alertId, state: 'acknowledged' });
+    expect(await api.operations.updateAlert(c.identity, { ...c.scope, alertId: present(recorded.alertId), state: 'resolved', resolution: 'Self-reported triage' })).toMatchObject({ state: 'resolved', resolution: 'Self-reported triage' });
     const alerts = await api.operations.listAlerts(c.identity, c.scope);
     expect(alerts).toHaveLength(1); expect(alerts[0]).toMatchObject({ state: 'resolved', observation: { upstreamImpact: 'unverified', verification: 'trusted_observation' } });
   });

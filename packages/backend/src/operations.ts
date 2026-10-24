@@ -180,8 +180,8 @@ export function createOperationsService(deps: BaseDependencies) {
         if (value.basis.kind === 'monitor') {
           await checkClaim(tx, { organizationId: value.organizationId, applicationId: value.applicationId, runId: value.basis.runId, leaseToken: value.basis.leaseToken });
           const current = await config(tx, value);
-          if (value.evidence.some(e => !['repository', 'provider_status'].includes(e.source))) throw new BackendError('evidence_mismatch', 'Monitor adapter evidence must identify repository or provider status provenance', 409);
-          if (value.evidence.some(e => e.source === 'repository') && !current?.repositoryKey) throw new BackendError('evidence_mismatch', 'Repository monitoring is not configured', 409);
+          if (value.evidence.some(e => !['repository', 'provider_status', 'advisory_database'].includes(e.source))) throw new BackendError('evidence_mismatch', 'Monitor adapter evidence must identify repository, advisory database or provider status provenance', 409);
+          if (value.evidence.some(e => e.source === 'repository' || e.source === 'advisory_database') && !current?.repositoryKey) throw new BackendError('evidence_mismatch', 'Repository monitoring is not configured', 409);
           if (value.evidence.some(e => e.source === 'provider_status') && !current?.providers.length) throw new BackendError('evidence_mismatch', 'Upstream monitoring is not configured', 409);
         } else if (value.basis.kind === 'events') {
           const rows = await tx.query<{ id: string; payload_hash: string; received_at: Date }>('SELECT id,payload_hash,received_at FROM gotchu.events WHERE organization_id=$1 AND application_id=$2 AND id=ANY($3::uuid[])', [value.organizationId, value.applicationId, value.basis.eventIds]);
@@ -218,11 +218,17 @@ export function createOperationsService(deps: BaseDependencies) {
     },
     async updateAlert(identity: Identity, input: Scope & { alertId: string; state: 'acknowledged' | 'resolved'; resolution?: string }) {
       const value = parse(customerScopeSchema.extend({ alertId: z.uuid(), state: z.enum(['acknowledged', 'resolved']), resolution: z.string().min(1).max(2000).optional() }).strict(), input);
-      await deps.database.tenant(value.organizationId, async tx => {
+      return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, identity, writes); await application(tx, value);
         const result = await tx.query('UPDATE gotchu.operation_alerts SET state=$4,resolution=$5,updated_by=$6,updated_at=clock_timestamp() WHERE organization_id=$1 AND application_id=$2 AND id=$3', [value.organizationId, value.applicationId, value.alertId, value.state, value.resolution ?? null, identity.userId]);
         if (!result.rowCount) throw new BackendError('not_found', 'Alert not found', 404);
         await audit(tx, value.organizationId, identity.userId, `alert.${value.state}`, value.alertId, { verification: 'customer_acknowledgment_only' });
+        const updated = await tx.query<{ body: unknown; state: string; resolution: string | null; updated_at: Date; fresh: boolean }>(`SELECT o.body,a.state,a.resolution,a.updated_at,o.expires_at>clock_timestamp() AS fresh
+          FROM gotchu.operation_alerts a JOIN gotchu.operation_observations o ON o.organization_id=a.organization_id AND o.application_id=a.application_id AND o.id=a.observation_id
+          WHERE a.organization_id=$1 AND a.application_id=$2 AND a.id=$3`, [value.organizationId, value.applicationId, value.alertId]);
+        const row = updated.rows[0];
+        if (!row) throw new Error('Updated alert disappeared');
+        return parse(operationAlertSchema, { id: value.alertId, observation: { ...parse(operationObservationSchema, row.body), fresh: row.fresh }, state: row.state, resolution: row.resolution, updatedAt: row.updated_at.toISOString() });
       });
     },
     async getCoverage(identity: Identity, input: Scope) {
@@ -237,11 +243,21 @@ export function createOperationsService(deps: BaseDependencies) {
           AND (m.target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='verified' AND t.expires_at>clock_timestamp())) AS valid
           FROM gotchu.operation_monitors m WHERE m.organization_id=$1 AND m.application_id=$2`, [value.organizationId, value.applicationId]);
         const scopeCurrent = authorization.rows[0]?.valid ?? false;
+        const gaps = await tx.query<{ capability: string; reason: string }>(`SELECT capability,reason FROM gotchu.coverage WHERE organization_id=$1 AND application_id=$2
+          AND capability IN ('operational_detection','assessment_alert_projection') AND state='degraded' ORDER BY capability`, [value.organizationId, value.applicationId]);
+        const admission = await tx.query<{ runs: number; observations: number; daily: number }>(`SELECT
+          (SELECT count(*)::int FROM gotchu.operation_runs WHERE organization_id=$1 AND application_id=$2) AS runs,
+          count(*)::int AS observations,count(*) FILTER(WHERE created_at>clock_timestamp()-interval '1 day')::int AS daily
+          FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2`, [value.organizationId, value.applicationId]);
+        const capacity = admission.rows[0];
+        const full = capacity && (capacity.runs >= 1000 || capacity.observations >= 2000 || capacity.daily >= 100);
         const last = runs.rows[0];
         const expired = current && Date.parse(current.nextDueAt) < Date.now() - current.intervalSeconds * 1000;
-        return parse(operationCoverageSchema, { config: current, status: !current?.enabled || app.archived ? 'not_configured' as const : !scopeCurrent ? 'degraded' as const : expired ? 'stale' as const : !last || last.status === 'running' ? 'pending' as const : last.status === 'completed' ? 'active' as const : 'degraded' as const,
+        return parse(operationCoverageSchema, { config: current, status: !current?.enabled || app.archived ? 'not_configured' as const : !scopeCurrent || full ? 'degraded' as const : expired ? 'stale' as const : !last || last.status === 'running' ? 'pending' as const : last.status === 'completed' ? 'active' as const : 'degraded' as const,
           scopeCurrent, lastRun: last ? { runId: last.id, jobId: last.job_id, status: last.status, reason: last.reason, startedAt: last.created_at.toISOString(), finishedAt: last.finished_at?.toISOString() ?? null } : null,
-          observations: count.rows[0] ?? { fresh: 0, stale: 0 }, limitations: ['Scheduled checks cover only selected inputs; uninspected paths remain unknown.', 'In-app alerts do not imply external notification delivery.', 'Runtime event telemetry is a separate integration.', 'Provider status reports do not establish application impact.'] });
+          observations: count.rows[0] ?? { fresh: 0, stale: 0 }, limitations: ['Scheduled checks cover only selected inputs; uninspected paths remain unknown.', 'In-app alerts do not imply external notification delivery.', 'Runtime event telemetry is a separate integration.', 'Provider status reports do not establish application impact.',
+            ...(full ? ['Monitoring storage admission is full; operator retention maintenance is required. Existing evidence is retained.'] : []),
+            ...gaps.rows.map(gap => `${gap.capability}: ${gap.reason}. Operator reconciliation is required; some alerts were not projected.`)] });
       });
     },
     async createPlan(identity: Identity, input: OperationPlanRequest) {

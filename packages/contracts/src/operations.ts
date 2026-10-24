@@ -24,7 +24,7 @@ export const operationMetricsSchema = z.object({
   capacityUtilization: z.number().min(0).max(1).nullable(),
 }).strict().refine(v => v.errorCount <= v.requestCount && Date.parse(v.windowStartedAt) < Date.parse(v.windowEndedAt), 'Invalid metric window or error count');
 export const operationEvidenceSchema = z.object({
-  source: z.enum(['repository', 'provider_status', 'signed_event', 'assessment']),
+  source: z.enum(['repository', 'provider_status', 'signed_event', 'assessment', 'advisory_database']),
   reference: z.string().min(1).max(512), checksum, collectedAt: timestamp,
   adapter: z.string().min(1).max(100), adapterVersion: z.string().min(1).max(100),
 }).strict();
