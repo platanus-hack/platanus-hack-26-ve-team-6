@@ -326,10 +326,10 @@ live('gateway with real signed intake, Postgres, HTTP worker and LangGraph', () 
     expect(await database.tenant(f.b.organizationId, async tx => (await tx.query('SELECT 1 FROM gotchu.gateway_read_calls WHERE run_id=$1', [run.scope.runId])).rowCount)).toBe(0);
     await expect(f.databases.gotchu_api.tenant(f.a.organizationId, tx => tx.query('SELECT * FROM gotchu.gateway_read_calls'))).rejects.toMatchObject({ code: '42501' });
     await expect(database.tenant(f.a.organizationId, tx => tx.query('SELECT * FROM gotchu.integration_credentials'))).rejects.toMatchObject({ code: '42501' });
-    await expect(startGateway({ databaseUrl: present(liveUrl), capabilityPublicKey: publicKey, host: '127.0.0.1', port: 0, transport: { mode: 'loopback-http', nodeEnv: 'test' } })).rejects.toThrow('non-owner');
+    await expect(startGateway({ databaseUrl: present(liveUrl), capabilityPublicKey: publicKey, host: '127.0.0.1', port: 0, allowSelfHostedModelEndpoints: false, transport: { mode: 'loopback-http', nodeEnv: 'test' } })).rejects.toThrow('non-owner');
     await f.admin.query(`GRANT gotchu_owner TO ${username}`);
     try {
-      await expect(startGateway({ databaseUrl: runtimeUrl, capabilityPublicKey: publicKey, host: '127.0.0.1', port: 0, transport: { mode: 'loopback-http', nodeEnv: 'test' } })).rejects.toThrow('non-owner');
+      await expect(startGateway({ databaseUrl: runtimeUrl, capabilityPublicKey: publicKey, host: '127.0.0.1', port: 0, allowSelfHostedModelEndpoints: false, transport: { mode: 'loopback-http', nodeEnv: 'test' } })).rejects.toThrow('non-owner');
     } finally { await f.admin.query(`REVOKE gotchu_owner FROM ${username}`); }
     const owner = z.object({ owner: z.literal('gotchu_owner') }).parse(present((await f.admin.query("SELECT pg_get_userbyid(relowner) AS owner FROM pg_class WHERE oid='gotchu.gateway_read_calls'::regclass")).rows[0]));
     expect(owner.owner).toBe('gotchu_owner');

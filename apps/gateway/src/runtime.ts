@@ -1,5 +1,5 @@
 import { createDatabase } from '@gotchu/database';
-import { createFileModelSecretStore } from '@gotchu/backend';
+import { createFileModelSecretStore, createModelEndpointValidator } from '@gotchu/backend';
 import type { GatewayConfig } from './config.js';
 import { startGatewayServer } from './http.js';
 import { createGatewayService } from './service.js';
@@ -9,6 +9,7 @@ export async function startGateway(config: GatewayConfig) {
   try {
     await database.checkHealth();
     const service = createGatewayService({ database, capabilityPublicKey: config.capabilityPublicKey,
+      modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: config.allowSelfHostedModelEndpoints }),
       ...(config.modelSecretDirectory ? { modelSecrets: createFileModelSecretStore(config.modelSecretDirectory) } : {}) });
     const http = await startGatewayServer({ service, host: config.host, port: config.port, transport: config.transport });
     let closing: Promise<void> | undefined;

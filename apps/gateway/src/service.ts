@@ -4,8 +4,8 @@ import {
   safeCheckpointSchema, verifyRunCapability,
   type EvidenceRecord, type RunScope, type SafeInvestigationCheckpoint, type VerifiedRunCapability,
 } from '@gotchu/agent';
-import { createRunService, modelConfigurationFingerprint, type ModelSecretStore } from '@gotchu/backend';
-import { customerAssessmentReportSchema, customerSourceSnapshotSchema, eventTypeSchema, investigationDataScopeSchema, investigationModelEndpointSchema, modelProviderSchema, operationObservationSchema } from '@gotchu/contracts';
+import { createModelEndpointValidator, createRunService, modelConfigurationFingerprint, type ModelEndpointValidator, type ModelSecretStore } from '@gotchu/backend';
+import { customerAssessmentReportSchema, customerSourceSnapshotSchema, eventTypeSchema, investigationDataScopeSchema, investigationModelEndpointSchema, investigationProviderCatalog, investigationProviderPresetIdSchema, modelProviderSchema, operationObservationSchema } from '@gotchu/contracts';
 import type { Database, Transaction } from '@gotchu/database';
 import type { CryptoKey } from 'jose';
 import { z } from 'zod';
@@ -255,6 +255,7 @@ export function createGatewayService(options: {
   capabilityPublicKey: CryptoKey;
   modelPort?: ModelPort;
   modelSecrets?: ModelSecretStore;
+  modelEndpointValidator?: ModelEndpointValidator;
 }) {
   const { database, capabilityPublicKey } = options;
   const modelPort = options.modelPort ?? createModelPort();
@@ -276,7 +277,7 @@ export function createGatewayService(options: {
     const { organizationId, applicationId } = capability.claims;
     const scope: RunScope = { organizationId, applicationId, runId };
 
-    if (operation === 'model') return invokeModel(request, capability, scope, modelPort, options.modelSecrets, database);
+    if (operation === 'model') return invokeModel(request, capability, scope, modelPort, options.modelSecrets, database, options.modelEndpointValidator);
 
     return database.tenant(organizationId, async tx => {
       const rows = await tx.query(`SELECT r.application_id AS "applicationId", r.state,
@@ -335,7 +336,7 @@ export function createGatewayService(options: {
         const modelSettings = await tx.query<{ ready: boolean; provider: string | null; secret_ref: string | null }>(`SELECT COALESCE(o.model_opt_in AND s.consent_to_external_processing
           AND s.data_scopes ? $2 AND o.model_budget_micros>o.model_spent_micros+o.model_reserved_micros
           AND o.model_token_budget>o.model_tokens_spent+o.model_tokens_reserved
-          AND (s.provider<>'anthropic_messages' OR s.secret_ref IS NOT NULL),false) AS ready,s.provider,s.secret_ref
+          AND s.secret_ref IS NOT NULL,false) AS ready,s.provider,s.secret_ref
           FROM gotchu.organizations o LEFT JOIN gotchu.investigation_model_settings s ON s.organization_id=o.id WHERE o.id=$1`, [organizationId, requiredScope]);
         const modelSetting = modelSettings.rows[0];
         const modelEnabled = modelSetting?.ready === true
@@ -404,6 +405,7 @@ function sanitizeCheckpoint(
 
 const modelSettingsSchema = z.object({
   provider: modelProviderSchema,
+  provider_preset_id: investigationProviderPresetIdSchema,
   endpoint: investigationModelEndpointSchema,
   model_id: z.string().min(1).max(200),
   secret_ref: z.string().nullable(),
@@ -411,7 +413,14 @@ const modelSettingsSchema = z.object({
   data_scopes: z.array(investigationDataScopeSchema).max(7),
   input_price_micro_usd_per_million_tokens: z.union([z.string(), z.number()]),
   output_price_micro_usd_per_million_tokens: z.union([z.string(), z.number()]),
-}).strict();
+}).strict().superRefine((value, context) => {
+  const preset = investigationProviderCatalog.find(item => item.id === value.provider_preset_id);
+  if (!preset || preset.adapterKind !== value.provider) {
+    context.addIssue({ code: 'custom', path: ['provider_preset_id'], message: 'Provider preset and adapter do not match' });
+  } else if (preset.baseUrl !== null && preset.baseUrl !== value.endpoint) {
+    context.addIssue({ code: 'custom', path: ['endpoint'], message: 'Hosted provider endpoint differs from the fixed preset URL' });
+  }
+});
 
 function jobDataScope(job: z.infer<typeof gatewayJobPayloadSchema>, tool: z.infer<typeof runReadToolSchema>) {
   if (tool === 'evidence.read' || tool === 'auth.events.read') {
@@ -445,6 +454,7 @@ async function invokeModel(
   modelPort: ModelPort,
   secrets: ModelSecretStore | undefined,
   database: Database,
+  modelEndpointValidator: ModelEndpointValidator | undefined,
 ) {
   const input = modelRequestSchema.parse(request.body);
   assertCapabilityScope(capability, { ...input, runId: scope.runId });
@@ -453,7 +463,7 @@ async function invokeModel(
 
   const authorized = await requestDatabaseRun(database, capability, scope);
   const settings = await authorized.database.tenant(scope.organizationId, async tx => {
-    const row = await tx.query(`SELECT s.provider,s.endpoint,s.model_id,s.secret_ref,s.consent_to_external_processing,s.data_scopes,
+    const row = await tx.query(`SELECT s.provider,s.provider_preset_id,s.endpoint,s.model_id,s.secret_ref,s.consent_to_external_processing,s.data_scopes,
       s.input_price_micro_usd_per_million_tokens,s.output_price_micro_usd_per_million_tokens
       FROM gotchu.investigation_model_settings s JOIN gotchu.organizations o ON o.id=s.organization_id
       WHERE s.organization_id=$1 AND o.model_opt_in=true`, [scope.organizationId]);
@@ -478,12 +488,18 @@ async function invokeModel(
     try { apiKey = new TextDecoder('utf-8', { fatal: true }).decode(await secrets.get(settings.config.secret_ref)); }
     catch { throw new GatewayError('model_secret_unavailable', 503); }
   }
-  if (settings.config.provider === 'anthropic_messages' && !apiKey) throw new GatewayError('model_secret_unavailable', 503);
+  if (!apiKey) throw new GatewayError('model_secret_unavailable', 503);
+  if (settings.config.provider_preset_id === 'custom_openai_compatible') {
+    const endpointValidator = modelEndpointValidator ?? createModelEndpointValidator();
+    try { await endpointValidator.validate(settings.config.endpoint); }
+    catch { throw new GatewayError('model_endpoint_rejected', 400); }
+  }
 
   const inputRate = BigInt(settings.config.input_price_micro_usd_per_million_tokens);
   const outputRate = BigInt(settings.config.output_price_micro_usd_per_million_tokens);
   const configSha256 = modelConfigurationFingerprint({
-    provider: settings.config.provider, endpoint: settings.config.endpoint, modelId: settings.config.model_id,
+    provider: settings.config.provider, providerPresetId: settings.config.provider_preset_id,
+    endpoint: settings.config.endpoint, modelId: settings.config.model_id,
     secretRef: settings.config.secret_ref, consentToExternalProcessing: settings.config.consent_to_external_processing,
     dataScopes: settings.config.data_scopes,
     inputPriceMicroUsdPerMillionTokens: Number(inputRate), outputPriceMicroUsdPerMillionTokens: Number(outputRate),
@@ -514,20 +530,21 @@ async function invokeModel(
     if (polling) return;
     polling = true;
     authorized.database.tenant(scope.organizationId, async tx => {
-      const result = await tx.query<{ cancelled: boolean; model_opt_in: boolean; provider: string | null; endpoint: string | null; model_id: string | null; secret_ref: string | null; consent_to_external_processing: boolean | null; data_scopes: unknown; input_price_micro_usd_per_million_tokens: string | number | null; output_price_micro_usd_per_million_tokens: string | number | null }>(`SELECT r.cancel_requested_at IS NOT NULL AS cancelled,o.model_opt_in,s.provider,s.endpoint,s.model_id,s.secret_ref,
+      const result = await tx.query<{ cancelled: boolean; model_opt_in: boolean; provider: string | null; provider_preset_id: string | null; endpoint: string | null; model_id: string | null; secret_ref: string | null; consent_to_external_processing: boolean | null; data_scopes: unknown; input_price_micro_usd_per_million_tokens: string | number | null; output_price_micro_usd_per_million_tokens: string | number | null }>(`SELECT r.cancel_requested_at IS NOT NULL AS cancelled,o.model_opt_in,s.provider,s.provider_preset_id,s.endpoint,s.model_id,s.secret_ref,
         s.consent_to_external_processing,s.data_scopes,s.input_price_micro_usd_per_million_tokens,s.output_price_micro_usd_per_million_tokens
         FROM gotchu.agent_runs r JOIN gotchu.organizations o ON o.id=r.organization_id
         LEFT JOIN gotchu.investigation_model_settings s ON s.organization_id=o.id
         WHERE r.organization_id=$1 AND r.id=$2`, [scope.organizationId, scope.runId]);
       const row = result.rows[0];
       const current = row ? modelSettingsSchema.safeParse({
-        provider: row.provider, endpoint: row.endpoint, model_id: row.model_id, secret_ref: row.secret_ref,
+        provider: row.provider, provider_preset_id: row.provider_preset_id, endpoint: row.endpoint, model_id: row.model_id, secret_ref: row.secret_ref,
         consent_to_external_processing: row.consent_to_external_processing, data_scopes: row.data_scopes,
         input_price_micro_usd_per_million_tokens: row.input_price_micro_usd_per_million_tokens,
         output_price_micro_usd_per_million_tokens: row.output_price_micro_usd_per_million_tokens,
       }) : null;
       const currentFingerprint = current?.success ? modelConfigurationFingerprint({
-        provider: current.data.provider, endpoint: current.data.endpoint, modelId: current.data.model_id,
+        provider: current.data.provider, providerPresetId: current.data.provider_preset_id,
+        endpoint: current.data.endpoint, modelId: current.data.model_id,
         secretRef: current.data.secret_ref, consentToExternalProcessing: current.data.consent_to_external_processing,
         dataScopes: current.data.data_scopes,
         inputPriceMicroUsdPerMillionTokens: Number(current.data.input_price_micro_usd_per_million_tokens),
@@ -541,6 +558,7 @@ async function invokeModel(
   try {
     const completion = await modelPort.complete({
       provider: settings.config.provider,
+      providerPresetId: settings.config.provider_preset_id,
       endpoint: new URL(settings.config.endpoint),
       modelId: settings.config.model_id,
       ...(apiKey ? { apiKey } : {}),

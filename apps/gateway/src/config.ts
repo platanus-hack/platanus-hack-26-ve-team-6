@@ -13,6 +13,7 @@ export interface GatewayConfig {
   readonly capabilityPublicKey: CryptoKey;
   readonly transport: GatewayTransport;
   readonly modelSecretDirectory?: string;
+  readonly allowSelfHostedModelEndpoints: boolean;
 }
 
 export function assertTransport(host: string, transport: GatewayTransport): void {
@@ -48,5 +49,7 @@ export async function loadGatewayConfig(env: NodeJS.ProcessEnv = process.env): P
   }
   assertTransport(host, transport);
   const modelSecretDirectory = env.GOTCHU_MODEL_SECRET_DIRECTORY ?? (nodeEnv === 'production' ? undefined : resolve('.local/dev/model-secrets'));
-  return { host, port, databaseUrl, capabilityPublicKey, transport, ...(modelSecretDirectory ? { modelSecretDirectory } : {}) };
+  return { host, port, databaseUrl, capabilityPublicKey, transport,
+    allowSelfHostedModelEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true',
+    ...(modelSecretDirectory ? { modelSecretDirectory } : {}) };
 }

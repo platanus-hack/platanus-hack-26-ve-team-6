@@ -1,9 +1,14 @@
 import { z } from 'zod';
 import type { ModelSecretStore } from '@gotchu/backend';
-import { modelProviderSchema } from '@gotchu/contracts';
+import {
+  investigationProviderCatalog,
+  investigationProviderPresetIdSchema,
+  modelProviderSchema,
+} from '@gotchu/contracts';
 
 export interface ModelCompletionRequest {
   readonly provider: z.infer<typeof modelProviderSchema>;
+  readonly providerPresetId: z.infer<typeof investigationProviderPresetIdSchema>;
   readonly endpoint: URL;
   readonly modelId: string;
   readonly apiKey?: string;
@@ -33,14 +38,14 @@ const anthropicResponseSchema = z.object({
 }).passthrough();
 
 export class ModelProviderError extends Error {
-  constructor(readonly code: 'request_failed' | 'invalid_response' | 'missing_usage' | 'aborted') {
+  constructor(readonly code: 'request_failed' | 'invalid_response' | 'missing_usage' | 'aborted', readonly status?: number) {
     super(code);
     this.name = 'ModelProviderError';
   }
 }
 
 async function readBoundedJson(response: Response): Promise<unknown> {
-  if (!response.ok) { await response.body?.cancel(); throw new ModelProviderError('request_failed'); }
+  if (!response.ok) { await response.body?.cancel(); throw new ModelProviderError('request_failed', response.status); }
   if (response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
     await response.body?.cancel();
     throw new ModelProviderError('invalid_response');
@@ -86,6 +91,10 @@ function extractJson(text: string): unknown {
 function openAiAdapter(fetchImpl: typeof fetch): ModelPort {
   return {
     async complete(request) {
+      const preset = investigationProviderCatalog.find(item => item.id === request.providerPresetId);
+      if (!preset || preset.adapterKind !== 'openai_compatible' || request.provider !== preset.adapterKind) {
+        throw new ModelProviderError('invalid_response');
+      }
       let response: Response;
       try {
         response = await fetchImpl(endpointUrl(request.endpoint, 'chat/completions'), {
@@ -93,7 +102,7 @@ function openAiAdapter(fetchImpl: typeof fetch): ModelPort {
           headers: { 'content-type': 'application/json', accept: 'application/json', ...(request.apiKey ? { authorization: `Bearer ${request.apiKey}` } : {}) },
           body: JSON.stringify({ model: request.modelId, messages: [
             { role: 'system', content: request.systemInstruction }, { role: 'user', content: request.userContext },
-          ], max_completion_tokens: request.maxOutputTokens, response_format: { type: 'json_object' }, stream: false }),
+          ], [preset.maxTokensField]: request.maxOutputTokens, stream: false }),
         });
       } catch { throw new ModelProviderError(request.signal.aborted ? 'aborted' : 'request_failed'); }
       const payload = openAiResponseSchema.safeParse(await readBoundedJson(response));
@@ -113,7 +122,11 @@ function openAiAdapter(fetchImpl: typeof fetch): ModelPort {
 function anthropicAdapter(fetchImpl: typeof fetch): ModelPort {
   return {
     async complete(request) {
-      if (!request.apiKey) throw new ModelProviderError('request_failed');
+      const preset = investigationProviderCatalog.find(item => item.id === request.providerPresetId);
+      if (!preset || preset.adapterKind !== 'anthropic_messages' || request.provider !== preset.adapterKind) {
+        throw new ModelProviderError('invalid_response');
+      }
+      if (!request.apiKey) throw new ModelProviderError('request_failed', 401);
       let response: Response;
       try {
         response = await fetchImpl(endpointUrl(request.endpoint, 'messages'), {
@@ -136,7 +149,7 @@ export function createModelPort(options: { fetchImpl?: typeof fetch } = {}): Mod
   const fetchImpl = options.fetchImpl ?? fetch;
   return {
     complete(request) {
-      return request.provider === 'anthropic_messages'
+      return request.providerPresetId === 'anthropic'
         ? anthropicAdapter(fetchImpl).complete(request)
         : openAiAdapter(fetchImpl).complete(request);
     },
