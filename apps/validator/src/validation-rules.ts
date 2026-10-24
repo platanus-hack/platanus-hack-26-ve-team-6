@@ -6,7 +6,7 @@ const packageSchema = z.object({}).passthrough();
 const setupPathPattern = /(?:(['"])(?:setupFilesAfterEnv|setupFiles|setup)\1|\b(?:setupFilesAfterEnv|setupFiles|setup)\b)\s*[:=]\s*(?:\[([^\]]{0,4096})\]|(['"])([^'"]{1,512})\3)/g;
 const quotedPathPattern = /(['"])([^'"]{1,512})\1/g;
 const testConfig = /^(?:vitest\.config\..+|jest\.config\..+|\.mocharc(?:\..+)?|\.avarc(?:\..+)?|ava\.config\..+|playwright\.config\..+|vite\.config\..+|tsconfig[^/]*\.json)$/;
-type DependencyChange = { name: string; section: 'dependencies' | 'devDependencies'; version: string };
+type DependencyChange = { name: string; section: 'dependencies' | 'devDependencies' | 'optionalDependencies'; version: string };
 type SuiteIntegrityOptions = {
   scriptName: string;
   regressionTestPath: string | null;
