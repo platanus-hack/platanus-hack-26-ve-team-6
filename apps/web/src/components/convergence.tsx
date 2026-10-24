@@ -26,7 +26,7 @@ type Part = 'mark' | 'left' | 'right' | 'flash' | 'two' | 'one' | 'report';
 
 /** Real report vocabulary from the assessment contract; no values. */
 function ReportCard() {
-  return <div className="g-report-card g-ticks">
+  return <div className="g-report-card">
     <header><span className="g-tag">[ Informe de evaluación ]</span><span className="g-tag g-report-json">JSON</span></header>
     <dl>
       <div><dt>Hallazgo</dt><dd>Título, ubicación y regla</dd></div>

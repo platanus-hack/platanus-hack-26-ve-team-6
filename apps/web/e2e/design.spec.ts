@@ -23,7 +23,7 @@ test('landing is server-rendered without a loader, fabricated results or explana
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Tu código y tu web. Bajo la misma lupa.');
   await expect(page.locator('body')).not.toContainText(/ilustración conceptual|ejemplo ilustrativo|no es un análisis en vivo|cambiar de pestaña solo|cargando/i);
   await expect(page.locator('.g-page img')).toHaveCount(0);
-  await expect(page.locator('.g-hero-ascii .g-ascii')).toHaveAttribute('data-ready', 'true');
+  await expect(page.locator('.g-hero-mark .g-ascii')).toHaveAttribute('data-ready', 'true');
   expect(await page.evaluate(() => document.fonts.check('700 48px Goldman'))).toBe(true);
   await checkLayout(page); await checkA11y(page);
   expect(errors).toEqual([]); expect(apiRequests).toEqual([]);
@@ -68,8 +68,8 @@ test('menu, anchor navigation, FAQ and dashboard CTAs retain native accessible b
 test('the 3D mark turns toward the pointer and closes on the primary action', async ({ page, isMobile }) => {
   test.skip(isMobile, 'Pointer following is exercised with a fine pointer.');
   await page.goto('/', { waitUntil: 'networkidle' });
-  const canvas = page.locator('.g-hero-ascii canvas');
-  await expect(page.locator('.g-hero-ascii .g-ascii')).toHaveAttribute('data-ready', 'true');
+  const canvas = page.locator('.g-hero-mark canvas');
+  await expect(page.locator('.g-hero-mark .g-ascii')).toHaveAttribute('data-ready', 'true');
   const frame = () => canvas.evaluate(element => element instanceof HTMLCanvasElement ? element.toDataURL() : '');
   await page.mouse.move(1400, 880);
   await page.waitForTimeout(700);
@@ -114,11 +114,11 @@ test('reduced motion and a 320px viewport retain all content without pointer or 
   await page.emulateMedia({ reducedMotion: 'reduce' }); await page.setViewportSize({ width: 320, height: 844 });
   await page.goto('/', { waitUntil: 'networkidle' });
   await expect(page.locator('.g-stage')).toHaveAttribute('data-live', 'false');
-  await expect(page.locator('.g-hero-ascii .g-ascii')).toHaveAttribute('data-ready', 'true');
+  await expect(page.locator('.g-hero-mark .g-ascii')).toHaveAttribute('data-ready', 'true');
   await page.locator('#perspectivas').scrollIntoViewIfNeeded();
   await page.getByRole('tab', { name: 'HTTPS', exact: true }).click();
   await expect(page.getByRole('tabpanel')).toContainText('sin compartir el código fuente');
-  expect(await page.locator('.g-art-scan').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
+  expect(await page.locator('.g-hero-scan').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
   await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeAttached();
   await checkLayout(page); await checkA11y(page);
 });

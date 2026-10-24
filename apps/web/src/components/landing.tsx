@@ -81,7 +81,7 @@ export function LandingPage() {
         </div>
         <div className="g-perspective-layout">
           <div className="g-perspective-panels" data-keyboard={keyboardSelection}>{perspectives.map((item, index) => <div key={item.id} role="tabpanel" id={`panel-${item.id}`} aria-labelledby={`tab-${item.id}`} hidden={perspective !== index} tabIndex={0} className="g-perspective-panel"><h3>{item.title}</h3><p>{item.description}</p><ul>{item.facts.map(fact => <li key={fact}><span aria-hidden="true" />{fact}</li>)}</ul><a className="g-secondary-link" href="/dashboard">Abrir Gotchu <UiIcon name="arrow" /></a></div>)}</div>
-          <div className="g-scope-stage g-card g-card-ink g-ticks" aria-hidden="true"><DotMatrix name={current.pictogram} /><p className="g-tag">[ {current.label} ]</p></div>
+          <div className="g-scope-stage g-card g-card-ink" aria-hidden="true"><DotMatrix name={current.pictogram} /><p className="g-tag">[ {current.label} ]</p></div>
         </div>
       </section>
       <section className="g-workflow g-container" aria-labelledby="workflow-title">
@@ -91,7 +91,7 @@ export function LandingPage() {
           <article className="g-card g-card-magenta g-workflow-history"><DotMatrix name="history" /><div><h3>Historial de evaluaciones</h3><p>Sigue los trabajos en cola o en curso y vuelve a consultar los informes guardados.</p></div></article>
           <article className="g-card g-card-ink g-workflow-export">
             <div><DotMatrix name="json" /><h3>Exportación JSON</h3><p>Descarga el informe completo con sus hallazgos, evidencia, cobertura y limitaciones.</p><a className="g-secondary-link" href="/dashboard">Ir a mis aplicaciones <UiIcon name="arrow" /></a></div>
-            <figure className="g-export g-ticks" aria-label="Estructura del informe exportado">
+            <figure className="g-export" aria-label="Estructura del informe exportado">
               <figcaption className="g-tag">[ informe.json ]</figcaption>
               <pre tabIndex={0}><code>{exportShape.map(([key, value], index) => <span key={index}><i>{index + 1}</i>{key.includes('"') ? <><b>{key}</b>{value}</> : key}</span>)}</code></pre>
             </figure>

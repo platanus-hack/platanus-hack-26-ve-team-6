@@ -12,7 +12,7 @@ const sheets: { key: string; title: string; pictogram: PictogramName }[] = [
 export function ProductFlow({ step, className = '' }: { step: number; className?: string }) {
   const sheet = sheets[step] ?? sheets[0]!;
   return <div className={`g-product-flow ${className}`} data-step={step}>
-    <div className="g-flow-sheet g-ticks" key={sheet.key}>
+    <div className="g-flow-sheet" key={sheet.key}>
       <DotMatrix name={sheet.pictogram} className="g-flow-dots" />
       <h3>{sheet.title}</h3>
       {step === 0 ? <>

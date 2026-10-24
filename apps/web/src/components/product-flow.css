@@ -1,17 +1,17 @@
 .g-product-flow { position: relative; }
-.g-flow-sheet { position: relative; padding: 26px 28px 0; border: 1px solid var(--gc-line); border-radius: 0; background: #0f0f16; overflow: hidden; }
+.g-flow-sheet { position: relative; padding: 26px 28px 0; border: 1px solid var(--gc-line); border-radius: 14px; background: #0f0f16; overflow: hidden; }
 .g-flow-dots { --dots-size: 150px; margin: 4px auto 10px; }
 .g-flow-sheet h3 { margin-top: 18px !important; font: 700 26px/1.1 var(--gc-font-display); text-transform: uppercase; letter-spacing: -.01em; }
 .g-file-formats { display: flex; flex-wrap: wrap; gap: 8px; padding: 22px 0 6px; }
-.g-file-formats code { padding: 7px 10px; border: 1px solid var(--gc-line); border-radius: 0; font: 12px/1.5 var(--gc-font-code); color: var(--gc-paper); }
+.g-file-formats code { padding: 7px 10px; border: 1px solid var(--gc-line); border-radius: 6px; font: 12px/1.5 var(--gc-font-code); color: var(--gc-paper); }
 .g-flow-fields { margin: 0; padding: 10px 0; }
 .g-flow-fields > div { display: grid; grid-template-columns: 1fr 1.5fr; gap: 16px; padding-block: 14px; border-bottom: 1px dashed var(--gc-line-soft); font-size: 14px; }
 .g-flow-fields > div:last-child { border-bottom: 0; }
 .g-flow-fields dt { color: var(--gc-paper); font-weight: 600; }
 .g-flow-fields dd { margin: 0; color: var(--gc-silver); }
 .g-flow-sheet > footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px -28px 0; padding: 16px 28px; background: var(--gc-surface); border-top: 1px solid var(--gc-line-soft); color: var(--gc-silver); font: 600 12px/1.4 var(--gc-font-code); letter-spacing: .04em; text-transform: uppercase; }
-.g-flow-sheet > footer code { padding: 4px 9px; border-radius: 0; background: var(--gc-action); color: var(--gc-paper); font: inherit; }
-.g-dns-record { margin: 22px 0 6px; padding: 18px; background: var(--gc-canvas); border: 1px solid var(--gc-line-soft); border-radius: 0; }
+.g-flow-sheet > footer code { padding: 4px 9px; border-radius: 6px; background: var(--gc-action); color: var(--gc-paper); font: inherit; }
+.g-dns-record { margin: 22px 0 6px; padding: 18px; background: var(--gc-canvas); border: 1px solid var(--gc-line-soft); border-radius: 10px; }
 .g-dns-record > span { display: block; color: var(--gc-muted); font-size: 12px; margin-bottom: 8px; }
 .g-dns-record code { color: var(--gc-paper); font: 18px/1.5 var(--gc-font-code); overflow-wrap: anywhere; }
 .g-dns-steps { list-style: none; counter-reset: dns; margin: 0; padding: 10px 0 14px; font-size: 14px; }
