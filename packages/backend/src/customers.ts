@@ -7,11 +7,14 @@ import {
   customerContainerImageSummarySchema, customerContainerImageUploadMetadataSchema,
   customerPendingOrganizationsSchema, customerQueueSchema, customerReportSummarySchema, customerRunInputSchema, customerScopeSchema,
   customerSourceSnapshotSchema, customerSourceSummarySchema, customerTargetIdSchema, customerTargetSchema,
-  customerUpdateApplicationSchema, customerUploadSourceSchema, customerWorkspaceSchema,
+  customerUpdateApplicationSchema, customerUploadSourceSchema, customerWorkspaceSchema, defaultLicensePolicy,
+  licensePolicySchema, workspaceLicensePolicySchema,
   type CustomerApplication, type CustomerAssessmentIntent, type CustomerAssessmentReport, type CustomerClaim, type CustomerEnrollment,
   type CustomerQueueInput, type CustomerRunInput, type CustomerSourceSummary, type CustomerTarget,
-  type CustomerContainerImageSummary,
+  type CustomerContainerImageSummary, type LicensePolicy,
 } from '@gotchu/contracts';
+import { evaluateLicensePolicy, normalizeLicenseExpression, normalizeLicensePolicy } from '@gotchu/customer-assessment/supply-chain';
+import { buildCycloneDx } from '@gotchu/customer-assessment/sbom';
 import type { Transaction } from '@gotchu/database';
 import { audit, authorize, BackendError, canonicalJson, identitySchema, parse, sha256, type BaseDependencies, type Identity } from './core.js';
 import { DEMO_ASSESSMENT_SCOPE } from './demo.js';
@@ -138,6 +141,13 @@ async function currentRequest(tx: Transaction, claim: CustomerClaim): Promise<Cu
   }
   return input;
 }
+async function currentLicensePolicy(tx: Transaction, organizationId: string) {
+  const result = await tx.query<{ allow_licenses: string[]; deny_licenses: string[]; review_licenses: string[]; updated_at: Date }>(
+    'SELECT allow_licenses,deny_licenses,review_licenses,updated_at FROM gotchu.customer_license_policies WHERE organization_id=$1', [organizationId]);
+  const row = result.rows[0];
+  if (!row) return parse(workspaceLicensePolicySchema, { organizationId, policy: defaultLicensePolicy, updatedAt: null, configured: false });
+  return parse(workspaceLicensePolicySchema, { organizationId, policy: { allow: row.allow_licenses, deny: row.deny_licenses, review: row.review_licenses }, updatedAt: row.updated_at.toISOString(), configured: true });
+}
 function reportSubject(input: CustomerAssessmentIntent) {
   const image = input.containerImage;
   return { sourceSnapshotId: input.source?.id ?? null, sourceDigest: input.source?.digest ?? null,
@@ -209,6 +219,29 @@ export function createCustomerService(deps: CustomerDependencies) {
         await tx.query('UPDATE gotchu.applications SET name=coalesce($3,name),archived=coalesce($4,archived) WHERE organization_id=$1 AND id=$2', [value.organizationId, value.applicationId, value.name ?? null, value.archived ?? null]);
         await audit(tx, value.organizationId, actor.userId, 'application.updated', value.applicationId, { name: value.name ?? null, archived: value.archived ?? null });
         return readApplication(tx, value);
+      });
+    },
+    async getLicensePolicy(identity: Identity, input: { organizationId: string }) {
+      const actor = principal(identity); const scope = parse(organizationSchema, input);
+      return deps.database.tenant(scope.organizationId, async tx => {
+        await authorize(tx, scope.organizationId, actor);
+        return currentLicensePolicy(tx, scope.organizationId);
+      });
+    },
+    async updateLicensePolicy(identity: Identity, input: { organizationId: string; policy: LicensePolicy }) {
+      const actor = principal(identity);
+      const value = parse(organizationSchema.extend({ policy: licensePolicySchema }).strict(), input);
+      let policy: LicensePolicy;
+      try { policy = parse(licensePolicySchema, normalizeLicensePolicy(value.policy)); }
+      catch (cause) { throw new BackendError('invalid_license_policy', 'La política contiene una expresión SPDX no reconocida o reglas incompatibles', 400, { cause }); }
+      return deps.database.tenant(value.organizationId, async tx => {
+        await authorize(tx, value.organizationId, actor, writeRoles); await lockOrganization(tx, value.organizationId);
+        const result = await tx.query<{ updated_at: Date }>(`INSERT INTO gotchu.customer_license_policies(organization_id,allow_licenses,deny_licenses,review_licenses,updated_by)
+          VALUES ($1,$2,$3,$4,$5) ON CONFLICT (organization_id) DO UPDATE SET allow_licenses=EXCLUDED.allow_licenses,
+          deny_licenses=EXCLUDED.deny_licenses,review_licenses=EXCLUDED.review_licenses,updated_by=EXCLUDED.updated_by,updated_at=clock_timestamp()
+          RETURNING updated_at`, [value.organizationId, policy.allow, policy.deny, policy.review, actor.userId]);
+        await audit(tx, value.organizationId, actor.userId, 'license_policy.updated', value.organizationId, { allow: policy.allow, deny: policy.deny, review: policy.review });
+        return parse(workspaceLicensePolicySchema, { organizationId: value.organizationId, policy, updatedAt: result.rows[0]?.updated_at.toISOString() ?? new Date().toISOString(), configured: true });
       });
     },
     async enrollTarget(identity: Identity, input: z.input<typeof customerEnrollTargetSchema>): Promise<CustomerEnrollment> {
@@ -407,6 +440,7 @@ export function createCustomerService(deps: CustomerDependencies) {
           if (!row.authorization_current || !row.verified_at || !row.expires_at) throw new BackendError('target_not_verified', 'Verify a current target before requesting external assessment', 409);
           target = { id: row.id, origin: row.origin, version: row.version, verifiedAt: row.verified_at.toISOString(), expiresAt: row.expires_at.toISOString(), scanProfile: row.scan_profile };
         }
+        const licensePolicy = (await currentLicensePolicy(tx, value.organizationId)).policy;
         let containerImage: CustomerAssessmentIntent['containerImage'] = null;
         let containerImageId: string | null = null;
         if (imageSelection?.kind === 'archive') {
@@ -419,7 +453,7 @@ export function createCustomerService(deps: CustomerDependencies) {
           const digest = imageSelection.reference.slice(imageSelection.reference.lastIndexOf('@sha256:') + 8);
           containerImage = { kind: 'registry', reference: imageSelection.reference, digest };
         }
-        const request = parse(customerAssessmentIntentSchema, { version: 2, organizationId: value.organizationId, applicationId: value.applicationId, jobId: randomUUID(), applicationName: app.name, mode: value.mode, inputKind, source, containerImage, target });
+        const request = parse(customerAssessmentIntentSchema, { version: 2, organizationId: value.organizationId, applicationId: value.applicationId, jobId: randomUUID(), applicationName: app.name, mode: value.mode, inputKind, source, containerImage, target, licensePolicy });
         const jobId = await enqueue(tx, { organizationId: value.organizationId, applicationId: value.applicationId, id: request.jobId, kind: 'audit', idempotencyKey: value.idempotencyKey, payload: request });
         if (jobId !== request.jobId) throw new BackendError('idempotency_conflict', 'Concurrent audit reused this key', 409);
         await tx.query('INSERT INTO gotchu.customer_requests(organization_id,application_id,job_id,source_id,target_id,container_image_id,input) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)', [value.organizationId, value.applicationId, jobId, value.sourceSnapshotId, value.targetId, containerImageId, JSON.stringify(request)]);
@@ -447,6 +481,18 @@ export function createCustomerService(deps: CustomerDependencies) {
         return parse(customerAssessmentReportSchema, result.rows[0].body);
       });
     },
+    async exportSbom(identity: Identity, input: Scope & { reportId: string }) {
+      const actor = principal(identity); const value = parse(customerScopeSchema.extend({ reportId: z.uuid() }).strict(), input);
+      return deps.database.tenant(value.organizationId, async tx => {
+        await authorize(tx, value.organizationId, actor);
+        const result = await tx.query<{ body: unknown }>('SELECT body FROM gotchu.customer_reports WHERE organization_id=$1 AND application_id=$2 AND id=$3', [value.organizationId, value.applicationId, value.reportId]);
+        if (!result.rows[0]) throw new BackendError('not_found', 'Report not found', 404);
+        const report = parse(customerAssessmentReportSchema, result.rows[0].body);
+        if (!report.internal?.dependencyInventory) throw new BackendError('sbom_unavailable', 'Este informe no contiene un inventario de dependencias exportable', 409);
+        await audit(tx, value.organizationId, actor.userId, 'report.sbom_download_requested', value.reportId);
+        return buildCycloneDx(report);
+      });
+    },
     async recordReportDownload(identity: Identity, input: Scope & { reportId: string }): Promise<void> {
       const actor = principal(identity); const value = parse(customerScopeSchema.extend({ reportId: z.uuid() }).strict(), input);
       await deps.database.tenant(value.organizationId, async tx => {
@@ -467,6 +513,18 @@ export function createCustomerService(deps: CustomerDependencies) {
       const report = validated.data; const request = value.input;
       if (report.organizationId !== request.organizationId || report.applicationId !== request.applicationId || report.jobId !== request.jobId
         || report.mode !== request.mode || report.applicationName !== request.applicationName || canonicalJson(report.subject) !== canonicalJson(reportSubject(request))) throw new BackendError('assessment_scope_mismatch', 'Report does not match the exact requested subject', 409);
+      if (request.source !== null) {
+        const policy = request.licensePolicy ?? defaultLicensePolicy;
+        const inventory = report.internal?.dependencyInventory;
+        if (!inventory || canonicalJson(inventory.policy) !== canonicalJson(policy)) {
+          throw new BackendError('assessment_license_policy_mismatch', 'Dependency inventory must record the policy bound to the durable assessment request', 409);
+        }
+        if (inventory.components.some(component => component.licenseExpression !== normalizeLicenseExpression(component.declaredLicense)
+          || component.licenseConfidence !== (component.declaredLicense === null ? 'unknown' : 'declared')
+          || component.policyStatus !== evaluateLicensePolicy(component.licenseExpression, policy))) {
+          throw new BackendError('assessment_license_result_invalid', 'Dependency license results do not match their declared metadata and workspace policy', 409);
+        }
+      }
       return deps.database.tenant(request.organizationId, async tx => {
         const persisted = await currentRequest(tx, { organizationId: request.organizationId, applicationId: request.applicationId, jobId: request.jobId, leaseToken: value.leaseToken });
         if (canonicalJson(request) !== canonicalJson(persisted)) throw new BackendError('assessment_scope_mismatch', 'Runner input differs from durable request', 409);
