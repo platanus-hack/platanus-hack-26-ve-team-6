@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { TriageRevision } from '@gotchu/contracts';
 import { triageApi } from './triage-client';
@@ -40,6 +41,26 @@ export function IncidentList({ organizationId, applicationId, canManage }: { org
   const query=useQuery({queryKey:['triage-incidents',organizationId,applicationId],queryFn:()=>triageApi.list({organizationId,applicationId})});
   if(query.isPending)return <section className="customer-card" role="status">Cargando incidentes…</section>;
   if(query.error)return <section className="customer-card" role="alert"><h2>No se pudieron cargar los incidentes</h2><button onClick={()=>query.refetch()}>Reintentar</button></section>;
-  if(!query.data?.length)return <section className="customer-card"><h2>Sin incidentes registrados</h2><p>Las señales nuevas aparecerán cuando el evaluador produzca una revisión.</p></section>;
-  return <section className="customer-section"><h2>Incidentes correlacionados</h2>{query.data.map(incident=><IncidentCard key={incident.id} organizationId={organizationId} applicationId={applicationId} incidentId={incident.id} canManage={canManage}/>)}</section>;
+  return <section className="customer-section"><ProbeRouteSettings organizationId={organizationId} applicationId={applicationId} canManage={canManage}/><h2>Incidentes correlacionados</h2>{!query.data?.length?<p>Sin incidentes registrados. Las señales nuevas aparecerán cuando el evaluador produzca una revisión.</p>:query.data.map(incident=><IncidentCard key={incident.id} organizationId={organizationId} applicationId={applicationId} incidentId={incident.id} canManage={canManage}/>)}</section>;
+}
+
+function ProbeRouteSettings({organizationId,applicationId,canManage}:{organizationId:string;applicationId:string;canManage:boolean}) {
+  const scope={organizationId,applicationId}; const client=useQueryClient();
+  const query=useQuery({queryKey:['triage-probe-route',organizationId,applicationId],queryFn:()=>triageApi.getProbeRoute(scope)});
+  const [selection,setSelection]=useState(''); const [route,setRoute]=useState<'/'|'/\.well-known/security.txt'|'/security.txt'|'/robots.txt'|'/sitemap.xml'>('/'); const [role,setRole]=useState<'application'|'control'>('application');
+  useEffect(()=>{if(query.data){const configured=query.data.routes.find(item=>item.route===route)??query.data.routes[0];setSelection(configured?`${configured.serviceId}:${configured.dependencyId??'none'}`:'');if(configured){setRoute(configured.route);setRole(configured.role);}}},[query.data]);
+  const mutation=useMutation({mutationFn:(value:{route:'/'|'/\.well-known/security.txt'|'/security.txt'|'/robots.txt'|'/sitemap.xml';serviceId:string;dependencyId:string|null;role:'application'|'control'})=>triageApi.declareProbeRoute(scope,value),onSuccess:()=>client.invalidateQueries({queryKey:['triage-probe-route',organizationId,applicationId]})});
+  const selected=query.data?.options.find(option=>`${option.serviceId}:${option.dependencyId??'none'}`===selection);
+  if(query.isPending)return <section className="customer-card" role="status">Cargando declaración de ruta HTTPS…</section>;
+  if(query.error)return <section className="customer-card" role="alert"><h3>No se pudo cargar la configuración de ruta</h3><button onClick={()=>query.refetch()}>Reintentar</button></section>;
+  return <section className="customer-card"><h2>Declaración de las comprobaciones HTTPS</h2><p>Las rutas disponibles se limitan al target HTTPS consentido. Un perfil raíz permite solo <code>/</code>; el perfil de superficie pública permite cinco rutas estáticas del mismo origen. Estas declaraciones no añaden targets.</p>
+    {query.data.options.length===0?<p>Declara primero un servicio en el inventario de la aplicación.</p>:<>
+      <label>Ruta consentida<select aria-label="Ruta HTTPS consentida" disabled={!canManage||mutation.isPending} value={route} onChange={event=>setRoute(event.target.value as typeof route)}>{query.data.allowedRoutes.map(value=><option key={value} value={value}>{value}</option>)}</select></label>
+      <label>Servicio y dependencia<select aria-label="Servicio y dependencia de la ruta HTTPS" disabled={!canManage||mutation.isPending} value={selection} onChange={event=>{setSelection(event.target.value);if(!event.target.value.endsWith(':none'))setRole('application');}}><option value="">Seleccionar…</option>{query.data.options.map(option=><option key={`${option.serviceId}:${option.dependencyId??'none'}`} value={`${option.serviceId}:${option.dependencyId??'none'}`}>{option.service}{option.provider?` · depende de ${option.provider} / ${option.component}`:' · sin dependencia declarada'}</option>)}</select></label>
+      <label>Rol<select aria-label="Rol de la ruta HTTPS" disabled={!canManage||mutation.isPending||Boolean(selected?.dependencyId)} value={role} onChange={event=>setRole(event.target.value as 'application'|'control')}><option value="application">Aplicación</option><option value="control">Control independiente</option></select></label>
+      <button className="customer-button customer-button-secondary" disabled={!canManage||!selected||mutation.isPending||(role==='control'&&selected.dependencyId!==null)} onClick={()=>selected&&mutation.mutate({route,serviceId:selected.serviceId,dependencyId:selected.dependencyId,role})}>Guardar declaración</button>
+      {query.data.routes.map(item=><p role="note" key={item.route}>{item.route} declarada por {item.declaredBy} el {new Date(item.declaredAt).toLocaleString('es')}: {item.service}, {item.role==='control'?'control independiente':`dependencia ${item.dependsOnProvider??'sin atribución'}`}.</p>)}
+      {mutation.error&&<p role="alert">No se pudo guardar. Verifica el inventario y el consentimiento HTTPS activo.</p>}
+    </>}
+  </section>;
 }
