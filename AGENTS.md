@@ -149,7 +149,9 @@ When we notice a recurring mistake, propose a precise instruction or a small goo
 
 # Gotchu project constraints
 
-Build the backend and infrastructure first. The selected web framework is TanStack Start and the selected authentication library is Auth.js. Keep domain logic out of route files, persistent workers out of HTTP request lifetimes, provider writes inside the independent executor, and customer-code execution disabled until VM-class isolation is demonstrated.
+The current priority is a controlled demonstration application assessed internally and externally, evidence-backed comparison reports, and a minimal usable interface. AWS is the primary deployment target. Keep core workflows portable through replaceable adapters and open contracts; external paid services and any particular identity/model/repository vendor must not be mandatory. The selected web framework is TanStack Start and the selected authentication library is Auth.js. Keep domain logic out of route files, persistent workers out of HTTP request lifetimes, provider writes inside the independent executor, and customer-code execution disabled until VM-class isolation is demonstrated.
+
+External assessment must work without source access and only within authorized scope. Reports distinguish confirmed observations, indications, unknown coverage, severity, confidence, and exploitability. Correlate internal/external evidence without treating a vulnerable package or traffic spike as proof of exploitation or attack. Incident severity never expands action permissions. Observation, exact approval, and bounded preauthorized automation are distinct modes; automatic response and provider recovery are later release gates.
 
 Read `docs/definition-interview.md`, `docs/architecture.md`, and `docs/implementation-plan.md` before making architectural changes. A reference or proposed limit is not a measured production guarantee.
 
