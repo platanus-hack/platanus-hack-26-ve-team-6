@@ -34,6 +34,17 @@ describe('contextual operational detectors', () => {
     expect(detectOperationalSignals([...errors, ...resources, expected], from, until).map(x => x.rule)).toEqual(['app.error.database.v1', 'runtime.resources.v1']);
     expect(detectOperationalSignals([event('auth.privilege_changed')], from, until)[0]?.confidence).toBe('low');
   });
+  it('turns runtime protection attempts into indications and retains blocked outcomes separately', () => {
+    const attempts = [
+      event('runtime.attack_detected', { outcome: 'unknown', attributes: { attackKind: 'sql_injection', sink: 'sql', route: '/login', evidence: 'sql_boolean_tautology' } }),
+      event('runtime.attack_detected', { outcome: 'blocked', attributes: { attackKind: 'sql_injection', sink: 'sql', route: '/login', evidence: 'sql_boolean_tautology' } }),
+    ];
+    const [signal] = detectOperationalSignals(attempts, from, until);
+    expect(signal).toMatchObject({ rule: 'runtime.attack.sql_injection.v1', kind: 'security_finding', severity: 'medium', confidence: 'medium', eventIds: attempts.map(item => item.id) });
+    expect(signal?.summary).toContain('2 runtime indications');
+    expect(signal?.summary).toContain('1 attempts were blocked');
+    expect(signal?.summary).toContain('does not establish exploitation or compromise');
+  });
   it('does not count invalid numeric measurements, stale windows or cross-IP routes as observed pressure', () => {
     const invalid = Array.from({ length: 50 }, () => event('http.request', { attributes: { statusCode: 200, durationMs: -1, capacityUtilization: 50 } }));
     expect(detectOperationalSignals(invalid, from, until)).toEqual([]);
