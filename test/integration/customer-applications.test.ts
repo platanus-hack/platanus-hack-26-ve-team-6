@@ -306,14 +306,27 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     const summaries = await json(await owner.api(`${first.path}/reports`), 200, z.array(customerReportSummarySchema));
     expect(summaries.map(item => item.id)).toContain(report.id);
     for (const path of [`${first.base}/applications`, `${first.path}/sources`, `${first.path}/targets`, `${first.path}/reports/${report.id}`, `${first.base}/jobs/${queued.jobId}`]) await rejected(await stranger.api(path), 403, 'forbidden');
-    await rejected(await stranger.api(`${first.path}/sources/${source.id}/delete`, 'POST', {}), 403, 'forbidden');
+    await rejected(await stranger.api(`${first.path}/sources/${source.id}`, 'DELETE'), 403, 'forbidden');
+    await rejected(await cookieClient(origin).api(`${first.path}/sources/${source.id}`, 'DELETE'), 401, 'unauthenticated');
     await rejected(await owner.api(`${other.base}/applications/${first.app.applicationId}/reports/${report.id}`), 403, 'forbidden');
     await rejected(await owner.api(`${siblingPath}/reports/${report.id}`), 404, 'not_found');
     await rejected(await owner.api(`${siblingPath}/assessments`, 'POST', body, randomUUID()), 404, 'not_found');
     await rejected(await stranger.api(`${other.path}/assessments`, 'POST', body, randomUUID()), 404, 'not_found');
-    await rejected(await owner.api(`${siblingPath}/sources/${source.id}/delete`, 'POST', {}), 404, 'not_found');
+    await rejected(await owner.api(`${siblingPath}/sources/${source.id}`, 'DELETE'), 404, 'not_found');
     const workspaces = await json(await stranger.api('/workspaces'), 200, z.array(customerWorkspaceSchema));
     expect(workspaces.some(item => item.id === first.workspace.id)).toBe(false);
+    const viewer = present((await json(await stranger.api('/session'), 200, sessionSchema)).user);
+    // Operator fixture grants read-only membership; the DELETE still uses the real session and backend.
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES ($1,$2,'viewer')", [first.workspace.id, viewer.id]);
+    try {
+      await rejected(await stranger.api(`${first.path}/sources/${source.id}`, 'DELETE'), 403, 'forbidden');
+    } finally { await f.admin.query('DELETE FROM gotchu.memberships WHERE organization_id=$1 AND user_id=$2', [first.workspace.id, viewer.id]); }
+    const deleted = await owner.request(`/api/customer${first.path}/sources/${source.id}`, { method: 'DELETE' });
+    expect(deleted.status).toBe(204);
+    expect(deleted.body).toBeNull();
+    expect(await deleted.text()).toBe('');
+    const repeated = await owner.api(`${first.path}/sources/${source.id}`, 'DELETE');
+    expect(repeated.status).toBe(204);
     await json(await owner.api(`${first.path}/sources/${source.id}/delete`, 'POST', {}), 200, z.object({ deleted: z.literal(true) }));
     await rejected(await owner.api(`${first.path}/assessments`, 'POST', body, randomUUID()), 404, 'not_found');
     expect((await json(await owner.api(`${first.path}/sources`), 200, z.array(customerSourceSummarySchema))).map(item => item.id)).not.toContain(source.id);
@@ -366,7 +379,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     try {
       for (let index = 0; index < 3; index++) jobs.push((await queue(app.path, body)).jobId);
       await rejected(await owner.api(`${app.path}/assessments`, 'POST', body, randomUUID()), 429, 'assessment_capacity_exceeded');
-      await rejected(await owner.api(`${app.path}/sources/${source.id}/delete`, 'POST', {}), 409, 'source_in_use');
+      await rejected(await owner.api(`${app.path}/sources/${source.id}`, 'DELETE'), 409, 'source_in_use');
       await rejected(await owner.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 409, 'target_assessment_in_progress');
       // Archival stops admission and makes queued work fail its fresh-state check.
       await json(await owner.api(app.path, 'PATCH', { archived: true }), 200, customerApplicationSchema);

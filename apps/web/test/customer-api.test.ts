@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
+import { BackendError } from '@gotchu/backend';
 import { createCustomerApi, type CustomerServices } from '../src/server/customer-api.js';
 import type { AuthService } from '../src/server/auth.js';
 const origin = 'http://localhost:3000';
@@ -55,5 +56,59 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
     const result = await handle(request(`workspaces/${organizationId}/jobs/${randomUUID()}`));
     expect(result.status).toBe(500); expect(await result.text()).not.toContain('must not be exposed');
+  });
+
+  it('deletes with no request body and returns an empty private 204 with refreshed session cookies', async () => {
+    const { services, auth } = ports();
+    const sourceSnapshotId = randomUUID();
+    services.deleteSource = vi.fn(async () => undefined);
+    auth.identity = async () => ({ userId, cookies: ['authjs.session-token=refreshed; HttpOnly; SameSite=Lax'] });
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const response = await handle(new Request(`${origin}/api/customer/workspaces/${organizationId.toUpperCase()}/applications/${applicationId.toUpperCase()}/sources/${sourceSnapshotId.toUpperCase()}`, { method: 'DELETE', headers: { origin } }));
+    expect(response.status).toBe(204);
+    expect(response.body).toBeNull();
+    expect(await response.text()).toBe('');
+    expect(response.headers.has('content-type')).toBe(false);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.getSetCookie()).toEqual(['authjs.session-token=refreshed; HttpOnly; SameSite=Lax']);
+    expect(services.deleteSource).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, sourceSnapshotId });
+  });
+
+  it('requires a session, same-origin mutation and valid scope before deleting', async () => {
+    const { services, auth } = ports();
+    services.deleteSource = vi.fn(async () => undefined);
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `${origin}/api/customer/workspaces/${organizationId}/applications/${applicationId}/sources/${randomUUID()}`;
+    for (const headers of [{}, { origin: 'https://attacker.invalid' }]) {
+      expect((await handle(new Request(path, { method: 'DELETE', headers }))).status).toBe(403);
+    }
+    for (const invalid of [path.replace(organizationId, 'invalid'), path.replace(applicationId, 'invalid'), `${path.slice(0, path.lastIndexOf('/'))}/invalid`]) {
+      expect((await handle(new Request(invalid, { method: 'DELETE', headers: { origin } }))).status).toBe(400);
+    }
+    auth.identity = async () => null;
+    expect((await handle(new Request(path, { method: 'DELETE', headers: { origin, 'x-user-id': userId } }))).status).toBe(401);
+    expect(services.deleteSource).not.toHaveBeenCalled();
+  });
+
+  it('preserves backend membership, scoped not-found and in-use deletion errors', async () => {
+    const { services, auth } = ports();
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    for (const [status, code] of [[403, 'forbidden'], [404, 'not_found'], [409, 'source_in_use']] as const) {
+      services.deleteSource = async () => { throw new BackendError(code, 'Deletion denied', status); };
+      const response = await handle(new Request(`${origin}/api/customer/workspaces/${organizationId}/applications/${applicationId}/sources/${randomUUID()}`, { method: 'DELETE', headers: { origin } }));
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual({ error: { code, message: 'Deletion denied' } });
+    }
+  });
+
+  it('retains the existing POST deletion action for compatible callers', async () => {
+    const { services, auth } = ports();
+    const sourceSnapshotId = randomUUID();
+    services.deleteSource = vi.fn(async () => undefined);
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const response = await handle(request(`workspaces/${organizationId}/applications/${applicationId}/sources/${sourceSnapshotId}/delete`, {}));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ deleted: true });
+    expect(services.deleteSource).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, sourceSnapshotId });
   });
 });

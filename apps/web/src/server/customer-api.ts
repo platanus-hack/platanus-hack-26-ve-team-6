@@ -120,6 +120,12 @@ export function createCustomerApi(options: {
         }
       }
       if (parts.length === 8 && parts[6] === 'reports' && request.method === 'GET') return send(customerAssessmentReportSchema.parse(await services.getReport(identity, { ...scope, reportId: parse(uuid, parts[7]) })));
+      if (parts.length === 8 && parts[6] === 'sources' && request.method === 'DELETE') {
+        await services.deleteSource(identity, { ...scope, sourceSnapshotId: parse(uuid, parts[7]) });
+        headers.set('Cache-Control', 'private, no-store');
+        headers.set('X-Content-Type-Options', 'nosniff');
+        return new Response(null, { status: 204, headers });
+      }
       if (parts.length === 9 && parts[6] === 'sources' && parts[8] === 'delete' && request.method === 'POST') {
         parse(z.object({}).strict(), await body(request));
         await services.deleteSource(identity, { ...scope, sourceSnapshotId: parse(uuid, parts[7]) });
