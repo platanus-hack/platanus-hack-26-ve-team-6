@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, X509Certificate } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -104,7 +104,8 @@ describe('scanner runtime TLS configuration', () => {
     const otherKeyPath = join(directory, 'other-key.pem');
     await writeFile(secretPath, secret);
     await expect(loadScannerRuntimeConfig({ NODE_ENV: 'production', GOTCHU_SCANNER_SECRET_FILE: secretPath, GOTCHU_SCANNER_TLS_CERT_FILE: certPath, GOTCHU_SCANNER_TLS_KEY_FILE: keyPath })).resolves.toMatchObject({ host: '127.0.0.1', tls: { cert, key } });
-    await expect(readScannerCaFile(certPath)).resolves.toEqual(cert);
+    const canonicalCert = Buffer.from(new X509Certificate(cert).toString().trim(), 'ascii');
+    await expect(readScannerCaFile(certPath)).resolves.toEqual(canonicalCert);
     await expect(readScannerCaFile(secretPath)).rejects.toThrow('invalid_scanner_ca_file');
     await expect(loadScannerRuntimeConfig({ NODE_ENV: 'production', GOTCHU_SCANNER_SECRET_FILE: secretPath, GOTCHU_SCANNER_TLS_CERT_FILE: certPath })).rejects.toThrow('scanner_tls_files_must_be_configured_together');
     await expect(loadScannerRuntimeConfig({ NODE_ENV: 'production', GOTCHU_SCANNER_SECRET_FILE: secretPath, GOTCHU_SCANNER_TLS_CERT_FILE: certPath, GOTCHU_SCANNER_TLS_KEY_FILE: otherKeyPath })).rejects.toThrow('invalid_scanner_tls_identity');
@@ -120,11 +121,13 @@ describe('scanner runtime TLS configuration', () => {
 
   it('validates every certificate in a bounded operator CA PEM bundle', async () => {
     const validBundle = Buffer.concat([cert, Buffer.from('\n'), cert]);
-    expect(validateScannerCa(validBundle)).toEqual(validBundle);
+    const canonicalCert = Buffer.from(new X509Certificate(cert).toString().trim(), 'ascii');
+    const canonicalBundle = Buffer.concat([canonicalCert, Buffer.from('\n'), canonicalCert]);
+    expect(validateScannerCa(validBundle)).toEqual(canonicalBundle);
     await expect(readScannerCaFile(join(directory, 'bundle.pem'))).rejects.toThrow('invalid_scanner_ca_file');
     const bundlePath = join(directory, 'bundle.pem');
     await writeFile(bundlePath, validBundle);
-    await expect(readScannerCaFile(bundlePath)).resolves.toEqual(validBundle);
+    await expect(readScannerCaFile(bundlePath)).resolves.toEqual(canonicalBundle);
 
     const invalidPem = [
       Buffer.from('not a certificate'),
@@ -159,6 +162,23 @@ describe('scanner TLS transport', () => {
     const report = await createScannerClient({ origin, secret, ca: cert }).run(request);
     expect(run).toHaveBeenCalledWith(request);
     expect(report.subject.sourceDigest).toBe(request.source?.digest);
+  });
+
+  it('uses canonical CA PEM for leading whitespace and adjacent certificate TLS bundles', async () => {
+    const server = createScannerServer({ secret, runner: syntheticRunner(), tls: { cert, key } });
+    const { origin } = await listen(server);
+    const certificate = new X509Certificate(cert).toString().trim();
+    const caVariants = [
+      Buffer.concat([Buffer.from(' '), cert]),
+      Buffer.concat([Buffer.from('\t'), cert]),
+      Buffer.from(`${certificate}${certificate}`, 'ascii'),
+    ];
+
+    for (const ca of caVariants) {
+      const request = input();
+      const report = await createScannerClient({ origin, secret, ca }).run(request);
+      expect(report.subject.sourceDigest).toBe(request.source?.digest);
+    }
   });
 
   it('rejects an untrusted CA and a trusted certificate with the wrong hostname', async () => {

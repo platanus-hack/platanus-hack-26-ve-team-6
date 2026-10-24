@@ -15,13 +15,20 @@ export function validateScannerCa(raw: Uint8Array): Buffer {
   for (const byte of ca) if (byte > 0x7f) throw new Error('invalid_scanner_ca');
   try {
     const pem = ca.toString('ascii');
-    const certificates = pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? [];
+    const certificatePattern = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g;
+    const certificates = pem.match(certificatePattern) ?? [];
     if (certificates.length === 0 || pem.replace(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g, '').trim() !== '') throw new Error('invalid_scanner_ca');
-    for (const certificate of certificates) if (!new X509Certificate(certificate).ca) throw new Error('invalid_scanner_ca');
-    createSecureContext({ ca });
+    const canonicalCertificates = certificates.map(certificate => {
+      const x509 = new X509Certificate(certificate);
+      if (!x509.ca) throw new Error('invalid_scanner_ca');
+      return x509.toString().trim();
+    });
+    const canonicalCa = Buffer.from(canonicalCertificates.join('\n'), 'ascii');
+    if (canonicalCa.length === 0 || canonicalCa.length > MAX_SCANNER_CA_BYTES) throw new Error('invalid_scanner_ca');
+    createSecureContext({ ca: canonicalCa });
+    return canonicalCa;
   }
   catch { throw new Error('invalid_scanner_ca'); }
-  return ca;
 }
 
 export function createScannerClient(options:ScannerClientOptions) {

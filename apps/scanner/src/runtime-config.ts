@@ -90,9 +90,8 @@ async function readBoundedFile(path: string, maxBytes: number, errorCode: string
 
 export async function readScannerCaFile(path: string): Promise<Buffer> {
   const ca = await readBoundedFile(path, MAX_SCANNER_CA_BYTES, 'invalid_scanner_ca_file');
-  try { validateScannerCa(ca); }
+  try { return validateScannerCa(ca); }
   catch { throw new Error('invalid_scanner_ca_file'); }
-  return ca;
 }
 
 export async function loadScannerRuntimeConfig(env: Environment = process.env): Promise<ScannerRuntimeConfig> {
