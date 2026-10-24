@@ -1,0 +1,68 @@
+@font-face {
+  font-family: 'Oxanium';
+  src: url('/fonts/oxanium-latin.woff2') format('woff2');
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  --gc-canvas: #191923;
+  --gc-surface: #21212e;
+  --gc-raised: #2b2b3a;
+  --gc-hover: #343445;
+  --gc-paper: #fffefa;
+  --gc-silver: #c7bfbd;
+  --gc-muted: #b5b1bb;
+  --gc-line: #646174;
+  --gc-line-soft: #3d3b4c;
+  --gc-accent: #e7147d;
+  --gc-accent-hover: #c80c68;
+  --gc-accent-ink: #ff8fbe;
+  --gc-accent-soft: #3c2035;
+  --gc-focus: #ffabd0;
+  --gc-success: #a3dfc2;
+  --gc-success-bg: #1c3930;
+  --gc-warning: #f3d18b;
+  --gc-warning-bg: #3e3221;
+  --gc-danger: #ffb4aa;
+  --gc-danger-bg: #43282e;
+  --gc-info: #b9d4ff;
+  --gc-info-bg: #25344d;
+  --gc-unknown: #d6c6f3;
+  --gc-unknown-bg: #352d47;
+  --gc-font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --gc-font-display: 'Oxanium', var(--gc-font-body);
+  --gc-font-code: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --gc-text-xs: 0.75rem;
+  --gc-text-sm: 0.875rem;
+  --gc-text-md: 1rem;
+  --gc-text-lg: 1.25rem;
+  --gc-text-title: clamp(1.75rem, 2.8vw, 2.5rem);
+  --gc-space-1: 4px;
+  --gc-space-2: 8px;
+  --gc-space-3: 12px;
+  --gc-space-4: 16px;
+  --gc-space-5: 24px;
+  --gc-space-6: 32px;
+  --gc-space-7: 48px;
+  --gc-radius: 4px;
+  --gc-radius-panel: 6px;
+  --gc-control: 44px;
+  --gc-duration: 160ms;
+  --gc-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --gc-shadow-dialog: 0 24px 64px #00000066;
+  --gc-content-width: 1440px;
+}
+
+body { margin: 0; background: var(--gc-canvas); color: var(--gc-paper); }
+::selection { background: var(--gc-accent); color: var(--gc-paper); }
+:root { scrollbar-color: var(--gc-line) var(--gc-canvas); }
+input, textarea { caret-color: var(--gc-accent-ink); }
+a { text-underline-offset: .22em; }
+:where(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--gc-focus);
+  outline-offset: 4px;
+}
+.gc-skip-link { position: fixed; left: 16px; top: -80px; z-index: 100; padding: 12px 20px; color: var(--gc-paper); background: var(--gc-accent-hover); }
+.gc-skip-link:focus { top: 16px; }

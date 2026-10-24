@@ -1,0 +1,30 @@
+@import '../styles/tokens.css';
+
+.ds-brand { display: inline-flex; align-items: center; gap: 12px; color: var(--gc-paper); font: 650 30px/1 var(--gc-font-display); letter-spacing: -.025em; text-decoration: none; min-height: var(--gc-control); }
+.ds-brand > svg, .ds-brand-dot { color: var(--gc-accent-ink); }
+.ds-button { display: inline-flex; justify-content: center; align-items: center; gap: var(--gc-space-2); min-height: var(--gc-control); padding: 10px 18px; border: 1px solid var(--gc-line); border-radius: var(--gc-radius); background: var(--gc-surface); color: var(--gc-paper); font: 600 var(--gc-text-sm)/1.4 var(--gc-font-body); cursor: pointer; transition: background-color var(--gc-duration) var(--gc-ease), border-color var(--gc-duration) var(--gc-ease); }
+.ds-button-primary { background: var(--gc-accent); border-color: var(--gc-accent); }
+.ds-button-quiet { background: transparent; border-color: transparent; color: var(--gc-accent-ink); }
+.ds-button-danger { background: var(--gc-danger-bg); color: var(--gc-danger); }
+@media (hover: hover) {
+  .ds-button:not(:disabled):hover { background: var(--gc-hover); border-color: var(--gc-muted); }
+  .ds-button-primary:not(:disabled):hover { background: var(--gc-accent-hover); border-color: var(--gc-accent-hover); }
+  .ds-button-quiet:not(:disabled):hover { background: var(--gc-accent-soft); border-color: transparent; }
+  .ds-button-danger:not(:disabled):hover { border-color: var(--gc-danger); background: var(--gc-danger-bg); }
+}
+.ds-button:active:not(:disabled) { border-color: var(--gc-focus); }
+.ds-button:disabled { cursor: not-allowed; background: var(--gc-raised); color: var(--gc-muted); border-color: var(--gc-line-soft); }
+.ds-status { display: inline-flex; align-items: center; padding: 4px 8px; border: 1px solid currentColor; border-radius: var(--gc-radius); font: 500 var(--gc-text-xs)/1.5 var(--gc-font-body); max-width: 100%; overflow-wrap: anywhere; }
+.ds-status-neutral { color: var(--gc-silver); background: var(--gc-raised); }
+.ds-status-success { color: var(--gc-success); background: var(--gc-success-bg); }
+.ds-status-warning { color: var(--gc-warning); background: var(--gc-warning-bg); }
+.ds-status-danger { color: var(--gc-danger); background: var(--gc-danger-bg); }
+.ds-status-info { color: var(--gc-info); background: var(--gc-info-bg); }
+.ds-status-unknown { color: var(--gc-unknown); background: var(--gc-unknown-bg); }
+.ds-loading { display: flex; align-items: center; gap: var(--gc-space-3); min-height: 100px; color: var(--gc-muted); font-size: var(--gc-text-sm); }
+.ds-spinner { width: 16px; height: 16px; display: inline-block; flex-shrink: 0; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: ds-spin 800ms linear infinite; }
+.ds-notice { padding: var(--gc-space-4); border: 1px solid currentColor; border-radius: var(--gc-radius); font: var(--gc-text-sm)/1.6 var(--gc-font-body); margin-bottom: var(--gc-space-4); }
+.ds-notice > strong { display: block; margin-bottom: var(--gc-space-1); }
+.ds-notice p { margin: 4px 0; color: inherit; }
+@keyframes ds-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ds-spinner { animation: none; }.ds-button { transition: none; } }
