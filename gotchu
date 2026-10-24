@@ -325,6 +325,8 @@ up() {
     pnpm build
   else
     printf '%s\n' 'Usando los servicios ya preparados. Ejecuta ./gotchu upgrade para reconstruirlos.'
+    # The offline Trivy database expires after 14 days; refresh it (no-op while fresh) so image scans stay ready.
+    node "$root/scripts/update-trivy-db.mjs" || fail 'No se pudo preparar la base de vulnerabilidades de Trivy. Revisa la conexión y el espacio de Docker.'
   fi
   "${compose[@]}" up -d postgres redis; compose_ready
   INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" bash "$root/scripts/infra-db-bootstrap.sh"
