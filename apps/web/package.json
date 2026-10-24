@@ -22,6 +22,7 @@
     "react-dom": "^19.2.0",
     "zod": "^4.0.0",
     "@gotchu/monitoring": "workspace:*",
+    "@gotchu/git-adapters": "workspace:*",
     "@gotchu/scenarios": "workspace:*",
     "@simplewebauthn/browser": "14.0.0"
   },
