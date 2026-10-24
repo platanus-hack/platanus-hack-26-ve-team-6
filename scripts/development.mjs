@@ -611,7 +611,7 @@ async function start() {
       return value?.status === 'ready' && dependencies?.apiDatabase === true
         && dependencies?.intakeDatabase === true && dependencies?.signIn === true;
     });
-    await waitForHttpReady('Customer session', `http://127.0.0.1:${ports.web}/api/customer/session`, body => {
+    await waitForHttpReady('Customer session', `${origin}/api/customer/session`, body => {
       const value = responseObject(body);
       return value?.localAuthEnabled === true && value.registrationEnabled === true
         && Array.isArray(value.providers) && value.providers.some(provider => isRecord(provider) && provider.id === 'credentials');
