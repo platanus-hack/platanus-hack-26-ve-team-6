@@ -1,5 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer as createNetServer } from 'node:net';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { request as httpsRequest } from 'node:https';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import type { CustomerRunInput } from '@gotchu/contracts';
 import { sourceDigest } from '@gotchu/customer-assessment';
 import { createScannerClient } from '../src/client.js';
@@ -24,10 +25,10 @@ async function availablePort(): Promise<number> {
   return address.port;
 }
 
-function readReadiness(origin: string, ca: Buffer): Promise<{ status: number; body: unknown }> {
+function readReadiness(origin: string, ca: Buffer, timeoutMs: number): Promise<{ status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
     const request = httpsRequest(new URL('/readyz', origin), {
-      method: 'GET', agent: false, ca, rejectUnauthorized: true, signal: AbortSignal.timeout(45_000), maxHeaderSize: 8192,
+      method: 'GET', agent: false, ca, rejectUnauthorized: true, signal: AbortSignal.timeout(timeoutMs), maxHeaderSize: 8192,
     }, response => {
       const chunks: Buffer[] = [];
       let size = 0;
@@ -47,10 +48,73 @@ function readReadiness(origin: string, ca: Buffer): Promise<{ status: number; bo
       });
       response.on('error', () => reject(new Error('production_smoke_readiness_unavailable')));
     });
-    request.on('error', () => reject(new Error('production_smoke_transport_unavailable')));
+    request.on('error', cause => reject(new Error('production_smoke_transport_unavailable', { cause })));
     request.end();
   });
 }
+
+function processFailure(child: ChildProcess): Error | undefined {
+  if (child.exitCode !== null || child.signalCode !== null) return new Error('production_smoke_process_exited_before_ready');
+  return undefined;
+}
+
+function isConnectionRefused(error: unknown): boolean {
+  if (!(error instanceof Error) || error.message !== 'production_smoke_transport_unavailable') return false;
+  const cause: unknown = error.cause;
+  return typeof cause === 'object' && cause !== null && 'code' in cause && cause.code === 'ECONNREFUSED';
+}
+
+async function readReadinessWhenAvailable(child: ChildProcess, origin: string, ca: Buffer, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  let rejectOnProcessFailure: (error: Error) => void = () => undefined;
+  const onError = (error: Error) => rejectOnProcessFailure(new Error('production_smoke_process_error', { cause: error }));
+  const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+    rejectOnProcessFailure(new Error(`production_smoke_process_exited_before_ready:${code ?? signal ?? 'unknown'}`));
+  };
+  const processFailurePromise = new Promise<never>((_resolve, reject) => { rejectOnProcessFailure = reject; });
+  child.on('error', onError);
+  child.on('exit', onExit);
+  try {
+    while (Date.now() < deadline) {
+      const failed = processFailure(child);
+      if (failed) throw failed;
+      const remainingMs = deadline - Date.now();
+      try {
+        return await Promise.race([
+          readReadiness(origin, ca, remainingMs),
+          processFailurePromise,
+        ]);
+      } catch (error) {
+        const exited = processFailure(child);
+        if (exited) throw exited;
+        if (!isConnectionRefused(error)) throw error;
+        const pauseMs = Math.min(200, deadline - Date.now());
+        if (pauseMs <= 0) break;
+        await new Promise(resolve => setTimeout(resolve, pauseMs));
+      }
+    }
+    const failed = processFailure(child);
+    if (failed) throw failed;
+    throw new Error('production_smoke_startup_timeout');
+  } finally {
+    child.off('error', onError);
+    child.off('exit', onExit);
+  }
+}
+
+const readinessSchema = z.object({
+  ready: z.boolean(),
+  tools: z.array(z.object({ name: z.string(), available: z.boolean() })),
+});
+
+const profileProvenanceSchema = z.object({
+  image: z.string().regex(/^[^@]+@sha256:[a-f0-9]{64}$/),
+  profileChecksum: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  redacted: z.literal(true),
+  matched: z.number().int().nonnegative(),
+  scanned: z.number().int().nonnegative(),
+});
 
 function waitForExit(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
@@ -99,16 +163,40 @@ productionSmoke('production scanner process with real Docker profiles', () => {
       });
 
       const origin = `https://127.0.0.1:${port}`;
-      const readiness = await readReadiness(origin, ca);
-      expect(readiness.status).toBe(200);
-      expect(readiness.body).toMatchObject({ ready: true });
+      const readinessResponse = await readReadinessWhenAvailable(child, origin, ca);
+      const readiness = readinessSchema.parse(readinessResponse.body);
+      expect(readiness.tools).toEqual(expect.arrayContaining([
+        { name: 'semgrep', available: true },
+        { name: 'gitleaks', available: true },
+        { name: 'trivy', available: true },
+      ]));
+      expect(readiness.ready).toBe(true);
+      expect(readinessResponse.status).toBe(200);
       const report = await createScannerClient({ origin, secret, ca, timeoutMs: 65_000 }).run(request);
       expect(report.subject.sourceDigest).toBe(request.source?.digest);
-      expect(report.internal?.coverage).toEqual(expect.arrayContaining([
-        expect.objectContaining({ capability: 'semgrep', state: 'inspected' }),
-        expect.objectContaining({ capability: 'gitleaks', state: 'inspected' }),
-        expect.objectContaining({ capability: 'trivy', state: 'inspected' }),
-      ]));
+      if (!report.internal) throw new Error('production_smoke_internal_analysis_missing');
+      const coverage = new Map(report.internal.coverage.map(item => [item.capability, item]));
+      expect(coverage.get('semgrep')?.state).toBe('inspected');
+      expect(coverage.get('gitleaks')?.state).toBe('inspected');
+      expect(coverage.get('trivy')).toMatchObject({
+        state: 'unsupported',
+        detail: 'The pinned Kubernetes profile recognized no supported configuration in this snapshot.',
+      });
+
+      const expectedProfiles = {
+        semgrep: { version: '1.182.0', image: 'semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af' },
+        gitleaks: { version: '8.28.0', image: 'zricethezav/gitleaks@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854' },
+        trivy: { version: '0.67.2', image: 'aquasec/trivy@sha256:e2b22eac59c02003d8749f5b8d9bd073b62e30fefaef5b7c8371204e0a4b0c08' },
+      } as const;
+      for (const [name, expected] of Object.entries(expectedProfiles)) {
+        const evidence = report.internal.evidence.find(item => item.locator === `scanner-profile:${name}`);
+        if (!evidence) throw new Error(`production_smoke_${name}_profile_evidence_missing`);
+        expect(evidence.tool).toEqual({ name, version: expected.version });
+        const rawProvenance: unknown = JSON.parse(evidence.excerpt);
+        const provenance = profileProvenanceSchema.parse(rawProvenance);
+        expect(provenance).toMatchObject({ image: expected.image, sourceDigest: request.source?.digest });
+        expect(evidence.checksum).toBe(createHash('sha256').update(evidence.excerpt).digest('hex'));
+      }
     } finally {
       if (child) {
         child.kill('SIGTERM');
