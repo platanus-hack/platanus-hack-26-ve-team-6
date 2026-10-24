@@ -102,7 +102,7 @@ export function LandingPage() {
       <section id="preguntas" className="g-faq g-container" aria-labelledby="faq-title"><h2 id="faq-title">Antes de dar el paso.</h2><div>{questions.map(([question, answer]) => <details key={question}><summary>{question}<span aria-hidden="true"><UiIcon name="plus" /></span></summary><p>{answer}</p></details>)}</div></section>
       <section className="g-closing g-card g-card-magenta" aria-labelledby="closing-title">
         <WordmarkRows rows={5} />
-        <h2 id="closing-title">La próxima decisión.<br /><span>Con la evidencia a mano.</span></h2>
+        <h2 id="closing-title">La próxima decisión.<br /><span>Con la evidencia a{'\u00a0'}mano.</span></h2>
         <a className="g-button g-button-ink" href="/dashboard" data-catch>Empezar mi revisión <UiIcon name="arrow" /></a>
       </section>
     </main>
