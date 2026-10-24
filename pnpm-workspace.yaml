@@ -10,3 +10,7 @@ allowBuilds:
 
 minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true
+
+# Pulumi's tracing SDKs require an API below 1.10; satisfy their shared peer range.
+overrides:
+  '@opentelemetry/api': ~1.9.0
