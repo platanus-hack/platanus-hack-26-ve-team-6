@@ -18,7 +18,7 @@
 .customer-app-shell *, .customer-auth-page * { box-sizing: border-box; }
 .customer-app-shell :where(button, input, select, textarea), .customer-auth-page :where(button, input) { font: inherit; }
 .customer-app-shell button, .customer-auth-page button { cursor: pointer; }
-.customer-app-shell ::selection, .customer-auth-page ::selection { background: var(--brand); color: #fffefa; }
+.customer-app-shell ::selection, .customer-auth-page ::selection { background: var(--band); color: var(--band-foreground); }
 .customer-app-shell :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible,
 .customer-auth-page :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--ring);
@@ -146,8 +146,8 @@
   background: var(--background);
   color: var(--foreground);
   padding: 6px 16px;
-  font-size: 14.5px !important;
-  font-weight: 600 !important;
+  font-size: 14.5px;
+  font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
   transition: translate 160ms var(--ease), scale 160ms var(--ease), box-shadow 160ms var(--ease), background-color 160ms var(--ease), border-color 160ms var(--ease);
@@ -155,12 +155,15 @@
 .customer-button:hover { border-color: var(--foreground); background: var(--muted); }
 .customer-button-primary { border-color: transparent; background: var(--primary); color: var(--primary-foreground); }
 .customer-button-primary:hover { border-color: transparent; background: var(--primary); translate: -2px -2px; box-shadow: 4px 4px 0 var(--brand); }
-.customer-button-secondary { background: var(--secondary); }
-.customer-button-small { min-height: 34px; padding: 5px 14px; font-size: 13.5px !important; }
+.customer-button-secondary { border-color: transparent; background: var(--secondary); color: var(--secondary-foreground); }
+.customer-button-secondary:hover { border-color: transparent; background: var(--secondary); translate: -2px -2px; box-shadow: 4px 4px 0 var(--brand); }
+.customer-button svg { width: 16px; height: 16px; flex: 0 0 16px; }
+.customer-button:disabled:hover { translate: none; box-shadow: none; }
+.customer-button-small { min-height: 34px; padding: 5px 14px; font-size: 13.5px; }
 .customer-button-full { width: 100%; }
 .customer-button:active:not(:disabled), .customer-icon-button:active:not(:disabled) { scale: .97; }
 .customer-button:disabled, .customer-icon-button:disabled { cursor: not-allowed; opacity: .5; }
-@media (min-width: 768px) { .customer-button-primary:not(.customer-button-small) { min-height: 48px; padding: 8px 22px; font-size: 16px !important; } }
+@media (min-width: 768px) { .customer-button-primary:not(.customer-button-small) { min-height: 48px; padding: 8px 22px; font-size: 16px; } }
 .customer-link-button { display: inline-flex; min-height: 0; align-items: center; gap: 6px; border: 0; border-radius: 2px; background: transparent; color: var(--foreground); padding: 2px 0; font-size: 14.5px; font-weight: 600; text-align: left; text-decoration: underline 2px; text-underline-offset: .28em; transition: color 160ms var(--ease), text-decoration-color 160ms var(--ease); }
 .customer-link-button svg { width: 16px; height: 16px; flex: 0 0 16px; }
 .customer-link-button:hover { color: var(--brand-ink); text-decoration-color: var(--brand); }
@@ -178,9 +181,9 @@
 .customer-context-lists ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .customer-context-lists li { display: grid; gap: 2px; min-width: 0; color: var(--muted-foreground); font-size: 12px; }
 .customer-context-lists li strong { overflow-wrap: anywhere; color: var(--foreground); font-size: 13px; font-weight: 600; }
-.customer-context-badge { width: fit-content; margin-top: 4px; border-radius: 4px; background: var(--muted); color: var(--muted-foreground); padding: 2px 7px; font-size: 11px; font-weight: 650; }
-.customer-context-badge.is-matches { background: var(--muted); color: var(--muted-foreground); }
-.customer-context-badge.is-differs { background: var(--muted); color: var(--destructive); }
+.customer-context-badge { width: fit-content; margin-top: 4px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted-foreground); padding: 2px 7px; font-family: var(--mono); font-size: 11.5px; text-transform: uppercase; }
+.customer-context-badge.is-matches { color: var(--foreground); }
+.customer-context-badge.is-differs { border-color: var(--destructive); color: var(--destructive); }
 .customer-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .customer-card-heading h2 { margin: 0; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(18px, 1.9vw, 24px); font-weight: 700; letter-spacing: -.005em; line-height: 1.1; text-transform: uppercase; }
 .customer-card-heading .customer-eyebrow { margin-bottom: 4px; }
@@ -262,18 +265,18 @@
 .customer-empty-inline { color: var(--muted-foreground); padding: 20px 0; font-size: 14px; line-height: 1.6; }
 .customer-form-error + .customer-empty-inline { padding-top: 10px; }
 
-.customer-empty-state { display: grid; max-width: 600px; justify-items: center; margin: 50px auto; border: 1px solid var(--customer-border); border-radius: 10px; background: var(--background); padding: 35px; text-align: center; }
-.customer-empty-mark { display: grid; width: 52px; height: 52px; place-items: center; margin-bottom: 17px; border: 1px solid var(--border); border-radius: 15px; background: var(--muted); color: var(--muted-foreground); font-size: 28px; }
-.customer-empty-state h1 { margin: 0; color: var(--foreground); font-size: 23px; letter-spacing: -.5px; }
-.customer-empty-state > p { max-width: 440px; color: var(--muted-foreground); font-size: 12px; line-height: 1.8; }
+.customer-empty-state { display: grid; max-width: 600px; justify-items: start; margin: 48px auto; border-top: 2px solid var(--foreground); padding-top: 24px; }
+.customer-empty-mark { display: grid; width: 34px; height: 34px; place-items: center; margin-bottom: 16px; border: 1px solid var(--foreground); border-radius: 6px; color: var(--foreground); }
+.customer-empty-state h1 { margin: 0; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(22px, 2.4vw, 30px); font-weight: 700; letter-spacing: -.01em; line-height: 1.1; text-transform: uppercase; }
+.customer-empty-state > p { max-width: 62ch; color: var(--muted-foreground); font-size: 15px; line-height: 1.6; }
 .customer-empty-state .customer-inline-create { width: min(360px, 100%); margin-top: 12px; text-align: left; }
-.customer-success, .customer-error { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin: 0 0 15px; border: 1px solid var(--border); border-radius: 7px; background: var(--muted); color: var(--muted-foreground); padding: 11px 13px; font-size: 11px; }
-.customer-success .customer-icon-button { margin: -4px -6px 0 0; }
-.customer-error { display: block; border-color: var(--border); background: var(--muted); color: var(--destructive); }
-.customer-error strong { font-size: 12px; }
-.customer-error p { margin: 4px 0 5px; font-size: 11px; line-height: 1.7; }
-.customer-loading { display: flex; align-items: center; gap: 10px; min-height: 100px; color: var(--muted-foreground); font-size: 12px; }
-.customer-spinner { display: inline-block; width: 15px; height: 15px; flex: 0 0 15px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: customer-spin .8s linear infinite; }
+.customer-success, .customer-error { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin: 0 0 24px; border-left: 2px solid var(--foreground); padding: 4px 0 4px 14px; color: var(--foreground); font-size: 14.5px; line-height: 1.6; }
+.customer-success .customer-icon-button { margin: -6px 0 -6px 0; }
+.customer-error { display: block; border-left-color: var(--destructive); color: var(--destructive); }
+.customer-error strong { font-size: 15px; }
+.customer-error p { margin: 4px 0 8px; font-size: 14px; line-height: 1.6; }
+.customer-loading { display: flex; align-items: center; gap: 12px; min-height: 100px; color: var(--muted-foreground); font-size: 14.5px; }
+.customer-spinner { display: inline-block; width: 14px; height: 14px; flex: 0 0 14px; border: 2px solid currentColor; border-right-color: transparent; border-bottom-color: transparent; border-radius: 2px; animation: customer-spin .8s linear infinite; }
 @keyframes customer-spin { to { transform: rotate(360deg); } }
 .customer-footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 48px; border-top: 1px solid var(--border); padding: 16px 0 24px; color: var(--muted-foreground); font-family: var(--mono); font-size: 12px; }
 
