@@ -74,15 +74,15 @@ export function Convergence() {
     const sink = 1 - seg(.33, .41);
     set('slab', `translate3d(${(slab.x * gather).toFixed(1)}px, ${(slab.y * gather).toFixed(1)}px, 0) scale(${(1 - .85 * gather).toFixed(3)})`, sink);
     set('globe', `translate3d(${(globe.x * gather).toFixed(1)}px, ${(globe.y * gather).toFixed(1)}px, 0) scale(${(1 - .85 * gather).toFixed(3)})`, sink);
-    const emit = ease(seg(.5, .76));
+    const emit = ease(seg(.56, .8));
     set('lens', `translate3d(${(-shift * emit).toFixed(1)}px, 0, 0) scale(${(1 + .08 * seg(.2, .4) - .22 * emit).toFixed(3)})`, 1);
-    set('report', `translate3d(${(report.x * (1 - emit)).toFixed(1)}px, ${(report.y * (1 - emit)).toFixed(1)}px, 0) scale(${(.2 + .8 * emit).toFixed(3)})`, seg(.5, .6));
-    set('beam', `scaleX(${ease(seg(.58, .8)).toFixed(3)})`, seg(.56, .62));
-    const two = seg(.24, .34) * (1 - seg(.47, .55));
-    set('two', `translate3d(0, ${((1 - seg(.24, .34)) * 24).toFixed(1)}px, 0)`, two);
-    const one = seg(.68, .78);
+    set('report', `translate3d(${(report.x * (1 - emit)).toFixed(1)}px, ${(report.y * (1 - emit)).toFixed(1)}px, 0) scale(${(.2 + .8 * emit).toFixed(3)})`, seg(.56, .64));
+    set('beam', `scaleX(${ease(seg(.62, .82)).toFixed(3)})`, seg(.6, .66));
+    const two = seg(.22, .3) * (1 - seg(.52, .58));
+    set('two', `translate3d(0, ${((1 - seg(.22, .3)) * 24).toFixed(1)}px, 0)`, two);
+    const one = seg(.72, .8);
     set('one', `translate3d(0, ${((1 - one) * 24).toFixed(1)}px, 0)`, one);
-    boost.set(seg(.18, .4) * (1 - seg(.44, .56)));
+    boost.set(seg(.18, .4) * (1 - seg(.46, .58)));
     spin.set(p * 260);
   }, [boost, live, progress, spin]);
 
