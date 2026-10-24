@@ -52,6 +52,7 @@ describe('gateway model connection probe (injected provider and database fixture
     const database: Database = {
       role: 'gotchu_coordinator', tenant: async <T>(_id: string, work: (tx: Transaction) => Promise<T>) => work(transaction),
       integration: async <T>(_id: string, work: (tx: Transaction) => Promise<T>) => work(transaction),
+      system: async <T>(work: (tx: Transaction) => Promise<T>) => work(transaction),
       checkHealth: async () => undefined, close: async () => undefined,
     };
     const modelPort: ModelPort = { complete: async request => {

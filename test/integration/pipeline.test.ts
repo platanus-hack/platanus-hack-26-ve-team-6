@@ -312,7 +312,7 @@ live('signed intake through durable delivery and isolated HTTP investigation', (
 
   it('holds unknown provider reservations for reconciliation instead of redelivering model work', async () => {
     const { claim, run } = await newRun();
-    const configuration = { provider: 'openai_compatible' as const, endpoint: 'http://localhost:11434/v1', modelId: 'fixture-model',
+    const configuration = { provider: 'openai_compatible' as const, providerPresetId: 'custom_openai_compatible' as const, endpoint: 'http://localhost:11434/v1', modelId: 'fixture-model',
       secretRef: null, consentToExternalProcessing: true, dataScopes: ['runtime_summaries' as const],
       inputPriceMicroUsdPerMillionTokens: 0, outputPriceMicroUsdPerMillionTokens: 0 };
     await f.admin.query('UPDATE gotchu.organizations SET model_opt_in=true,model_budget_micros=100,model_token_budget=1000 WHERE id=$1', [f.a.organizationId]);
