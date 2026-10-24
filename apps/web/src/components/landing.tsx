@@ -1,5 +1,6 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { Brand, UiIcon } from './ui';
+import { Hero } from './hero';
 import { Convergence } from './convergence';
 import { LensEye } from './lens-eye';
 import { CodeSlab, OriginGlobe } from './spatial-objects';
@@ -50,6 +51,7 @@ export function LandingPage() {
       </div>
     </header>
     <main id="contenido" tabIndex={-1}>
+      <Hero />
       <Convergence />
       <section ref={container} className="g-journey g-container" aria-label="Cómo entra cada perspectiva">
         <div className="g-journey-visual"><ProductFlow step={active} /><div className="g-chapter-marker" aria-hidden="true">{chapters.map((chapter, index) => <span key={chapter.id} className={active === index ? 'is-current' : active > index ? 'is-done' : ''}><span />{chapter.detail}</span>)}</div></div>

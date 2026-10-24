@@ -190,3 +190,4 @@
   .g-faq details::details-content { transition: none; }
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .g-header { background: var(--gc-canvas); backdrop-filter: none; border-bottom-color: var(--gc-line); } }
+.g-button-ink { background: var(--gc-canvas); border-color: var(--gc-canvas); box-shadow: none; }
