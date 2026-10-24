@@ -1,7 +1,7 @@
 import { encode } from '@auth/core/jwt';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { authSettings, createAuthService, type AuthSettings } from '../src/server/auth.js';
+import { authSettings, createAuthConfig, createAuthService, type AuthSettings } from '../src/server/auth.js';
 
 const settings: AuthSettings = {
   origin: 'http://localhost:3000',
@@ -68,6 +68,24 @@ describe('Auth.js Request/Response integration', () => {
     expect(JSON.stringify(payload)).not.toContain('github');
     expect(JSON.stringify(payload)).not.toContain('fixture-secret');
     expect(() => authSettings({ AUTH_SECRET: settings.secret, AUTH_OIDC_ISSUER: 'http://identity.example.test', AUTH_OIDC_CLIENT_ID: 'id', AUTH_OIDC_CLIENT_SECRET: 'secret' })).toThrow('HTTPS');
+  });
+
+  it('maps maximum-length OIDC subjects into distinct bounded session principals', async () => {
+    const configured: AuthSettings = { origin: settings.origin, secret: settings.secret, oidc: { issuer: 'https://identity.example.test', clientId: 'fixture', clientSecret: 'fixture-secret', name: 'Fixture' } };
+    const config = createAuthConfig(configured);
+    const jwt = config.callbacks?.jwt;
+    if (!jwt) throw new Error('JWT callback missing');
+    const providers = z.record(z.string(), z.object({ id: z.string() }).passthrough()).parse(await (await createAuthService(configured).handle(new Request(`${settings.origin}/api/auth/providers`))).json());
+    const provider = Object.values(providers)[0];
+    if (!provider) throw new Error('OIDC fixture provider missing');
+    const mint = (subject: string) => jwt({ token: {}, user: { id: subject }, account: { provider: provider.id, providerAccountId: subject, type: 'oidc' }, trigger: 'signIn' });
+    const first = await mint('a'.repeat(255));
+    const second = await mint('a'.repeat(254) + 'b');
+    expect(first?.sub?.length).toBe(94);
+    expect(first?.sub).not.toBe(second?.sub);
+    const token = await encode({ secret: settings.secret, salt: cookieName, token: first ?? {} });
+    const identity = await createAuthService(configured).identity(new Request(`${settings.origin}/api/v1/applications`, { headers: { cookie: `${cookieName}=${token}` } }));
+    expect(identity?.userId).toBe(first?.sub);
   });
 
   it('does not preserve sessions from an identity provider that was removed', async () => {

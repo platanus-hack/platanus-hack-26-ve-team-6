@@ -68,7 +68,13 @@ export function createAuthConfig(settings: AuthSettings): AuthConfig {
     providers,
     callbacks: {
       jwt: async ({ token, account }) => {
-        if (account) token.sub = `${account.provider}:${account.providerAccountId}`;
+        if (account) {
+          // OIDC subjects can be 255 characters. Keep the internal principal bounded
+          // without truncating or widening every persisted membership key.
+          const subject = account.provider.startsWith('oidc-')
+            ? createHash('sha256').update(account.providerAccountId).digest('hex') : account.providerAccountId;
+          token.sub = `${account.provider}:${subject}`;
+        }
         if (!providerIds.some((id) => token.sub?.startsWith(`${id}:`))) return {};
         // OAuth access and refresh tokens are never copied into the session JWT.
         const claims: JWT = {};
