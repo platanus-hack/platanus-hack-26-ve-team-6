@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { MenuIcon } from 'lucide-react';
 import { GotchuMark } from '../components/gotchu-mark';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
-import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeSwitch } from './theme';
 
 const LINKS = [
@@ -42,7 +43,7 @@ export function Header() {
       </nav>
       <div className="gl-header-tools">
         <ThemeSwitch className="max-[519px]:hidden" />
-        <Button size="sm" className="max-[899px]:hidden" nativeButton={false} render={<a href="/dashboard" />}>Abrir Gotchu</Button>
+        <a href="/dashboard" className={cn(buttonVariants({ size: 'sm' }), 'max-[899px]:hidden')}>Abrir Gotchu</a>
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger render={<Button variant="outline" size="sm" className="min-[900px]:hidden" />}>
             <MenuIcon aria-hidden="true" />Menú
@@ -50,12 +51,12 @@ export function Header() {
           <SheetContent side="top" className="gl gl-sheet">
             <SheetTitle className="gl-sr">Menú</SheetTitle>
             <nav aria-label="Navegación principal" className="gl-sheet-nav">
-              {LINKS.map(link => <SheetClose key={link.href} nativeButton={false} render={<a href={link.href} />}>{link.label}</SheetClose>)}
+              {LINKS.map(link => <a key={link.href} href={link.href} onClick={() => setOpen(false)}>{link.label}</a>)}
             </nav>
             <Separator />
             <div className="gl-sheet-foot">
               <ThemeSwitch />
-              <Button nativeButton={false} render={<a href="/dashboard" />}>Abrir Gotchu</Button>
+              <a href="/dashboard" className={buttonVariants()}>Abrir Gotchu</a>
             </div>
           </SheetContent>
         </Sheet>

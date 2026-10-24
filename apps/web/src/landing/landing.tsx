@@ -6,7 +6,8 @@ import './landing.css';
 import { GotchuMark } from '../components/gotchu-mark';
 import { DotPlate } from '../components/dot-field/dot-plate';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Button } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Toggle } from '@/components/ui/toggle';
 import { FolderPlate, VennPlate } from './ascii-plates';
 import { CODE_LOOKS, DOMAIN_FACTS, DOMAIN_RECORD, GLOSSARY, QUESTIONS, REPORT_JSON, SCOPES, TEAM } from './copy';
@@ -26,15 +27,17 @@ function useMotionAllowed() {
   return allowed;
 }
 
+// Navigation stays a real link styled as a shadcn button; Base UI's Button would announce it as a button.
+
 /** Primary path into the product. `data-catch` pulls the dot fields toward their finding while hovered. */
 function Action({ href, children, size = 'default' }: { href: string; children: ReactNode; size?: 'default' | 'lg' }) {
-  return <Button size={size} data-catch="" nativeButton={false} render={<a href={href} />}>
+  return <a href={href} data-slot="button" data-catch="" className={buttonVariants({ size })}>
     {children}<ArrowRightIcon aria-hidden="true" />
-  </Button>;
+  </a>;
 }
 
 function TextLink({ href, children, className }: { href: string; children: ReactNode; className?: string }) {
-  return <Button variant="link" className={className} nativeButton={false} render={<a href={href} />}>{children}<ArrowRightIcon aria-hidden="true" /></Button>;
+  return <a href={href} data-slot="button" className={cn(buttonVariants({ variant: 'link' }), className)}>{children}<ArrowRightIcon aria-hidden="true" /></a>;
 }
 
 /** Prose with its margin notes beside it (inline below 1100px). */
