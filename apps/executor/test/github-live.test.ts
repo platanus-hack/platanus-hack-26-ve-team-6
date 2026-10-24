@@ -371,6 +371,8 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
     expect(action.changes).toEqual([{name:vulnerable.packageName,from:preparation.fromVersion,to:preparation.toVersion}]);
     const artifact=await executor.executionArtifacts.readForExecutor({organizationId:f.a.organizationId,applicationId:f.a.applicationId,candidateSourceId:preparation.candidateSourceId});
     expect(artifact.files.map(file=>file.path).sort()).toEqual(['package-lock.json','package.json']);
+    const providerPreflight=await actionProvider.reconcile({action,actionHash:proposed.actionHash,executionId:randomUUID(),artifact});
+    expect(providerPreflight,JSON.stringify(providerPreflight)).toMatchObject({status:'definitely_not_applied'});
     const eligibility=await api.actions.getEligibility({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposed.proposalId});
     expect(eligibility,JSON.stringify(eligibility)).toMatchObject({status:'eligible'});
     const executorEligibility=await executor.actions.getEligibility({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposed.proposalId});
