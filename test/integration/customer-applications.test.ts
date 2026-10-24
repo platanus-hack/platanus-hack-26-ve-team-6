@@ -13,9 +13,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createCustomerAssessmentRunner, createDockerScanners, createOsvAdapter, profiles, type ScannerAdapter } from '@gotchu/customer-assessment';
 import { createScannerServer, signScannerBody } from '@gotchu/scanner';
+import { httpRequestEvent, signEventBatch } from '@gotchu/sdk';
+import { prepareCorrectionResponseSchema, reportRecommendationsResponseSchema } from '@gotchu/scenarios/contracts';
 import {
   customerApplicationSchema, customerAssessmentReportSchema, customerEnrollmentSchema,
   customerReportSummarySchema, customerSourceSummarySchema, customerTargetSchema, customerWorkspaceSchema,
+  telemetryConnectionSchema, operationAlertSchema, operationCoverageSchema, monitorConfigSchema,
   type CustomerAssessmentReport, type CustomerSourceSnapshot,
 } from '../../packages/contracts/src/index.js';
 import { fixture, liveUrl, present } from '../../packages/database/test/support.js';
@@ -206,11 +209,13 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
       NODE_ENV: 'development', HOST: '127.0.0.1', NITRO_HOST: '127.0.0.1', PUBLIC_APP_URL: origin,
       GOTCHU_API_DATABASE_URL: f.runtimeConnectionString('gotchu_api'), GOTCHU_INGEST_DATABASE_URL: f.runtimeConnectionString('gotchu_ingest'),
       AUTH_SECRET: randomBytes(48).toString('base64url'), GOTCHU_LOCAL_AUTH_ENABLED: 'true', GOTCHU_ALLOW_LOCAL_REGISTRATION: 'true', GOTCHU_DNS_SERVERS_JSON: JSON.stringify([dns.nameserver]),
+      GOTCHU_EVENT_CREDENTIAL_DIRECTORY: join(directory, 'event-credentials'),
     });
     const worker = childProcess('coordinator', 'apps/coordinator/dist/main.js', await unusedPort(), {
       NODE_ENV: 'test', GOTCHU_CUSTOMER_DISCOVERY: 'true', GOTCHU_COORDINATOR_HOST: '127.0.0.1',
       GOTCHU_COORDINATOR_DATABASE_URL: f.runtimeConnectionString('gotchu_coordinator'), GOTCHU_REDIS_URL: present(process.env.GOTCHU_TEST_REDIS_URL),
       GOTCHU_SCANNER_ORIGIN: scannerOrigin, GOTCHU_SCANNER_SECRET_FILE: secretFile,
+      GOTCHU_MONITORING_ENABLED: 'true',
       // No GOTCHU_ORGANIZATION_IDS: all workspaces below are created after coordinator startup.
     });
     coordinator = worker.child;
@@ -305,6 +310,26 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     for (const capability of ['semgrep', 'gitleaks', 'trivy']) expect(report.internal?.coverage).toContainEqual(expect.objectContaining({ capability, state: 'unavailable' }));
     const summaries = await json(await owner.api(`${first.path}/reports`), 200, z.array(customerReportSummarySchema));
     expect(summaries.map(item => item.id)).toContain(report.id);
+    const settings = { enabled: true, intervalSeconds: 21600, sourceSnapshotId: source.id, targetId: null, repositoryKey: null, providers: [] };
+    await json(await owner.api(`${first.path}/monitoring`, 'PUT', settings), 200, monitorConfigSchema);
+    await eventually(async () => {
+      const coverage = await json(await owner.api(`${first.path}/monitoring`), 200, operationCoverageSchema);
+      return coverage.lastRun?.status === 'degraded' && coverage.lastRun.jobId !== queued.jobId && coverage.lastRun.finishedAt !== null;
+    }, 'actual main-process scheduled assessment');
+    await json(await owner.api(`${first.path}/monitoring`, 'PUT', { ...settings, enabled: false }), 200, monitorConfigSchema);
+    const telemetry = await json(await owner.api(`${first.path}/telemetry`, 'POST', {}), 201, telemetryConnectionSchema);
+    const signed = signEventBatch({ integrationId: telemetry.integration.id, secret: Buffer.from(telemetry.signingKey, 'base64'), batch: { applicationId: first.app.applicationId,
+      events: Array.from({ length: 30 }, () => httpRequestEvent({ route: '/api/orders/:id', statusCode: 503, durationMs: 1800 })),
+    } });
+    expect((await fetch(`${origin}/api/v1/events`, { method: 'POST', headers: signed.headers, body: signed.body })).status).toBe(202);
+    let pressure: z.infer<typeof operationAlertSchema> | undefined;
+    await eventually(async () => {
+      const alerts = await json(await owner.api(`${first.path}/alerts`), 200, z.array(operationAlertSchema));
+      pressure = alerts.find(alert => alert.observation.kind === 'traffic_pressure'); return Boolean(pressure);
+    }, 'signed events to actual dashboard alerts');
+    const acknowledged = await json(await owner.api(`${first.path}/alerts/${present(pressure).id}`, 'PATCH', { state: 'acknowledged' }), 200, operationAlertSchema);
+    expect(acknowledged.state).toBe('acknowledged');
+    expect((await owner.api(`${first.path}/telemetry/${telemetry.integration.id}`, 'DELETE')).status).toBe(204);
     for (const path of [`${first.base}/applications`, `${first.path}/sources`, `${first.path}/targets`, `${first.path}/reports/${report.id}`, `${first.base}/jobs/${queued.jobId}`]) await rejected(await stranger.api(path), 403, 'forbidden');
     await rejected(await stranger.api(`${first.path}/sources/${source.id}`, 'DELETE'), 403, 'forbidden');
     await rejected(await cookieClient(origin).api(`${first.path}/sources/${source.id}`, 'DELETE'), 401, 'unauthenticated');
@@ -402,6 +427,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     for (const revision of ['before', 'after'] as const) {
       corrected = revision === 'after';
       const snapshot: CustomerSourceSnapshot = { revision, files: [
+        { path: 'src/tls.ts', content: `export const options = { rejectUnauthorized: ${corrected ? 'true' : 'false'} };\n` },
         { path: 'src/customer.ts', content: corrected ? 'export function evaluate(input: string) { return JSON.parse(input); }\n' : `export function evaluate(input: string) { return eval(input); }\nconst password = "${fakeSecret}";\nconst fakeKey = "-----BEGIN PRIVATE KEY-----fixture-not-a-key";\n` },
         { path: 'client.js', content: 'export const message = "uploaded customer application";\n' },
         { path: 'deployment.yaml', content: corrected
@@ -426,6 +452,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
           expect(report.internal.coverage).toContainEqual(expect.objectContaining({ capability: 'trivy', state: 'unavailable', detail: expect.stringContaining('2 candidate YAML/JSON configuration files') }));
           const rules = report.internal.findings.map(finding => finding.ruleId);
           expect(rules.some(rule => rule.endsWith('javascript.eval'))).toBe(!corrected);
+          expect(rules.some(rule => rule.endsWith('gotchu.javascript.tls-disabled'))).toBe(!corrected);
           expect(rules.includes('gotchu-assigned-secret')).toBe(!corrected); expect(rules.includes('gotchu-private-key')).toBe(!corrected);
           expect(rules.includes('osv.GHSA-35jh-r3h4-6jhm')).toBe(!corrected);
           if (!corrected) expect(rules.some(rule => rule.startsWith('AVD-KSV'))).toBe(true);
@@ -464,6 +491,21 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     const afterK8s = after.internal?.findings.filter(finding => finding.ruleId.startsWith('AVD-KSV')).length ?? 0;
     expect(afterK8s).toBeLessThan(beforeK8s); // Corrected fixture removes known risks without claiming universal safety.
     expect(await json(await owner.api(`${app.path}/reports`), 200, z.array(customerReportSummarySchema))).toHaveLength(6);
+    const recommendations = await json(await owner.api(`${app.path}/reports/${before.id}/recommendations`), 200, reportRecommendationsResponseSchema);
+    const tlsRecipe = present(recommendations.recommendations.find(recipe => recipe.recipeId === 'tls-certificate-verification'));
+    expect(tlsRecipe.availability).toBe('candidate_patch');
+    const selection = { recipeId: tlsRecipe.recipeId, findingId: present(tlsRecipe.evidenceFindingIds[0]), expectedSourceDigest: present(before.subject.sourceDigest) };
+    await rejected(await stranger.api(`${app.path}/reports/${before.id}/corrections`, 'POST', selection), 403, 'forbidden');
+    await rejected(await owner.api(`${app.path}/reports/${before.id}/corrections`, 'POST', { ...selection, expectedSourceDigest: 'f'.repeat(64) }), 409, 'expected_source_digest_mismatch');
+    const candidate = await json(await owner.api(`${app.path}/reports/${before.id}/corrections`, 'POST', selection), 201, prepareCorrectionResponseSchema);
+    expect(await json(await owner.api(`${app.path}/reports/${before.id}/corrections`, 'POST', selection), 201, prepareCorrectionResponseSchema)).toEqual(candidate);
+    expect(candidate.changes).toEqual([{ path: 'src/tls.ts', description: expect.any(String) }]);
+    const rescanned = present(await finished(app.base, app.path, candidate.jobId));
+    expect(rescanned.internal?.coverage).toContainEqual(expect.objectContaining({ capability: 'semgrep', state: 'inspected' }));
+    expect(rescanned.internal?.findings.some(finding => finding.ruleId.endsWith('gotchu.javascript.tls-disabled'))).toBe(false);
+    expect(rescanned.internal?.findings.some(finding => finding.ruleId.endsWith('gotchu.javascript.eval'))).toBe(true);
+    const original = await f.admin.query<{ body: CustomerSourceSnapshot }>('SELECT body FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND id=$3', [app.workspace.id, app.app.applicationId, before.subject.sourceSnapshotId]);
+    expect(original.rows[0]?.body.files.find(file => file.path === 'src/tls.ts')?.content).toContain('rejectUnauthorized: false');
     const writes = await f.admin.query<{ count: number }>('SELECT ((SELECT count(*) FROM gotchu.proposals WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.approvals WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.executions WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.agent_runs WHERE organization_id=$1))::int AS count', [app.workspace.id]);
     expect(writes.rows[0]?.count).toBe(0);
   }, 360_000);
