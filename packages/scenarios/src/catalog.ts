@@ -52,14 +52,14 @@ const recipeCatalog = [
   {
     id: 'credential-exposure', version: '1.0.0', category: 'secret_exposure', title: 'Revoke and rotate exposed credentials',
     riskSummary: 'A secret-like value may be exposed; validity and use are unknown. Removing text from the current snapshot does not revoke it.',
-    expectedRuleIds: ['gotchu-private-key', 'gotchu-aws-access-key', 'gotchu-assigned-secret'], detectorAvailability: 'available', detectorCapability: 'gitleaks', scope: 'source', owaspCategories: ['A02:2021'],
+    expectedRuleIds: ['aws-access-token', 'generic-api-key', 'private-key'], detectorAvailability: 'available', detectorCapability: 'gitleaks', scope: 'source', owaspCategories: ['A02:2021'],
     options: [{ id: 'rotate-at-issuer', title: 'Rotate at the issuing provider', detail: 'Use the credential issuer to revoke or rotate the value, then separately review source history and the replacement’s storage.' }],
     requirements: ['A credential owner must identify the issuing provider privately.', 'Confirm revocation or rotation through an authorized provider integration.', 'Do not infer invalidation from source cleanup.'],
   },
   {
     id: 'dependency-advisory', version: '1.0.0', category: 'dependency_advisory', title: 'Resolve the exact dependency advisory',
     riskSummary: 'An exact lockfile version matched an advisory; installation, deployment, reachability, fix availability, and exploitability remain unknown.',
-    expectedRuleIds: ['osv.*'], detectorAvailability: 'available', detectorCapability: 'npm_advisories', scope: 'source', owaspCategories: ['A06:2021'],
+    expectedRuleIds: ['osv.*'], detectorAvailability: 'available', detectorCapability: 'dependency_advisories', scope: 'source', owaspCategories: ['A06:2021'],
     options: [{ id: 'verify-fix', title: 'Verify a supported fixed release', detail: 'Check the authoritative advisory and package release metadata, then update the manifest and lockfile through the package manager and validate the application.' }],
     requirements: ['Verify the advisory and fixed version against a trusted current source.', 'Resolve and review the full dependency path.', 'Run the project’s configured validation before rescanning.'],
   },

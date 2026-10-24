@@ -200,7 +200,7 @@ live('private corrections on real PostgreSQL with synthetic scanner evidence', (
   });
 
   it('blocks integration-required and mismatched findings without writing', async () => {
-    const c = await customer('gotchu-assigned-secret');
+    const c = await customer('generic-api-key');
     const before = await counts(c.scope.organizationId);
     await expect(api.corrections.prepare(c.identity, { ...c.selection, recipeId: 'credential-exposure' })).rejects.toMatchObject({ code: 'recipe_requires_integration', status: 409 });
     await expect(api.corrections.prepare(c.identity, { ...c.selection, findingId: randomUUID() })).rejects.toMatchObject({ code: 'finding_not_found', status: 409 });

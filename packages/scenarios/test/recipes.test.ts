@@ -247,7 +247,7 @@ describe('versioned evidence-selected recipes', () => {
   it('keeps secret rotation and dependency fixes behind integrations', () => {
     const input = runInput([{ path: 'package.json', content: '{"dependencies":{"lodash":"4.17.20"}}\n' }]);
     const advisory = reportFor(input, 'osv.GHSA-example', 'package-lock.json:1');
-    const credential = reportFor(input, 'gotchu-assigned-secret', 'src/config.ts:1');
+    const credential = reportFor(input, 'generic-api-key', 'src/config.ts:1');
     expect(buildRecipeRecommendations(input, advisory).recommendations[0]?.availability).toBe('integration_required');
     expect(buildRecipeRecommendations(input, credential).recommendations[0]?.availability).toBe('integration_required');
     expect(prepareCandidatePatch(input, credential, selection(input, 'credential-exposure'))).toMatchObject({ status: 'blocked', reason: 'recipe_requires_integration' });

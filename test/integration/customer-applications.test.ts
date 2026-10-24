@@ -435,13 +435,15 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     expect(await realEngine.readiness()).toEqual({ ready: true, tools: expect.arrayContaining(['semgrep', 'gitleaks', 'trivy', 'npm_advisories'].map(name => ({ name, available: true }))) });
     const app = await application('Real customer scans'); const verified = await target(app.path);
     const reports: CustomerAssessmentReport[] = [];
-    const fakeSecret = 'FAKE_ONLY_INTEGRATION_1234567890';
+    const fakeSecret = 'b47c9f28e3d16a0c5b79f2e4d8a63c10';
+    const fakePrivateKey = `-----BEGIN PRIVATE KEY-----\n${'test-only-placeholder-'.repeat(4)}\n-----END PRIVATE KEY-----`;
+    const fakePrivateKeyComments = fakePrivateKey.split('\n').map(line => `// ${line}`).join('\n');
     let baselineSourceId: string | undefined;
     for (const revision of ['before', 'after'] as const) {
       corrected = revision === 'after';
       const snapshot: CustomerSourceSnapshot = { revision, files: [
         { path: 'src/tls.ts', content: `export const options = { rejectUnauthorized: ${corrected ? 'true' : 'false'} };\n` },
-        { path: 'src/customer.ts', content: corrected ? 'export function evaluate(input: string) { return JSON.parse(input); }\n' : `export function evaluate(input: string) { return eval(input); }\nconst password = "${fakeSecret}";\nconst fakeKey = "-----BEGIN PRIVATE KEY-----fixture-not-a-key";\n` },
+        { path: 'src/customer.ts', content: corrected ? 'export function evaluate(input: string) { return JSON.parse(input); }\n' : `export function evaluate(input: string) { return eval(input); }\nconst password = "${fakeSecret}";\n${fakePrivateKeyComments}\n` },
         { path: 'client.js', content: 'export const message = "uploaded customer application";\n' },
         { path: 'deployment.yaml', content: corrected
           ? 'apiVersion: v1\nkind: Pod\nmetadata:\n  name: customer\n  namespace: customer\nspec:\n  automountServiceAccountToken: false\n  securityContext:\n    runAsNonRoot: true\n    runAsUser: 10001\n    runAsGroup: 10001\n    seccompProfile:\n      type: RuntimeDefault\n  containers:\n    - name: app\n      image: nginx:1.27\n      securityContext:\n        privileged: false\n        allowPrivilegeEscalation: false\n        readOnlyRootFilesystem: true\n        capabilities:\n          drop: [ALL]\n      resources:\n        limits:\n          cpu: "100m"\n          memory: "64Mi"\n        requests:\n          cpu: "100m"\n          memory: "64Mi"\n'
@@ -460,13 +462,13 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
         expect(report).toMatchObject({ organizationId: app.workspace.id, applicationId: app.app.applicationId, mode, responseMode: 'observation', actionsPerformed: [], subject: { sourceSnapshotId: body.sourceSnapshotId, sourceDigest: mode === 'external' ? null : source.digest, targetId: body.targetId, targetVersion: mode === 'internal' ? null : verified.version, origin: mode === 'internal' ? null : 'https://customer.org' } });
         expect(report.internal === null).toBe(mode === 'external'); expect(report.external === null).toBe(mode === 'internal');
         if (report.internal) {
-          for (const capability of ['semgrep', 'gitleaks', 'npm_advisories']) expect(report.internal.coverage).toContainEqual(expect.objectContaining({ capability, state: 'inspected' }));
+          for (const capability of ['semgrep', 'gitleaks', 'dependency_advisories']) expect(report.internal.coverage).toContainEqual(expect.objectContaining({ capability, state: 'inspected' }));
           // npm JSON files are not Kubernetes candidates; the manifest remains fully inspected.
           expect(report.internal.coverage).toContainEqual(expect.objectContaining({ capability: 'trivy', state: 'inspected' }));
           const rules = report.internal.findings.map(finding => finding.ruleId);
           expect(rules.some(rule => rule.endsWith('javascript.eval'))).toBe(!corrected);
           expect(rules.some(rule => rule.endsWith('gotchu.javascript.tls-disabled'))).toBe(!corrected);
-          expect(rules.includes('gotchu-assigned-secret')).toBe(!corrected); expect(rules.includes('gotchu-private-key')).toBe(!corrected);
+          expect(rules.includes('generic-api-key')).toBe(!corrected); expect(rules.includes('private-key')).toBe(!corrected);
           expect(rules.includes('osv.GHSA-35jh-r3h4-6jhm')).toBe(!corrected);
           if (!corrected) expect(rules.some(rule => rule.startsWith('AVD-KSV'))).toBe(true);
           for (const name of ['semgrep', 'gitleaks', 'trivy'] as const) {
@@ -475,7 +477,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
             expect(JSON.parse(profile.excerpt)).toMatchObject({ image: profiles[name].image, sourceDigest: source.digest, redacted: true });
           }
           expect(JSON.stringify(report)).not.toContain(fakeSecret);
-          expect(JSON.stringify(report)).not.toContain('fixture-not-a-key');
+          expect(JSON.stringify(report)).not.toContain(fakePrivateKey);
         }
         if (report.external) {
           expect(report.external.coverage).toContainEqual(expect.objectContaining({ capability: 'tls_https', state: 'inspected' }));
