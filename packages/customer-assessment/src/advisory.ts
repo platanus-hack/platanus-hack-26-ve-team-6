@@ -1,31 +1,14 @@
 import { request } from 'node:https';
 import { z } from 'zod';
 import { osvAdvisoryMetadataSchema, type CustomerRunInput, type OsvAdvisoryMetadata } from '@gotchu/contracts';
+import type { LockedPackage } from './lockfiles.js';
+
+export { parseLockfile } from './lockfiles.js';
+export type { LockedPackage } from './lockfiles.js';
 
 const packageName = z.string().max(214).regex(/^(?:@[a-z0-9._-]+\/)?[a-z0-9][a-z0-9._-]*$/);
-const exactVersion = z.string().max(100).regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
-const entrySchema = z.object({ name: packageName.optional(), version: z.string().optional(), link:z.boolean().optional(), dependencies:z.record(z.string(),z.string()).optional(), devDependencies:z.record(z.string(),z.string()).optional(), optionalDependencies:z.record(z.string(),z.string()).optional() });
-const lockSchema = z.object({lockfileVersion:z.union([z.literal(2),z.literal(3)]), packages:z.record(z.string(),entrySchema)});
-export interface LockedPackage { name: string; version: string; location: string; relationship: 'direct' | 'transitive' }
-export function parseLockfile(source: NonNullable<CustomerRunInput['source']>) {
-  const inventory: LockedPackage[] = []; const unknown: string[] = [];
-  const lockfiles = source.files.filter(f => f.path === 'package-lock.json' || f.path.endsWith('/package-lock.json'));
-  for (const file of lockfiles) {
-    let lock: z.infer<typeof lockSchema>;
-    try { const json: unknown = JSON.parse(file.content); lock = lockSchema.parse(json); } catch { unknown.push(file.path); continue; }
-    const root = lock.packages[''];
-    const direct = new Set([...Object.keys(root?.dependencies ?? {}),...Object.keys(root?.devDependencies ?? {}),...Object.keys(root?.optionalDependencies ?? {})]);
-    for (const [path,entry] of Object.entries(lock.packages).sort(([a],[b])=>a.localeCompare(b))) {
-      if (!path) continue;
-      const inferredName = path.split('node_modules/').at(-1);
-      const name = packageName.safeParse(entry.name ?? inferredName); const version = exactVersion.safeParse(entry.version);
-      if (entry.link || !path.includes('node_modules/') || !name.success || !version.success) { unknown.push(`${file.path}:${path}`); continue; }
-      if (inventory.length >= 200) { unknown.push('package_limit'); break; }
-      inventory.push({name:name.data,version:version.data,location:`${file.path}:${path}`.slice(0,1000),relationship:direct.has(name.data) && path === `node_modules/${name.data}` ? 'direct':'transitive'});
-    }
-  }
-  return {inventory,unknown,found:lockfiles.length > 0};
-}
+const prereleasePart = '(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)';
+const exactVersion = z.string().max(100).regex(new RegExp(`^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-${prereleasePart}(?:\\.${prereleasePart})*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`));
 const resultSchema = z.object({results:z.array(z.object({vulns:z.array(z.object({id:z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),modified:z.string().max(100).optional()})).max(100).optional(),next_page_token:z.string().optional()})).max(100)});
 export interface AdvisoryMatch { ids: string[]; complete: boolean; advisories?: OsvAdvisoryMetadata[] }
 export interface AdvisoryAdapter { readiness?(): Promise<boolean>; query(packages: ReadonlyArray<Pick<LockedPackage,'name'|'version'>>, signal: AbortSignal): Promise<AdvisoryMatch[]> }
