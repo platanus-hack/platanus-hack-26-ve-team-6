@@ -21,6 +21,7 @@ import { createGitHubConnectionService } from './github-connections.js';
 import { createExecutionArtifactService } from './execution-artifacts.js';
 import { createWorkflowExceptionService } from './workflow-exceptions.js';
 import { createProtectionService } from './protection.js';
+import { createDecisionRecordService } from './decision-records.js';
 export * from './core.js';
 export * from './events.js';
 export * from './jobs.js';
@@ -45,10 +46,11 @@ export * from './action-verifier.js';
 export * from './github-connections.js';
 export * from './execution-artifacts.js';
 export * from './workflow-exceptions.js';
+export * from './decision-records.js';
 export interface BackendDependencies { database: Database; clock?: Clock; credentials?: CredentialStore; eventCredentials?: WritableEventCredentials; stepUpVerifier?: StepUpVerifier; proposalVerifier?: ProposalVerifier; customerDnsVerifier?: CustomerDnsVerifier; webAuthn?: { rpID: string; origin: string; rpName?: string; verifyPassword?: (userId: string, password: string) => Promise<boolean | null> }; actionVerifier?: ActionVerifier }
 export function createBackend(deps: BackendDependencies) {
   const stepUp = deps.webAuthn ? createWebAuthnStepUpService({ ...deps, webAuthn: deps.webAuthn }) : null;
   const stepUpVerifier = stepUp?.verifier ?? deps.stepUpVerifier;
-  return { corrections: createCorrectionService(deps), validations: createValidationService(deps), protection: createProtectionService({ ...deps, ...(deps.credentials ? { credentials: deps.credentials } : {}) }), executionArtifacts: createExecutionArtifactService(deps.database), workflowExceptions: createWorkflowExceptionService({ database:deps.database, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), actions: createActionService({ ...deps, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), operations: createOperationsService(deps), events: createEventService(deps), web: createWebService(deps), outbox: createOutboxService(deps), jobs: createJobService(deps), proposals: createProposalService({ ...deps, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), executions: createExecutionService(deps), runs: createRunService(deps), assessments: createAssessmentService(deps), customers: createCustomerService(deps), telemetry: createTelemetryService(deps), context: createContextService(deps), github: createGitHubConnectionService(deps), triage: createTriageService(deps), members: createMemberService(deps), stepUp };
+  return { corrections: createCorrectionService(deps), validations: createValidationService(deps), protection: createProtectionService({ ...deps, ...(deps.credentials ? { credentials: deps.credentials } : {}) }), executionArtifacts: createExecutionArtifactService(deps.database), workflowExceptions: createWorkflowExceptionService({ database:deps.database, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), actions: createActionService({ ...deps, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), operations: createOperationsService(deps), decisionRecords: createDecisionRecordService(deps), events: createEventService(deps), web: createWebService(deps), outbox: createOutboxService(deps), jobs: createJobService(deps), proposals: createProposalService({ ...deps, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), executions: createExecutionService(deps), runs: createRunService(deps), assessments: createAssessmentService(deps), customers: createCustomerService(deps), telemetry: createTelemetryService(deps), context: createContextService(deps), github: createGitHubConnectionService(deps), triage: createTriageService(deps), members: createMemberService(deps), stepUp };
 }
 export type Backend = ReturnType<typeof createBackend>;
