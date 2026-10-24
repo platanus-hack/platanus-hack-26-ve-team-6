@@ -166,8 +166,13 @@ export function createDockerScanners(): ScannerAdapter {
         if (image.kind === 'registry') {
           const before = await command(['image','inspect',image.reference],signal,65536,'image');
           preexistingImage = before.length > 0;
-          pulledImage = !preexistingImage;
-          await command(['pull','--platform','linux/amd64',image.reference],signal,65536);
+          if (!preexistingImage) {
+            pulledImage = true;
+            await command(['pull','--platform','linux/amd64',image.reference],signal,65536);
+          }
+          const inspected = preexistingImage ? before : await command(['image','inspect',image.reference],signal,65536,'image');
+          const rows = z.array(z.object({ RepoDigests: z.array(z.string()).optional() }).passthrough()).parse(JSON.parse(inspected.toString('utf8')));
+          if (!rows.some(row => row.RepoDigests?.some(value => value.endsWith(`@sha256:${image.digest}`)))) throw new Error('container_image_digest_mismatch');
           archive = await command(['image','save',image.reference],signal,CUSTOMER_MAX_CONTAINER_IMAGE_BYTES);
           if (archive.byteLength > CUSTOMER_MAX_CONTAINER_IMAGE_BYTES) throw new Error('container_image_archive_limit');
         }
