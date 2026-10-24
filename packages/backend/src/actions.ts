@@ -1,17 +1,22 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { actionV2Schema, customerSourceSnapshotSchema, type ActionV2 } from '@gotchu/contracts';
+import { actionV2Schema, customerSourceSnapshotSchema, validationAttestationPayloadSchema, type ActionV2 } from '@gotchu/contracts';
 import type { Transaction } from '@gotchu/database';
 import { computeGitTreeSha, type PatchFile, type WorkflowPolicyException } from '@gotchu/git-adapters';
 import { z } from 'zod';
 import { audit, authorize, BackendError, canonicalJson, parse, sha256, systemClock, type BaseDependencies, type Identity } from './core.js';
 import { APPROVAL_TTL_MS, STEP_UP_MAX_AGE_MS, assertStepUp, verifiedStepUpSchema, type StepUpVerifier } from './proposals.js';
 import { enqueue } from './jobs.js';
+import { dependencyCommitMessage, expectedDependencyCommitSha } from './git-commit.js';
 
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
 const actionHashSchema = digest;
-const sourceRefSchema = z.object({ type: z.literal('correction_candidate'), candidateId: z.uuid() }).strict();
+const correctionSourceRefSchema = z.object({ type: z.literal('correction_candidate'), candidateId: z.uuid() }).strict();
+const dependencySourceRefSchema = z.object({ type: z.literal('dependency_candidate'), candidateId: z.uuid() }).strict();
 const gitCommit = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
-const proposeSchema = z.object({ kind: z.literal('source_patch_pull_request'), sourceRef: sourceRefSchema }).strict();
+const proposeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('source_patch_pull_request'), sourceRef: correctionSourceRefSchema }).strict(),
+  z.object({ kind: z.literal('dependency_pull_request'), sourceRef: dependencySourceRefSchema }).strict(),
+]);
 const actionRowSchema = z.object({ id: z.uuid(), actionHash: digest, action: actionV2Schema, state: z.enum(['proposed','eligible','ineligible','approved','expired','invalidated','executing','succeeded','failed','uncertain','reconciliation_required']), blockingReasons: z.array(z.string()), createdAt: z.date() }).strict();
 
 export type ActionEligibility = { eligible: boolean; blockingReasons: string[]; baseChanged?: boolean; workflowExceptions?: readonly WorkflowPolicyException[] };
@@ -26,7 +31,8 @@ export function hashActionV2(action: ActionV2, recoveryEpoch: string): string {
 }
 
 function publicProjection(row: z.infer<typeof actionRowSchema>, details: { path?: string; diffSummary?: string }) {
-  const kindLabel = row.action.kind === 'source_patch_pull_request' ? 'Abrir una solicitud de cambio para una corrección de código' : 'Acción propuesta';
+  const kindLabel = row.action.kind === 'source_patch_pull_request' ? 'Abrir una solicitud de cambio para una corrección de código'
+    : row.action.kind === 'dependency_pull_request' ? 'Abrir una solicitud de cambio para actualizar dependencias npm' : 'Acción propuesta';
   const blockerText: Record<string, string> = {
     'validación en VM no disponible': 'La validación en VM no está disponible. Mantén la propuesta en privado hasta configurar un verificador aislado.',
     'sin adaptador de escritura': 'No hay un adaptador de escritura disponible. No se modificará ningún repositorio.',
@@ -34,13 +40,19 @@ function publicProjection(row: z.infer<typeof actionRowSchema>, details: { path?
     'vínculo de repositorio sin verificar': 'Verifica el vínculo del repositorio en el contexto de la aplicación.',
     'validaciones pendientes': 'Completa el reanálisis objetivo y la suite pertinente antes de solicitar aprobación.',
     'base cambió desde la propuesta': 'La rama base cambió. Prepara y valida una propuesta nueva antes de aprobar.',
+    'dependency_candidate_invalid': 'La instantánea de dependencias no coincide con la propuesta guardada.',
+    'dependency_validation_missing': 'La validación independiente de la dependencia aún no está disponible.',
   };
   return {
     id: row.id, actionHash: row.actionHash, kind: row.action.kind, state: row.state,
     effect: kindLabel, scope: `Aplicación ${row.action.applicationId}`, target: row.action.target,
     cost: { state: 'unknown' as const, amount: null },
-    diff: details.path ? { path: details.path, summary: details.diffSummary ?? 'Cambio privado de una receta; el contenido del código no se comparte en esta vista.' } : null,
-    validations: [{ label: 'reanálisis objetivo', state: 'pending' }, { label: 'suite configurada', state: 'pending' }],
+    diff: row.action.kind === 'dependency_pull_request'
+      ? { path: 'package.json · package-lock.json', summary: details.diffSummary ?? row.action.changes.map(change => `${change.name}: ${change.from} → ${change.to}`).join('; ') }
+      : details.path ? { path: details.path, summary: details.diffSummary ?? 'Cambio privado de una receta; el contenido del código no se comparte en esta vista.' } : null,
+    validations: row.action.kind === 'dependency_pull_request'
+      ? [{ label: 'reanálisis objetivo', state: 'passed' }, { label: 'suite configurada', state: 'passed' }]
+      : [{ label: 'reanálisis objetivo', state: 'pending' }, { label: 'suite configurada', state: 'pending' }],
     limits: ['No se ha escrito en Git ni en producción.', 'La severidad y el texto de una recomendación no conceden permisos.'],
     blockingReasons: row.blockingReasons.map(reason => blockerText[reason] ?? reason),
     createdAt: row.createdAt.toISOString(),
@@ -100,12 +112,14 @@ async function loadCandidate(tx: Transaction, scope: { organizationId: string; a
     }
   }
   const baseCommit = parse(gitCommit, snapshot.revision);
-  const action = parse(actionV2Schema, {
+  const parsedAction = parse(actionV2Schema, {
     version: 2, kind: 'source_patch_pull_request', capabilityId: 'repository.source_patch_pr', organizationId: scope.organizationId, applicationId: scope.applicationId,
     policyVersion: 'gotchu-action-policy-v2', target: { kind: 'repository', repositoryLinkId: link.id, repositoryKey: link.repository_key, branch: link.default_branch },
     baseCommit, recipeId: detail.data.recipeId, recipeVersion: detail.data.recipeVersion, snapshotSha256: source.digest, patchSha256: detail.data.patchHash,
     findingIdentities: [detail.data.findingId], validationAttestationIds: [], evidence: [{ id: candidateId, sha256: source.digest, kind: 'private_correction_candidate' }],
   });
+  if (parsedAction.kind !== 'source_patch_pull_request') throw new BackendError('candidate_invalid', 'A source correction candidate must resolve to a source patch action', 409);
+  const action = parsedAction;
   const blockingReasons = [
     ...(link.state !== 'verified' ? ['vínculo de repositorio sin verificar'] : []),
     ...(link.write_access !== 'granted' ? ['permiso de escritura del repositorio no concedido'] : []),
@@ -113,15 +127,182 @@ async function loadCandidate(tx: Transaction, scope: { organizationId: string; a
   return { action, path: detail.data.path, snapshot, patchFiles, artifactUnsupportedReason, blockingReasons };
 }
 
-async function insertExecutionArtifact(tx: Transaction, scope: { organizationId: string; applicationId: string }, proposalId: string, action: Extract<ActionV2,{kind:'source_patch_pull_request'}>, patchFiles: readonly PatchFile[], unsupportedReason: string | null, treeSha: string | null) {
+type DependencyCandidate = {
+  candidateSourceId: string;
+  baseSourceId: string;
+  repositoryLinkId: string;
+  repositoryKey: string;
+  branch: string;
+  baseCommit: string;
+  packageName: string;
+  fromVersion: string;
+  toVersion: string;
+  advisoryIds: string[];
+  lockfileSha256: string;
+  patchSha256: string;
+  candidateDigest: string;
+  validationRunId: string;
+  rescanAttestationId: string;
+  suiteAttestationId: string;
+  patchFiles: PatchFile[];
+  diffSummary: string;
+};
+
+async function loadDependencyCandidate(tx: Transaction, scope: { organizationId: string; applicationId: string }, candidateId: string): Promise<DependencyCandidate> {
+  const result = await tx.query<{
+    candidate_source_id: string; base_source_id: string; repository_link_id: string; repository_key: string; default_branch: string;
+    base_commit: string; package_name: string; dependency_section: string; from_version: string; to_version: string;
+    advisory_ids: unknown; package_json_path: string; package_lock_path: string; base_digest: string; candidate_digest: string;
+    lockfile_sha256: string; patch_sha256: string; validation_run_id: string; source_body: unknown; source_digest: string; source_deleted_at: Date | null;
+    base_body: unknown; stored_base_digest: string; base_deleted_at: Date | null; bound_repository_link_id: string; binding_commit: string; binding_digest: string;
+    link_state: string; revoked: boolean; read_access: string; validation_state: string; validation_mode: string;
+    validation_base_digest: string; validation_candidate_digest: string; validation_patch_digest: string; target_finding_ids: unknown;
+  }>(`SELECT c.candidate_source_id,c.base_source_id,c.repository_link_id,l.repository_key,l.default_branch,c.base_commit,c.package_name,c.dependency_section,c.from_version,c.to_version,
+      c.advisory_ids,c.package_json_path,c.package_lock_path,c.base_digest,c.candidate_digest,c.lockfile_sha256,c.patch_sha256,c.validation_run_id,
+      s.body AS source_body,s.digest AS source_digest,s.deleted_at AS source_deleted_at,b.body AS base_body,b.digest AS stored_base_digest,b.deleted_at AS base_deleted_at,
+      binding.repository_link_id AS bound_repository_link_id,binding.commit_sha AS binding_commit,binding.source_digest AS binding_digest,l.state AS link_state,l.revoked,l.read_access,
+      v.state AS validation_state,v.validation_mode,v.base_snapshot_digest AS validation_base_digest,v.candidate_tree_digest AS validation_candidate_digest,
+      v.patch_digest AS validation_patch_digest,v.target_finding_ids
+    FROM gotchu.dependency_fix_candidates c
+    JOIN gotchu.customer_sources s ON s.organization_id=c.organization_id AND s.application_id=c.application_id AND s.id=c.candidate_source_id
+    JOIN gotchu.customer_sources b ON b.organization_id=c.organization_id AND b.application_id=c.application_id AND b.id=c.base_source_id
+    JOIN gotchu.customer_source_repository_bindings binding ON binding.organization_id=c.organization_id AND binding.application_id=c.application_id AND binding.source_id=c.base_source_id
+    JOIN gotchu.application_repository_links l ON l.organization_id=c.organization_id AND l.application_id=c.application_id AND l.id=c.repository_link_id
+    JOIN gotchu.github_installations g ON g.organization_id=l.organization_id AND g.installation_id=l.installation_id AND g.state='active'
+    JOIN gotchu.validation_runs v ON v.organization_id=c.organization_id AND v.application_id=c.application_id AND v.id=c.validation_run_id
+    WHERE c.organization_id=$1 AND c.application_id=$2 AND c.candidate_source_id=$3`, [scope.organizationId, scope.applicationId, candidateId]);
+  const row = result.rows[0];
+  if (!row || row.source_deleted_at !== null || row.base_deleted_at !== null || row.link_state !== 'verified' || row.revoked || row.read_access !== 'granted'
+    || row.bound_repository_link_id !== row.repository_link_id || row.binding_commit !== row.base_commit || row.binding_digest !== row.base_digest || row.validation_state !== 'passed'
+    || row.validation_mode !== 'dependency' || row.validation_base_digest !== row.base_digest || row.validation_candidate_digest !== row.candidate_digest
+    || row.validation_patch_digest !== row.patch_sha256) {
+    throw new BackendError('dependency_candidate_invalid', 'The stored dependency candidate is unavailable or has not passed independent validation', 409);
+  }
+  const snapshot = customerSourceSnapshotSchema.parse(row.source_body);
+  const baseSnapshot = customerSourceSnapshotSchema.parse(row.base_body);
+  if (row.base_digest !== row.stored_base_digest || row.source_digest !== row.candidate_digest
+    || snapshot.revision !== row.base_commit || baseSnapshot.revision !== row.base_commit
+    || sha256(canonicalJson(snapshot)) !== row.candidate_digest || sha256(canonicalJson(baseSnapshot)) !== row.base_digest
+    || !/^[a-f0-9]{40}$/.test(row.base_commit)) {
+    throw new BackendError('dependency_candidate_invalid', 'The stored dependency snapshot does not match its bound repository commit', 409);
+  }
+  const advisoryIds = z.array(z.string().regex(/^[A-Za-z0-9._-]{1,128}$/)).min(1).max(20).parse(row.advisory_ids);
+  z.array(z.uuid()).min(1).max(20).parse(row.target_finding_ids);
+  const attestations = await tx.query<{ id: string; kind: string; body: unknown }>(`SELECT id,kind,body FROM gotchu.validation_attestations
+    WHERE organization_id=$1 AND application_id=$2 AND run_id=$3 ORDER BY created_at,id`, [scope.organizationId, scope.applicationId, row.validation_run_id]);
+  const attested = new Map<string, string>();
+  for (const item of attestations.rows) {
+    const payload = validationAttestationPayloadSchema.safeParse(item.body);
+    if (!payload.success || payload.data.id !== item.id || payload.data.organizationId !== scope.organizationId || payload.data.applicationId !== scope.applicationId
+      || payload.data.runId !== row.validation_run_id || payload.data.actionRef !== candidateId || payload.data.evidence.kind !== item.kind) {
+      throw new BackendError('dependency_validation_invalid', 'A stored dependency validation attestation is invalid', 409);
+    }
+    if (item.kind === 'independent_rescan' || item.kind === 'functional_suite') attested.set(item.kind, payload.data.id);
+  }
+  const rescanAttestationId = attested.get('independent_rescan');
+  const suiteAttestationId = attested.get('functional_suite');
+  if (!rescanAttestationId || !suiteAttestationId) throw new BackendError('dependency_validation_missing', 'Signed rescan and functional suite facts are required', 409);
+
+  const baseFiles = new Map(baseSnapshot.files.map(file => [file.path, file.content]));
+  const candidateFiles = new Map(snapshot.files.map(file => [file.path, file.content]));
+  const changedPaths = [...new Set([...baseFiles.keys(), ...candidateFiles.keys()])].filter(path => baseFiles.get(path) !== candidateFiles.get(path)).sort();
+  const expectedLockPath = row.package_json_path.replace(/package\.json$/, 'package-lock.json');
+  if (row.dependency_section !== 'dependencies' && row.dependency_section !== 'devDependencies' && row.dependency_section !== 'optionalDependencies'
+    || row.package_json_path !== 'package.json'
+    || row.package_lock_path !== expectedLockPath || changedPaths.length !== 2
+    || !changedPaths.includes(row.package_json_path) || !changedPaths.includes(row.package_lock_path)) {
+    throw new BackendError('dependency_candidate_invalid', 'The candidate changes files outside its package manifest and lockfile', 409);
+  }
+  const manifestText = candidateFiles.get(row.package_json_path);
+  const lockText = candidateFiles.get(row.package_lock_path);
+  const oldManifestText = baseFiles.get(row.package_json_path);
+  const oldLockText = baseFiles.get(row.package_lock_path);
+  if (!manifestText || !lockText || oldManifestText === undefined || oldLockText === undefined || sha256(lockText) !== row.lockfile_sha256) {
+    throw new BackendError('dependency_candidate_invalid', 'The candidate manifest or lockfile digest does not match its stored metadata', 409);
+  }
+  const manifestRaw: unknown = JSON.parse(manifestText);
+  const manifest = z.record(z.string(), z.unknown()).parse(manifestRaw);
+  const manifestSection = z.record(z.string(), z.unknown()).parse(manifest[row.dependency_section]);
+  const lockfileRaw: unknown = JSON.parse(lockText);
+  const lockfile = z.record(z.string(), z.unknown()).parse(lockfileRaw);
+  const packages = z.record(z.string(), z.unknown()).parse(lockfile.packages);
+  const root = z.record(z.string(), z.unknown()).parse(packages['']);
+  const lockSection = z.record(z.string(), z.unknown()).parse(root[row.dependency_section]);
+  const packageEntry = z.record(z.string(), z.unknown()).parse(packages[`node_modules/${row.package_name}`]);
+  const toVersion = z.string().regex(/^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/).parse(row.to_version);
+  if (manifestSection[row.package_name] !== toVersion || lockSection[row.package_name] !== toVersion || packageEntry.version !== toVersion
+    || packageEntry.name !== undefined && packageEntry.name !== row.package_name
+    || typeof packageEntry.integrity !== 'string' || !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(packageEntry.integrity)) {
+    throw new BackendError('dependency_candidate_invalid', 'The locked package version does not match the proposal', 409);
+  }
+  const patchFiles: PatchFile[] = [row.package_json_path, row.package_lock_path].map(path => {
+    const content = candidateFiles.get(path);
+    if (content === undefined) throw new BackendError('dependency_candidate_invalid', 'A package artifact file is missing', 409);
+    return { path, content, mode: '100644' as const };
+  });
+  const expectedPatchSha256 = sha256(canonicalJson(patchFiles.map(file => ({ path: file.path, before: sha256(baseFiles.get(file.path) ?? ''), after: sha256(file.content) }))));
+  if (expectedPatchSha256 !== row.patch_sha256) throw new BackendError('dependency_candidate_invalid', 'The exact package patch digest does not match its stored metadata', 409);
+  // An independent rescan must have selected every advisory identity for this package.
+  const rescanRaw: unknown = attestations.rows.find(item => item.kind === 'independent_rescan')?.body;
+  const rescanPayload = validationAttestationPayloadSchema.parse(rescanRaw);
+  if (rescanPayload.evidence.kind !== 'independent_rescan'
+    || rescanPayload.evidence.before.coverage !== 'complete' || rescanPayload.evidence.after.coverage !== 'complete') {
+    throw new BackendError('dependency_validation_invalid', 'The signed validation does not cover every package advisory', 409);
+  }
+  const targetKeys = advisoryIds.map(id => `npm:${row.package_name}:${id}`);
+  const rescanEvidence = rescanPayload.evidence;
+  if (rescanEvidence.kind !== 'independent_rescan') throw new BackendError('dependency_validation_invalid', 'Signed rescan evidence is missing', 409);
+  if (targetKeys.some(key => !rescanEvidence.targetedIdentities.includes(key)
+    || !rescanEvidence.before.identities.includes(key) || rescanEvidence.after.identities.includes(key))) {
+    throw new BackendError('dependency_validation_invalid', 'The signed rescan did not target every matched advisory', 409);
+  }
+  return {
+    candidateSourceId: row.candidate_source_id, baseSourceId: row.base_source_id, repositoryLinkId: row.repository_link_id,
+    repositoryKey: row.repository_key, branch: row.default_branch, baseCommit: row.base_commit, packageName: row.package_name,
+    fromVersion: row.from_version, toVersion, advisoryIds, lockfileSha256: row.lockfile_sha256, patchSha256: row.patch_sha256,
+    candidateDigest: row.candidate_digest, validationRunId: row.validation_run_id, rescanAttestationId, suiteAttestationId,
+    patchFiles, diffSummary: `Actualizar ${row.package_name} de ${row.from_version} a ${toVersion} en package.json y package-lock.json.`,
+  };
+}
+
+function createDependencyAction(scope: { organizationId: string; applicationId: string }, candidate: DependencyCandidate, treeSha: string): Extract<ActionV2, { kind: 'dependency_pull_request' }> {
+  const commitMessage = dependencyCommitMessage(candidate);
+  const action = parse(actionV2Schema, {
+    version: 2, kind: 'dependency_pull_request', capabilityId: 'repository.dependency_pr', organizationId: scope.organizationId,
+    applicationId: scope.applicationId, policyVersion: 'gotchu-action-policy-v2',
+    target: { kind: 'repository', repositoryLinkId: candidate.repositoryLinkId, repositoryKey: candidate.repositoryKey, branch: candidate.branch },
+    baseCommit: candidate.baseCommit, candidateCommit: expectedDependencyCommitSha(treeSha, candidate.baseCommit, commitMessage),
+    changes: [{ name: candidate.packageName, from: candidate.fromVersion, to: candidate.toVersion }], advisoryIds: candidate.advisoryIds,
+    lockfileSha256: candidate.lockfileSha256, patchSha256: candidate.patchSha256,
+    rescanAttestationId: candidate.rescanAttestationId, suiteAttestationId: candidate.suiteAttestationId,
+    evidence: [{ id: candidate.candidateSourceId, sha256: candidate.candidateDigest, kind: 'dependency_candidate' }],
+  });
+  if (action.kind !== 'dependency_pull_request') throw new BackendError('candidate_invalid', 'A dependency candidate must resolve to a dependency pull request action', 409);
+  return action;
+}
+
+type PullRequestAction = Extract<ActionV2, { kind: 'source_patch_pull_request' }> | Extract<ActionV2, { kind: 'dependency_pull_request' }>;
+
+function actionSnapshotDigest(action: PullRequestAction): string {
+  if (action.kind === 'source_patch_pull_request') return action.snapshotSha256;
+  const candidate = action.evidence.find(item => item.kind === 'dependency_candidate');
+  if (!candidate) throw new BackendError('dependency_candidate_invalid', 'Dependency proposal has no candidate evidence', 409);
+  return candidate.sha256;
+}
+
+async function insertExecutionArtifact(tx: Transaction, scope: { organizationId: string; applicationId: string }, proposalId: string, action: PullRequestAction, patchFiles: readonly PatchFile[], unsupportedReason: string | null, treeSha: string | null) {
   const files = patchFiles.map(file => ({ path: file.path, mode: file.mode ?? '100644', contentBase64: Buffer.from(file.content, 'utf8').toString('base64'), sha256: createHash('sha256').update(file.content, 'utf8').digest('hex') }));
   const sizeBytes = patchFiles.reduce((total, file) => total + Buffer.byteLength(file.path, 'utf8') + Buffer.byteLength(file.content, 'utf8'), 0);
   if (sizeBytes > 4_194_304) throw new BackendError('candidate_too_large', 'Candidate exceeds the stored publication size limit', 413);
   const candidateTreeSha = await computeGitTreeSha(patchFiles);
   const completeTreeSha = unsupportedReason === null ? treeSha : null;
   const unsupported = completeTreeSha === null ? unsupportedReason ?? 'repository_tree_unavailable' : null;
+  const snapshotSha256 = actionSnapshotDigest(action);
+  const change = action.kind === 'dependency_pull_request' ? action.changes[0] : undefined;
+  if (action.kind === 'dependency_pull_request' && !change) throw new BackendError('dependency_candidate_invalid', 'Dependency proposal has no package change', 409);
+  const commitMessage = change ? dependencyCommitMessage({ packageName: change.name, fromVersion: change.from, toVersion: change.to }) : `Gotchu approved correction ${action.patchSha256.slice(0,16)}`;
   await tx.query(`INSERT INTO gotchu.execution_artifacts(organization_id,application_id,proposal_id,candidate_source_id,base_commit,files,candidate_tree_sha,tree_sha,tree_complete,unsupported_reason,commit_message,snapshot_sha256,patch_sha256,artifact_sha256,size_bytes)
-    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [scope.organizationId,scope.applicationId,proposalId,action.evidence[0]?.id,action.baseCommit,JSON.stringify(files),candidateTreeSha,completeTreeSha,completeTreeSha !== null,unsupported,`Gotchu approved correction ${action.patchSha256.slice(0,16)}`,action.snapshotSha256,action.patchSha256,action.snapshotSha256,sizeBytes]);
+    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [scope.organizationId,scope.applicationId,proposalId,action.evidence[0]?.id,action.baseCommit,JSON.stringify(files),candidateTreeSha,completeTreeSha,completeTreeSha !== null,unsupported,commitMessage,snapshotSha256,action.patchSha256,snapshotSha256,sizeBytes]);
 }
 
 export function createActionService(deps: ActionDependencies) {
@@ -167,20 +348,28 @@ export function createActionService(deps: ActionDependencies) {
       });
     },
     async propose(identity: Identity, input: { organizationId: string; applicationId: string; kind: string; sourceRef: unknown }) {
-      const value = parse(z.object({ organizationId: z.uuid(), applicationId: z.uuid(), ...proposeSchema.shape }).strict(), input);
+      const scope = parse(z.object({ organizationId: z.uuid(), applicationId: z.uuid() }).strict(), {
+        organizationId: input.organizationId, applicationId: input.applicationId,
+      });
+      const proposal = parse(proposeSchema, { kind: input.kind, sourceRef: input.sourceRef });
+      const value = { ...scope, ...proposal };
+      const candidateId = proposal.sourceRef.candidateId;
       const prepared = await deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, identity, ['owner', 'operator'], value.applicationId);
-        return await loadCandidate(tx, value, value.sourceRef.candidateId);
+        return proposal.kind === 'source_patch_pull_request'
+          ? { type: 'correction' as const, value: await loadCandidate(tx, value, candidateId) }
+          : { type: 'dependency' as const, value: await loadDependencyCandidate(tx, value, candidateId) };
       });
-      const preparedAction = prepared.action;
-      if (preparedAction.kind !== 'source_patch_pull_request') throw new BackendError('candidate_invalid', 'A source correction candidate must resolve to a source patch action', 409);
+      const patchFiles = prepared.value.patchFiles;
+      const repositoryKey = prepared.type === 'correction' ? prepared.value.action.target.repositoryKey : prepared.value.repositoryKey;
+      const baseCommit = prepared.type === 'correction' ? prepared.value.action.baseCommit : prepared.value.baseCommit;
       let treeSha: string | null = null;
-      let unsupportedReason = prepared.artifactUnsupportedReason;
-      if (!unsupportedReason && prepared.patchFiles.length && deps.actionVerifier?.prepareArtifact) {
+      let unsupportedReason = prepared.type === 'correction' ? prepared.value.artifactUnsupportedReason : null;
+      if (!unsupportedReason && patchFiles.length && deps.actionVerifier?.prepareArtifact) {
         try {
           const tree = await deps.actionVerifier.prepareArtifact({
-            organizationId: preparedAction.organizationId, applicationId: preparedAction.applicationId,
-            repositoryKey: preparedAction.target.repositoryKey, baseCommit: preparedAction.baseCommit, files: prepared.patchFiles,
+            organizationId: value.organizationId, applicationId: value.applicationId,
+            repositoryKey, baseCommit, files: patchFiles,
           });
           treeSha = tree.treeSha;
           unsupportedReason = tree.unsupportedReason;
@@ -190,44 +379,54 @@ export function createActionService(deps: ActionDependencies) {
       } else if (!unsupportedReason) {
         unsupportedReason = 'repository_tree_unavailable';
       }
+      if (prepared.type === 'dependency' && (unsupportedReason || !treeSha)) {
+        throw new BackendError('dependency_artifact_unavailable', 'A complete repository tree is required to bind this dependency proposal', 409);
+      }
+      const action = prepared.type === 'correction'
+        ? prepared.value.action
+        : createDependencyAction(value, prepared.value, treeSha ?? '');
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, identity, ['owner', 'operator'], value.applicationId);
         const app = await tx.query<{ archived: boolean }>('SELECT archived FROM gotchu.applications WHERE organization_id=$1 AND id=$2 FOR UPDATE', [value.organizationId, value.applicationId]);
         if (!app.rows[0]) throw new BackendError('not_found', 'Application not found', 404);
         if (app.rows[0].archived) throw new BackendError('application_archived', 'Restore the application before proposing an action', 409);
-        const current = await loadCandidate(tx, value, value.sourceRef.candidateId);
-        if (current.action.kind !== 'source_patch_pull_request') throw new BackendError('candidate_invalid', 'A source correction candidate must resolve to a source patch action', 409);
-        if (canonicalJson(current.action) !== canonicalJson(preparedAction)
-          || canonicalJson(current.patchFiles) !== canonicalJson(prepared.patchFiles)
-          || current.artifactUnsupportedReason !== prepared.artifactUnsupportedReason
-          || current.action.snapshotSha256 !== preparedAction.snapshotSha256) {
-          throw new BackendError('candidate_changed', 'The stored correction candidate changed while its repository tree was being read', 409);
+        const current = proposal.kind === 'source_patch_pull_request'
+          ? { type: 'correction' as const, value: await loadCandidate(tx, value, candidateId) }
+          : { type: 'dependency' as const, value: await loadDependencyCandidate(tx, value, candidateId) };
+        const currentAction = current.type === 'correction' ? current.value.action : createDependencyAction(value, current.value, treeSha ?? '');
+        const currentPatchFiles = current.value.patchFiles;
+        const preparedUnsupported = prepared.type === 'correction' ? prepared.value.artifactUnsupportedReason : null;
+        const currentUnsupported = current.type === 'correction' ? current.value.artifactUnsupportedReason : null;
+        if (canonicalJson(currentAction) !== canonicalJson(action)
+          || canonicalJson(currentPatchFiles) !== canonicalJson(patchFiles)
+          || currentUnsupported !== preparedUnsupported) {
+          throw new BackendError('candidate_changed', 'The stored candidate changed while its repository tree was being read', 409);
         }
         const authorization = await tx.query<{ recovery_epoch: string }>('SELECT recovery_epoch FROM gotchu.lock_authorization_state()');
         const recoveryEpoch = String(authorization.rows[0]?.recovery_epoch ?? '');
-        const actionHash = hashActionV2(current.action, recoveryEpoch);
+        const actionHash = hashActionV2(currentAction, recoveryEpoch);
         const prior = await tx.query<{ id: string }>('SELECT id FROM gotchu.proposals WHERE organization_id=$1 AND action_hash=$2', [value.organizationId, actionHash]);
         if (prior.rows[0]) return { proposalId: prior.rows[0].id, actionHash };
         const open = await tx.query<{ count: number }>(`SELECT count(*)::int AS count FROM gotchu.proposals WHERE organization_id=$1 AND application_id=$2 AND state NOT IN ('expired','invalidated','succeeded','failed')`, [value.organizationId, value.applicationId]);
         if ((open.rows[0]?.count ?? 0) >= 100) throw new BackendError('proposal_capacity', 'At most 100 open action proposals are allowed per application', 429);
         const id = randomUUID();
         const state = 'ineligible';
-        const writeCapability = await tx.query<{ adapter_available: boolean }>('SELECT adapter_available FROM gotchu.action_capabilities WHERE kind=$1', [current.action.kind]);
+        const writeCapability = await tx.query<{ adapter_available: boolean }>('SELECT adapter_available FROM gotchu.action_capabilities WHERE kind=$1', [currentAction.kind]);
         const reasons = [
-          ...current.blockingReasons,
+          ...(current.type === 'correction' ? current.value.blockingReasons : []),
           ...(unsupportedReason ? [unsupportedReason] : []),
           ...(writeCapability.rows[0]?.adapter_available ? [] : ['sin adaptador de escritura']),
           ...(!deps.actionVerifier ? ['validation_verifier_unavailable'] : []),
         ];
-        const inserted = await tx.query('INSERT INTO gotchu.proposals(organization_id,application_id,id,action_hash,body,recovery_epoch,version,kind,capability_id,state,source_ref,blocking_reasons) VALUES($1,$2,$3,$4,$5::jsonb,$6,2,$7,$8,$9,$10::jsonb,$11::jsonb) ON CONFLICT(organization_id,action_hash) DO NOTHING RETURNING id', [value.organizationId,value.applicationId,id,actionHash,JSON.stringify(current.action),recoveryEpoch,current.action.kind,current.action.capabilityId,state,JSON.stringify(value.sourceRef),JSON.stringify(reasons)]);
+        const inserted = await tx.query('INSERT INTO gotchu.proposals(organization_id,application_id,id,action_hash,body,recovery_epoch,version,kind,capability_id,state,source_ref,blocking_reasons) VALUES($1,$2,$3,$4,$5::jsonb,$6,2,$7,$8,$9,$10::jsonb,$11::jsonb) ON CONFLICT(organization_id,action_hash) DO NOTHING RETURNING id', [value.organizationId,value.applicationId,id,actionHash,JSON.stringify(currentAction),recoveryEpoch,currentAction.kind,currentAction.capabilityId,state,JSON.stringify(value.sourceRef),JSON.stringify(reasons)]);
         if (!inserted.rowCount) {
           const prior = await tx.query<{ id: string }>('SELECT id FROM gotchu.proposals WHERE organization_id=$1 AND action_hash=$2', [value.organizationId, actionHash]);
           const existing = prior.rows[0];
           if (!existing) throw new BackendError('proposal_conflict', 'Idempotent action proposal disappeared', 409);
           return { proposalId: existing.id, actionHash };
         }
-        await insertExecutionArtifact(tx, value, id, current.action, current.patchFiles, unsupportedReason, treeSha);
-        await audit(tx, value.organizationId, identity.userId, 'action.proposed', id, { actionHash, kind: current.action.kind, capabilityId: current.action.capabilityId });
+        await insertExecutionArtifact(tx, value, id, currentAction, currentPatchFiles, unsupportedReason, treeSha);
+        await audit(tx, value.organizationId, identity.userId, 'action.proposed', id, { actionHash, kind: currentAction.kind, capabilityId: currentAction.capabilityId });
         return { proposalId: id, actionHash };
       });
     },
