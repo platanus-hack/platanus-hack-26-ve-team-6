@@ -39,6 +39,7 @@ describe('validator evidence rules', () => {
 
   it('scores every validation outcome and rejects a shrinking or newly skipped suite', () => {
     expect(scoreValidation(completeEvidence)).toEqual({ state: 'passed', reason: null });
+    expect(scoreValidation([])).toMatchObject({ state: 'inconclusive', reason: 'required_evidence_missing' });
     const baseWith = (result: 'passed' | 'unavailable') => completeEvidence.map(item => item.kind === 'base_reproduction' ? { ...item, result } : item);
     expect(scoreValidation(baseWith('passed'))).toMatchObject({ state: 'inconclusive', reason: 'base_reproduction_not_confirmed' });
     expect(scoreValidation(baseWith('unavailable'))).toMatchObject({ state: 'inconclusive', reason: 'base_reproduction_not_confirmed' });
@@ -56,6 +57,7 @@ describe('validator evidence rules', () => {
     expect(scoreValidation(completeEvidence.map(item => item.kind === 'independent_rescan' ? { ...item, after: { identities: ['tls-disabled'], coverage: 'complete' } } : item))).toMatchObject({ state: 'failed', reason: 'targeted_findings_remain' });
     expect(scoreValidation(completeEvidence.map(item => item.kind === 'independent_rescan' ? { ...item, after: { identities: [], coverage: 'partial' } } : item))).toMatchObject({ state: 'inconclusive', reason: 'rescan_coverage_unknown' });
     expect(scoreValidation(completeEvidence.map(item => item.kind === 'independent_rescan' ? { ...item, targetedIdentities: [] } : item))).toMatchObject({ state: 'inconclusive', reason: 'target_identity_missing' });
+    expect(scoreValidation(completeEvidence.map(item => item.kind === 'independent_rescan' ? { ...item, result: 'failed' as const } : item))).toMatchObject({ state: 'failed', reason: 'rescan_findings_changed' });
     expect(scoreValidation(completeEvidence.filter(item => item.kind !== 'base_reproduction'))).toMatchObject({ state: 'inconclusive', reason: 'base_reproduction_not_confirmed' });
   });
 
