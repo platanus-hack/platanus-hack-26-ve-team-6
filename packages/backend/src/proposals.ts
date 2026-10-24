@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Transaction } from '@gotchu/database';
 import { z } from 'zod';
+import { actionV2Schema, type ActionV2 } from '@gotchu/contracts';
 import { audit, authorize, BackendError, canonicalJson, parse, sha256, systemClock, type BaseDependencies, type Identity } from './core.js';
 
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
@@ -23,6 +24,8 @@ export const proposalSchema = z.object({
   verificationPlan: z.object({ expectedCandidateCommit: commit, checkPatchDigest: z.literal(true), checkPullRequestHead: z.literal(true) }).strict(),
 }).strict().refine(p => p.baseCommit !== p.candidateCommit && p.candidateCommit === p.verificationPlan.expectedCandidateCommit, 'Verification plan must bind the distinct candidate commit');
 export type Proposal = z.infer<typeof proposalSchema>;
+export const storedActionSchema = z.union([proposalSchema, actionV2Schema]);
+export type StoredAction = Proposal | ActionV2;
 
 export const proposalEligibilitySchema = z.object({
   policyVersion: z.string(), currentBaseCommit: commit, candidateCommit: commit, patchSha256: digest, lockfileSha256: digest,
@@ -49,6 +52,9 @@ export const ELIGIBILITY_MAX_AGE_MS = 60_000;
 export function hashProposal(proposal: Proposal, recoveryEpoch: string): string {
   return sha256('gotchu-proposal-v1\n' + canonicalJson({ proposal: parse(proposalSchema, proposal), recoveryEpoch: parse(z.string().regex(/^[1-9][0-9]*$/), recoveryEpoch) }));
 }
+export function hashStoredAction(action: StoredAction, recoveryEpoch: string): string {
+  return action.version === 1 ? hashProposal(action, recoveryEpoch) : sha256('gotchu-action-v2\n' + canonicalJson({ action: parse(actionV2Schema, action), recoveryEpoch: parse(z.string().regex(/^[1-9][0-9]*$/), recoveryEpoch) }));
+}
 export function assertProposalEligibility(proposal: Proposal, input: ProposalEligibility, now: Date): void {
   const fact = parse(proposalEligibilitySchema, input);
   if (fact.observedAt.getTime() > now.getTime() || now.getTime() - fact.observedAt.getTime() > ELIGIBILITY_MAX_AGE_MS) throw new BackendError('stale_verification', 'Independent eligibility verification is not fresh', 409);
@@ -73,6 +79,15 @@ export async function checkedProposal(tx: Transaction, organizationId: string, p
   const proposal = parse(proposalSchema, row.body);
   if (proposal.organizationId !== organizationId || hashProposal(proposal, String(row.recovery_epoch)) !== row.action_hash) throw new BackendError('proposal_corrupt', 'Proposal binding does not match the immutable action hash', 409);
   return { proposal, actionHash: row.action_hash, recoveryEpoch: String(row.recovery_epoch) };
+}
+export async function checkedStoredAction(tx: Transaction, organizationId: string, proposalId: string): Promise<{ action: StoredAction; actionHash: string; recoveryEpoch: string }> {
+  const result = await tx.query<{ body: unknown; action_hash: string; recovery_epoch: string; invalidated_at: Date | null; version: number }>('SELECT body,action_hash,recovery_epoch,invalidated_at,version FROM gotchu.proposals WHERE organization_id=$1 AND id=$2 FOR UPDATE', [organizationId, proposalId]);
+  const row = result.rows[0];
+  if (!row) throw new BackendError('not_found', 'Proposal not found', 404);
+  if (row.invalidated_at) throw new BackendError('proposal_invalidated', 'Proposal was invalidated; regenerate and validate a new proposal', 409);
+  const action: StoredAction = row.version === 1 ? parse(proposalSchema, row.body) : parse(actionV2Schema, row.body);
+  if (action.organizationId !== organizationId || hashStoredAction(action, String(row.recovery_epoch)) !== row.action_hash) throw new BackendError('proposal_corrupt', 'Stored action does not match its immutable hash', 409);
+  return { action, actionHash: row.action_hash, recoveryEpoch: String(row.recovery_epoch) };
 }
 export async function verifyProposal(deps: ApprovalDependencies, proposal: Proposal, phase: 'proposal' | 'approval' | 'execution'): Promise<void> {
   if (!deps.proposalVerifier) throw new BackendError('verification_unavailable', 'No independent proposal verifier is configured', 503);
@@ -99,6 +114,12 @@ export function createProposalService(deps: ApprovalDependencies) {
         const state = await authorizationState(tx, false);
         await verifyProposal(deps, value.proposal, 'proposal');
         const actionHash = hashProposal(value.proposal, state.recoveryEpoch);
+        const app = await tx.query('SELECT id FROM gotchu.applications WHERE organization_id=$1 AND id=$2 FOR UPDATE', [value.organizationId,value.proposal.applicationId]);
+        if (!app.rowCount) throw new BackendError('not_found', 'Application not found', 404);
+        const prior = await tx.query<{ id: string }>('SELECT id FROM gotchu.proposals WHERE organization_id=$1 AND action_hash=$2', [value.organizationId, actionHash]);
+        if (prior.rows[0]) return { proposalId: prior.rows[0].id, actionHash, recoveryEpoch: state.recoveryEpoch };
+        const open = await tx.query<{ count: number }>(`SELECT count(*)::int AS count FROM gotchu.proposals WHERE organization_id=$1 AND application_id=$2 AND state NOT IN ('expired','invalidated','succeeded','failed')`, [value.organizationId,value.proposal.applicationId]);
+        if ((open.rows[0]?.count ?? 0) >= 100) throw new BackendError('proposal_capacity', 'At most 100 open action proposals are allowed per application', 429);
         const proposalId = randomUUID();
         const inserted = await tx.query('INSERT INTO gotchu.proposals(organization_id,application_id,id,action_hash,body,recovery_epoch) VALUES ($1,$2,$3,$4,$5::jsonb,$6) ON CONFLICT (organization_id,action_hash) DO NOTHING RETURNING id', [value.organizationId, value.proposal.applicationId, proposalId, actionHash, JSON.stringify(value.proposal), state.recoveryEpoch]);
         if (!inserted.rowCount) {

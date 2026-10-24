@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { audit, authorize, BackendError, parse, systemClock } from './core.js';
-import { authorizationState, checkedProposal, hashProposal, proposalSchema, verifyStoredProposal, type ApprovalDependencies, type Proposal } from './proposals.js';
-export interface ExecutionClaim { executionId: string; claimToken: string; actionHash: string; proposal: Proposal; recoveryEpoch: string }
+import { authorizationState, checkedStoredAction, hashStoredAction, storedActionSchema, verifyStoredProposal, type ApprovalDependencies, type StoredAction } from './proposals.js';
+export interface ExecutionClaim { executionId: string; claimToken: string; actionHash: string; proposal: StoredAction; recoveryEpoch: string }
 const uuid = z.uuid().toLowerCase();
 const claimSchema = z.object({ organizationId: uuid, approvalId: uuid }).strict();
 const executionTokenSchema = z.object({ organizationId: uuid, executionId: uuid, claimToken: uuid }).strict();
@@ -11,7 +11,7 @@ const providerReferenceSchema = z.string().min(1).max(1000).refine(value => valu
 const storedExecutionSchema = z.object({
   organizationId: uuid, applicationId: uuid, approvalId: uuid, executionId: uuid, claimToken: uuid,
   actionHash: z.string().regex(/^[0-9a-f]{64}$/), recoveryEpoch: z.string().regex(/^[1-9][0-9]*$/),
-  proposal: proposalSchema, state: executionStateSchema, providerReference: providerReferenceSchema.nullable(),
+  proposal: storedActionSchema, state: executionStateSchema, providerReference: providerReferenceSchema.nullable(),
 }).strict();
 export type StoredExecution = Omit<z.infer<typeof storedExecutionSchema>, 'providerReference'> & { providerReference?: string };
 export function createExecutionService(deps: ApprovalDependencies) {
@@ -35,9 +35,10 @@ export function createExecutionService(deps: ApprovalDependencies) {
         if (approval.expires_at.getTime() <= clock.now().getTime()) throw new BackendError('approval_expired', 'Approval has expired', 409);
         if (String(approval.recovery_epoch) !== state.recoveryEpoch) throw new BackendError('stale_epoch', 'Approval predates recovery and cannot authorize a write', 409);
         await authorize(tx, value.organizationId, { userId: approval.user_id }, ['owner']);
-        const stored = await checkedProposal(tx, value.organizationId, approval.proposal_id);
+        const stored = await checkedStoredAction(tx, value.organizationId, approval.proposal_id);
         if (stored.actionHash !== approval.action_hash || stored.recoveryEpoch !== state.recoveryEpoch) throw new BackendError('hash_mismatch', 'Approval no longer matches the exact proposal', 409);
-        const rejected = await verifyStoredProposal(tx, deps, stored.proposal, approval.proposal_id, 'execution');
+        if (stored.action.version === 2) throw new BackendError('no_adapter', 'No executor adapter is available for version 2 actions', 409);
+        const rejected = await verifyStoredProposal(tx, deps, stored.action, approval.proposal_id, 'execution');
         if (rejected) return rejected;
         // Verifier work can take time; expiry must hold at the durable claim, too.
         if (approval.expires_at.getTime() <= clock.now().getTime()) throw new BackendError('approval_expired', 'Approval expired during independent verification', 409);
@@ -46,7 +47,8 @@ export function createExecutionService(deps: ApprovalDependencies) {
         if (!inserted.rowCount) throw new BackendError('already_claimed', 'This proposal already has a durable execution identity; reconcile instead of retrying', 409);
         await tx.query('UPDATE gotchu.approvals SET consumed_at=$1 WHERE organization_id=$2 AND id=$3', [clock.now(), value.organizationId, value.approvalId]);
         await audit(tx, value.organizationId, 'executor', 'execution.claimed', executionId, { approvalId: value.approvalId, actionHash: stored.actionHash });
-        return { executionId, claimToken, actionHash: stored.actionHash, proposal: stored.proposal, recoveryEpoch: state.recoveryEpoch };
+        await tx.query("UPDATE gotchu.proposals SET state='executing' WHERE organization_id=$1 AND id=$2", [value.organizationId,approval.proposal_id]);
+        return { executionId, claimToken, actionHash: stored.actionHash, proposal: stored.action, recoveryEpoch: state.recoveryEpoch };
       });
       if (outcome instanceof BackendError) throw outcome;
       return outcome;
@@ -69,7 +71,7 @@ export function createExecutionService(deps: ApprovalDependencies) {
         if (stored.organizationId !== value.organizationId || stored.approvalId !== value.approvalId
           || stored.proposal.organizationId.toLowerCase() !== stored.organizationId
           || stored.proposal.applicationId.toLowerCase() !== stored.applicationId
-          || hashProposal(stored.proposal, stored.recoveryEpoch) !== stored.actionHash
+          || hashStoredAction(stored.proposal, stored.recoveryEpoch) !== stored.actionHash
           || (stored.state === 'succeeded' && stored.providerReference === null)) {
           throw new BackendError('execution_corrupt', 'Stored execution does not bind the exact proposal and scope', 409);
         }
@@ -89,8 +91,9 @@ export function createExecutionService(deps: ApprovalDependencies) {
         const row = result.rows[0];
         if (!row || String(row.recovery_epoch) !== state.recoveryEpoch) throw new BackendError('stale_execution', 'Execution is no longer authorized for provider I/O', 409);
         await authorize(tx, value.organizationId, { userId: row.user_id }, ['owner']);
-        const stored = await checkedProposal(tx, value.organizationId, row.proposal_id);
-        const rejected = await verifyStoredProposal(tx, deps, stored.proposal, row.proposal_id, 'execution');
+        const stored = await checkedStoredAction(tx, value.organizationId, row.proposal_id);
+        if (stored.action.version === 2) throw new BackendError('no_adapter', 'No executor adapter is available for version 2 actions', 409);
+        const rejected = await verifyStoredProposal(tx, deps, stored.action, row.proposal_id, 'execution');
         if (rejected) return rejected;
         if (row.expires_at.getTime() <= clock.now().getTime()) throw new BackendError('approval_expired', 'Approval expired before provider I/O', 409);
         return null;
@@ -105,6 +108,7 @@ export function createExecutionService(deps: ApprovalDependencies) {
         // Record outcomes even if recovery froze new writes while the request was in flight.
         const result = await tx.query("UPDATE gotchu.executions SET state=$4,provider_reference=$5,finished_at=$6 WHERE organization_id=$1 AND id=$2 AND claim_token=$3 AND state='claimed'", [value.organizationId, value.executionId, value.claimToken, value.outcome, value.providerReference ?? null, clock.now()]);
         if (result.rowCount !== 1) throw new BackendError('stale_execution', 'Execution is not owned by this claim or has already finished', 409);
+        await tx.query('UPDATE gotchu.proposals SET state=$3 WHERE organization_id=$1 AND id=(SELECT proposal_id FROM gotchu.executions WHERE organization_id=$1 AND id=$2)', [value.organizationId,value.executionId,value.outcome]);
         await audit(tx, value.organizationId, 'executor', `execution.${value.outcome}`, value.executionId);
       });
     },
@@ -126,6 +130,7 @@ export function createExecutionService(deps: ApprovalDependencies) {
           WHERE organization_id=$1 AND id=$2 AND claim_token=$3 AND state='uncertain'`,
         [value.organizationId, value.executionId, value.claimToken, value.outcome, value.providerReference ?? null, clock.now()]);
         if (updated.rowCount !== 1) throw new BackendError('stale_execution', 'Execution is no longer uncertain', 409);
+        await tx.query('UPDATE gotchu.proposals SET state=$3 WHERE organization_id=$1 AND id=(SELECT proposal_id FROM gotchu.executions WHERE organization_id=$1 AND id=$2)', [value.organizationId,value.executionId,value.outcome]);
         await audit(tx, value.organizationId, 'executor', 'execution.reconciled', value.executionId, { outcome: value.outcome, providerReference: value.providerReference ?? null });
       });
     },
