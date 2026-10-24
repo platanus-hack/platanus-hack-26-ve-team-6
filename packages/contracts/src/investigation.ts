@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { customerScopeSchema } from './customer-assessment.js';
+import { investigationProviderPresetIdSchema, investigationProviderCatalog } from './investigation-providers.js';
 
 export const modelProviderSchema = z.enum(['openai_compatible', 'anthropic_messages']);
 export const investigationDataScopeSchema = z.enum([
@@ -13,14 +14,12 @@ export const investigationDataScopeSchema = z.enum([
 ]);
 export const investigationModelEndpointSchema = z.string().trim().min(1).max(2_048).url().refine(value => {
   const url = new URL(value);
-  if (url.username || url.password || url.search || url.hash) return false;
-  if (url.protocol === 'https:') return true;
-  return url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-}, 'Use HTTPS or a local loopback HTTP model server');
+  return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash;
+}, 'Model endpoints must use HTTPS without credentials, query, or fragment');
 
 export const configureInvestigationModelSchema = z.object({
-  provider: modelProviderSchema,
-  endpoint: investigationModelEndpointSchema,
+  providerPresetId: investigationProviderPresetIdSchema,
+  customEndpoint: investigationModelEndpointSchema.optional(),
   modelId: z.string().trim().min(1).max(200).refine(value => !/[\x00-\x1f\x7f]/.test(value)),
   apiKey: z.string().min(1).max(4_096).optional(),
   consentToExternalProcessing: z.boolean(),
@@ -30,6 +29,12 @@ export const configureInvestigationModelSchema = z.object({
   organizationBudgetCents: z.number().int().min(0).max(100_000_000),
   organizationTokenBudget: z.number().int().min(0).max(100_000_000),
 }).strict().superRefine((value, context) => {
+  if (value.providerPresetId === 'custom_openai_compatible' && value.customEndpoint === undefined) {
+    context.addIssue({ code: 'custom', path: ['customEndpoint'], message: 'Custom OpenAI-compatible providers require an HTTPS endpoint' });
+  }
+  if (value.providerPresetId !== 'custom_openai_compatible' && value.customEndpoint !== undefined) {
+    context.addIssue({ code: 'custom', path: ['customEndpoint'], message: 'Hosted provider endpoints are fixed by the provider preset' });
+  }
   if (new Set(value.dataScopes).size !== value.dataScopes.length) {
     context.addIssue({ code: 'custom', path: ['dataScopes'], message: 'Data scopes must be unique' });
   }
@@ -42,6 +47,7 @@ export const investigationModelSettingsSchema = z.object({
   status: z.enum(['disabled', 'ready']),
   disabledReason: z.enum(['not_configured', 'consent_required', 'data_scope_required', 'secret_unavailable', 'budget_unconfigured']).nullable(),
   provider: modelProviderSchema.nullable(),
+  providerPresetId: investigationProviderPresetIdSchema.nullable(),
   endpoint: investigationModelEndpointSchema.nullable(),
   modelId: z.string().max(200).nullable(),
   apiKeyConfigured: z.boolean(),
@@ -83,10 +89,20 @@ export const investigationActionSchema = z.object({ status: z.enum(['accepted', 
 export const investigationResumeRequestSchema = customerScopeSchema.extend({ jobId: z.uuid() }).strict();
 export const investigationCancelRequestSchema = investigationResumeRequestSchema;
 
-export const investigationModelSuggestions = Object.freeze({
-  openai_compatible: { endpoint: 'https://api.openai.com/v1', modelId: 'gpt-5.5' },
-  anthropic_messages: { endpoint: 'https://api.anthropic.com/v1', modelId: 'claude-sonnet-5-5' },
-});
+export const investigationModelSuggestions = Object.freeze(Object.fromEntries(
+  investigationProviderCatalog.map(preset => [preset.id, { modelId: preset.defaultModelId, suggestedModelIds: preset.suggestedModelIds }]),
+));
+
+export const investigationModelProbeResultSchema = z.object({
+  status: z.enum(['succeeded', 'failed']),
+  reason: z.enum([
+    'invalid_api_key', 'access_denied', 'billing_or_credits', 'model_or_endpoint_not_found',
+    'rate_limited', 'request_rejected', 'provider_unavailable', 'network_error',
+    'invalid_response', 'missing_usage', 'model_output_invalid', 'budget_exhausted', 'probe_unavailable',
+  ]).nullable(),
+  inputTokens: z.number().int().nonnegative().nullable(),
+  outputTokens: z.number().int().nonnegative().nullable(),
+}).strict();
 
 export type InvestigationDataScope = z.infer<typeof investigationDataScopeSchema>;
 export type InvestigationSubject = z.infer<typeof investigationSubjectSchema>;
