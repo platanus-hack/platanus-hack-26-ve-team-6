@@ -14,13 +14,13 @@ FROM dependencies AS web-build
 RUN pnpm --filter '@gotchu/web...' --recursive --sort --if-present run build
 
 FROM dependencies AS coordinator-build
-RUN pnpm --filter '@gotchu/coordinator...' --recursive --sort --if-present run build
+RUN pnpm --filter '@gotchu/coordinator...' --filter '@gotchu/assessment...' --filter '@gotchu/demo-target...' --recursive --sort --if-present run build
 
 FROM workspace AS web-production-dependencies
 RUN pnpm install --prod --frozen-lockfile --filter '@gotchu/web...'
 
 FROM workspace AS coordinator-production-dependencies
-RUN pnpm install --prod --frozen-lockfile --filter '@gotchu/coordinator...'
+RUN pnpm install --prod --frozen-lockfile --filter '@gotchu/coordinator...' --filter '@gotchu/assessment...' --filter '@gotchu/demo-target...'
 
 FROM node:24.18.1-bookworm-slim AS web
 ENV NODE_ENV=production
@@ -61,6 +61,14 @@ COPY --from=coordinator-production-dependencies --chown=node:node /workspace/pac
 COPY --from=coordinator-build --chown=node:node /workspace/packages/database/package.json /workspace/packages/database/package.json
 COPY --from=coordinator-build --chown=node:node /workspace/packages/database/dist /workspace/packages/database/dist
 COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/database/node_modules /workspace/packages/database/node_modules
+COPY --from=coordinator-build --chown=node:node /workspace/packages/assessment/package.json /workspace/packages/assessment/package.json
+COPY --from=coordinator-build --chown=node:node /workspace/packages/assessment/dist /workspace/packages/assessment/dist
+COPY --from=coordinator-build --chown=node:node /workspace/packages/assessment/advisories /workspace/packages/assessment/advisories
+COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/assessment/node_modules /workspace/packages/assessment/node_modules
+COPY --from=coordinator-build --chown=node:node /workspace/apps/demo-target/package.json /workspace/apps/demo-target/package.json
+COPY --from=coordinator-build --chown=node:node /workspace/apps/demo-target/dist /workspace/apps/demo-target/dist
+COPY --from=coordinator-build --chown=node:node /workspace/apps/demo-target/src/fixtures /workspace/apps/demo-target/src/fixtures
+COPY --from=coordinator-production-dependencies --chown=node:node /workspace/apps/demo-target/node_modules /workspace/apps/demo-target/node_modules
 WORKDIR /workspace/apps/coordinator
 USER node
 CMD ["node", "dist/main.js"]
