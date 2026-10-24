@@ -103,9 +103,9 @@ Trabajo:
 
 Trabajo:
 
-- [ ] Catalogar vulnerabilidad de código/dependencia, secreto expuesto, configuración insegura, autenticación abusiva, enumeración, error de aplicación, regresión de release, indisponibilidad, fallo DNS/TLS, dependencia externa y agotamiento de recursos.
+- [x] Catalogar vulnerabilidad de código/dependencia, secreto expuesto, configuración insegura, autenticación abusiva, enumeración, error de aplicación, regresión de release, indisponibilidad, fallo DNS/TLS, dependencia externa y agotamiento de recursos.
 - [ ] Priorizar escenarios de inyección, XSS, autorización, SSRF, secretos y cadena de suministro según entradas reales y perfiles soportados. Una etiqueta de categoría no implica cobertura completa ni un detector de BOLA sin contexto de identidad.
-- [ ] Para cada escenario versionar precondiciones, señales necesarias, evidencia contraria, cobertura mínima, severidad/confianza, opciones, condiciones de parada y pruebas. Preservar anomalías fuera del catálogo como desconocidas investigables.
+- [x] Para cada escenario versionar precondiciones, señales necesarias, evidencia contraria, cobertura mínima, severidad/confianza, opciones, condiciones de parada y pruebas. Preservar anomalías fuera del catálogo como desconocidas investigables. Núcleo determinista; persistencia/UI pendiente.
 - [ ] Derivar contexto de manifiestos literales, configuración, inventario autorizado y telemetría. No ejecutar configuración para descubrirla. Un cambio de stack o advisory reevalúa qué recetas aplican.
 - [ ] Añadir detectores configurables con umbrales calibrados sobre tráfico representativo. Desplegarlos primero en observación y evitar tormentas con ventanas, dedupe y estados de resolución/reapertura.
 - [ ] Ampliar análisis externo por perfiles: observación pública, comprobaciones de API descrita mediante contrato validado y, posteriormente, DAST autenticado en staging autorizado. Credenciales de prueba y permisos por ruta/método van separados del consentimiento público; tasas, exclusiones y parada deben poder configurarse. Las pruebas activas potencialmente modificadoras quedan fuera del perfil público y necesitan laboratorio/permiso específico.
@@ -118,12 +118,12 @@ Trabajo:
 
 Trabajo:
 
-- [ ] Crear un resultado de triage tipado con impacto observado, servicios afectados, ventana, hipótesis, evidencia favorable/contraria, datos faltantes y próxima comprobación. Separar `impacto` de `causa probable`.
-- [ ] Evaluar hipótesis de regresión de aplicación, abuso, dependencia/proveedor y desconocido. Admitir varias simultáneas; no forzar un único culpable.
+- [x] Crear un resultado de triage tipado con impacto observado, servicios afectados, ventana, hipótesis, evidencia favorable/contraria, datos faltantes y próxima comprobación. Separar `impacto` de `causa probable`. Núcleo determinista; persistencia/UI pendiente.
+- [x] Evaluar hipótesis de regresión de aplicación, abuso, dependencia/proveedor y desconocido. Admitir varias simultáneas; no forzar un único culpable. Núcleo determinista; persistencia/UI pendiente.
 - [ ] Alinear tiempos de evento/aceptación, latencia de entrega, sampling, frescura y línea base por servicio/entorno. Un feed global del proveedor no confirma un fallo en la región o componente del cliente.
 - [ ] Relacionar errores por dependencia/ruta, cambios de release, métricas de recursos y comprobaciones HTTPS independientes dentro del consentimiento. Usar rutas de control cuando existan para evitar atribuciones por mera simultaneidad.
 - [ ] Persistir cada revisión con versión del correlador y referencias de evidencia, sin mutar la historia. Evidencia posterior puede subir, bajar o retirar una hipótesis.
-- [ ] Definir confianza por reglas auditables y resultados de evaluación. Reservar probabilidades numéricas para cuando haya calibración; no usar la seguridad verbal del modelo como medida.
+- [x] Definir confianza por reglas auditables y resultados de evaluación. Reservar probabilidades numéricas para cuando haya calibración; no usar la seguridad verbal del modelo como medida. Núcleo determinista; persistencia/UI pendiente.
 - [ ] Mostrar una tarjeta de incidente con impacto, explicación, contradicciones, límites y botón para obtener evidencia faltante. “No se observó impacto en los puntos comprobados” no significa “toda tu empresa está sana”.
 
 **Aceptación mínima:** proveedor caído/app sana; proveedor sano/app fallando tras release; proveedor caído/fallos compatibles en una dependencia; telemetría vieja; dos causas simultáneas; feed regional incompleto; incremento legítimo de tráfico. Incluir controles donde la conclusión correcta es abstenerse. Medir falsos positivos y tiempo hasta decisión frente a señales sin correlacionar.
@@ -296,7 +296,7 @@ Trabajo:
 
 Trabajo:
 
-- [ ] Construir un corpus versionado de incidentes y reparaciones con verdad conocida, controles negativos y un conjunto separado no usado para ajustar reglas. El equipo etiqueta impacto/causas con sus límites antes de ejecutar el correlador.
+- [x] Construir un corpus versionado de incidentes y reparaciones con verdad conocida, controles negativos y un conjunto separado no usado para ajustar reglas. El equipo etiqueta impacto/causas con sus límites antes de ejecutar el correlador. Corpus de correlación etiquetado; reparaciones, persistencia/UI y evaluación integral pendientes.
 - [ ] Medir precisión/recall por escenario, falsas alarmas por app/ventana, abstención, errores de confianza, demora hasta decisión, tiempo hasta reparación verificada, regresiones y coste. Reportar cobertura y denominadores; no sólo ejemplos que funcionan.
 - [ ] Comparar reglas solas, reglas+contexto y reglas+agente; medir aporte incremental de la IA. Para comparar con competidores usar el mismo caso autorizado y condiciones reproducibles, sin inventar sus resultados.
 - [ ] Establecer umbrales de aceptación por escenario antes del holdout. Seguridad de autorización, aislamiento y no escritura sin permiso son gates binarios; calidad/latencia/coste tienen umbrales documentados, todavía no medidos.
