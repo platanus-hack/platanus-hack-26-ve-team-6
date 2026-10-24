@@ -234,9 +234,9 @@ The overview request ended the interview. The subsequent instruction authorized 
 
 Resolve every material branch with an explicit decision, an explicitly accepted assumption, or a defined exclusion. Translate accepted choices into implementable behavior and measurable release checks. Mark the definition complete only after the user confirms the resulting shared understanding. Do not substitute recommendations for answers.
 
-## Current accepted direction: controlled assessment demo
+## Prior implementation slice: controlled assessment fixture
 
-The user accepted this direction on 2026-10-24 as the immediate product and foundation scope. It updates what the current demonstration is meant to deliver; it does not erase the historical D1-D23 decisions or imply that their broader pilot capabilities have been implemented.
+The following records implementation choices made for the first controlled regression slice. The user did not accept these fixture-specific constraints as the product scope, and explicitly corrected that interpretation on 2026-10-24. It updates what the current demonstration is meant to deliver; it does not erase the historical D1-D23 decisions or imply that their broader pilot capabilities have been implemented.
 
 1. **Current product slice:** deliver a controlled assessment application with source and independent HTTP checks, persisted evidence-backed comparison reports, and a minimal usable Spanish dashboard. Assessments operate in observation mode against a fictional, operator-controlled store fixture.
 2. **Fixed public demo scope:** operator-seed one fixed organization, application, public demo principal, and target. Public requests choose only the assessment mode and vulnerable/corrected revision; they cannot supply or change tenant, application, target, URL, or path. Customer business data remains protected by tenant authorization and Postgres row-level security; only the isolated fictional demo scope is public.
@@ -251,3 +251,7 @@ The user accepted this direction on 2026-10-24 as the immediate product and foun
 11. **Deferred product requirements:** monitoring and alerting, general scanners, AWS customer-resource coverage, production identity and MFA, approved provider writes, containment, customer-code execution, production hosting, disaster recovery, and measured operations remain separate gates. Customer-code execution stays disabled until VM-class isolation is demonstrated.
 
 The previous rounds remain the record of broader product intent and the reasons behind later release gates. They should not be read as claims that the controlled assessment demo already provides monitoring, AWS customer-resource coverage, approved remediation, or automatic response.
+
+## Current user correction: actual customer application in development
+
+On 2026-10-24 the user clarified that the goal is the actual Gotchu application implemented correctly toward production readiness. The fictional application is a regression/test target, not the customer product. Build authenticated workspaces, real authorized application enrollment, real source and external assessments, and usable customer flows. Work locally in development; ignore cloud deployment for now. Keep focused commits and push changes to main. Do not label local tests or unimplemented integrations as production readiness. The AWS-first, provider-portable direction and independent authorization requirements remain.
