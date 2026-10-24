@@ -19,6 +19,13 @@ const basePath = `${fakeBin}:/usr/local/bin:/usr/bin:/bin`;
 function run(args, env = {}) {
   return spawnSync('/bin/bash', [script, ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: basePath, ...env } });
 }
+async function freePorts(count) {
+  const servers = Array.from({ length: count }, () => createServer());
+  await Promise.all(servers.map(server => new Promise(resolve => server.listen(0, '127.0.0.1', resolve))));
+  const ports = servers.map(server => String(server.address().port));
+  await Promise.all(servers.map(server => new Promise(resolve => server.close(resolve))));
+  return ports;
+}
 
 try {
   const missing = run(['up'], { PATH: noDockerBin, GOTCHU_STATE_DIR: join(temp, 'missing-state') });
@@ -36,7 +43,8 @@ try {
   assert.equal(await readFile(join(conflictDir, '.env')).catch(() => null), null);
 
   const stateDir = join(temp, 'state');
-  const configuredPorts = { GOTCHU_STATE_DIR: stateDir, GOTCHU_WEB_PORT: '35131', GOTCHU_COORDINATOR_PORT: '35132', GOTCHU_SCANNER_PORT: '35133' };
+  const [webPort, coordinatorPort, scannerPort, postgresPort, redisPort] = await freePorts(5);
+  const configuredPorts = { GOTCHU_STATE_DIR: stateDir, GOTCHU_WEB_PORT: webPort, GOTCHU_COORDINATOR_PORT: coordinatorPort, GOTCHU_SCANNER_PORT: scannerPort, GOTCHU_POSTGRES_PORT: postgresPort, GOTCHU_REDIS_PORT: redisPort };
   const first = run(['up'], configuredPorts);
   assert.notEqual(first.status, 0);
   assert.match(first.stderr, /pnpm 11/);
