@@ -302,7 +302,8 @@ Trabajo:
 
 - [ ] Implementar retención y borrado reconciliados con jobs, evidencias, propuestas, aprobaciones y ejecuciones. Fuente borrada invalida candidatos que ya no pueden verificarse; no duplicar source completo en jobs, auditoría o prompts persistidos.
 - [ ] Resolver límites de retención antes de llamar al monitoreo continuo: hoy 1.000 runs/app detienen programación; 2.000 observaciones/app, 100 nuevas/día y 100 planes/app son cuotas finitas. Mostrar consumo y degradación y probar que una proyección sin cupo no bloquea detecciones aceptadas.
-- [ ] Añadir entrega externa por SMTP/webhook sustituible: destinatario verificado, pruebas de contacto, dedupe, retry acotado, estado de entrega y escalamiento. Blindar SSRF de webhooks; entrega no equivale a lectura humana.
+- [x] Entrega externa básica por SMTP/webhook sustituible: prueba de contacto, outbox durable, idempotencia estable, retry acotado, estado de entrega y dead letter; webhook HTTPS con firma y defensa SSRF. La entrega no equivale a lectura humana y una caída completa del coordinador retrasa la salida externa.
+- [ ] Añadir verificación de destinatarios, rotación de secretos, escalamiento y watchdog independiente; probar recuperación y disponibilidad con proveedores externos.
 - [x] Completar invitaciones de un solo uso y siete días, roles, baja y salida de miembros. PostgreSQL impone límites por espacio, último Owner y consumo atómico; cada cambio se audita. Una revocación o democión a Viewer invalida verificaciones de segundo factor y aprobaciones pendientes en la misma transacción. El executor vuelve a comprobar la membresía antes de reclamar y antes de I/O.
 - [ ] Completar la revocación de integraciones y MFA. No exponer registros privados de checkpoint o credenciales.
 
