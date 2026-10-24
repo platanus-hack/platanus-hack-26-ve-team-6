@@ -24,3 +24,4 @@ export const updateIncidentStatusSchema = z.object({ status: incidentStatusSchem
 export const evidenceRequestResponseSchema = z.object({ requested: z.array(z.enum(['https_health', 'provider_status'])), message: z.string() }).strict();
 export type TriageIncident = z.infer<typeof triageIncidentSchema>;
 export type TriageIncidentDetail = z.infer<typeof triageIncidentDetailSchema>;
+export type TriageRevision = z.infer<typeof triageRevisionSchema>;
