@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { createBackend, enqueue, signEventBody, type JobClaim } from '@gotchu/backend';
 import { createDatabase, provisionRuntimeLogin, type Database } from '@gotchu/database';
 import { investigationResultSchema, safeCheckpointSchema } from '@gotchu/agent';
-import { createHttpInvestigator, dispatchOutbox, ensureQueueDelivery, finalizeInvestigation, processDurableJob, reconcileDurableDeliveries, type CoordinatorDependencies } from '@gotchu/coordinator';
+import { createCoordinatorTransport, createHttpInvestigator, dispatchOutbox, ensureQueueDelivery, finalizeInvestigation, processDurableJob, reconcileDurableDeliveries, type CoordinatorDependencies } from '@gotchu/coordinator';
 import { createGatewayService, startGatewayServer } from '@gotchu/gateway';
 import { migrateGateway } from '@gotchu/gateway/migrate';
 import { createInvestigationWorkerService, createWorkerHttpServer, listenWorkerServer } from '@gotchu/worker';
@@ -155,6 +155,65 @@ live('signed intake through durable delivery and isolated HTTP investigation', (
     expect(denied.status).toBe(403);
     const approval = await api(new Request(`${origin}/api/v1/organizations/${f.a.organizationId}/proposals/${randomUUID()}/approvals`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: JSON.stringify({ actionHash: 'a'.repeat(64), stepUpProof: 'untrusted-fixture-proof' }) }));
     expect(approval.status).toBe(503);
+  });
+
+  it.each(['outbox', 'reconciliation'] as const)('keeps deterministic delivery independent of two blocked investigations via %s', async (delivery) => {
+    let release: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    let active = 0; let started = 0; let finished = 0; let peakActive = 0;
+    // Only the slow investigation port/result is a fixture. Postgres, signed intake,
+    // outbox, BullMQ workers and durable completion use the production paths.
+    const transport = createCoordinatorTransport({
+      redisUrl: present(redisUrl), prefix: `gotchu-lanes-${randomUUID()}`, organizationIds: [f.a.organizationId],
+      dependencies: { ...dependencies, investigator: { investigate: async () => {
+        started++; active++; peakActive = Math.max(peakActive, active);
+        try { await blocked; return delayedResult; }
+        finally { active--; finished++; }
+      } } },
+      report: (event, error) => transportErrors.push(new Error(event, { cause: error })),
+    });
+    try {
+      await transport.waitUntilReady();
+      // A stopped old coordinator can leave already-delivered intent in its old queue.
+      const legacy = delivery === 'reconciliation' ? await newQueue() : undefined;
+      async function deliver() {
+        await dispatchOutbox(coordinator, f.a.organizationId, legacy
+          ? (envelope) => ensureQueueDelivery(legacy.queue, envelope)
+          : transport.publish);
+        if (legacy) await reconcileDurableDeliveries(f.databases.gotchu_coordinator, f.a.organizationId, transport.publish);
+      }
+      const investigationIds = [randomUUID(), randomUUID(), randomUUID()];
+      await f.databases.gotchu_coordinator.tenant(f.a.organizationId, async (tx) => {
+        for (const id of investigationIds) await enqueue(tx, {
+          organizationId: f.a.organizationId, applicationId: f.a.applicationId, id, kind: 'investigation',
+          idempotencyKey: id, payload: { incidentId: randomUUID(), evidenceIds: [randomUUID()] },
+        });
+      });
+      await deliver();
+      await waitFor(async () => active === 2, 'both investigation ports to enter the blocking fixture');
+
+      const accepted = await ingest(events(1, 'monitoring-while-investigating'));
+      expect(accepted.accepted).toBe(1);
+      const eventId = present(accepted.jobId);
+      await deliver();
+      await waitFor(async () => await state(eventId) === 'succeeded'
+        && await (await transport.queues.deterministic.getJob(eventId))?.getState() === 'completed', 'independent event completion');
+
+      expect({ active, started, finished, peakActive }).toEqual({ active: 2, started: 2, finished: 0, peakActive: 2 });
+      expect(await transport.queues.investigation.getActiveCount()).toBe(2);
+      expect(await transport.queues.investigation.getWaitingCount()).toBe(1);
+      expect((await Promise.all(investigationIds.map(state))).sort()).toEqual(['queued', 'running', 'running']);
+      expect(await transport.queues.investigation.getJob(eventId)).toBeUndefined();
+      for (const id of investigationIds) expect(await transport.queues.deterministic.getJob(id)).toBeUndefined();
+      expect((await f.admin.query('SELECT id FROM gotchu.outbox WHERE organization_id=$1 AND delivered_at IS NOT NULL', [f.a.organizationId])).rowCount).toBe(4);
+
+      release?.();
+      await waitFor(async () => (await Promise.all(investigationIds.map(state))).every((value) => value === 'succeeded'), 'released investigations to finish');
+      expect({ active, started, finished, peakActive }).toEqual({ active: 0, started: 3, finished: 3, peakActive: 2 });
+    } finally {
+      release?.();
+      await transport.close();
+    }
   });
 
   it.each(['missing', 'completed', 'failed'] as const)('recovers delivered Postgres intent when Redis transport is %s', async (transportState) => {
