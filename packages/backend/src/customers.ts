@@ -349,7 +349,7 @@ export function createCustomerService(deps: CustomerDependencies) {
     },
     async uploadContainerImage(identity: Identity, input: Scope & { label: string; authorized: true }, raw: Uint8Array): Promise<CustomerContainerImageSummary> {
       const actor = principal(identity);
-      const scope = parse(customerScopeSchema, input);
+      const scope = parse(customerScopeSchema, { organizationId: input.organizationId, applicationId: input.applicationId });
       const metadata = parse(customerContainerImageUploadMetadataSchema, { label: input.label, authorized: input.authorized });
       if (!(raw instanceof Uint8Array) || raw.byteLength < 1 || raw.byteLength > CUSTOMER_MAX_CONTAINER_IMAGE_BYTES) {
         throw new BackendError('payload_too_large', 'Container image archive exceeds the 8 MiB storage bound', 413);
