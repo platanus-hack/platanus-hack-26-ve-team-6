@@ -2,6 +2,9 @@ import { createServer } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { createBackend } from '@gotchu/backend';
+import { DEMO_ASSESSMENT_SCOPE } from '@gotchu/backend';
+import { createControlledAssessmentRunner } from '@gotchu/assessment';
+import { startDemoTargetServer } from '@gotchu/demo-target';
 import { createDatabase } from '@gotchu/database';
 import { dispatchOutbox } from './jobs.js';
 import { createHttpInvestigator } from './investigator.js';
@@ -32,8 +35,13 @@ async function main() {
   const privateKeyPem = process.env.GOTCHU_RUN_CAPABILITY_PRIVATE_KEY;
   if (Boolean(workerUrl) !== Boolean(privateKeyPem)) throw new Error('Worker URL and capability signing key must be configured together');
   const investigator = workerUrl && privateKeyPem ? await createHttpInvestigator({ workerUrl, privateKeyPem, allowLoopbackHttp: config.nodeEnv !== 'production' }) : undefined;
-  const dependencies = { database, backend, ...(investigator ? { investigator } : {}) };
   const allowedOrganizations = new Set(config.organizationIds);
+  const demoEnabled = process.env.GOTCHU_DEMO_ENABLED === 'true';
+  if (demoEnabled && !allowedOrganizations.has(DEMO_ASSESSMENT_SCOPE.organizationId)) throw new Error('Assign the controlled demo organization before enabling its runner');
+  const controlledTarget = demoEnabled && !process.env.GOTCHU_DEMO_TARGET_ORIGIN ? await startDemoTargetServer({ host: '127.0.0.1', port: 4100 }) : undefined;
+  const origin = process.env.GOTCHU_DEMO_TARGET_ORIGIN ?? controlledTarget?.origin;
+  const assessmentRunner = demoEnabled ? createControlledAssessmentRunner(origin ? { origin } : {}) : undefined;
+  const dependencies = { database, backend, ...(investigator ? { investigator } : {}), ...(assessmentRunner ? { assessmentRunner } : {}) };
   const transport = createCoordinatorTransport({ redisUrl: config.redisUrl, organizationIds: config.organizationIds, dependencies, report });
   const stop = new AbortController();
   const loop = (async () => {
@@ -69,7 +77,7 @@ async function main() {
     await loop;
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     try { await transport.close(); }
-    finally { await database.close(); }
+    finally { await Promise.all([database.close(), controlledTarget?.close()]); }
   };
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { void shutdown().catch((error: unknown) => { report('coordinator_shutdown_failed', error); process.exitCode = 1; }); });
   loop.catch((error: unknown) => { report('coordinator_loop_failed', error); process.exitCode = 1; });

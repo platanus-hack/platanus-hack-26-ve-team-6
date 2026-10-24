@@ -6,6 +6,8 @@
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.test.json", "test": "vitest run", "test:live": "node test/run-live.mjs", "start": "node dist/main.js" },
   "dependencies": {
+    "@gotchu/assessment": "workspace:*",
+    "@gotchu/demo-target": "workspace:*",
     "@gotchu/agent": "workspace:*",
     "@gotchu/backend": "workspace:*",
     "@gotchu/contracts": "workspace:*",
