@@ -79,7 +79,7 @@ El arranque local de esta guía mantiene Agent y Gateway deshabilitados; en esa 
 
 `restore` necesita una instalación ya inicializada y detenida. Después de `./gotchu reset`, ejecuta `./gotchu up` y `./gotchu down` antes de restaurar el archivo externo. El comando deja todos los servicios detenidos, congela escrituras de proveedor e incrementa el recovery epoch; luego `./gotchu up` reinicia la aplicación. Los valores locales de Postgres y los puertos permanecen de la instalación destino. Para borrar una copia, elimina su archivo y las demás copias que hayas guardado; la limpieza de una workspace no puede editar respaldos cifrados existentes.
 
-`./gotchu doctor` comprueba requisitos frecuentes. GitHub App es opcional y sólo necesita permisos de lectura. El executor, las escrituras a proveedores y el validator VM no están disponibles. El validator requiere Linux, `/dev/kvm`, `bwrap`, una sesión systemd de usuario, runtime login, clave privada y preparación de imágenes; el worker se puede ejecutar manualmente después de configurar esos valores con `GOTCHU_VALIDATOR_DATABASE_URL=… GOTCHU_VALIDATOR_KEY_PATH=… pnpm --filter @gotchu/validator start`. `doctor` indica cuando faltan esos requisitos. No hay una promesa de aislamiento VM lista para producción.
+`./gotchu doctor` comprueba requisitos frecuentes. La GitHub App Reader es opcional y sólo necesita permisos de lectura. El executor de PR está desactivado por defecto y requiere una GitHub App Writer, un catálogo de repositorios autorizado y el flujo de aprobación Owner descrito abajo.
 
 ### Configurar GitHub App
 
@@ -103,6 +103,39 @@ En la pantalla de consentimiento, configura el dominio autorizado y los enlaces 
 En `${state_dir}/.env`, configura `AUTH_GOOGLE_ID=<client-id>` y `AUTH_GOOGLE_SECRET=<client-secret>`. El botón aparece sólo cuando ambas variables están presentes. Gotchu solicita `openid email profile` y acepta únicamente perfiles con correo verificado por Google. Los usuarios nuevos pasan al onboarding normal una vez iniciada la sesión. En una instalación autoalojada, Google no puede crear al primer Owner: antes debe completarse `/setup` con el enlace de un solo uso de `./gotchu up` o `./gotchu setup-link`.
 
 Si el correo verificado ya pertenece a una cuenta local, Gotchu no vincula Google automáticamente. Inicia sesión con la contraseña local; la vinculación explícita desde ajustes de cuenta queda pendiente porque la aplicación todavía no cuenta con persistencia de identidades enlazadas. Reinicia con `./gotchu up` después de cambiar las variables. No copies el client secret a páginas, capturas ni registros.
+
+### Activar el executor de PR
+
+El executor de PR está desactivado por defecto. Para habilitarlo en desarrollo local, crea una GitHub App Writer instalada sólo en los repositorios que autorizas. Dale permisos de lectura/escritura de Contents y Pull requests; Gotchu abre PRs draft y no hace merge. Guarda fuera de Git el JSON de la App en `.gotchu/github-writer-app.json`, con campos `id` y `privateKeyPem`, permisos `0600`. Usa una clave RSA de 2048 bits o más. La clave debe pertenecer a una App de escritura; no reutilices el token o la clave del Reader.
+
+Edita `.gotchu/.env` y configura el ID de instalación de esa App y `GOTCHU_EXECUTOR_ENABLED=true`:
+
+```dotenv
+GOTCHU_EXECUTOR_ENABLED=true
+GOTCHU_GITHUB_WRITER_INSTALLATION_ID=<installation-id>
+```
+
+Después, añade al archivo privado `.gotchu/monitoring-repositories.json` una entrada GitHub con los IDs reales del workspace y la aplicación, y el `repositoryKey` que coincide con el repositorio vinculado en Gotchu:
+
+```json
+{
+  "repositoryRoot": "/run/repos",
+  "repositories": [{
+    "organizationId": "<workspace-uuid>",
+    "applicationId": "<application-uuid>",
+    "repositoryKey": "<linked-repository-key>",
+    "displayName": "Production source",
+    "provider": "github",
+    "owner": "<github-owner>",
+    "repository": "<github-repository>",
+    "ref": "main"
+  }]
+}
+```
+
+Mantén catálogo y credencial con permisos privados. El catálogo limita el destino que web, coordinator y executor pueden resolver; sólo el executor recibe la clave Writer. Reinicia con `./gotchu up`; el comando valida la configuración y espera readiness. La UI habilita **Aprobar PR** únicamente para acciones elegibles del Owner con validación vigente y WebAuthn reciente. El executor publica la rama y abre un PR draft después de reclamar la aprobación exacta. Revisa y cierra PRs manualmente: merge, deploy, respuesta automática y recuperación no están habilitados. Esta configuración es para desarrollo local; la activación en producción sigue bloqueada.
+
+El validator VM aún no se inicia desde Compose. Requiere Linux, `/dev/kvm`, `bwrap`, una sesión systemd de usuario, runtime login, clave privada y preparación de imágenes; el worker se puede ejecutar manualmente después de configurar esos valores con `GOTCHU_VALIDATOR_DATABASE_URL=… GOTCHU_VALIDATOR_KEY_PATH=… pnpm --filter @gotchu/validator start`. `doctor` indica cuando faltan esos requisitos. No hay una promesa de aislamiento VM lista para producción.
 
 ## Seguridad y exposición
 

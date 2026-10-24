@@ -213,14 +213,14 @@ Trabajo:
 
 - [x] Añadir `ActionVerifier` con una consulta de candidato privado/digest, lectura de base y un `ValidationFactsPort` con schema local estricto. El runtime web lo conecta fail-closed; por ahora retorna `null` hasta que la integración D05 provea hechos firmados.
 - [x] Añadir persistencia restringida por tenant para intentos del executor, con transiciones `claimed → branch_published → pr_opened → verified` y estados inciertos/reconciliación.
-- [ ] Guardar patches, árboles/commits candidatos y attestations de D05 con acceso privado, integridad verificable y retención. El modelo no puede editar el registro de validación ni marcarse elegible.
-- [ ] Conectar el `ValidationFactsPort` con `backend.validations.getValidationFacts(actionRef)`; D05 aún no está integrado en esta rama.
-- [ ] Crear el proceso consumidor de executor, su lifecycle completo, readiness y apagado. La biblioteca y el ledger existen, pero esta rama todavía no conecta un worker a la cola de ejecuciones.
-- [ ] Reutilizar claims/outbox desde el proceso independiente; credenciales de escritura sólo en el executor y sólo para los recursos aprobados. Registrar intentos por etapa sin source, tokens ni secretos en logs.
-- [ ] Extender máquina de estados y reconciliación a escrituras de varios pasos. Tras timeout consultar estado remoto antes de retry; una respuesta desconocida conserva bloqueo y no permite una segunda acción.
-- [ ] Mantener freeze tras restore, epoch de recuperación y verificación independiente del efecto. Las conexiones del worker/modelo siguen siendo de lectura.
+- [x] Guardar patches, árboles candidatos y attestations firmadas de D05 con acceso privado e integridad verificable. El artefacto conserva bytes/digests exactos y el modelo no puede editar validaciones ni marcar elegibilidad.
+- [x] Conectar `ValidationFactsPort` con `backend.validations.getValidationFacts(actionRef)` en web y executor; el verificador vuelve a comprobar firmas, expiración, suite, aislamiento y hechos del repositorio.
+- [x] Crear el proceso executor independiente, con BullMQ, lease durable de Postgres, readiness loopback, heartbeat de disponibilidad y apagado ordenado.
+- [x] Reutilizar el outbox/job de aprobación; las credenciales Writer sólo entran al executor y el catálogo del operador limita destino y tenant. El ledger guarda etapas sin código fuente ni secretos.
+- [x] Extender estados y reconciliación para rama, PR y verificación. Después de un resultado ambiguo se consulta GitHub; un efecto ausente o desconocido conserva el lock y no se vuelve a publicar.
+- [x] Mantener freeze y epoch de recuperación. Una ejecución incierta se puede reconciliar mediante lecturas/verificación; cualquier escritura nueva vuelve a comprobar la autorización exacta.
 
-**Aceptación:** DB/Redis reales con caídas entre cada transición, duplicados, fallo de credenciales, aprobación ausente, permisos incompatibles, resultado incierto y restauración. Las pruebas con proveedor simulado validan el ledger; D09 aporta la prueba del proveedor real.
+**Aceptación verificada:** PostgreSQL 17.11 y Redis 7.4.11 desechables cubren pérdida de resultado después de publicar rama, crear PR y verificar; redelivery, duplicado, historial, freeze/reconciliación, aprobación ausente, credencial revocada, base obsoleta y resultado incierto. Las pruebas de Postgres/Redis inyectan el proveedor y WebAuthn; D09 aporta la escritura real de GitHub.
 
 ### D09 — PR real, seguro frente a concurrencia y automatización del repo
 
@@ -228,13 +228,13 @@ Trabajo:
 
 - [x] Implementar `@gotchu/git-adapters` con salida local Git y GitHub App, ramas deterministas, creación condicional de ref y búsqueda de PR por branch tras entregas repetidas.
 - [x] Rechazar cambios candidatos bajo `.github/workflows/**`; leer los workflows del commit base y parsear YAML con `js-yaml`, en modo deny-by-default, rechazando `pull_request_target`, `push` sin filtro de ramas, `push` hacia `gotchu/**` y secretos distintos de `GITHUB_TOKEN` en `pull_request`. Un YAML inválido también se rechaza. La prueba opt-in real confirmó head/base, inspeccionó el sandbox (sin workflows) y cerró el PR/eliminó la rama.
-- [ ] Integrar el adaptador con el executor, publicar artefactos D05 almacenados y verificar digest exacto del diff/commit desde el proveedor.
-- [ ] Conectar la inspección al runtime lector y al registro de excepciones por repositorio, aprobado por Owner, versionado y auditado. La opción de excepción actual sólo es una costura del adaptador y no satisface ese registro. La prueba GitHub adapter directa no sustituye esa integración.
-- [ ] Definir operaciones condicionales reales por proveedor. Un lock de Postgres y leer el head antes de escribir no bloquean un editor remoto. GitHub no ofrece un parámetro universal de expected-old-SHA para todas las operaciones; revisar capacidades concretas y cerrar las que no garanticen la política. Referencia: [Git refs REST](https://docs.github.com/en/rest/git/refs?apiVersion=2022-11-28).
-- [ ] Si cambia la base, invalidar y regenerar aprobación. Si el cambio se descubre después de crear el PR, conservarlo como obsoleto y bloquear merge/deploy hasta validar de nuevo; no describir ese caso como libre de carreras.
-- [ ] Gestionar permiso revocado, PR cerrado, conflicto, branch borrada y reconciliación de resultado incierto sin repetir la publicación.
+- [x] Integrar el adaptador con el executor: leer el artefacto D05, comprobar el árbol completo y verificar en GitHub el commit, parent y tree del PR contra el digest aprobado.
+- [x] Conectar inspección al verificador lector y usar excepciones de workflow por repositorio, Owner, con versionado, WebAuthn y auditoría.
+- [x] Usar creación condicional de ref, lock durable por repo, lectura del head antes de cada escritura y reconciliación por rama/PR. GitHub no ofrece una transacción atómica entre comparar la base y abrir el PR; el executor detecta un cambio posterior, invalida la acción y mantiene el PR como obsoleto sin habilitar merge/deploy.
+- [x] Si cambia la base, invalidar la aprobación y exigir candidato y aprobación nuevos. Un cambio posterior a publicar se conserva en el historial y no se declara verificado.
+- [x] Gestionar permisos revocados, PR cerrado, conflicto, rama eliminada y estado remoto incierto sin crear una segunda rama/PR después de una escritura ambigua.
 
-**Aceptación:** repositorio desechable real, aprobado para estas pruebas; un PR exacto pese a entrega duplicada; base cambiada; CI no permitido; timeout tras creación; credenciales revocadas; efecto verificado. No hace falta desplegar AWS. La validación de Git local no sustituye el check del adaptador GitHub.
+**Aceptación verificada:** el test opt-in usó la Writer App contra el repositorio privado desechable autorizado, abrió un PR draft desde un artefacto almacenado, verificó el tree SHA, redeliveró el job sin crear otro PR y cerró el PR/eliminó la rama. Los casos de base obsoleta, workflow bloqueado, credenciales revocadas, PR cerrado y resultado incierto también tienen cobertura automatizada; esas variaciones no se probaron alterando permisos o CI del sandbox real. No hace falta desplegar AWS.
 
 ### D10 — Merge, deploy y rollback como capacidades separadas
 
