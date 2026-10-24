@@ -218,7 +218,7 @@ live('production scanner TLS and durable customer assessment', () => {
     const identity = { userId: present(f).a.userId };
     const job = await eventually(async () => {
       assertAlive(coordinatorProcess);
-      const current = await present(coordinator).web.getJob(identity, { ...scope, jobId });
+      const current = await present(coordinator).web.getJob(identity, { organizationId: scope.organizationId, jobId });
       if (current.state === 'failed') throw new Error(`Production scanner job failed: ${current.reasonCode ?? 'unknown'}`);
       if (current.state !== 'succeeded') return undefined;
       const delivery = await present(f).admin.query<{ delivered_at: Date | null }>(
@@ -227,7 +227,7 @@ live('production scanner TLS and durable customer assessment', () => {
       );
       return delivery.rows[0]?.delivered_at ? current : undefined;
     }, 'durable production scanner job completion', 120_000);
-    expect(job).toMatchObject({ state: 'succeeded', kind: 'audit', outcome: 'completed', reportId: expect.any(String), attempts: 1 });
+    expect(job).toMatchObject({ applicationId: scope.applicationId, state: 'succeeded', kind: 'audit', outcome: 'completed', reportId: expect.any(String), attempts: 1 });
     const reportId = present(job.reportId);
     const report = await present(coordinator).customers.getReport(identity, { ...scope, reportId });
     expect(report).toMatchObject({ version: 2, id: reportId, jobId, mode: 'internal', subject: { sourceSnapshotId: source.id, sourceDigest: source.digest, targetId: null } });
@@ -280,6 +280,6 @@ live('production scanner TLS and durable customer assessment', () => {
 
     const stranger = { userId: present(f).b.userId };
     await expect(present(coordinator).customers.getReport(stranger, { ...scope, reportId })).rejects.toMatchObject({ code: 'forbidden' });
-    await expect(present(coordinator).web.getJob(stranger, { ...scope, jobId })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(present(coordinator).web.getJob(stranger, { organizationId: scope.organizationId, jobId })).rejects.toMatchObject({ code: 'forbidden' });
   }, 180_000);
 });
