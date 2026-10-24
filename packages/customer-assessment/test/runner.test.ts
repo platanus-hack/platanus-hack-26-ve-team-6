@@ -41,7 +41,20 @@ describe('customer report boundaries',()=>{
     const work=createCustomerAssessmentRunner({deadlineMs:10,scanners:{...absentScanners,run}}).run(input([{path:'danger.ts',content:'process.exit(99);'}]));
     work.then(()=>{settled=true;},()=>{settled=true;});
     await vi.waitFor(()=>expect(aborted).toBe(3));expect(settled).toBe(false);
-    release();expect((await work).internal?.status).toBe('unavailable');
+    release();expect((await work).internal?.status).toBe('unavailable');expect(run).toHaveBeenCalledTimes(3);
+  });
+  it('waits for a delayed HTTPS sibling and gives scanner cleanup failure precedence without retries',async()=>{
+    let releaseLookup=()=>{};const lookupGate=new Promise<void>(resolve=>{releaseLookup=resolve;});let lookupStarted=false;
+    const cleanupError=new Error('scanner_cleanup_unavailable');
+    const run=vi.fn(async()=>{throw cleanupError;});
+    const fixture=input();fixture.mode='both';fixture.target={id:fixture.jobId,origin:'https://customer.org',version:3,verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+10000).toISOString()};
+    const runner=createCustomerAssessmentRunner({deadlineMs:20,scanners:{...absentScanners,run},https:{lookup:async()=>{lookupStarted=true;await lookupGate;return[{address:'127.0.0.1',family:4}];}}});
+    let settled=false;const work=runner.run(fixture);work.then(()=>{settled=true;},()=>{settled=true;});
+    await vi.waitFor(()=>{expect(lookupStarted).toBe(true);expect(run).toHaveBeenCalledTimes(3);});
+    await new Promise(resolve=>setTimeout(resolve,40));expect(settled).toBe(false);
+    releaseLookup();await expect(work).rejects.toBe(cleanupError);
+    expect(run).toHaveBeenCalledTimes(3);
+    await expect(runner.readiness()).rejects.toBe(cleanupError);
   });
   it('propagates cleanup faults only after sibling operations settle and latches the runner',async()=>{
     let release=()=>{};const cleanup=new Promise<void>(resolve=>{release=resolve;});
