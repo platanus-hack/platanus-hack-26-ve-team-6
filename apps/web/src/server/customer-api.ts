@@ -10,14 +10,16 @@ import {
   monitorConfigInputSchema, monitorConfigSchema, operationCoverageSchema, operationAlertSchema,
   operationPlanSchema, operationPlanKindSchema, operationPlanBindingSchema, operationPlanStepSchema, operationReadinessSchema,
 } from '@gotchu/contracts';
-import type { Identity, Backend } from '@gotchu/backend';
+import { type Identity, type Backend } from '@gotchu/backend';
 import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, reportRecommendationsResponseSchema, type PrepareCorrectionRequest, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
 import type { AuthService } from './auth.js';
 import { localRegistrationSchema, type LocalAccounts } from './local-accounts.js';
+import { handleStepUpApi } from './step-up-api.js';
 import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } from './http.js';
 import { handleContextApi } from './context-api.js';
 
 export interface CustomerServices {
+  stepUp?: NonNullable<Backend['stepUp']>;
   corrections?: {
     recommendations(identity: Identity, input: { organizationId: string; applicationId: string; reportId: string }): Promise<ReportRecommendationsResponse>;
     prepare(identity: Identity, input: PrepareCorrectionRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<PrepareCorrectionResponse>;
@@ -86,6 +88,12 @@ export function createCustomerApi(options: {
       const headers = new Headers();
       for (const cookie of session.cookies) headers.append('set-cookie', cookie);
       const send = (value: unknown, status = 200) => json(value, status, headers);
+      if (url.pathname.startsWith('/api/customer/step-up/')) {
+        const stepUp = services.stepUp;
+        if (!stepUp) throw new HttpError(503, 'step_up_not_configured', 'La verificación en dos pasos no está configurada.');
+        const response = await handleStepUpApi(request, identity, stepUp);
+        if (response) return response;
+      }
       if (url.pathname.includes('/context')) {
         if (!services.context) throw new HttpError(503, 'context_not_configured', 'El inventario de contexto no está configurado.');
         const contextResponse = await handleContextApi(request, identity, services.context, services.repositoryCatalog);
@@ -226,7 +234,12 @@ export function createCustomerApi(options: {
       }
       throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
     } catch (error) {
-      return errorResponse(error);
+      const response = errorResponse(error);
+      if (new URL(request.url).pathname.startsWith('/api/customer/step-up/')) {
+        const headers = new Headers(response.headers); headers.set('Cache-Control', 'private, no-store');
+        return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+      }
+      return response;
     }
   };
 }

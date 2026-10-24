@@ -25,6 +25,25 @@ function operationPorts() {
   return { ...result, operations };
 }
 describe('authenticated customer HTTP adapter (injected services)', () => {
+  it('dispatches step-up routes only for the session identity and returns no-store responses', async () => {
+    const { services, auth } = ports();
+    services.stepUp = {
+      verifier: { verify: async () => { throw new Error('Unexpected verifier call'); } },
+      list: vi.fn(async () => []), beginEnrollment: vi.fn(async () => ({ challengeId: randomUUID(), expiresAt: new Date(), options: { challenge: 'random-challenge', rp: { name: 'Gotchu' }, user: { id: 'user', name: 'user', displayName: 'user' }, pubKeyCredParams: [{ type: 'public-key' as const, alg: -7 }] } })),
+      beginRecoveryEnrollment: vi.fn(async () => ({ challengeId: randomUUID(), expiresAt: new Date(), options: { challenge: 'random-challenge', rp: { name: 'Gotchu' }, user: { id: 'user', name: 'user', displayName: 'user' }, pubKeyCredParams: [{ type: 'public-key' as const, alg: -7 }] } })),
+      finishEnrollment: vi.fn(async () => ({ factor: { id: randomUUID(), credentialId: 'credential', label: 'Llave', createdAt: new Date().toISOString(), lastUsedAt: null }, recoveryCodes: [] })),
+      beginChallenge: vi.fn(async () => ({ challengeId: randomUUID(), expiresAt: new Date(), options: { challenge: 'random-challenge', rpId: 'localhost', userVerification: 'required' as const } })),
+      finishAssertion: vi.fn(async () => ({ proof: 'x'.repeat(32), expiresAt: new Date() })),
+      rename: vi.fn(async () => undefined), revoke: vi.fn(async () => undefined), revokeWithRecovery: vi.fn(async () => undefined),
+    };
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const response = await handle(request('step-up/challenges', { organizationId, actionHash: 'a'.repeat(64) }));
+    expect(response.status).toBe(201);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(services.stepUp?.beginChallenge).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, actionHash: 'a'.repeat(64) });
+    auth.identity = async () => null;
+    expect((await handle(request('step-up/challenges', { organizationId, actionHash: 'a'.repeat(64) }))).status).toBe(401);
+  });
   it('prepares only an exact finding/digest selection using authenticated path scope', async () => {
     const { services, auth } = ports();
     const reportId = randomUUID(); const findingId = randomUUID();

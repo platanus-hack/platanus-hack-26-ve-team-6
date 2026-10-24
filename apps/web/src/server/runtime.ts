@@ -53,7 +53,14 @@ export function createBackendApi(options: { auth: AuthService; origin: string; w
 }
 
 export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
-  const origin = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000').origin;
+  const configuredOrigin = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000');
+  if (configuredOrigin.username || configuredOrigin.password || configuredOrigin.pathname !== '/' || configuredOrigin.search || configuredOrigin.hash
+    || (configuredOrigin.protocol !== 'https:' && !(configuredOrigin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(configuredOrigin.hostname)))) throw new Error('PUBLIC_APP_URL must be an HTTPS origin (localhost is allowed for development)');
+  const origin = configuredOrigin.origin;
+  const defaultRpID = ['127.0.0.1', '[::1]'].includes(configuredOrigin.hostname) ? 'localhost' : configuredOrigin.hostname;
+  const rpID = z.string().min(1).max(253).parse(env.GOTCHU_WEBAUTHN_RP_ID ?? defaultRpID);
+  if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/i.test(rpID)
+    || !(configuredOrigin.hostname === rpID || configuredOrigin.hostname.endsWith(`.${rpID}`))) throw new Error('GOTCHU_WEBAUTHN_RP_ID must match the configured application origin');
   const apiDatabase = env.GOTCHU_API_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_API_DATABASE_URL, role: 'gotchu_api', max: 5 }) : null;
   const ingestDatabase = env.GOTCHU_INGEST_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_INGEST_DATABASE_URL, role: 'gotchu_ingest', max: 5 }) : null;
   const accounts = apiDatabase && env.GOTCHU_LOCAL_AUTH_ENABLED === 'true' ? createLocalAccounts(apiDatabase) : undefined;
@@ -61,7 +68,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const auth = createAuthService(settings);
   const dnsServers = env.GOTCHU_DNS_SERVERS_JSON ? z.array(z.string().min(1).max(100)).max(5).parse(JSON.parse(env.GOTCHU_DNS_SERVERS_JSON)) : [];
   const eventCredentials = env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY ? createFileEventCredentials(env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY) : undefined;
-  const web = apiDatabase ? createBackend({ database: apiDatabase, customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, webAuthn: { rpID, origin, rpName: 'Gotchu' }, customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
   const configuredCredentials = credentialStore(env.GOTCHU_EVENT_SIGNING_KEYS_JSON);
   const credentials: CredentialStore | undefined = eventCredentials || configuredCredentials ? { getSigningSecret: async reference => {
     if (reference.startsWith('local-event:') && eventCredentials) return eventCredentials.getSigningSecret(reference);
@@ -71,7 +78,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
-  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, telemetry: web.telemetry, operations: web.operations, corrections: web.corrections, context: web.context,
+  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, operations: web.operations, corrections: web.corrections, context: web.context,
     repositoryCatalog: async (identity, scope) => {
       await web.operations.getConfig(identity, scope);
       if (!env.GOTCHU_MONITORING_CONFIG_FILE) return [];
@@ -98,7 +105,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
       return {
         ready,
         dependencies: { apiDatabase: apiDatabaseReady, intakeDatabase: intakeDatabaseReady, signIn: auth.enabled },
-        capabilities: { eventSigningKeys: Boolean(credentials), freshSecondFactorApproval: false, githubWrites: false, customerCodeExecution: false, deployedAwsCoverage: false },
+        capabilities: { eventSigningKeys: Boolean(credentials), freshSecondFactorApproval: Boolean(web?.stepUp), githubWrites: false, customerCodeExecution: false, deployedAwsCoverage: false },
       };
     },
     async close() { await Promise.all([apiDatabase?.close(), ingestDatabase?.close()]); },
