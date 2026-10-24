@@ -12,7 +12,7 @@ export interface ScannerTlsIdentity { cert: Uint8Array; key: Uint8Array }
 function send(response: ServerResponse, status: number, value: unknown) { if(!response.destroyed) response.writeHead(status,{'content-type':'application/json','cache-control':'no-store','connection':'close'}).end(JSON.stringify(value)); }
 async function body(request: IncomingMessage) {
   const chunks: Buffer[]=[]; let size=0;
-  const timer=setTimeout(()=>request.destroy(),5000);
+  const timer=setTimeout(()=>request.destroy(),30000);
   try {for await(const chunk of request){const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);size+=bytes.length;if(size>MAX_REQUEST_BYTES) throw new Error('body_limit');chunks.push(bytes);}return Buffer.concat(chunks);}finally{clearTimeout(timer);}
 }
 async function responseWithin<T>(work: Promise<T>, milliseconds: number): Promise<T> {

@@ -395,7 +395,8 @@ async function prepare() {
   const missing = images.filter(image => !imageIsPresent(image));
   const selfHostBuild = process.env.GOTCHU_AUTH_MODE === 'self_host';
   if (missing.length === 0 && !selfHostBuild) {
-    console.log('All pinned scanner, PostgreSQL, and Redis images are already cached. No images were pulled.');
+    command(process.execPath, ['scripts/update-trivy-db.mjs'], { env: dockerEnvironment, label: 'Offline-safe Trivy vulnerability database preparation' });
+    console.log('All pinned scanner, PostgreSQL, Redis, and Trivy vulnerability database artifacts are prepared.');
     return;
   }
 
@@ -409,7 +410,8 @@ async function prepare() {
   }
 
   if (missing.length === 0) {
-    console.log('All pinned scanner, PostgreSQL, and Redis images are already cached. Docker storage is ready for the self-host build.');
+    command(process.execPath, ['scripts/update-trivy-db.mjs'], { env: dockerEnvironment, label: 'Offline-safe Trivy vulnerability database preparation' });
+    console.log('All pinned scanner, PostgreSQL, Redis, and Trivy vulnerability database artifacts are prepared. Docker storage is ready for the self-host build.');
     return;
   }
 
@@ -418,7 +420,8 @@ async function prepare() {
     command('docker', ['pull', image], { env: dockerEnvironment, label: `Pinned image pull for ${image}` });
     if (!imageIsPresent(image)) throw new Error(`Docker did not cache ${image} after pulling it.`);
   }
-  console.log(`Prepared ${missing.length} missing pinned image${missing.length === 1 ? '' : 's'}.`);
+  command(process.execPath, ['scripts/update-trivy-db.mjs'], { env: dockerEnvironment, label: 'Offline-safe Trivy vulnerability database preparation' });
+  console.log(`Prepared ${missing.length} missing pinned image${missing.length === 1 ? '' : 's'} and the Trivy vulnerability database.`);
 }
 
 function databaseUrls(infra) {
@@ -578,6 +581,7 @@ async function start() {
     await launchService(state, 'scanner', ports.scanner, {
       GOTCHU_SCANNER_SECRET_FILE: scannerSecretFile,
       GOTCHU_SCANNER_PORT: String(ports.scanner),
+      GOTCHU_SCANNER_TRIVY_DB_DIRECTORY: join(directory, 'trivy-db'),
       GOTCHU_SCANNER_OSV: '1',
     });
     await launchService(state, 'coordinator', ports.coordinator, {
