@@ -71,7 +71,7 @@ describe('real Firecracker microVM execution', () => {
     const failed = await run('process.exit(7)');
     expect(failed.result.status).toBe('completed');
     if (failed.result.status === 'completed') expect(failed.result.exitCode).toBe(7);
-  });
+  }, 90_000);
 
   it('installs one pure-JS registry dependency offline and preserves its failing test exit code', async () => {
     const archive = projectArchive("const isNumber=require('is-number');if(!isNumber(7))process.exit(4)", { dependencies: { 'is-number': '7.0.0' } });
@@ -81,7 +81,7 @@ describe('real Firecracker microVM execution', () => {
     const failed = await runArchive(projectArchive("require('is-number');process.exit(9)", { dependencies: { 'is-number': '7.0.0' } }));
     expect(failed.result.status, JSON.stringify(failed.result)).toBe('completed');
     if (failed.result.status === 'completed') expect(failed.result.exitCode).toBe(9);
-  });
+  }, 90_000);
 
   it('rejects git dependencies and bad tarball integrity before VM boot', async () => {
     const gitArchive = projectArchive('process.exit(0)', { dependencies: { fixture: 'git+https://example.invalid/fixture.git' } });
