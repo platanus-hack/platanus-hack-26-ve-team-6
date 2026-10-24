@@ -1,0 +1,213 @@
+x-disabled-service: &disabled-service
+  image: node:24.18.1-bookworm-slim
+  entrypoint: ["node", "-e"]
+  restart: "no"
+  read_only: true
+  cap_drop: ["ALL"]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=16m
+  mem_limit: 256m
+  cpus: 0.5
+
+services:
+  postgres:
+    image: postgres:17.11-bookworm
+    user: "999:999"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
+      POSTGRES_USER: ${POSTGRES_USER:?run scripts/infra-local-setup.sh first}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run scripts/infra-local-setup.sh first}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+    command: ["postgres", "-c", "listen_addresses=0.0.0.0"]
+    ports:
+      - name: postgres-local
+        target: 5432
+        published: ${POSTGRES_HOST_PORT:-55432}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - data
+      - local-data-host
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+      - /var/run/postgresql:rw,noexec,nosuid,size=16m,uid=999,gid=999
+    mem_limit: 1g
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.11-bookworm
+    user: "999:999"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?run scripts/infra-local-setup.sh first}
+    command:
+      - sh
+      - -ec
+      - exec redis-server --appendonly yes --appendfsync everysec --requirepass "$${REDIS_PASSWORD}"
+    ports:
+      - name: redis-local
+        target: 6379
+        published: ${REDIS_HOST_PORT:-56379}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    volumes:
+      - redis-data:/data
+    networks:
+      - data
+      - local-data-host
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    mem_limit: 512m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep -q PONG"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 3s
+    restart: unless-stopped
+
+  # Profile services fail closed until their owning workstreams provide
+  # runnable package entrypoints and image definitions. This file records only
+  # each target runtime's required configuration and never mounts host paths.
+  web:
+    <<: *disabled-service
+    profiles: [web]
+    command: ["console.error('apps/web is not wired into Compose yet'); process.exit(78)"]
+    environment:
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
+      AUTH_SECRET: ${AUTH_SECRET:?run scripts/infra-local-setup.sh first}
+      AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
+      AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET:-}
+      GOTCHU_API_DATABASE_URL: postgresql://${GOTCHU_API_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_API_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
+      GOTCHU_INGEST_DATABASE_URL: postgresql://${GOTCHU_INGEST_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_INGEST_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
+      PORT: 3000
+      HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    ports:
+      - name: web-local
+        target: 3000
+        published: ${WEB_HOST_PORT:-3000}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    networks: [control-plane, data]
+
+  coordinator:
+    <<: *disabled-service
+    profiles: [coordinator]
+    command: ["console.error('apps/coordinator is not wired into Compose yet'); process.exit(78)"]
+    environment:
+      GOTCHU_COORDINATOR_DATABASE_URL: postgresql://${GOTCHU_COORDINATOR_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_COORDINATOR_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
+      GOTCHU_REDIS_URL: redis://:${REDIS_PASSWORD:?run scripts/infra-local-setup.sh first}@redis:6379
+      GOTCHU_ORGANIZATION_IDS: ${GOTCHU_ORGANIZATION_IDS:-}
+      GOTCHU_WORKER_URL: ${GOTCHU_WORKER_URL:-}
+      GOTCHU_RUN_CAPABILITY_PRIVATE_KEY: ${GOTCHU_RUN_CAPABILITY_PRIVATE_KEY:-}
+      PORT: 3003
+      HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "Promise.all(['/health/live','/health/ready'].map((path) => fetch('http://127.0.0.1:3003'+path))).then((responses) => process.exit(responses.every((response) => response.ok) ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    ports:
+      - name: coordinator-local
+        target: 3003
+        published: ${COORDINATOR_HOST_PORT:-3003}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    networks: [control-plane, data, agent-link]
+
+  gateway:
+    <<: *disabled-service
+    profiles: [gateway]
+    command: ["console.error('apps/gateway run-capability HTTP service is not wired into Compose yet'); process.exit(78)"]
+    environment:
+      GOTCHU_GATEWAY_DATABASE_URL: postgresql://${GOTCHU_GATEWAY_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_GATEWAY_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
+      GOTCHU_RUN_CAPABILITY_PUBLIC_KEY: ${GOTCHU_RUN_CAPABILITY_PUBLIC_KEY:-}
+      PORT: 3002
+      HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data, agent-link]
+
+  agent:
+    <<: *disabled-service
+    profiles: [agent]
+    command: ["console.error('apps/worker isolated agent is not wired into Compose yet'); process.exit(78)"]
+    environment:
+      PORT: 3001
+      HOST: 0.0.0.0
+    networks: [agent-link]
+
+  executor:
+    <<: *disabled-service
+    profiles: [executor]
+    command: ["console.error('apps/executor is not wired into Compose yet; provider writes are disabled'); process.exit(78)"]
+    environment:
+      GOTCHU_EXECUTOR_DATABASE_URL: postgresql://${GOTCHU_EXECUTOR_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_EXECUTOR_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
+    networks: [control-plane, data]
+
+  scanner-boundary:
+    <<: *disabled-service
+    profiles: [scanner]
+    command: ["console.error('scanner runner is not wired into Compose yet'); process.exit(78)"]
+    networks: [scanner-boundary]
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  data:
+    internal: true
+  local-data-host:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.enable_icc: "false"
+  control-plane:
+    internal: true
+  agent-link:
+    internal: true
+  scanner-boundary:
+    internal: true
