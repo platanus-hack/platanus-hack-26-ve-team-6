@@ -92,3 +92,4 @@ export * from './triage.js';
 export * from './members.js';
 export * from './actions.js';
 export * from './validation.js';
+export * from './github.js';
