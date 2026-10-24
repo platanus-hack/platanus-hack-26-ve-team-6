@@ -40,7 +40,7 @@ export async function runMonitoringWork(deps: MonitoringDependencies, initial: M
     if (candidate.kind === 'coverage_gap') degraded = true;
     await deps.backend.operations.getWatch(claim);
     const evidence = candidate.evidence.slice(0, 20);
-    const idempotencyKey = `monitor:${claim.runId}:${createHash('sha256').update(candidate.kind + JSON.stringify(evidence.map(e => [e.source, e.reference, e.checksum]))).digest('hex').slice(0, 40)}`;
+    const idempotencyKey = `monitor:${claim.runId}:${createHash('sha256').update(JSON.stringify({ kind: candidate.kind, summary: candidate.summary, evidence: evidence.map(e => [e.source, e.reference, e.checksum]) })).digest('hex').slice(0, 40)}`;
     const prior = await deps.database.tenant(claim.organizationId, tx => tx.query('SELECT id FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2 AND idempotency_key=$3', [claim.organizationId, claim.applicationId, idempotencyKey]));
     if (prior.rowCount) return;
     const value = recordOperationObservationSchema.parse({ ...candidate, organizationId: claim.organizationId, applicationId: claim.applicationId, basis: { kind: 'monitor', runId: claim.runId, leaseToken: claim.leaseToken }, idempotencyKey, evidence,
@@ -63,6 +63,10 @@ export async function runMonitoringWork(deps: MonitoringDependencies, initial: M
       return { jobId: current.rows[0]?.job_id ?? null, previousRevision: typeof revision === 'string' && /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(revision) ? revision : null };
     });
     queuedJob = persisted.jobId;
+    // A persisted audit proves admission, not that every adapter finished before a crash.
+    // Until adapter outcomes are independently persisted, recovered work stays unknown.
+    const recovered = queuedJob !== null;
+    if (recovered) degraded = true;
     if (!queuedJob) {
       let snapshot: CustomerSourceSnapshot | undefined;
       if (watch.config.repositoryKey) {
@@ -106,7 +110,7 @@ export async function runMonitoringWork(deps: MonitoringDependencies, initial: M
       }
     }
     signal.throwIfAborted();
-    await deps.backend.operations.finishRun({ ...claim, status: degraded ? 'degraded' : 'completed', ...(degraded ? { reason: 'Some selected monitoring inputs were unavailable or incomplete. Review coverage and configured access.' } : {}) });
+    await deps.backend.operations.finishRun({ ...claim, status: degraded ? 'degraded' : 'completed', ...(degraded ? { reason: recovered ? 'Recovered monitoring work has unknown adapter completion; selected inputs require a fresh scheduled check.' : 'Some selected monitoring inputs were unavailable or incomplete. Review coverage and configured access.' } : {}) });
   } catch (error) {
     if (!signal.aborted) {
       if (!queuedJob || ['succeeded', 'failed'].includes(await jobState(queuedJob))) {

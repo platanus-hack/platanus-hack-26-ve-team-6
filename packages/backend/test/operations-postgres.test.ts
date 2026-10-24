@@ -126,7 +126,8 @@ live('operations durable domain with real Postgres roles (synthetic adapter evid
     const binding = { ...c.scope, planId: plan.id, revision: plan.revision, actionHash: plan.actionHash };
     const viewer = { userId: randomUUID() };
     await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'viewer')", [c.scope.organizationId, viewer.userId]);
-    plan = await api.operations.requestPreparation(viewer, binding);
+    await expect(api.operations.requestPreparation(viewer, binding)).rejects.toMatchObject({ code: 'forbidden' });
+    plan = await api.operations.requestPreparation(c.identity, binding);
     await expect(api.operations.checkReadiness(c.identity, binding)).rejects.toMatchObject({ code: 'plan_changed' });
     const preparedBinding = { ...binding, revision: plan.revision, actionHash: plan.actionHash };
     plan = await api.operations.attestStep(c.identity, { ...preparedBinding, key: 'inventory', attestation: 'Customer-provided inventory' });
@@ -158,6 +159,8 @@ live('operations durable domain with real Postgres roles (synthetic adapter evid
     expect(await api.operations.listAlerts(c.identity, c.scope)).toEqual([]);
     await coordinator.operations.finishRun({ ...c.claim, status: 'completed' });
     expect(await api.operations.getCoverage(c.identity, c.scope)).toMatchObject({ status: 'active', observations: { fresh: 1 }, lastRun: { runId: c.claim.runId, status: 'completed' } });
+    await api.operations.configure(c.identity, { ...c.input, providers: ['railway'] });
+    expect(await api.operations.getCoverage(c.identity, c.scope)).toMatchObject({ status: 'pending', lastRun: null });
     await expect(coordinator.operations.heartbeatRun(c.claim)).rejects.toMatchObject({ code: 'stale_lease' });
   });
   it('rejects target version drift and can disable invalid selected scope after work settles', async () => {

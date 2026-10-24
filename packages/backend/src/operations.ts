@@ -235,7 +235,7 @@ export function createOperationsService(deps: BaseDependencies) {
       const value = parse(customerScopeSchema, input);
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, identity); const app = await application(tx, value); const current = await config(tx, value);
-        const runs = await tx.query<{ id: string; job_id: string | null; status: string; reason: string | null; created_at: Date; finished_at: Date | null }>('SELECT id,job_id,status,reason,created_at,finished_at FROM gotchu.operation_runs WHERE organization_id=$1 AND application_id=$2 ORDER BY created_at DESC,id LIMIT 1', [value.organizationId, value.applicationId]);
+        const runs = await tx.query<{ id: string; job_id: string | null; status: string; reason: string | null; created_at: Date; finished_at: Date | null }>('SELECT id,job_id,status,reason,created_at,finished_at FROM gotchu.operation_runs WHERE organization_id=$1 AND application_id=$2 AND monitor_revision=$3 ORDER BY created_at DESC,id LIMIT 1', [value.organizationId, value.applicationId, current?.revision ?? 0]);
         const count = await tx.query<{ fresh: number; stale: number }>('SELECT count(*) FILTER(WHERE expires_at>clock_timestamp())::int AS fresh,count(*) FILTER(WHERE expires_at<=clock_timestamp())::int AS stale FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2', [value.organizationId, value.applicationId]);
         const authorization = await tx.query<{ valid: boolean }>(`SELECT
           EXISTS(SELECT 1 FROM gotchu.memberships u WHERE u.organization_id=m.organization_id AND u.user_id=m.author_id AND u.role IN ('owner','operator'))
@@ -299,7 +299,7 @@ export function createOperationsService(deps: BaseDependencies) {
     async requestPreparation(identity: Identity, input: OperationPlanBinding) {
       const value = parse(operationPlanBindingSchema, input);
       return deps.database.tenant(value.organizationId, async tx => {
-        await authorize(tx, value.organizationId, identity); await application(tx, value, true);
+        await authorize(tx, value.organizationId, identity, writes); await application(tx, value, true);
         const old = await loadPlan(tx, value); checkBinding(old, value);
         if ((await observations(tx, value, old.observationIds)).some(e => !e.fresh)) throw new BackendError('evidence_stale', 'Refresh evidence before requesting preparation', 409);
         if (old.state === 'preparation_requested') return old;
