@@ -12,7 +12,7 @@ const pathSchema = z.string().min(1).max(4096).refine(path => !path.startsWith('
 const patchFileSchema = z.object({ path:pathSchema,content:z.string().max(1_048_576),mode:z.enum(['100644','100755']).optional() }).strict();
 const workflowSchema = z.object({ path: pathSchema, content: z.string().max(2_000_000) }).strict();
 const evidenceSummarySchema = z.object({ rescan: z.literal('passed'), suite: z.literal('passed'), regression: z.literal('passed'), runnerIsolation: z.literal('verified') }).strict();
-const prSchema = z.object({ number: z.number().int().positive(), html_url: z.string().url(), state: z.enum(['open','closed']), head: z.object({ sha, ref: z.string().min(1) }), base: z.object({ sha, ref: z.string().min(1) }) }).passthrough();
+const prSchema = z.object({ number: z.number().int().positive(), html_url: z.string().url(), state: z.enum(['open','closed']), draft: z.boolean().optional(), head: z.object({ sha, ref: z.string().min(1) }), base: z.object({ sha, ref: z.string().min(1) }) }).passthrough();
 const contentEntrySchema = z.object({ path:z.string().min(1),type:z.enum(['file','dir']) }).passthrough();
 const contentFileSchema = z.object({ path:z.string().min(1),type:z.literal('file'),encoding:z.literal('base64').optional(),content:z.string().optional() }).passthrough();
 
@@ -22,16 +22,18 @@ export class GitAdapterError extends Error {
 export interface PatchFile { readonly path: string; readonly content: string; readonly mode?: '100644'|'100755' }
 export interface GitTreeEntry { readonly path: string; readonly mode: '100644'|'100755'|'120000'|'160000'; readonly type: 'blob'|'commit'; readonly sha: string }
 export interface GitTree { readonly treeSha: string; readonly entries: readonly GitTreeEntry[]; readonly truncated: boolean }
-export interface PullRequest { readonly number: number; readonly url: string; readonly state: 'open'|'closed'; readonly headSha: string; readonly headBranch: string; readonly baseSha: string; readonly baseBranch: string }
+export interface PullRequest { readonly number: number; readonly url: string; readonly state: 'open'|'closed'; readonly draft: boolean; readonly headSha: string; readonly headBranch: string; readonly baseSha: string; readonly baseBranch: string }
 export interface PullRequestAdapter {
   resolveTarget(repositoryKey: string): Promise<{ repositoryKey: string; baseBranch: string }>;
   readHead(branch: string): Promise<string>;
   listDir(path: string, ref: string): Promise<readonly { path:string; type:'file'|'dir' }[]>;
   readFile(path: string, ref: string): Promise<string>;
   readTree(commitSha: string): Promise<GitTree>;
+  readCommit(commitSha: string): Promise<{ treeSha: string; parents: readonly string[] }>;
   inspectAutomation(baseSha: string): Promise<WorkflowPolicyViolation[]>;
-  publishCommit(input: { actionHash: string; baseBranch: string; baseSha: string; files: readonly PatchFile[]; commitMessage?: string; workflowExceptions?: readonly WorkflowPolicyException[] }): Promise<{ branch: string; commitSha: string }>;
-  openOrFindPullRequest(input: { actionHash: string; branch: string; commitSha: string; baseBranch: string; baseSha: string; evidenceSummary: z.infer<typeof evidenceSummarySchema> }): Promise<PullRequest>;
+  publishCommit(input: { actionHash: string; baseBranch: string; baseSha: string; files: readonly PatchFile[]; commitMessage?: string; workflowExceptions?: readonly WorkflowPolicyException[]; beforeWrite?: () => Promise<void> }): Promise<{ branch: string; commitSha: string }>;
+  openOrFindPullRequest(input: { actionHash: string; branch: string; commitSha: string; baseBranch: string; baseSha: string; evidenceSummary: z.infer<typeof evidenceSummarySchema>; title?: string; body?: string; draft?: boolean; beforeWrite?: () => Promise<void> }): Promise<PullRequest>;
+  findPullRequestByBranch(branch: string): Promise<PullRequest | undefined>;
   getPullRequest(number: number): Promise<PullRequest>;
   closePullRequest(number: number): Promise<void>;
   deleteBranch(branch: string): Promise<void>;
@@ -356,7 +358,8 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
   const root = resolve(repositoryPath); const bare = join(root,'repository.git'); const workRoot = join(root,'worktrees'); const records = join(root,'pull-requests.json');
   await mkdir(root,{recursive:true}); await mkdir(workRoot,{recursive:true});
   try { await git(root,['--git-dir',bare,'rev-parse','--is-bare-repository']); } catch { await git(root,['init','--bare',bare]); }
-  const localPrSchema = z.object({ number:z.number().int().positive(),url:z.string().url(),state:z.enum(['open','closed']),headSha:sha,headBranch:z.string(),baseSha:sha,baseBranch:z.string() }).strict();
+  const localPrSchema = z.object({ number:z.number().int().positive(),url:z.string().url(),state:z.enum(['open','closed']),draft:z.boolean().optional(),headSha:sha,headBranch:z.string(),baseSha:sha,baseBranch:z.string() }).strict();
+  const toLocalPr = (pr: z.infer<typeof localPrSchema>): PullRequest => ({ ...pr, draft: pr.draft ?? false });
   const load = async () => { try { return z.array(localPrSchema).parse(JSON.parse(await readFile(records,'utf8'))); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; } };
   const save = async (items: unknown[]) => writeFile(records,JSON.stringify(items),'utf8');
   const inspectAutomation = async (baseSha: string) => {
@@ -386,6 +389,13 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
       return { treeSha, entries, truncated:false };
     },
     async readTreeSha(commitSha) { return sha.parse(await git(root,['--git-dir',bare,'rev-parse',`${sha.parse(commitSha)}^{tree}`])); },
+    async readCommit(commitSha) {
+      const checked = sha.parse(commitSha);
+      const treeSha = sha.parse(await git(root,['--git-dir',bare,'rev-parse',`${checked}^{tree}`]));
+      const raw = await git(root,['--git-dir',bare,'rev-list','--parents','-n','1',checked]);
+      const [, ...parents] = raw.split(' ');
+      return { treeSha, parents: parents.map(parent => sha.parse(parent)) };
+    },
     async inspectAutomation(baseSha) { return inspectAutomation(baseSha); },
     async publishCommit(input) {
       assertWorkflowPatchSafe(input.files);
@@ -411,6 +421,7 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
         }
         const commitMessage = z.string().trim().min(1).max(512).parse(input.commitMessage ?? `Gotchu approved action ${input.actionHash}`);
         const commitSha = sha.parse(await git(root,['--git-dir',bare,'-c','user.name=Gotchu','-c','user.email=gotchu@localhost','commit-tree',treeSha,'-p',base,'-m',commitMessage]));
+        await input.beforeWrite?.();
         try { await git(root,['--git-dir',bare,'update-ref',`refs/heads/${branch}`,commitSha,'']); }
         catch {
           const raced = await git(root,['--git-dir',bare,'rev-parse',`refs/heads/${branch}`]).catch(()=>undefined);
@@ -427,11 +438,16 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
       const rows = await load(); const branchHead = await git(root,['--git-dir',bare,'rev-parse',`refs/heads/${input.branch}`]);
       if (branchHead !== input.commitSha) throw new GitAdapterError('conflict');
       const old = rows.find(row => row.headBranch === input.branch);
-      if (old) { if (old.headSha !== input.commitSha || old.baseBranch !== input.baseBranch || old.baseSha !== input.baseSha) throw new GitAdapterError('conflict'); return old; }
-      const pr = { number: rows.length + 1, url:`https://local.invalid/${input.branch}`,state:'open' as const,headSha:branchHead,headBranch:input.branch,baseSha:input.baseSha,baseBranch:input.baseBranch };
+      if (old) { if (old.headSha !== input.commitSha || old.baseBranch !== input.baseBranch || old.baseSha !== input.baseSha) throw new GitAdapterError('conflict'); return toLocalPr(old); }
+      const pr = { number: rows.length + 1, url:`https://local.invalid/${input.branch}`,state:'open' as const,draft:input.draft ?? true,headSha:branchHead,headBranch:input.branch,baseSha:input.baseSha,baseBranch:input.baseBranch };
+      await input.beforeWrite?.();
       await save([...rows,pr]); return pr;
     },
-    async getPullRequest(number) { const found=(await load()).find(row=>row.number===number); if(!found) throw new GitAdapterError('not_found'); return found; },
+    async findPullRequestByBranch(branch) {
+      const found = (await load()).find(row => row.headBranch === branch);
+      return found ? toLocalPr(found) : undefined;
+    },
+    async getPullRequest(number) { const found=(await load()).find(row=>row.number===number); if(!found) throw new GitAdapterError('not_found'); return toLocalPr(found); },
     async closePullRequest(number) { await save((await load()).map(row=>row.number===number?{...row,state:'closed'}:row)); },
     async deleteBranch(branch) { await git(root,['--git-dir',bare,'update-ref','-d',`refs/heads/${branch}`]).catch(error => { if(!String(error).includes('unknown revision')) throw error; }); },
     async listRequiredChecks() { return []; },
@@ -484,7 +500,7 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
     if(!response.ok){if([401,403].includes(response.status))throw new GitAdapterError('provider_access_revoked');if(response.status===404)throw new GitAdapterError('not_found');throw new GitAdapterError('unknown_outcome');}
     try{const file=contentFileSchema.parse(await json(response));if(file.encoding!=='base64'||!file.content)throw new Error('invalid_content');return Buffer.from(file.content,'base64').toString('utf8');}catch{throw new GitAdapterError('malformed_response');}
   }
-  const toPr=(pr:z.infer<typeof prSchema>):PullRequest=>({number:pr.number,url:pr.html_url,state:pr.state,headSha:pr.head.sha,headBranch:pr.head.ref,baseSha:pr.base.sha,baseBranch:pr.base.ref});
+  const toPr=(pr:z.infer<typeof prSchema>):PullRequest=>({number:pr.number,url:pr.html_url,state:pr.state,draft:pr.draft ?? false,headSha:pr.head.sha,headBranch:pr.head.ref,baseSha:pr.base.sha,baseBranch:pr.base.ref});
   const readWorkflowFiles = async (baseSha: string) => {
     const ref = sha.parse(baseSha);
     const tree=await checked('GET',`/git/trees/${ref}?recursive=1`,undefined,z.object({tree:z.array(z.object({path:z.string(),type:z.string(),sha}).passthrough()).max(100_000),truncated:z.boolean()}).passthrough());
@@ -503,6 +519,10 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
     async listDir(path, ref) { return listDirAt(path, ref); },
     async readFile(path, ref) { return readFileAt(path, ref); },
     async readTreeSha(commitSha) { const commit=await checked('GET',`/git/commits/${sha.parse(commitSha)}`,undefined,z.object({tree:z.object({sha}).passthrough()}).passthrough()); return commit.tree.sha; },
+    async readCommit(commitSha) {
+      const commit = await checked('GET',`/git/commits/${sha.parse(commitSha)}`,undefined,z.object({tree:z.object({sha}).passthrough(),parents:z.array(z.object({sha}).passthrough()).max(20)}).passthrough());
+      return { treeSha:commit.tree.sha, parents:commit.parents.map(parent => parent.sha) };
+    },
     async readTree(commitSha) {
       const commit=await checked('GET',`/git/commits/${sha.parse(commitSha)}`,undefined,z.object({tree:z.object({sha}).passthrough()}).passthrough());
       const tree=await checked('GET',`/git/trees/${commit.tree.sha}?recursive=1`,undefined,z.object({tree:z.array(z.object({path:z.string().min(1),mode:z.enum(['100644','100755','120000','160000','040000']),type:z.enum(['blob','commit','tree']),sha}).passthrough()).max(100_000),truncated:z.boolean()}).passthrough());
@@ -515,9 +535,11 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
       const branch=deterministicBranch(input.actionHash); const base=await this.readHead(input.baseBranch); if(base!==input.baseSha) throw new GitAdapterError('conflict');
       await this.verifyAutomation(input.baseSha,input.workflowExceptions,branch);
       const blobs = await Promise.all(input.files.map(async file => {
+        await input.beforeWrite?.();
         const blob = await checked('POST', '/git/blobs', { content: file.content, encoding: 'utf-8' }, z.object({ sha }).passthrough());
         return { path: pathSchema.parse(file.path), mode: file.mode ?? '100644', type: 'blob', sha: blob.sha };
       }));
+      await input.beforeWrite?.();
       const tree=await checked('POST','/git/trees',{base_tree:(await checked('GET',`/git/commits/${base}`,undefined,z.object({tree:z.object({sha}).passthrough()}).passthrough())).tree.sha,tree:blobs},z.object({sha}).passthrough());
       const expectedParent = base;
       const matchesCandidate = async (commitSha: string) => {
@@ -535,8 +557,11 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
       }
       if(existing.status!==404) throw new GitAdapterError(existing.status===401||existing.status===403?'provider_access_revoked':'unknown_outcome');
       const commitMessage=z.string().trim().min(1).max(512).parse(input.commitMessage ?? `Gotchu approved action ${input.actionHash}`);
+      await input.beforeWrite?.();
       const commit=await checked('POST','/git/commits',{message:commitMessage,tree:tree.sha,parents:[base]},z.object({sha}).passthrough());
       let created: Response | undefined;
+      if(await this.readHead(input.baseBranch)!==input.baseSha) throw new GitAdapterError('conflict');
+      await input.beforeWrite?.();
       try { created=await request('POST','/git/refs',{ref:`refs/heads/${branch}`,sha:commit.sha}); } catch { /* inspect remote state before reporting an unknown write */ }
       if(!created?.ok || created.status===422){
         const remoteHead=await this.readHead(branch).catch(()=>undefined);
@@ -547,6 +572,11 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
         catch { throw new GitAdapterError('malformed_response'); }
       }
       return {branch,commitSha:commit.sha};
+    },
+    async findPullRequestByBranch(branch) {
+      const existing = await checked('GET',`/pulls?head=${encodeURIComponent(options.owner+':'+branch)}&state=all`,undefined,z.array(prSchema));
+      const found = existing.find(pr=>pr.head.ref===branch);
+      return found ? toPr(found) : undefined;
     },
     async openOrFindPullRequest(input) {
       evidenceSummarySchema.parse(input.evidenceSummary);
@@ -559,7 +589,9 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
       if(found){if(found.head.sha!==input.commitSha||found.base.ref!==input.baseBranch||found.base.sha!==input.baseSha)throw new GitAdapterError('conflict');return toPr(found);}
       let created: z.infer<typeof prSchema>;
       try {
-        created = await checked('POST','/pulls',{title:`Approved Gotchu action ${input.actionHash.slice(0,16)}`,head:input.branch,base:input.baseBranch,body:`Approved action: ${input.actionHash}\n\nEvidence summary: objective rescan passed; validation suite passed; regression checks passed; runner isolation verified.`},prSchema);
+        if(await this.readHead(input.baseBranch)!==input.baseSha) throw new GitAdapterError('conflict');
+        await input.beforeWrite?.();
+        created = await checked('POST','/pulls',{title:input.title ?? `Approved Gotchu action ${input.actionHash.slice(0,16)}`,head:input.branch,base:input.baseBranch,draft:input.draft ?? true,body:input.body ?? `Approved action: ${input.actionHash}\n\nEvidence summary: objective rescan passed; validation suite passed; regression checks passed; runner isolation verified.`},prSchema);
       } catch (error) {
         // A timeout may have happened after GitHub created the PR. Reconcile by head before returning.
         const reconciled = await find().catch(() => undefined);
