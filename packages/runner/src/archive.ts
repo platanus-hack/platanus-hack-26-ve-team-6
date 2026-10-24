@@ -104,3 +104,20 @@ export function validateInputArchive(input: Uint8Array): ValidatedArchive {
   }
   return { tarBytes, files, totalBytes };
 }
+
+export function readArchiveFiles(tarBytes: Buffer): ReadonlyMap<string, Buffer> {
+  const files = new Map<string, Buffer>();
+  let offset = 0;
+  while (offset + 512 <= tarBytes.length) {
+    const header = tarBytes.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const name = readString(header, 0, 100);
+    const prefix = readString(header, 345, 500);
+    const path = prefix.length === 0 ? name : `${prefix}/${name}`;
+    const size = readOctal(header, 124, 136);
+    const bodyStart = offset + 512;
+    if ((header[156] === 0 || header[156] === 48) && size > 0) files.set(path, tarBytes.subarray(bodyStart, bodyStart + size));
+    offset = bodyStart + Math.ceil(size / 512) * 512;
+  }
+  return files;
+}
