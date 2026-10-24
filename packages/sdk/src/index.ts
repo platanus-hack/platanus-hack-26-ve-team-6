@@ -72,4 +72,6 @@ export async function sendEventBatch(input: {
   throw new Error('Event delivery failed after three bounded attempts; this batch was not acknowledged');
 }
 
+export { createGotchuGuard, GotchuProtectionBlockedError, verifyRuntimeProtectionPolicy } from './protection.js';
+
 class PermanentDeliveryError extends Error {}
