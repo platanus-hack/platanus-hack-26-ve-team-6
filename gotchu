@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+state_dir="${GOTCHU_STATE_DIR:-${root}/.gotchu}"
+[[ "$state_dir" == /* ]] || state_dir="${root}/${state_dir}"
+env_file="${state_dir}/.env"
+state_marker="${state_dir}/.gotchu-state"
+compose_file="${root}/infra/compose.yaml"
+command_name="${1:-up}"; shift || true
+slug="$(basename "$root" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-')"
+suffix="$(printf '%s' "$root" | sha256sum | cut -c1-8)"
+project="${GOTCHU_COMPOSE_PROJECT_NAME:-gotchu-${slug}-${suffix}}"
+export GOTCHU_STATE_DIR="$state_dir"
+compose=(docker compose -p "$project" --env-file "$env_file" -f "$compose_file")
+
+fail() { printf 'Gotchu: %s\n' "$1" >&2; exit "${2:-1}"; }
+require_private_env() {
+  [[ -f "$env_file" && ! -L "$env_file" ]] || fail 'El archivo de configuración debe ser un archivo regular privado.' 2
+  chmod 600 "$env_file"
+}
+validate_state_location() {
+  local root_real state_real
+  root_real="$(cd "$root" && pwd -P)"
+  state_real="$(cd "$state_dir" && pwd -P)"
+  [[ "$state_real" != / ]] || fail 'GOTCHU_STATE_DIR no puede ser la raíz del sistema.' 2
+  case "$root_real/" in
+    "$state_real/"*) fail 'GOTCHU_STATE_DIR no puede ser el checkout ni uno de sus directorios padre.' 2 ;;
+  esac
+}
+require_managed_state() {
+  [[ -d "$state_dir" && ! -L "$state_dir" ]] || fail 'El directorio de estado debe ser real.' 2
+  validate_state_location
+  [[ -f "$state_marker" && ! -L "$state_marker" ]] || fail 'El directorio no contiene el marcador privado de estado de Gotchu.' 2
+  [[ "$(cat "$state_marker")" == 'gotchu-self-host-state-v1' ]] || fail 'El marcador de estado de Gotchu no es válido.' 2
+}
+env_value() {
+  local key="$1" value
+  value="$(sed -n "s/^${key}=//p" "$env_file" | head -n1)"
+  [[ -n "$value" ]] || fail "Falta ${key} en la configuración privada." 2
+  printf '%s' "$value"
+}
+ensure_state() {
+  mkdir -p -- "$state_dir"; [[ -d "$state_dir" && ! -L "$state_dir" ]] || fail 'El directorio de estado debe ser real.' 2
+  validate_state_location
+  if [[ -e "$state_marker" ]]; then
+    require_managed_state
+  else
+    [[ -z "$(find "$state_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]] || fail 'No se adoptará un directorio de estado preexistente sin el marcador de Gotchu.' 2
+    (umask 077; printf '%s\n' 'gotchu-self-host-state-v1' >"$state_marker")
+  fi
+  chmod 700 "$state_dir"; chmod 600 "$state_marker"
+}
+check_docker() {
+  command -v docker >/dev/null 2>&1 || fail 'Docker no está instalado. Instala Docker Engine/Desktop y vuelve a ejecutar ./gotchu up.' 2
+  docker info >/dev/null 2>&1 || fail 'Docker no está iniciado o tu usuario no tiene acceso. Inicia Docker y vuelve a ejecutar ./gotchu up.' 2
+  docker compose version --short >/dev/null 2>&1 || fail 'Se requiere Docker Compose v2 (docker compose). Actualiza Docker o el plugin Compose.' 2
+}
+check_node() {
+  command -v node >/dev/null 2>&1 || fail 'Se requiere Node.js 24 para comprobar puertos y ejecutar el scanner local.' 2
+  node -e 'process.exit(Number(process.versions.node.split(".")[0])===24?0:1)' || fail 'Gotchu requiere Node.js 24.' 2
+}
+check_pnpm() {
+  command -v pnpm >/dev/null 2>&1 || fail 'Se requiere pnpm 11 y Node.js 24 para instalar y preparar Gotchu.' 2
+  [[ "$(pnpm --version)" == 11.* ]] || fail 'Gotchu requiere pnpm 11. Instala la versión indicada en package.json.' 2
+}
+check_container_identity() {
+  local uid gid
+  uid="$(id -u)"; gid="$(id -g)"
+  [[ "$uid" =~ ^[0-9]+$ && "$gid" =~ ^[0-9]+$ && "$uid" != 0 && "$gid" != 0 ]] || fail 'Ejecuta Gotchu como usuario Linux sin privilegios y con acceso al daemon Docker; no uses sudo.' 2
+  export GOTCHU_CONTAINER_UID="$uid" GOTCHU_CONTAINER_GID="$gid"
+}
+ensure_free_ports() {
+  node - "$@" <<'NODE'
+const net = require('node:net');
+const ports = process.argv.slice(2).map(Number);
+const labels = ['GOTCHU_WEB_PORT', 'GOTCHU_COORDINATOR_PORT', 'GOTCHU_SCANNER_PORT', 'GOTCHU_POSTGRES_PORT', 'GOTCHU_REDIS_PORT'];
+let index = 0;
+function next() {
+  if (index === ports.length) return process.exit(0);
+  const port = ports[index]; const label = labels[index++]; const server = net.createServer();
+  server.once('error', () => { console.error(`Gotchu: el puerto ${port} está ocupado. Cambia ${label} en tu entorno y vuelve a ejecutar.`); process.exit(1); });
+  server.listen(port, '127.0.0.1', () => server.close(next));
+}
+next();
+NODE
+}
+read_setup_environment() {
+  if [[ -e "$env_file" ]]; then
+    [[ -f "$env_file" && ! -L "$env_file" ]] || fail 'El archivo de configuración debe ser un archivo regular privado.' 2
+    chmod 600 "$env_file"
+    return
+  fi
+  local web_port="${GOTCHU_WEB_PORT:-3000}" coordinator_port="${GOTCHU_COORDINATOR_PORT:-3003}" scanner_port="${GOTCHU_SCANNER_PORT:-4400}" postgres_port="${GOTCHU_POSTGRES_PORT:-55432}" redis_port="${GOTCHU_REDIS_PORT:-56379}"
+  for port in "$web_port" "$coordinator_port" "$scanner_port" "$postgres_port" "$redis_port"; do [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Los puertos configurados deben estar entre 1024 y 65535.' 2; done
+  ensure_free_ports "$web_port" "$coordinator_port" "$scanner_port" "$postgres_port" "$redis_port"
+  ensure_state
+  GOTCHU_ENV_FILE="$env_file" GOTCHU_AUTH_MODE=self_host GOTCHU_CUSTOMER_DISCOVERY=true GOTCHU_WEB_PORT="$web_port" GOTCHU_COORDINATOR_PORT="$coordinator_port" GOTCHU_SCANNER_PORT="$scanner_port" GOTCHU_POSTGRES_PORT="$postgres_port" GOTCHU_REDIS_PORT="$redis_port" GOTCHU_PUBLIC_URL="${GOTCHU_PUBLIC_URL:-http://localhost:${web_port}}" bash "$root/scripts/infra-local-setup.sh" >/dev/null
+}
+ensure_scanner_secret() {
+  local path="$state_dir/scanner.secret"
+  [[ -e "$path" ]] || (umask 077; openssl rand 32 >"$path")
+  [[ -f "$path" && ! -L "$path" && "$(wc -c <"$path")" -eq 32 ]] || fail 'El secreto del scanner debe ser un archivo regular de 32 bytes.' 2
+  chmod 600 "$path"
+}
+compose_ready() {
+  local user db redis_password; user="$(env_value POSTGRES_USER)"; db="$(env_value POSTGRES_DB)"; redis_password="$(env_value REDIS_PASSWORD)"
+  for _ in $(seq 1 90); do
+    if "${compose[@]}" exec -T postgres pg_isready -h 127.0.0.1 -U "$user" -d "$db" >/dev/null 2>&1 && "${compose[@]}" exec -T -e "REDISCLI_AUTH=${redis_password}" redis redis-cli ping 2>/dev/null | grep -qx PONG; then return; fi
+    sleep 1
+  done
+  fail 'Postgres o Redis no alcanzaron estado saludable. Ejecuta ./gotchu logs postgres y ./gotchu doctor.'
+}
+scanner_pid() { [[ -f "$state_dir/scanner.pid" ]] && cat "$state_dir/scanner.pid" || true; }
+scanner_running() {
+  local pid args; pid="$(scanner_pid)"; [[ "$pid" =~ ^[0-9]+$ ]] || return 1; kill -0 "$pid" 2>/dev/null || return 1
+  args="$(ps -p "$pid" -o args= 2>/dev/null || true)"; [[ "$args" == *"apps/scanner/dist/main.js"* && "$args" == *"$root"* ]]
+}
+start_scanner() {
+  scanner_running && return 0
+  command -v pnpm >/dev/null 2>&1 || fail 'Se requiere pnpm 11 y Node.js 24 para el scanner local.' 2
+  local port gateway; port="$(env_value SCANNER_HOST_PORT)"; gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
+  [[ "$gateway" =~ ^[0-9.]+$ ]] || fail 'No se pudo identificar la puerta de enlace de Docker para conectar el coordinator con el scanner.'
+  node -e 'process.exit(Number(process.versions.node.split(".")[0])===24?0:1)' || fail 'Gotchu requiere Node.js 24 para el scanner local.' 2
+  (umask 077; touch "$state_dir/scanner.log")
+  GOTCHU_SCANNER_SECRET_FILE="$state_dir/scanner.secret" GOTCHU_SCANNER_PORT="$port" GOTCHU_SCANNER_HOST="$gateway" GOTCHU_SCANNER_OSV=1 NODE_ENV=development nohup node "$root/apps/scanner/dist/main.js" >>"$state_dir/scanner.log" 2>&1 </dev/null &
+  printf '%s\n' "$!" >"$state_dir/scanner.pid"; chmod 600 "$state_dir/scanner.pid"
+}
+wait_http() {
+  node - "$1" "$2" <<'NODE'
+const [url, name] = process.argv.slice(2); const deadline = Date.now() + 180000; const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+for (;;) { try { const response = await fetch(url, {signal: AbortSignal.timeout(5000)}); const body = await response.json(); if (response.ok && (body.ready === true || body.status === 'ready')) break; } catch {}
+  if (Date.now() >= deadline) { console.error(`Gotchu: ${name} no quedó listo en 180 segundos. Revisa ./gotchu logs ${name}.`); process.exit(1); } await delay(1000); }
+NODE
+}
+setup_link() {
+  [[ -f "$env_file" ]] || fail 'Ejecuta ./gotchu up antes de pedir un enlace de configuración.' 2
+  require_managed_state; require_private_env; check_docker
+  local token hash user db result url; token="$(openssl rand -hex 32)"; hash="$(printf '%s' "$token" | sha256sum | cut -d' ' -f1)"
+  user="$(env_value POSTGRES_USER)"; db="$(env_value POSTGRES_DB)"
+  result="$(printf '%s\n' "SELECT gotchu.self_host_issue_setup_token(:'token_hash', now() + interval '1 hour');" | "${compose[@]}" exec -T postgres psql -U "$user" -d "$db" -v token_hash="$hash" -Atq 2>/dev/null)" || fail 'No se pudo emitir el enlace. Ejecuta ./gotchu up y revisa ./gotchu logs postgres.'
+  if [[ "$result" == f ]]; then
+    local owner_exists
+    owner_exists="$("${compose[@]}" exec -T postgres psql -U "$user" -d "$db" -Atq -c 'SELECT EXISTS (SELECT 1 FROM gotchu.self_host_bootstrap_state WHERE singleton)' 2>/dev/null)" || fail 'No se pudo comprobar el Owner inicial. Revisa ./gotchu logs postgres.'
+    [[ "$owner_exists" == t ]] && { printf '%s\n' 'El workspace ya tiene un Owner; no se emitió otro enlace.'; return 0; }
+    fail 'No se emitió el enlace. Ejecuta ./gotchu up y revisa ./gotchu logs postgres.'
+  fi
+  [[ "$result" == t ]] || fail 'La base de datos devolvió una respuesta inesperada al emitir el enlace.'
+  url="$(env_value PUBLIC_APP_URL)"; printf 'Enlace de configuración (un uso, caduca en 1 h): %s/setup?token=%s\n' "$url" "$token"
+}
+up() {
+  local started; started="$(date +%s)"; ensure_state; check_docker; check_node; check_container_identity; read_setup_environment; ensure_scanner_secret; check_pnpm
+  [[ -d "$root/node_modules" ]] || pnpm install --frozen-lockfile --ignore-scripts
+  INFRA_ENV_FILE="$env_file" GOTCHU_STATE_DIR="$state_dir" bash "$root/scripts/infra-compose-validate.sh"
+  GOTCHU_ENV_FILE="$env_file" GOTCHU_AUTH_MODE=self_host pnpm dev:prepare
+  pnpm build
+  "${compose[@]}" up -d postgres redis; compose_ready
+  INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" bash "$root/scripts/infra-db-bootstrap.sh"
+  start_scanner; local port gateway; port="$(env_value SCANNER_HOST_PORT)"; gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
+  wait_http "http://${gateway}:${port}/readyz" scanner
+  "${compose[@]}" --profile web --profile coordinator up -d --build web coordinator
+  wait_http "$(env_value PUBLIC_APP_URL)/api/ready" web
+  wait_http "http://127.0.0.1:$(env_value COORDINATOR_HOST_PORT)/health/ready" coordinator
+  printf 'Gotchu listo en %s (%ss desde ./gotchu up).\n' "$(env_value PUBLIC_APP_URL)" "$(($(date +%s)-started))"
+  printf '%s\n' 'Semgrep 1.90.0 está habilitado sólo para desarrollo/pruebas; no es un perfil SAST de producción.'
+  setup_link
+}
+status() {
+  [[ -f "$env_file" ]] || fail 'Gotchu no está configurado. Ejecuta ./gotchu up.' 2; require_managed_state; require_private_env; check_docker; "${compose[@]}" ps
+  if scanner_running; then printf '%s\n' 'scanner: ejecutándose (Semgrep 1.90.0 sólo desarrollo/pruebas)'; else printf '%s\n' 'scanner: no disponible; requiere Node 24, pnpm 11 y Semgrep/Gitleaks/Trivy fijados'; fi
+  printf '%s\n' 'validator: no disponible; requiere Linux, /dev/kvm, bwrap y sesión systemd de usuario.' 'executor/GitHub Apps: no disponibles; escrituras externas deshabilitadas.'
+}
+logs() {
+  local service="${1:-}"
+  if [[ "$service" == scanner ]]; then [[ -f "$state_dir/scanner.log" ]] && tail -n 200 -f "$state_dir/scanner.log" || fail 'No hay registro del scanner.' 2; return; fi
+  [[ -z "$service" || "$service" =~ ^(web|coordinator|postgres|redis)$ ]] || fail 'Servicio inválido. Usa web, coordinator, postgres o redis.' 2
+  if [[ -n "$service" ]]; then "${compose[@]}" logs --tail 200 -f "$service"; else "${compose[@]}" logs --tail 200 -f; fi
+}
+stop_scanner() {
+  local pid; pid="$(scanner_pid)"; if scanner_running; then kill -TERM "$pid"; for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep .25; done; fi
+  rm -f "$state_dir/scanner.pid"
+}
+down() {
+  check_docker; [[ -f "$env_file" ]] || { printf '%s\n' 'Gotchu ya está detenido.'; return; }
+  require_managed_state; require_private_env
+  "${compose[@]}" --profile web --profile coordinator down; stop_scanner; printf '%s\n' 'Servicios detenidos; se conservaron datos y secretos.'
+}
+reset() {
+  [[ -f "$env_file" ]] || fail 'No se encontró el estado local de Gotchu.' 2
+  require_managed_state; require_private_env
+  printf 'Esto elimina workspaces, informes, fuentes y credenciales de %s. Escribe RESET para continuar: ' "$project"
+  local answer; read -r answer; [[ "$answer" == RESET ]] || fail 'Reinicio cancelado.' 2
+  check_docker; "${compose[@]}" --profile web --profile coordinator down --volumes --remove-orphans; stop_scanner; rm -rf -- "$state_dir"; printf '%s\n' 'Datos locales eliminados.'
+}
+doctor() {
+  local failed=0
+  if command -v docker >/dev/null 2>&1; then printf 'Docker: '; docker info >/dev/null 2>&1 && printf '%s\n' 'disponible' || { printf '%s\n' 'no iniciado o sin permisos'; failed=1; }; else printf '%s\n' 'Docker: no instalado'; failed=1; fi
+  if command -v docker >/dev/null 2>&1 && docker compose version --short >/dev/null 2>&1; then printf '%s\n' 'Compose: v2 disponible'; else printf '%s\n' 'Compose: instala Docker Compose v2'; failed=1; fi
+  command -v node >/dev/null && node -e 'process.exit(Number(process.versions.node.split(".")[0])===24?0:1)' && printf '%s\n' 'Node.js: versión 24 disponible' || { printf '%s\n' 'Node.js: se requiere versión 24'; failed=1; }
+  command -v pnpm >/dev/null && [[ "$(pnpm --version)" == 11.* ]] && printf '%s\n' 'pnpm: versión 11 disponible' || { printf '%s\n' 'pnpm: se requiere versión 11'; failed=1; }
+  command -v openssl >/dev/null && printf '%s\n' 'OpenSSL: disponible' || { printf '%s\n' 'OpenSSL: se requiere para generar secretos locales'; failed=1; }
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    local docker_root free_kib
+    docker_root="$(docker info --format '{{.DockerRootDir}}')"; free_kib="$(df -Pk "$docker_root" | awk 'NR==2 {print $4}')"
+    if [[ "$free_kib" =~ ^[0-9]+$ ]] && (( free_kib < 5242880 )); then printf '%s\n' 'Docker storage: menos de 5 GiB libres; revisa docker system df y elimina sólo datos que reconozcas como tuyos y que estén sin uso antes de ./gotchu up.'; failed=1; elif [[ "$free_kib" =~ ^[0-9]+$ ]]; then printf '%s\n' 'Docker storage: al menos 5 GiB libres'; fi
+  fi
+  if [[ -e /dev/kvm ]] && command -v bwrap >/dev/null && [[ -n "${XDG_RUNTIME_DIR:-}" ]] && command -v systemctl >/dev/null && systemctl --user is-system-running >/dev/null 2>&1; then printf '%s\n' 'VM validator: requisitos detectados; las imágenes aún requieren preparación manual.'; else printf '%s\n' 'VM validator: requiere Linux, /dev/kvm, bwrap y sesión systemd de usuario.'; fi
+  [[ -d "$state_dir" ]] && df -h "$state_dir" || true; return "$failed"
+}
+github_setup() {
+  printf 'GitHub App opcional: permisos de repositorio Contents: Read-only y Metadata: Read-only; sin permisos de escritura.\nGuarda App ID, Installation ID y clave privada en %s/github/ con modo 0600. Variables del adaptador: GOTCHU_GITHUB_APP_ID, GOTCHU_GITHUB_INSTALLATION_ID, GOTCHU_GITHUB_PRIVATE_KEY_FILE.\n' "$state_dir"
+}
+
+case "$command_name" in
+  up) up ;;
+  status) status ;;
+  logs) logs "${1:-}" ;;
+  down) down ;;
+  reset) reset ;;
+  doctor) doctor ;;
+  setup-link) setup_link ;;
+  upgrade)
+    [[ -f "$env_file" ]] || fail 'Ejecuta ./gotchu up antes de actualizar el entorno.' 2
+    require_managed_state; require_private_env
+    printf '%s\n' 'Se reconstruirá desde este checkout, aplicará migraciones y reiniciará los servicios sin cambiar tus volúmenes.'
+    up
+    ;;
+  github) [[ "${1:-}" == setup ]] || fail 'Uso: ./gotchu github setup' 2; github_setup ;;
+  *) fail 'Uso: ./gotchu up|status|logs [service]|down|reset|doctor|setup-link|upgrade|github setup' 2 ;;
+esac

@@ -19,3 +19,4 @@ Pulumi.*.yaml
 *.log
 .DS_Store
 .local/
+.gotchu/
