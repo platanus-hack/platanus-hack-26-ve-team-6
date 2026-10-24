@@ -4,6 +4,12 @@ import { z } from 'zod';
 export const runReadToolSchema = z.enum([
   'evidence.read',
   'auth.events.read',
+  'application.context.read',
+  'finding.details.read',
+  'source.excerpt.read',
+  'assessment.diff.read',
+  'validation.results.read',
+  'triage.results.read',
 ]);
 export type RunReadTool = z.infer<typeof runReadToolSchema>;
 
@@ -17,7 +23,7 @@ export const runCapabilityClaimsSchema = z.object({
   organizationId: z.uuid(),
   applicationId: z.uuid(),
   runId: z.uuid(),
-  allowedReadTools: z.array(runReadToolSchema).min(1).max(2),
+  allowedReadTools: z.array(runReadToolSchema).min(1).max(8),
   evidenceIds: z.array(z.uuid()).max(100),
 }).strict().superRefine((claims, context) => {
   if (claims.sub !== claims.runId) {
