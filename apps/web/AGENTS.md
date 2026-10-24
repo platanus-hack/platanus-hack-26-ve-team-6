@@ -21,12 +21,12 @@ Read the installed Impeccable skill before using its CLI. Run context for the ex
 
 Before adding motion, load Emil's `find-animation-opportunities`, then `animate` and the relevant recipes. Use `apple-design` for physical continuity and `animation-performance` for the compositor/React cost model. `review-animations` is user-invoked only; ask for it before delivery. Do not animate functional text, add a loader, or hide content pending an entrance.
 
-Objects may follow the pointer across the page: subscribe through `pointer-field.ts` (one shared listener), write transforms on Motion's render frame, never set React state per frame, pause off screen and freeze under reduced motion. Primary actions carry `data-catch` so the ASCII mark's brackets close on the finding while they are hovered. Keep visuals non-realistic: flat cards, ASCII, dot-matrix and grid art; no photos, metal, glass or camera-like objects. The pinned convergence stage runs only on screens at least 761x560 with motion allowed; every other case keeps the stacked layout with the same content.
+Objects may follow the pointer across the page: subscribe through `pointer-field.ts` (one shared listener), write transforms on Motion's render frame, never set React state per frame, pause off screen and freeze under reduced motion. Primary actions carry `data-catch` so the ASCII mark's brackets close on the finding while they are hovered. Keep visuals non-realistic and square: flat cards with 0 radius (buttons 2px), hard offset hovers, ASCII, dot-matrix and straight-line grid art, gradients only within the brand colours. No photos, metal, glass, camera-like objects or solid 3D renders. The user overrides Impeccable's eyebrow/section-number bans for the hero scope line and numbered nav taken from their prototype; do not extend them to section kickers. The pinned convergence stage runs only on screens at least 761x560 with motion allowed; every other case keeps the stacked layout with the same content.
 
 After the finished surface, run the detector and triage real findings rather than suppressing them broadly:
 
 ```sh
-.hermes/skills/impeccable/scripts/impeccable detect --json apps/web/src/components/{landing,hero,convergence,ascii-mark,dot-matrix,wordmark-rows,blueprint-grid,product-flow}.{tsx,css}
+.hermes/skills/impeccable/scripts/impeccable detect --json apps/web/src/components/{landing,hero,convergence,ascii-mark,dot-matrix,blueprint-grid,product-flow}.{tsx,css}
 ```
 
 The shared `.impeccable/config.json` enables supported design hooks. Automatic invocation depends on the current agent host; when context requests a manual detector pass, run it explicitly. Do not claim hooks fired when they did not.
