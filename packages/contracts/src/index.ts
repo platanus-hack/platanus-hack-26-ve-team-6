@@ -117,3 +117,4 @@ export * from './github.js';
 export * from './decision-records.js';
 export * from './notifications.js';
 export * from './investigation.js';
+export * from './retention.js';
