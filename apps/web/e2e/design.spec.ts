@@ -43,21 +43,17 @@ test('the theme switch moves between pure white, pure black and the system prefe
   test.setTimeout(90_000);
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/', { waitUntil: 'networkidle' });
-  const group = page.getByRole('group', { name: 'Tema' }).first();
-  if (!(await group.isVisible())) await page.getByRole('button', { name: 'Menú', exact: true }).click();
-  const theme = page.getByRole('group', { name: 'Tema' }).locator('visible=true');
-  await expect(theme.getByRole('button', { name: 'Tema del sistema' })).toHaveAttribute('aria-pressed', 'true');
+  const trigger = page.getByRole('button', { name: 'Tema', exact: true });
+  if (!(await trigger.first().isVisible())) await page.getByRole('button', { name: 'Menú', exact: true }).click();
+  await trigger.locator('visible=true').click();
+  await expect(page.getByRole('menuitemradio', { name: 'Sistema' })).toBeChecked();
+  await page.keyboard.press('Escape');
   expect(await background(page)).toBe('rgb(255, 255, 255)');
 
-  await theme.getByRole('button', { name: 'Tema oscuro' }).click();
+  await trigger.locator('visible=true').click();
+  await page.getByRole('menuitemradio', { name: 'Oscuro' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   expect(await background(page)).toBe('rgb(0, 0, 0)');
-  if (isMobile) {
-    const darkSwitches = page.locator('.gl-theme [aria-label="Tema oscuro"]');
-    await expect(darkSwitches).toHaveCount(2);
-    await expect(darkSwitches.nth(0)).toHaveAttribute('aria-pressed', 'true');
-    await expect(darkSwitches.nth(1)).toHaveAttribute('aria-pressed', 'true');
-  }
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.emulateMedia({ colorScheme: 'light' });

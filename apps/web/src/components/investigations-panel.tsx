@@ -106,10 +106,10 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
     onSuccess: () => { setApiKey(''); setConsent(false); setScopes([]); setNotice('La investigación y la credencial guardada se deshabilitaron.'); void queryClient.invalidateQueries({ queryKey: modelKey(organizationId) }); },
   });
 
-  if (settings.isPending) return <section className="customer-card"><p>Cargando configuración de investigación…</p></section>;
+  if (settings.isPending) return <section className="customer-card customer-panel"><p>Cargando configuración de investigación…</p></section>;
   const ready = settings.data?.status === 'ready';
-  return <section className="customer-card customer-investigation-settings">
-    <div className="customer-card-heading"><div><span className="customer-eyebrow">INVESTIGACIÓN ASISTIDA</span><h2>Modelo y consentimiento</h2></div><span className={`customer-status ${ready ? 'customer-ops-status-ready' : 'customer-ops-status-warning'}`}>{ready ? 'Disponible' : 'Investigación deshabilitada'}</span></div>
+  return <section className="customer-card customer-panel customer-investigation-settings">
+    <div className="customer-card-heading"><div><h2>Modelo y consentimiento</h2></div><span className={`customer-status ${ready ? 'customer-ops-status-ready' : 'customer-ops-status-warning'}`}>{ready ? 'Disponible' : 'Investigación deshabilitada'}</span></div>
     <p>La revisión determinista sigue disponible sin modelo. Al habilitarlo, Gotchu enviará sólo las categorías marcadas y los fragmentos redactados. La clave se guarda en el servidor y sólo se muestra si ya está configurada.</p>
     {settings.error && <p className="customer-form-error" role="alert">{errorText(settings.error)}</p>}
     <label htmlFor="investigation-provider">Proveedor</label>
@@ -191,8 +191,8 @@ export function InvestigationsTimeline({ organizationId, applicationId, canManag
   const runs = useQuery({ queryKey: key, queryFn: () => customerApi.investigations(organizationId, applicationId), retry: false, refetchInterval: 5_000 });
   const cancel = useMutation({ mutationFn: (jobId: string) => customerApi.cancelInvestigation(organizationId, applicationId, jobId), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: key }); } });
   const resume = useMutation({ mutationFn: (jobId: string) => customerApi.resumeInvestigation(organizationId, applicationId, jobId), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: key }); } });
-  return <section className="customer-card customer-investigation-timeline">
-    <div className="customer-card-heading"><div><span className="customer-eyebrow">INVESTIGACIONES</span><h2>Explicaciones y evidencias</h2></div></div>
+  return <section className="customer-card customer-panel customer-investigation-timeline">
+    <div className="customer-card-heading"><div><h2>Explicaciones y evidencias</h2></div></div>
     {runs.isPending ? <p>Cargando investigaciones…</p> : runs.error ? <p className="customer-form-error" role="alert">{errorText(runs.error)}</p> : runs.data?.length === 0 ? <p className="customer-empty-inline">Todavía no hay investigaciones para esta aplicación.</p> : <ol>
       {runs.data?.map(run => <li key={run.jobId}>
         <div className="customer-investigation-run-heading"><strong>{statusNames[run.status]}</strong><span>{new Date(run.createdAt).toLocaleString('es')}</span></div>
@@ -200,7 +200,7 @@ export function InvestigationsTimeline({ organizationId, applicationId, canManag
         {run.assessment && <span className="customer-status customer-status-muted">Evaluación del modelo: {run.assessment === 'candidate_issue' ? 'indicio candidato' : run.assessment === 'no_issue_supported' ? 'sin indicio respaldado' : 'inconclusa'} · nunca equivale a un hallazgo verificado</span>}
         {run.citedEvidenceIds.length > 0 && <details><summary>Evidencia citada ({run.citedEvidenceIds.length})</summary><ul>{run.citedEvidenceIds.map(id => <li key={id}><code>{id}</code></li>)}</ul></details>}
         {run.hypotheses.length > 0 && <details><summary>Hipótesis</summary><ul>{run.hypotheses.map((item, index) => <li key={`${run.jobId}:${index}`}>{item.statement}<br /><small>Evidencias: {item.evidenceIds.join(', ')}</small></li>)}</ul></details>}
-        {run.candidateSuggestion && <div className="customer-report-callout"><strong>Sugerencia privada · requiere D05 y aprobación humana</strong><p>{run.candidateSuggestion.summary}</p>{run.candidateSuggestion.path && <code>{run.candidateSuggestion.path}</code>}<p className="customer-field-note">Evidencias: {run.candidateSuggestion.evidenceIds.join(', ')}</p></div>}
+        {run.candidateSuggestion && <div className="customer-investigation-suggestion"><strong>Sugerencia privada · requiere D05 y aprobación humana</strong><p>{run.candidateSuggestion.summary}</p>{run.candidateSuggestion.path && <code>{run.candidateSuggestion.path}</code>}<p className="customer-field-note">Evidencias: {run.candidateSuggestion.evidenceIds.join(', ')}</p></div>}
         <p className="customer-field-note">{run.tokensSpent.toLocaleString('es')} tokens · ${(run.costMicroUsd / 1_000_000).toFixed(6)} USD gastados · ${(run.reservedCostMicroUsd / 1_000_000).toFixed(6)} USD y {run.reservedTokens.toLocaleString('es')} tokens reservados.</p>
         {canManage && (run.state === 'queued' || run.state === 'running') && <button className="customer-button" type="button" disabled={cancel.isPending} onClick={() => cancel.mutate(run.jobId)}>Cancelar</button>}
         {canManage && (['delayed', 'inconclusive'].includes(run.status) || run.state === 'failed') && run.reservedCostMicroUsd === 0 && run.reservedTokens === 0 && <button className="customer-button" type="button" disabled={resume.isPending} onClick={() => resume.mutate(run.jobId)}>Reanudar</button>}

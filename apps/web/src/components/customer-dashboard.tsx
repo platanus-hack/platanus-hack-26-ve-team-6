@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
+import { AppWindowIcon, ArchiveIcon, ArrowRightIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, HouseIcon, LogOutIcon, MenuIcon, PlusIcon, ShieldCheckIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -36,19 +37,24 @@ import { WorkflowExceptions } from './workflow-exceptions';
 import { DecisionRecordHistory } from './decision-record-history';
 import { InvestigationActionButton, InvestigationModelSettings, InvestigationsTimeline } from './investigations-panel';
 import { DependencyInventoryPanel, LicensePolicyPanel, RetentionPolicyPanel } from './customer-supply-chain';
-import './customer-dashboard.css';
+import { GotchuMark } from './gotchu-mark';
+import { DotPlate } from './dot-field/dot-plate';
+import { ThemeSwitch } from './theme-switch';
+import './customer-shell.css';
+import './customer-report.css';
+import './customer-operations.css';
 
 type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
 
-const pages: { id: Page; label: string; glyph: string }[] = [
-  { id: 'overview', label: 'Inicio', glyph: '⌂' },
-  { id: 'applications', label: 'Aplicaciones', glyph: '▦' },
-  { id: 'operations', label: 'Vigilancia', glyph: '◉' },
-  { id: 'reports', label: 'Informes', glyph: '≋' },
-  { id: 'license-policy', label: 'Licencias', glyph: '©' },
-  { id: 'retention-policy', label: 'Retención', glyph: '◴' },
-  { id: 'members', label: 'Equipo', glyph: '♧' },
-  { id: 'decision-records', label: 'Decisiones', glyph: '◷' },
+const pages: { id: Page; label: string; icon: LucideIcon }[] = [
+  { id: 'overview', label: 'Inicio', icon: HouseIcon },
+  { id: 'applications', label: 'Aplicaciones', icon: AppWindowIcon },
+  { id: 'operations', label: 'Vigilancia', icon: RadarIcon },
+  { id: 'reports', label: 'Informes', icon: FileTextIcon },
+  { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
+  { id: 'retention-policy', label: 'Retención', icon: ArchiveIcon },
+  { id: 'members', label: 'Equipo', icon: UsersIcon },
+  { id: 'decision-records', label: 'Decisiones', icon: GavelIcon },
 ];
 
 const modeLabels: Record<AssessmentMode, string> = {
@@ -78,8 +84,9 @@ function readableError(error: unknown) {
   return 'No se pudo completar la operación. Inténtalo de nuevo.';
 }
 
-function Icon({ children }: { children: string }) {
-  return <span className="customer-icon" aria-hidden="true">{children}</span>;
+/** The landing's lockup: the mark plus the wordmark in the display face. */
+function Brand() {
+  return <a className="customer-brand" href="/dashboard" aria-label="Gotchu, inicio"><GotchuMark size={26} /><span>Gotchu</span></a>;
 }
 
 function Loading({ label }: { label: string }) {
@@ -88,6 +95,29 @@ function Loading({ label }: { label: string }) {
 
 function ErrorNotice({ message, retry }: { message: string; retry?: () => void }) {
   return <div className="customer-error" role="alert"><strong>No se pudo completar la operación</strong><p>{message}</p>{retry && <button className="customer-link-button" onClick={retry}>Reintentar</button>}</div>;
+}
+
+/** Sign-in layout: a brand band beside a focused form (the band is dropped below 900px). */
+function AuthShell({ labelledBy, children }: { labelledBy?: string; children: ReactNode }) {
+  return <main className="gl customer-auth-page">
+    <div className="customer-auth-band">
+      <a className="customer-brand" href="/" aria-label="Gotchu, inicio"><GotchuMark size={26} /><span>Gotchu</span></a>
+      <div className="customer-auth-plate" aria-hidden="true"><DotPlate formation="globe" /></div>
+      <div className="customer-auth-pitch">
+        <p className="customer-auth-headline">Mira de cerca.<br /><span>Decide con pruebas.</span></p>
+        <p>Revisa el código de tu app, tu web o ambos, con evidencia para entender cada hallazgo y saber por dónde seguir.</p>
+        <p className="customer-auth-trust"><ShieldCheckIcon aria-hidden="true" />No ejecutamos tu código fuente ni hacemos cambios en tus aplicaciones.</p>
+      </div>
+    </div>
+    <div className="customer-auth-main">
+      <header className="customer-auth-top">
+        <a className="customer-brand customer-auth-mobile-brand" href="/" aria-label="Gotchu, inicio"><GotchuMark size={26} /><span>Gotchu</span></a>
+        <nav className="customer-auth-nav" aria-label="Navegación principal"><a href="/">Inicio</a><a href="/#gl-codigo">Cómo funciona</a></nav>
+        <ThemeSwitch />
+      </header>
+      <section className="customer-auth-card" {...(labelledBy ? { 'aria-labelledby': labelledBy } : {})}>{children}</section>
+    </div>
+  </main>;
 }
 
 function ProviderLogo({ providerId }: { providerId: string }) {
@@ -201,9 +231,7 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
   const ssoProviders = oauthProviders.filter(provider => provider.id !== 'google' && provider.id !== 'github');
   const lastProvider = oauthProviders.find(provider => provider.id === lastMethod);
   const lastMethodLabel = lastMethod === 'credentials' ? 'correo y contraseña' : lastProvider?.name ?? (lastMethod ? 'SSO' : null);
-  return <main className="customer-auth-page">
-    <section className="customer-auth-card" aria-labelledby="auth-title">
-      <a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>
+  return <AuthShell labelledBy="auth-title">
       <h1 id="auth-title">{registering ? 'Crea tu cuenta en Gotchu' : 'Inicia sesión en Gotchu'}</h1>
       <p className="customer-auth-copy">{registering ? 'Crea tu cuenta y empieza a revisar tus aplicaciones.' : 'Accede para revisar tus espacios de trabajo y las aplicaciones que administra tu equipo.'}</p>
 
@@ -220,13 +248,13 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
         <span>{loadingProvider === provider.id ? 'Conectando con SSO…' : 'Continuar con SSO'}</span>
       </button>)}
 
-      {oauthProviders.length > 0 && session.localAuthEnabled && <div className="customer-auth-divider"><span>O</span></div>}
+      {oauthProviders.length > 0 && session.localAuthEnabled && <div className="customer-auth-divider"><span>o con tu correo</span></div>}
       {session.localAuthEnabled && <form className="customer-form customer-auth-form" onSubmit={submit}>
         <label htmlFor="customer-email">Correo electrónico</label>
         <input id="customer-email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} />
         <label htmlFor="customer-password">Contraseña</label>
-        <div className="customer-auth-password"><input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete={registering ? 'new-password' : 'current-password'} required minLength={registering ? 15 : undefined} maxLength={128} value={password} onChange={event => setPassword(event.target.value)} /><button type="button" className="customer-auth-password-toggle" aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'} aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.6"/>{showPassword && <path d="m4 4 16 16"/>}</svg></button></div>
-        {!registering && <label className="customer-auth-remember"><input type="checkbox" checked={rememberAccess} onChange={event => changeRememberAccess(event.target.checked)} /><span>Recordar email y método de acceso en este dispositivo</span></label>}
+        <div className="customer-auth-password"><input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete={registering ? 'new-password' : 'current-password'} required minLength={registering ? 15 : undefined} maxLength={128} value={password} onChange={event => setPassword(event.target.value)} /><button type="button" className="customer-auth-password-toggle" aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'} aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOffIcon aria-hidden="true" /> : <EyeIcon aria-hidden="true" />}</button></div>
+        {!registering && <label className="customer-checkbox customer-auth-remember"><input type="checkbox" checked={rememberAccess} onChange={event => changeRememberAccess(event.target.checked)} /><span>Recordar email y método de acceso en este dispositivo</span></label>}
         {rememberAccess && lastMethodLabel && <p className="customer-auth-last-method" role="status">Último método: {lastMethodLabel}</p>}
         {registering && <p className="customer-field-note">Usa al menos 15 caracteres.</p>}
         <button className="customer-button customer-button-primary customer-button-full" disabled={busy || loadingProvider !== null}>{busy ? <><span className="customer-spinner" />Conectando…</> : registering ? 'Crear cuenta' : 'Iniciar sesión'}</button>
@@ -234,10 +262,8 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
       </form>}
 
       {!session.localAuthEnabled && oauthProviders.length === 0 && <div className="customer-inline-error" role="status">El inicio de sesión todavía no está configurado para este entorno.</div>}
-      <p className="customer-auth-privacy">Tus fuentes e informes pertenecen a tu espacio de trabajo. No ejecutamos código fuente ni hacemos cambios en tus aplicaciones.</p>
-      <nav className="customer-auth-legal" aria-label="Información legal"><a href="/privacy">Privacidad</a><a href="/terms">Términos</a></nav>
-    </section>
-  </main>;
+      <nav className="customer-auth-legal" aria-label="Información legal">Consulta los <a href="/terms">Términos de uso</a> y el <a href="/privacy">Aviso de privacidad</a>.</nav>
+  </AuthShell>;
 }
 
 function WorkspaceCreate({ onCreated, disabled }: { onCreated: (workspace: CustomerWorkspace) => void; disabled: boolean }) {
@@ -250,7 +276,7 @@ function WorkspaceCreate({ onCreated, disabled }: { onCreated: (workspace: Custo
   });
   return <form className="customer-inline-create" onSubmit={event => { event.preventDefault(); setError(null); create.mutate(); }}>
     <label htmlFor="new-workspace">Nuevo espacio</label>
-    <div className="customer-inline-control"><input id="new-workspace" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre del equipo" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Crear espacio de trabajo">+</button></div>
+    <div className="customer-inline-control"><input id="new-workspace" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre del equipo" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Crear espacio de trabajo"><PlusIcon aria-hidden="true" /></button></div>
     {error && <p className="customer-form-error" role="alert">{error}</p>}
   </form>;
 }
@@ -285,7 +311,7 @@ function ApplicationCreate({ organizationId, onCreated, disabled }: { organizati
   });
   return <form className="customer-inline-create" onSubmit={event => { event.preventDefault(); setError(null); create.mutate(); }}>
     <label htmlFor="new-application">Añadir aplicación</label>
-    <div className="customer-inline-control"><input id="new-application" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre de la aplicación" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Añadir aplicación">+</button></div>
+    <div className="customer-inline-control"><input id="new-application" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre de la aplicación" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Añadir aplicación"><PlusIcon aria-hidden="true" /></button></div>
     {error && <p className="customer-form-error" role="alert">{error}</p>}
   </form>;
 }
@@ -300,7 +326,7 @@ function ApplicationSettings({ organizationId, applicationId, name, archived, ca
   });
   useEffect(() => setDraft(name), [name]);
   return <section className="customer-card customer-settings-card">
-    <div className="customer-card-heading"><div><span className="customer-eyebrow">CONFIGURACIÓN</span><h2>Aplicación</h2></div><span className={archived ? 'customer-status customer-status-muted' : 'customer-status customer-status-ready'}>{archived ? 'Archivada' : 'Activa'}</span></div>
+    <div className="customer-card-heading"><div><h2>Configuración</h2></div><span className={archived ? 'customer-status customer-status-muted' : 'customer-status customer-status-ready'}>{archived ? 'Archivada' : 'Activa'}</span></div>
     <form className="customer-form customer-application-edit" onSubmit={event => { event.preventDefault(); setError(null); update.mutate({ name: draft.trim() }); }}>
       <label htmlFor="application-name">Nombre</label><div className="customer-inline-control"><input id="application-name" value={draft} onChange={event => setDraft(event.target.value)} maxLength={200} required disabled={!canManage || update.isPending} /><button className="customer-button customer-button-small" disabled={!canManage || update.isPending || !draft.trim() || draft.trim() === name}>Guardar</button></div>
     </form>
@@ -336,7 +362,7 @@ function TargetEnrollment({ organizationId, applicationId, targets, canManage, o
   const originIsValid = customerOriginSchema.safeParse(origin.trim()).success;
 
   return <section className="customer-card">
-    <div className="customer-card-heading"><div><span className="customer-eyebrow">ALCANCE EXTERNO</span><h2>Aplicación HTTPS</h2></div><span className="customer-status customer-status-muted">Sólo lectura</span></div>
+    <div className="customer-card-heading"><div><h2>Aplicación HTTPS</h2></div><span className="customer-status customer-status-muted">Sólo lectura</span></div>
     <p className="customer-card-copy">El análisis externo puede ejecutarse sin acceso al código. Añade un origen público HTTPS y verifica que controlas el dominio antes de analizarlo.</p>
     {activeTarget && <div className="customer-target-row">
       <div><strong>{activeTarget.origin}</strong><span>Versión de autorización {activeTarget.version} · autorizado por {activeTarget.consentActor}</span><span>Perfil activo: {scanProfileLabels[activeTarget.scanProfile ?? 'root']}{(activeTarget.scanProfile ?? 'root') === 'public_surface' ? ' · hasta 10 solicitudes GET al origen verificado' : ' · una solicitud GET a /'}</span><span>Vence {activeTarget.expiresAt ? date(activeTarget.expiresAt) : 'sin fecha registrada'}</span></div>
@@ -435,7 +461,7 @@ function SourceEnrollment({ organizationId, applicationId, sources, canManage, o
   }
 
   return <section className="customer-card">
-    <div className="customer-card-heading"><div><span className="customer-eyebrow">ALCANCE DE CÓDIGO</span><h2>Instantánea de código</h2></div><span className="customer-status customer-status-muted">No ejecutamos tu código</span></div>
+    <div className="customer-card-heading"><div><h2>Instantánea de código</h2></div><span className="customer-status customer-status-muted">No ejecutamos tu código</span></div>
     <p className="customer-card-copy">Sube una selección de archivos fuente para un análisis interno. Se conserva como una instantánea privada y no se instalan dependencias ni se ejecutan pruebas.</p><p className="customer-field-note">Si la consulta de avisos está habilitada, se envían al servicio de vulnerabilidades sólo nombres y versiones de paquetes npm; nunca los archivos.</p>
     {sources.length > 0 && <div className="customer-source-list"><strong>Instantáneas disponibles</strong>{sources.map(source => <div key={source.id}><span><code>{source.revision}</code> · {source.fileCount} archivos · SHA-256 <code>{source.digest.slice(0, 12)}…</code><small>{date(source.createdAt)}</small></span>{canManage && <button className="customer-link-button customer-danger-link" disabled={remove.isPending} onClick={() => { if (window.confirm(`¿Eliminar la instantánea «${source.revision}»? Esta acción no se puede deshacer.`)) { setError(null); remove.mutate(source.id); } }}>Eliminar</button>}</div>)}</div>}
     {canManage && <form className="customer-form customer-source-form" onSubmit={event => { event.preventDefault(); setError(null); upload.mutate(); }}>
@@ -471,7 +497,7 @@ function ContainerImageEnrollment({ organizationId, applicationId, images, canMa
   const fileError = file && (file.size < 1 || file.size > CUSTOMER_MAX_CONTAINER_IMAGE_BYTES)
     ? `El límite por archivo es ${Math.ceil(CUSTOMER_MAX_CONTAINER_IMAGE_BYTES / (1024 * 1024))} MiB.` : null;
   return <section className="customer-card">
-    <div className="customer-card-heading"><div><span className="customer-eyebrow">ALCANCE DE CONTENEDOR</span><h2>Imagen de contenedor</h2></div><span className="customer-status customer-status-muted">No se ejecuta</span></div>
+    <div className="customer-card-heading"><div><h2>Imagen de contenedor</h2></div><span className="customer-status customer-status-muted">No se ejecuta</span></div>
     <p className="customer-card-copy">Guarda un archivo <code>docker save</code> u OCI para evaluar sus paquetes sin iniciar la imagen. El análisis de CVE requiere una base Trivy preparada y fijada.</p>
     {images.length > 0 && <div className="customer-source-list"><strong>Archivos de imagen disponibles</strong>{images.map(image => <div key={image.id}><span>{image.label} · {(image.size / (1024 * 1024)).toFixed(2)} MiB · SHA-256 <code>{image.digest.slice(0, 12)}…</code><small>{date(image.createdAt)}</small></span>{canManage && <button className="customer-link-button customer-danger-link" disabled={remove.isPending} onClick={() => { if (window.confirm(`¿Eliminar el archivo de imagen «${image.label}»? Esta acción no se puede deshacer.`)) remove.mutate(image.id); }}>Eliminar</button>}</div>)}</div>}
     {canManage ? <form className="customer-form customer-source-form" onSubmit={event => { event.preventDefault(); setError(null); upload.mutate(); }}>
@@ -508,7 +534,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
   const originSections = (['internal', 'external'] as const).map(origin => ({ origin, analysis: report[origin] }));
 
   return <div className="customer-report-detail">
-    <div className="customer-report-title"><div><span className="customer-eyebrow">INFORME DE EVALUACIÓN</span><h2>{report.applicationName}</h2><p>{reportInputLabel(report)} · {date(report.finishedAt)}</p></div><button className="customer-button" disabled={downloading} onClick={async () => {
+    <div className="customer-report-title"><div><h2>{report.applicationName}</h2><p>{reportInputLabel(report)} · {date(report.finishedAt)}</p></div><button className="customer-button" disabled={downloading} onClick={async () => {
       setDownloading(true); setDownloadError(null);
       try { await customerApi.recordReportDownload(organizationId, applicationId, report.id); downloadReport(report); }
       catch (error) { setDownloadError(readableError(error)); }
@@ -541,7 +567,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
       finally { setDownloadingSbom(false); }
     }} /></div>}
     {activeReportTab === 'findings' && <div id="report-findings-panel" className="customer-report-tabpanel" role="tabpanel" aria-labelledby="report-findings-tab" tabIndex={0}>
-    <section className="customer-report-section"><div className="customer-section-heading"><div><span className="customer-eyebrow">HALLAZGOS</span><h3>Observaciones y contraste</h3></div></div>
+    <section className="customer-report-section"><div className="customer-section-heading"><div><h3>Observaciones y contraste</h3></div></div>
       {report.comparison.length === 0 ? <div className="customer-empty-inline">Este informe no contiene observaciones. Consulta la cobertura para ver qué perfiles y capacidades se evaluaron.</div> : <div className="customer-findings">{report.comparison.map(item => {
         const linked = [...item.internalFindingIds, ...item.externalFindingIds].map(id => byId.get(id)).filter((finding): finding is NonNullable<typeof finding> => finding !== undefined);
         return <details className="customer-finding" key={item.key}><summary><span><strong>{linked[0]?.title ?? 'Aspecto no verificable'}</strong><small>{linked[0]?.location ?? item.explanation}</small></span><span className="customer-finding-badges"><ComparisonPresence item={item} /><ComparisonVerification item={item} />{linked[0] && <span className={`customer-severity customer-severity-${linked[0].severity}`}>{severityLabels[linked[0].severity]}</span>}</span></summary>
@@ -553,7 +579,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
         </details>;
       })}</div>}
     </section>
-    {report.subject.containerImageDigest ? <section className="customer-report-section"><div className="customer-section-heading"><div><span className="customer-eyebrow">ACTUALIZACIÓN</span><h3>Cómo corregir las CVE de la imagen</h3></div></div><p>Actualiza los paquetes en el Dockerfile o manifiestos de construcción, crea una nueva imagen y vuelve a evaluarla. Este informe no modifica ni reconstruye imágenes.</p></section> : <ReportRecommendations
+    {report.subject.containerImageDigest ? <section className="customer-report-section"><div className="customer-section-heading"><div><h3>Cómo corregir las CVE de la imagen</h3></div></div><p>Actualiza los paquetes en el Dockerfile o manifiestos de construcción, crea una nueva imagen y vuelve a evaluarla. Este informe no modifica ni reconstruye imágenes.</p></section> : <ReportRecommendations
       key={`${userId}:${organizationId}:${applicationId}:${report.id}`}
       userId={userId}
       organizationId={organizationId}
@@ -568,10 +594,10 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
       onQueued={onCorrectionQueued}
     />}
     </div>}
-    <section className="customer-report-section customer-coverage"><div className="customer-section-heading"><div><span className="customer-eyebrow">COBERTURA</span><h3>Qué se evaluó</h3></div></div>
+    <section className="customer-report-section customer-coverage"><div className="customer-section-heading"><div><h3>Qué se evaluó</h3></div></div>
       <div className="customer-analysis-grid">{originSections.map(({ origin, analysis }) => <article className="customer-analysis-card" key={origin}><div className="customer-card-heading"><h4>{report.subject.containerImageDigest && origin === 'internal' ? 'Imagen' : sourceLabels[origin]}</h4><span className="customer-status customer-status-muted">{analysis ? analysisLabels[analysis.status] : 'No solicitado'}</span></div>{analysis ? <><p>{analysis.tool.name} · v{analysis.tool.version}</p><ul>{analysis.coverage.map(item => <li key={item.capability}><span><strong>{coverageCapabilityLabel(item.capability)}</strong><small>{item.detail}</small></span><span className="customer-status customer-status-muted">{coverageLabels[item.state]}</span></li>)}</ul>{analysis.limitations.length > 0 && <details className="customer-analysis-limits"><summary>Límites del perfil ({analysis.limitations.length})</summary><ul>{analysis.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></details>}</> : <p>Esta perspectiva no se solicitó para este informe.</p>}</article>)}</div>
     </section>
-    {report.limitations.length > 0 && <section className="customer-report-section"><div className="customer-section-heading"><div><span className="customer-eyebrow">CONTEXTO</span><h3>Límites del informe</h3></div></div><ul className="customer-report-limitations">{report.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></section>}
+    {report.limitations.length > 0 && <section className="customer-report-section"><div className="customer-section-heading"><div><h3>Límites del informe</h3></div></div><ul className="customer-report-limitations">{report.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></section>}
   </div>;
 }
 
@@ -625,7 +651,7 @@ function AssessmentForm({ organizationId, applicationId, sources, images, target
   const ready = (!needsSource || hasSource) && (!needsTarget || hasTarget) && (!usesImage || hasImage);
 
   return <section className="customer-card customer-assessment-card">
-    <div className="customer-card-heading"><div><span className="customer-eyebrow">NUEVA EVALUACIÓN</span><h2>Define el alcance</h2></div><span className="customer-status customer-status-muted">Observación</span></div>
+    <div className="customer-card-heading"><div><h2>Nueva evaluación</h2></div><span className="customer-status customer-status-muted">Observación</span></div>
     <p className="customer-card-copy">Elige sólo las perspectivas que autorizas. El análisis de código y de imágenes no ejecuta archivos ni inicia contenedores.</p>
     <form className="customer-form customer-assessment-form" onSubmit={event => { event.preventDefault(); setError(null); queue.mutate(); }}>
       <label htmlFor="assessment-mode">Perspectiva</label><select id="assessment-mode" value={mode} onChange={event => { const nextMode = event.target.value as AssessmentMode; setMode(nextMode); if (nextMode !== 'internal') setInputKind('source_snapshot'); setError(null); }} disabled={queue.isPending}><option value="external">HTTPS autorizado (sin código)</option><option value="internal">Análisis interno</option><option value="both">Código + HTTPS</option></select>
@@ -650,7 +676,14 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const [activeJob, setActiveJob] = useState<{ organizationId: string; applicationId: string; jobId: string; purpose: 'assessment' | 'correction' } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [menuOpen]);
   useEffect(() => {
     if (!acceptedInvitationId) return;
     setSelectedWorkspaceId(acceptedInvitationId);
@@ -764,39 +797,46 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const selectedSummary = applicationReports.find(item => item.id === visibleReportId);
   const needsReportData = page === 'overview' || page === 'reports';
 
-  if (workspaces.isPending) return <main className="customer-app-shell"><Loading label="Cargando tus espacios de trabajo…" /></main>;
-  if (workspaces.error) return <main className="customer-app-shell"><ErrorNotice message={readableError(workspaces.error)} retry={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} /></main>;
+  if (workspaces.isPending) return <main className="gl customer-app-shell"><Loading label="Cargando tus espacios de trabajo…" /></main>;
+  if (workspaces.error) return <main className="gl customer-app-shell"><ErrorNotice message={readableError(workspaces.error)} retry={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} /></main>;
 
-  return <div className="customer-app-shell">
+  return <div className="gl customer-app-shell">
     <aside className="customer-sidebar">
-      <a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>
+      <div className="customer-sidebar-head">
+        <Brand />
+        <button type="button" className="customer-menu-button" aria-expanded={menuOpen} aria-controls="customer-sidebar-body" onClick={() => setMenuOpen(value => !value)}>{menuOpen ? <XIcon aria-hidden="true" /> : <MenuIcon aria-hidden="true" />}{menuOpen ? 'Cerrar' : 'Menú'}</button>
+      </div>
+      <div className="customer-sidebar-body" id="customer-sidebar-body" data-open={menuOpen || undefined}>
       <div className="customer-workspace-select"><label htmlFor="workspace-select">ESPACIO DE TRABAJO</label><select id="workspace-select" value={organizationId ?? ''} onChange={event => { setSelectedWorkspaceId(event.target.value); setSelectedApplicationId(null); setSelectedReportId(null); setNotice(null); }}><option value="" disabled>Selecciona un espacio</option>{workspaces.data?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>{workspace && <span>{workspace.role === 'owner' ? 'Propietario' : workspace.role === 'operator' ? 'Operador' : 'Sólo lectura'}</span>}{workspace && <WorkspaceSettings key={workspace.id} organizationId={workspace.id} name={workspace.name} canManage={canManage} onSaved={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); setNotice('El espacio de trabajo se actualizó.'); }} />}</div>
       {workspace && <div className="customer-application-select"><label htmlFor="application-select">APLICACIÓN</label><select id="application-select" value={applicationId ?? ''} onChange={event => { setSelectedApplicationId(event.target.value); setSelectedReportId(null); setNotice(null); }}><option value="" disabled>Selecciona una aplicación</option>{applications.data?.map(item => <option key={item.applicationId} value={item.applicationId}>{item.name}{item.archived ? ' · archivada' : ''}</option>)}</select></div>}
-      <nav className="customer-nav" aria-label="Navegación principal">{pages.map(item => <button type="button" key={item.id} className={page === item.id ? 'customer-nav-item is-active' : 'customer-nav-item'} aria-current={page === item.id ? 'page' : undefined} onClick={() => setPage(item.id)}><Icon>{item.glyph}</Icon>{item.label}</button>)}</nav>
+      <nav className="customer-nav" aria-label="Navegación principal">{pages.map(item => <button type="button" key={item.id} className={page === item.id ? 'customer-nav-item is-active' : 'customer-nav-item'} aria-current={page === item.id ? 'page' : undefined} onClick={() => { setPage(item.id); setMenuOpen(false); }}><item.icon aria-hidden="true" />{item.label}</button>)}</nav>
       <div className="customer-sidebar-bottom">
         {workspaces.data?.length === 0 && <div className="customer-sidebar-note">Crea tu primer espacio para incorporar aplicaciones autorizadas.</div>}
         {Boolean(workspaces.data?.length) && <WorkspaceCreate disabled={false} onCreated={created => { setSelectedWorkspaceId(created.id); setSelectedApplicationId(null); queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); }} />}
-        <div className="customer-user-row"><span className="customer-user-avatar">U</span><span>Sesión activa</span><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}>↗</button></div>
+        <div className="customer-user-row"><span className="customer-user-avatar" aria-hidden="true">U</span><span>Sesión activa</span><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOutIcon aria-hidden="true" /></button></div>
+        <ThemeSwitch />
+      </div>
       </div>
     </aside>
+    {menuOpen && <button type="button" className="customer-menu-backdrop" tabIndex={-1} aria-label="Cerrar menú" onClick={() => setMenuOpen(false)} />}
     <div className="customer-main-column">
-      <header className="customer-topbar"><span className="customer-breadcrumb">{workspace?.name ?? 'Tu organización'} <span>/</span><strong>{pageTitle}</strong></span><span className="customer-mode-pill"><i />Evaluación en observación</span></header>
+      <header className="customer-topbar"><span className="customer-breadcrumb">{workspace?.name ?? 'Tu organización'} <span aria-hidden="true">/</span><strong>{pageTitle}</strong></span><span className="customer-mode-pill">Evaluación en observación</span></header>
       <main className="customer-main">
         {invitationMessage && <div className="customer-success" role="status">{invitationMessage}</div>}
-        {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}>×</button></div>}
+        {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}><XIcon aria-hidden="true" /></button></div>}
         {operationError && <ErrorNotice message={operationError} retry={() => { setPageError(null); refreshApplicationData(); workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} />}
         {page === 'members' && organizationId && workspace ? <MembersPanel key={`${userId}:${organizationId}`} organizationId={organizationId} userId={userId} role={workspace.role} />
         : !organizationId ? <Onboarding userId={userId} {...(session.user?.displayName ? { displayName: session.user.displayName } : {})} onWorkspaceCreated={() => { queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); }} onScanQueued={(scope, jobId) => { queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'applications', scope.organizationId] }).catch(caught => setPageError(readableError(caught))); setSelectedWorkspaceId(scope.organizationId); setSelectedApplicationId(scope.applicationId); setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />
         : page === 'decision-records' && organizationId ? <>
-          <div className="customer-page-heading"><div><span className="customer-eyebrow">{workspace?.name}</span><h1>Historial de decisiones</h1><p>Consulta quién realizó cambios y qué evaluaciones, alertas y acciones quedaron registradas en este espacio de trabajo.</p></div></div>
+          <div className="customer-page-heading"><div><h1>Historial de decisiones</h1><p>Consulta quién realizó cambios y qué evaluaciones, alertas y acciones quedaron registradas en este espacio de trabajo.</p></div></div>
           <DecisionRecordHistory userId={userId} organizationId={organizationId} />
         </>
         : page === 'license-policy' && organizationId ? <>
-          <div className="customer-page-heading"><div><span className="customer-eyebrow">{workspace?.name}</span><h1>Política de licencias</h1><p>Define cómo clasificar las licencias declaradas en las dependencias exactas de cada evaluación de código.</p></div></div>
+          <div className="customer-page-heading"><div><h1>Política de licencias</h1><p>Define cómo clasificar las licencias declaradas en las dependencias exactas de cada evaluación de código.</p></div></div>
           <LicensePolicyPanel key={`${userId}:${organizationId}`} userId={userId} organizationId={organizationId} canManage={canManage} />
         </>
         : page === 'retention-policy' && organizationId ? <>
-          <div className="customer-page-heading"><div><span className="customer-eyebrow">{workspace?.name}</span><h1>Retención y privacidad</h1><p>Elige cuánto tiempo conserva este espacio de trabajo los datos operativos y las fuentes que comparte con Gotchu.</p></div></div>
+          <div className="customer-page-heading"><div><h1>Retención y privacidad</h1><p>Elige cuánto tiempo conserva este espacio de trabajo los datos operativos y las fuentes que comparte con Gotchu.</p></div></div>
           <RetentionPolicyPanel key={`${userId}:${organizationId}`} userId={userId} organizationId={organizationId} isOwner={workspace?.role === 'owner'} />
         </>
         : applications.isPending ? <Loading label="Cargando aplicaciones…" />
@@ -804,21 +844,21 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
         : !selectedApplication ? <Onboarding userId={userId} {...(session.user?.displayName ? { displayName: session.user.displayName } : {})} initialOrganizationId={organizationId} canManage={canManage} onWorkspaceCreated={() => undefined} onScanQueued={(scope, jobId) => { queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'applications', scope.organizationId] }).catch(caught => setPageError(readableError(caught))); setSelectedApplicationId(scope.applicationId); setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />
         : page === 'overview' && sources.data?.length === 0 && images.data?.length === 0 && applicationReports.length === 0 && !activeJob ? <Onboarding userId={userId} {...(session.user?.displayName ? { displayName: session.user.displayName } : {})} initialOrganizationId={organizationId} initialApplicationId={selectedApplication.applicationId} canManage={canManage} onWorkspaceCreated={() => undefined} onScanQueued={(scope, jobId) => { setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />
         : <>
-          <div className="customer-page-heading"><div><span className="customer-eyebrow">{workspace?.name} · {selectedApplication.name}</span><h1>{page === 'overview' ? 'Seguridad de tus aplicaciones' : pageTitle}</h1><p>{page === 'overview' ? 'Evalúa únicamente los activos que tu equipo autoriza y revisa cada conclusión con su evidencia.' : page === 'applications' ? 'Administra el alcance externo y las instantáneas de código de esta aplicación.' : page === 'operations' ? 'Vigila esta aplicación, revisa señales y prepara pasos consultivos según la evidencia vigente.' : 'Historial de evaluaciones e informes con cobertura, observaciones y evidencia.'}</p></div>{selectedApplication.archived && <span className="customer-status customer-status-muted">Aplicación archivada</span>}</div>
+          <div className="customer-page-heading"><div><h1>{page === 'overview' ? 'Seguridad de tus aplicaciones' : pageTitle}</h1><p>{page === 'overview' ? 'Evalúa únicamente los activos que tu equipo autoriza y revisa cada conclusión con su evidencia.' : page === 'applications' ? 'Administra el alcance externo y las instantáneas de código de esta aplicación.' : page === 'operations' ? 'Vigila esta aplicación, revisa señales y prepara pasos consultivos según la evidencia vigente.' : 'Historial de evaluaciones e informes con cobertura, observaciones y evidencia.'}</p></div>{selectedApplication.archived && <span className="customer-status customer-status-muted">Aplicación archivada</span>}</div>
 
           {targets.isPending || sources.isPending || images.isPending || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance de la aplicación…" /> : (targets.error || sources.error || images.error || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? images.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
             {page === 'overview' && <>
               {activeJob && <JobStatusBanner purpose={activeJob.purpose} job={jobResult} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} />}
-              <div className="customer-overview-grid"><section className="customer-welcome-card"><span className="customer-eyebrow">ALCANCE CONTROLADO</span><h2>{selectedApplication.name}</h2><p>El análisis HTTPS puede funcionar sin acceso al repositorio. El modo combinado requiere tanto una instantánea autorizada como un dominio verificado.</p><div className="customer-overview-stats"><div><strong>{sources.data?.length ?? 0}</strong><span>Instantáneas</span></div><div><strong>{targets.data?.filter(target => target.status === 'verified').length ?? 0}</strong><span>Orígenes verificados</span></div><div><strong>{applicationReports.length}</strong><span>Informes</span></div></div><button className="customer-button customer-button-secondary" onClick={() => setPage('applications')}>Configurar alcance</button></section>
+              <div className="customer-overview-grid"><section className="customer-welcome-card"><h2>{selectedApplication.name}</h2><p>El análisis HTTPS puede funcionar sin acceso al repositorio. El modo combinado requiere tanto una instantánea autorizada como un dominio verificado.</p><div className="customer-overview-stats"><div><strong>{sources.data?.length ?? 0}</strong><span>Instantáneas</span></div><div><strong>{targets.data?.filter(target => target.status === 'verified').length ?? 0}</strong><span>Orígenes verificados</span></div><div><strong>{applicationReports.length}</strong><span>Informes</span></div></div><button className="customer-button customer-button-secondary" onClick={() => setPage('applications')}>Configurar alcance</button></section>
                 <AssessmentForm key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} images={images.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} />
               </div>
-              {applicationReports.length > 0 && <section className="customer-card customer-next-actions"><div><span className="customer-eyebrow">SIGUIENTE PASO</span><h2>Convierte el informe en trabajo claro</h2><p>Revisa las recomendaciones, comprueba incidentes y configura vigilancia desde esta aplicación.</p></div><button className="customer-button customer-button-primary" onClick={() => { setSelectedReportId(applicationReports[0]?.id ?? null); setPage('reports'); }}>Ver recomendaciones</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Ver incidentes</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Configurar vigilancia</button></section>}
-              <section className="customer-card customer-recent-card"><div className="customer-card-heading"><div><span className="customer-eyebrow">ACTIVIDAD RECIENTE</span><h2>Informes</h2></div><button className="customer-link-button" onClick={() => setPage('reports')}>Ver historial →</button></div>{applicationReports.length === 0 ? <div className="customer-empty-inline">Todavía no hay informes para esta aplicación. Define el alcance e inicia una evaluación cuando esté listo.</div> : <ReportList reports={applicationReports.slice(0, 4)} selectedId={visibleReportId} select={id => { setSelectedReportId(id); setPage('reports'); }} />}</section>
+              {applicationReports.length > 0 && <section className="customer-card customer-next-actions"><div><h2>Convierte el informe en trabajo claro</h2><p>Revisa las recomendaciones, comprueba incidentes y configura vigilancia desde esta aplicación.</p></div><button className="customer-button customer-button-primary" onClick={() => { setSelectedReportId(applicationReports[0]?.id ?? null); setPage('reports'); }}>Ver recomendaciones</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Ver incidentes</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Configurar vigilancia</button></section>}
+              <section className="customer-card customer-recent-card"><div className="customer-card-heading"><div><h2>Informes recientes</h2></div><button className="customer-link-button" onClick={() => setPage('reports')}>Ver historial<ArrowRightIcon aria-hidden="true" /></button></div>{applicationReports.length === 0 ? <div className="customer-empty-inline">Todavía no hay informes para esta aplicación. Define el alcance e inicia una evaluación cuando esté listo.</div> : <ReportList reports={applicationReports.slice(0, 4)} selectedId={visibleReportId} select={id => { setSelectedReportId(id); setPage('reports'); }} />}</section>
             </>}
 
             {page === 'applications' && <>
-              <section className="customer-card customer-applications-card"><div className="customer-card-heading"><div><span className="customer-eyebrow">APLICACIONES</span><h2>Activos de {workspace?.name}</h2></div>{canManage && <ApplicationCreate organizationId={organizationId} disabled={false} onCreated={id => { setSelectedApplicationId(id); applications.refetch().catch(caught => setPageError(readableError(caught))); }} />}</div>
-                <div className="customer-application-grid">{(applications.data ?? []).map(application => <button className={application.applicationId === applicationId ? 'customer-application-card is-selected' : 'customer-application-card'} key={application.applicationId} onClick={() => { setSelectedApplicationId(application.applicationId); setSelectedReportId(null); }}><span className="customer-app-icon">▦</span><span><strong>{application.name}</strong><small>{application.archived ? 'Archivada' : 'Activa'} · Añadida {date(application.createdAt)}</small></span><span className="customer-app-role">{application.applicationId === applicationId ? 'Seleccionada' : 'Abrir'}</span></button>)}</div>
+              <section className="customer-card customer-applications-card"><div className="customer-card-heading"><div><h2>Activos de {workspace?.name}</h2></div>{canManage && <ApplicationCreate organizationId={organizationId} disabled={false} onCreated={id => { setSelectedApplicationId(id); applications.refetch().catch(caught => setPageError(readableError(caught))); }} />}</div>
+                <div className="customer-application-grid">{(applications.data ?? []).map(application => <button className={application.applicationId === applicationId ? 'customer-application-card is-selected' : 'customer-application-card'} key={application.applicationId} onClick={() => { setSelectedApplicationId(application.applicationId); setSelectedReportId(null); }}><span className="customer-app-icon" aria-hidden="true"><AppWindowIcon /></span><span><strong>{application.name}</strong><small>{application.archived ? 'Archivada' : 'Activa'} · Añadida {date(application.createdAt)}</small></span><span className="customer-app-role">{application.applicationId === applicationId ? 'Seleccionada' : 'Abrir'}</span></button>)}</div>
               </section>
               <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><ContainerImageEnrollment key={`${organizationId}:${selectedApplication.applicationId}:images`} organizationId={organizationId} applicationId={selectedApplication.applicationId} images={images.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /></div>
               <GitHubRepositoryPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:github`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} onScanQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPage('overview'); setNotice('La instantánea de GitHub está guardada y la primera evaluación se ejecuta en segundo plano.'); refreshApplicationData(); }} />
@@ -833,9 +873,9 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
             {page === 'operations' && <><InvestigationsTimeline organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} /><IncidentList organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} /><ProtectionPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:protection`} scope={{ organizationId, applicationId: selectedApplication.applicationId }} canManage={canManage && !selectedApplication.archived} /><OperationsPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} /><NotificationsPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:notifications`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} /></>}
 
           {page === 'reports' && <>
-            {report.data && <section className="customer-card customer-next-actions"><div><span className="customer-eyebrow">INFORME DISPONIBLE</span><h2>¿Qué quieres hacer ahora?</h2><p>{report.data.subject.containerImageDigest ? 'Actualiza y vuelve a construir la imagen a partir de la evidencia del informe.' : 'Las recomendaciones y su cobertura aparecen dentro del informe.'} Incidentes y vigilancia están en el área operativa.</p></div>{!report.data.subject.containerImageDigest && <button className="customer-button customer-button-primary" onClick={() => document.getElementById('recommendations-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Ver recomendaciones</button>}<button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Ver incidentes</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Configurar vigilancia</button></section>}
+            {report.data && <section className="customer-card customer-next-actions"><div><h2>¿Qué quieres hacer ahora?</h2><p>{report.data.subject.containerImageDigest ? 'Actualiza y vuelve a construir la imagen a partir de la evidencia del informe.' : 'Las recomendaciones y su cobertura aparecen dentro del informe.'} Incidentes y vigilancia están en el área operativa.</p></div>{!report.data.subject.containerImageDigest && <button className="customer-button customer-button-primary" onClick={() => document.getElementById('recommendations-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Ver recomendaciones</button>}<button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Ver incidentes</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Configurar vigilancia</button></section>}
             {activeJob && activeJob.organizationId === organizationId && activeJob.applicationId === selectedApplication.applicationId && <JobStatusBanner purpose={activeJob.purpose} job={jobResult} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} />}
-            <div className="customer-report-layout"><section className="customer-card customer-report-history"><div className="customer-card-heading"><div><span className="customer-eyebrow">HISTORIAL</span><h2>{applicationReports.length} informes</h2></div></div>{applicationReports.length === 0 ? <div className="customer-empty-inline">Los informes aparecerán aquí cuando termine una evaluación.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} select={setSelectedReportId} />}</section><section className="customer-card customer-report-card">{report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>}</section></div>
+            <div className="customer-report-layout"><section className="customer-card customer-report-history"><div className="customer-card-heading"><div><h2>{applicationReports.length} informes</h2></div></div>{applicationReports.length === 0 ? <div className="customer-empty-inline">Los informes aparecerán aquí cuando termine una evaluación.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} select={setSelectedReportId} />}</section><section className="customer-card customer-report-card">{report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>}</section></div>
           </>}
           </>}
         </>}
@@ -846,7 +886,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
 }
 
 function ReportList({ reports, selectedId, select }: { reports: CustomerReportSummary[]; selectedId: string | null; select: (id: string) => void }) {
-  return <ul className="customer-report-list">{reports.map(report => <li key={report.id}><button className={selectedId === report.id ? 'is-selected' : ''} onClick={() => select(report.id)}><span className="customer-report-icon">▤</span><span className="customer-report-row-title"><strong>{report.subject.containerImageDigest ? 'Imagen de contenedor' : modeLabels[report.mode]}</strong><small>{date(report.finishedAt)} · {report.findingCount} observaciones</small></span><span className="customer-report-app">{report.applicationName}</span><span aria-hidden="true">›</span></button></li>)}</ul>;
+  return <ul className="customer-report-list">{reports.map(report => <li key={report.id}><button className={selectedId === report.id ? 'is-selected' : ''} onClick={() => select(report.id)}><span className="customer-report-icon" aria-hidden="true" /><span className="customer-report-row-title"><strong>{report.subject.containerImageDigest ? 'Imagen de contenedor' : modeLabels[report.mode]}</strong><small>{date(report.finishedAt)} · {report.findingCount} observaciones</small></span><span className="customer-report-app">{report.applicationName}</span><ChevronRightIcon aria-hidden="true" /></button></li>)}</ul>;
 }
 
 function JobStatusBanner({ purpose, job, error, retry }: { purpose: 'assessment' | 'correction'; job: CustomerJob | undefined; error: string | null; retry: () => void }) {
@@ -899,8 +939,8 @@ export function CustomerDashboard() {
   const invitationMessage = acceptedInvitation ? 'Invitación aceptada. Se abrió el nuevo espacio de trabajo.' : null;
   const invitationBanner = invitationError ? <div role="alert" className="customer-error"><p>No se pudo aceptar la invitación: {invitationError}</p><button type="button" className="customer-link-button" onClick={() => setAcceptAttempt(value => value + 1)}>Volver a intentar</button></div>
     : invitationToken && !session.data?.user ? <p role="status" className="customer-success">Inicia sesión con la cuenta invitada para aceptar esta invitación.</p> : null;
-  if (session.isPending) return <main className="customer-auth-page"><Loading label="Comprobando tu sesión…" /></main>;
-  if (session.error) return <main className="customer-auth-page"><section className="customer-auth-card"><a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>{invitationBanner}<ErrorNotice message={readableError(session.error)} retry={() => session.refetch()} /></section></main>;
+  if (session.isPending) return <main className="gl customer-auth-page"><Loading label="Comprobando tu sesión…" /></main>;
+  if (session.error) return <AuthShell>{invitationBanner}<ErrorNotice message={readableError(session.error)} retry={() => session.refetch()} /></AuthShell>;
   if (!session.data.user) return <>{invitationBanner}<AuthPanel session={session.data} onAuthenticated={value => { queryClient.setQueryData(['customer-session'], value); }} /></>;
   return <><CustomerWorkspace key={session.data.user.id} session={session.data} userId={session.data.user.id} acceptedInvitationId={acceptedInvitation?.organizationId ?? null} invitationMessage={invitationMessage} />{invitationBanner}</>;
 }

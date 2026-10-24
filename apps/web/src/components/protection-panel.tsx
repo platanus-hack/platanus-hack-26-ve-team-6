@@ -95,7 +95,7 @@ app.get('/search', async (request, response) => {
     setDraft({ mode, enabledDetectors: next });
   }
 
-  return <section className="customer-card customer-protection" aria-labelledby="runtime-protection-title">
+  return <section className="customer-card customer-panel customer-protection" aria-labelledby="runtime-protection-title">
     <div className="customer-card-heading">
       <div><h2 id="runtime-protection-title">Protección en ejecución</h2><p className="customer-card-copy">El SDK inspecciona entradas que llegan a puntos de uso instrumentados. Los valores de entrada nunca se envían a Gotchu.</p></div>
       {config.data && <span className={`customer-status ${config.data.mode === 'block' ? 'customer-protection-status-block' : 'customer-status-muted'}`}>

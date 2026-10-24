@@ -76,8 +76,8 @@ export function NotificationsPanel({userId,organizationId,applicationId,canManag
     catch{setNotice('No se pudo copiar automáticamente. Selecciona y copia el secreto antes de cerrar esta vista.');}
   }
 
-  return <section className="customer-card customer-notifications-card" aria-labelledby="notifications-title">
-    <div className="customer-card-heading"><div><span className="customer-eyebrow">ENTREGA EXTERNA</span><h2 id="notifications-title">Notificaciones</h2></div><span className="customer-status customer-status-muted">Correo · Webhook</span></div>
+  return <section className="customer-card customer-panel customer-notifications-card" aria-labelledby="notifications-title">
+    <div className="customer-card-heading"><div><h2 id="notifications-title">Notificaciones</h2></div><span className="customer-status customer-status-muted">Correo · Webhook</span></div>
     <p className="customer-field-note">Las alertas externas informan sobre vigilancia detenida o reanudada, hallazgos altos o críticos de comprobaciones programadas y alertas de detectores en tiempo de ejecución.</p>
 
     {coverage.isPending?<div className="customer-loading" role="status">Cargando el estado de vigilancia…</div>
@@ -103,7 +103,7 @@ export function NotificationsPanel({userId,organizationId,applicationId,canManag
     <div className="customer-notification-section"><h3>Canales</h3>
       {channels.isPending?<div className="customer-loading" role="status">Cargando canales…</div>
         :channels.isError?<div className="customer-form-error" role="alert">No se pudieron cargar los canales. <button type="button" className="customer-link-button" onClick={()=>{channels.refetch().catch(()=>undefined);}}>Reintentar</button></div>
-        :channels.data?.length?<ul className="customer-report-list">{channels.data.map(channel=>{
+        :channels.data?.length?<ul className="customer-ruled-list">{channels.data.map(channel=>{
           const destination=channel.destination.kind==='email'?channel.destination.email:channel.destination.url;
           const last=latestByChannel.get(channel.id);
           return <li key={channel.id}><div className="customer-notification-channel"><div><strong>{channel.label}</strong><small>{channel.kind==='email'?'Correo':'Webhook firmado'} · {destination}</small><small>{channelNames[channel.state]} · severidad mínima {severityNames[channel.minimumSeverity]}</small>{last&&<small>Última entrega: {deliveryNames[last.state]} · {formattedDate(last.updatedAt)}</small>}</div>
@@ -115,7 +115,7 @@ export function NotificationsPanel({userId,organizationId,applicationId,canManag
     <div className="customer-notification-section"><h3>Historial de entrega</h3>
       {deliveries.isPending?<div className="customer-loading" role="status">Cargando entregas…</div>
         :deliveries.isError?<div className="customer-form-error" role="alert">No se pudo cargar el historial. <button type="button" className="customer-link-button" onClick={()=>{deliveries.refetch().catch(()=>undefined);}}>Reintentar</button></div>
-        :deliveries.data?.length?<ul className="customer-report-list">{deliveries.data.map(item=><li key={item.id}><div className="customer-notification-delivery"><div><strong>{item.title}</strong><small>{eventNames[item.eventKind]} · {item.channelLabel} · {severityNames[item.severity]}</small><small>{deliveryNames[item.state]} · {item.attempts} {item.attempts===1?'intento':'intentos'} · {formattedDate(item.updatedAt)}</small>{item.lastError&&<small>{deliveryError(item.lastError)}</small>}</div></div></li>)}</ul>
+        :deliveries.data?.length?<ul className="customer-ruled-list">{deliveries.data.map(item=><li key={item.id}><div className="customer-notification-delivery"><div><strong>{item.title}</strong><small>{eventNames[item.eventKind]} · {item.channelLabel} · {severityNames[item.severity]}</small><small>{deliveryNames[item.state]} · {item.attempts} {item.attempts===1?'intento':'intentos'} · {formattedDate(item.updatedAt)}</small>{item.lastError&&<small>{deliveryError(item.lastError)}</small>}</div></div></li>)}</ul>
           :<p className="customer-empty-inline">Aún no hay entregas. Usa «Enviar prueba» para comprobar un canal.</p>}
       <p className="customer-field-note">«Aceptado por el proveedor» confirma que SMTP o el receptor webhook aceptó la solicitud; no confirma que una persona la haya leído. La clave de idempotencia se mantiene estable en los reintentos.</p>
     </div>
