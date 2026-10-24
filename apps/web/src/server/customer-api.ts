@@ -25,6 +25,7 @@ import { handleActionsApi } from './actions-api.js';
 import { createGitHubApi } from './github-api.js';
 import { handleWorkflowExceptionsApi } from './workflow-exceptions-api.js';
 import { handleProtectionApi } from './protection-api.js';
+import { handleNotificationsApi } from './notifications-api.js';
 
 export interface CustomerServices {
   stepUp?: NonNullable<Backend['stepUp']>;
@@ -40,6 +41,7 @@ export interface CustomerServices {
   members?: Backend['members'];
   operations?: Backend['operations'];
   decisionRecords?: Backend['decisionRecords'];
+  notifications?: Backend['notifications'];
   triage?: Backend['triage'];
   actions?: Backend['actions'];
   github?: Backend['github'];
@@ -121,6 +123,12 @@ export function createCustomerApi(options: {
       const headers = new Headers();
       for (const cookie of session.cookies) headers.append('set-cookie', cookie);
       const send = (value: unknown, status = 200) => json(value, status, headers);
+      const notificationParts=url.pathname.split('/').filter(Boolean);
+      if(notificationParts.length>=5&&notificationParts[0]==='api'&&notificationParts[1]==='customer'&&notificationParts[2]==='workspaces'&&notificationParts[4]==='notifications'){
+        if(!services.notifications)throw new HttpError(503,'notifications_not_configured','Las notificaciones no están configuradas.');
+        const response=await handleNotificationsApi(request,identity,services.notifications,options.origin);
+        if(response){for(const cookie of session.cookies)response.headers.append('set-cookie',cookie);return response;}
+      }
       const memberPath = url.pathname === '/api/customer/invitations/accept'
         || /^\/api\/customer\/workspaces\/[^/]+\/(members|invitations)(\/|$)/.test(url.pathname);
       if (memberPath) {

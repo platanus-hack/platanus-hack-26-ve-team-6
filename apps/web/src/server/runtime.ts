@@ -11,6 +11,9 @@ import { createLocalAccounts } from './local-accounts.js';
 import { createCustomerApi } from './customer-api.js';
 import { createCustomerDnsVerifier } from './customer-dns.js';
 import { createFileEventCredentials } from './event-credentials.js';
+import { createNotificationWebhookValidator } from './notification-dns.js';
+import { createFileNotificationSecretStore } from '@gotchu/backend';
+import { resolve } from 'node:path';
 import { createGitHubRepositoryReader, createLocalGitRepositoryReader, loadMonitoringRepositoryCatalog } from '@gotchu/monitoring';
 import { isIP } from 'node:net';
 
@@ -112,6 +115,8 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const dnsServers = env.GOTCHU_DNS_SERVERS_JSON ? z.array(z.string().min(1).max(100)).max(5).parse(JSON.parse(env.GOTCHU_DNS_SERVERS_JSON)) : [];
   const eventCredentials = env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY ? createFileEventCredentials(env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY) : undefined;
   const readerApp = githubReaderApp(env);
+  const notificationSecretDirectory=env.GOTCHU_NOTIFICATION_SECRET_DIRECTORY??(env.NODE_ENV==='production'?undefined:resolve('.local/dev/notification-secrets'));
+  const notificationSecrets=notificationSecretDirectory?createFileNotificationSecretStore(notificationSecretDirectory):undefined;
   const validationService = apiDatabase ? createValidationService({ database: apiDatabase }) : undefined;
   const actionVerifier = apiDatabase ? createActionVerifier({ database: apiDatabase, pinnedRootfsDigest: readPinnedRootfsDigest(), repository: {
     async readHead(scope) {
@@ -141,7 +146,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   }, validationFacts: {
     getFacts: input => validationService?.getValidationFacts(input) ?? Promise.resolve(null),
   } }) : undefined;
-  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(actionVerifier ? { actionVerifier } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), customerDnsVerifier: createCustomerDnsVerifier(dnsServers), webhookValidator: createNotificationWebhookValidator(dnsServers), ...(notificationSecrets ? { notificationSecrets } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
   const stepUp = web?.stepUp;
   const settings = authSettings(env, accounts, stepUp ? userId => stepUp.invalidateSession(userId) : undefined);
   const auth = createAuthService(settings);
@@ -157,6 +162,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, protection: web.protection, operations: web.operations, decisionRecords: web.decisionRecords, corrections: web.corrections, context: web.context, triage: web.triage,
     members: web.members,
     github: web.github,
+    notifications: web.notifications,
     actions: web.actions,
     workflowExceptions: web.workflowExceptions,
     validations: web.validations,
@@ -189,7 +195,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
       return {
         ready,
         dependencies: { apiDatabase: apiDatabaseReady, intakeDatabase: intakeDatabaseReady, signIn: auth.enabled },
-        capabilities: { eventSigningKeys: Boolean(credentials), freshSecondFactorApproval: Boolean(web?.stepUp), githubWrites: false, customerCodeExecution: false, deployedAwsCoverage: false },
+        capabilities: { eventSigningKeys: Boolean(credentials), notificationWebhookSecrets:Boolean(notificationSecrets), freshSecondFactorApproval: Boolean(web?.stepUp), githubWrites: false, customerCodeExecution: false, deployedAwsCoverage: false },
       };
     },
     async close() { await Promise.all([apiDatabase?.close(), ingestDatabase?.close()]); },
