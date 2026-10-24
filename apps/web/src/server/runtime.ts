@@ -128,7 +128,8 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
       const adapter = await githubReaderAdapter(env, readerApp, { ...scope, repositoryKey: scope.repositoryKey });
       return adapter.readTree(scope.commitSha);
     },
-    async isPolicyCurrent(input) { return input.policyVersion === 'gotchu-action-policy-v2'; },
+    // A matching version string is not a policy registry; keep action eligibility closed until one is wired.
+    async isPolicyCurrent() { return false; },
     async inspectAutomation(scope) {
       const adapter = await githubReaderAdapter(env, readerApp, { ...scope, repositoryKey: scope.repositoryKey });
       return adapter.inspectAutomation(scope.baseCommit);
