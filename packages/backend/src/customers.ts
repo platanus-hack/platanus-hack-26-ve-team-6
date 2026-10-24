@@ -1,14 +1,16 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
-  CUSTOMER_MAX_REPORT_BYTES, CUSTOMER_MAX_SOURCE_BYTES,
+  CUSTOMER_MAX_REPORT_BYTES, CUSTOMER_MAX_SOURCE_BYTES, CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
   customerApplicationSchema, customerAssessmentIntentSchema, customerAssessmentReportSchema, customerClaimSchema,
   customerCreateApplicationSchema, customerCreateWorkspaceSchema, customerDeleteSourceSchema, customerEnrollTargetSchema,
+  customerContainerImageSummarySchema, customerContainerImageUploadMetadataSchema,
   customerPendingOrganizationsSchema, customerQueueSchema, customerReportSummarySchema, customerRunInputSchema, customerScopeSchema,
   customerSourceSnapshotSchema, customerSourceSummarySchema, customerTargetIdSchema, customerTargetSchema,
   customerUpdateApplicationSchema, customerUploadSourceSchema, customerWorkspaceSchema,
   type CustomerApplication, type CustomerAssessmentIntent, type CustomerAssessmentReport, type CustomerClaim, type CustomerEnrollment,
   type CustomerQueueInput, type CustomerRunInput, type CustomerSourceSummary, type CustomerTarget,
+  type CustomerContainerImageSummary,
 } from '@gotchu/contracts';
 import type { Transaction } from '@gotchu/database';
 import { audit, authorize, BackendError, canonicalJson, identitySchema, parse, sha256, type BaseDependencies, type Identity } from './core.js';
@@ -22,6 +24,8 @@ export const CUSTOMER_MAX_UNFINISHED = 3;
 export const CUSTOMER_MAX_DAILY_RUNS = 20;
 export const CUSTOMER_MAX_SOURCES = 10;
 export const CUSTOMER_MAX_DAILY_SOURCES = 100;
+export const CUSTOMER_MAX_CONTAINER_IMAGES = 10;
+export const CUSTOMER_MAX_DAILY_CONTAINER_IMAGES = 100;
 const discoveryTenant = '00000000-0000-0000-0000-000000000000';
 const organizationSchema = customerScopeSchema.pick({ organizationId: true });
 type Scope = z.infer<typeof customerScopeSchema>;
@@ -111,7 +115,20 @@ async function currentRequest(tx: Transaction, claim: CustomerClaim): Promise<Cu
     if (snapshot.revision !== intent.source.revision || sha256(canonicalJson(snapshot)) !== intent.source.digest) throw new BackendError('assessment_scope_mismatch', 'Stored source does not match the immutable intent', 409);
     source = { ...snapshot, ...intent.source };
   }
-  const input = parse(customerRunInputSchema, { ...intent, source });
+  let containerImage: CustomerRunInput['containerImage'] = intent.containerImage?.kind === 'registry' ? intent.containerImage : null;
+  if (intent.containerImage?.kind === 'archive') {
+    const result = await tx.query<{ body: Buffer | null; digest: string; size: number }>(`SELECT body,digest,size
+      FROM gotchu.customer_container_images WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND deleted_at IS NULL`,
+    [claim.organizationId, claim.applicationId, intent.containerImage.id]);
+    const row = result.rows[0];
+    if (!row?.body) throw new BackendError('container_image_unavailable', 'Container image archive is no longer available', 409);
+    if (row.digest !== intent.containerImage.digest || row.size !== intent.containerImage.size
+      || row.body.byteLength !== row.size || sha256(row.body) !== row.digest) {
+      throw new BackendError('assessment_scope_mismatch', 'Stored container image differs from the immutable intent', 409);
+    }
+    containerImage = { ...intent.containerImage, archiveBase64: row.body.toString('base64') };
+  }
+  const input = parse(customerRunInputSchema, { ...intent, source, containerImage });
   if (input.target) {
     const target = await targetRow(tx, claim, input.target.id);
     if (!target?.authorization_current || target.version !== input.target.version || target.origin !== input.target.origin || target.scan_profile !== (input.target.scanProfile ?? 'root')
@@ -122,8 +139,16 @@ async function currentRequest(tx: Transaction, claim: CustomerClaim): Promise<Cu
   return input;
 }
 function reportSubject(input: CustomerAssessmentIntent) {
+  const image = input.containerImage;
   return { sourceSnapshotId: input.source?.id ?? null, sourceDigest: input.source?.digest ?? null,
-    targetId: input.target?.id ?? null, targetVersion: input.target?.version ?? null, origin: input.target?.origin ?? null };
+    targetId: input.target?.id ?? null, targetVersion: input.target?.version ?? null, origin: input.target?.origin ?? null,
+    containerImageId: image?.kind === 'archive' ? image.id : null,
+    containerImageDigest: image?.digest ?? null,
+    containerImageReference: image?.kind === 'registry' ? image.reference : null };
+}
+
+function containerImageSummary(scope: Scope, row: { id: string; digest: string; label: string; size: number; created_at: Date }): CustomerContainerImageSummary {
+  return parse(customerContainerImageSummarySchema, { ...scope, id: row.id, digest: row.digest, label: row.label, size: row.size, createdAt: row.created_at.toISOString() });
 }
 
 export function createCustomerService(deps: CustomerDependencies) {
@@ -289,15 +314,75 @@ export function createCustomerService(deps: CustomerDependencies) {
         return result.rows.map(row => parse(customerSourceSummarySchema, { ...scope, id: row.id, digest: row.digest, revision: row.revision, fileCount: row.count, createdAt: row.created_at.toISOString() }));
       });
     },
+    async uploadContainerImage(identity: Identity, input: Scope & { label: string; authorized: true }, raw: Uint8Array): Promise<CustomerContainerImageSummary> {
+      const actor = principal(identity);
+      const scope = parse(customerScopeSchema, input);
+      const metadata = parse(customerContainerImageUploadMetadataSchema, { label: input.label, authorized: input.authorized });
+      if (!(raw instanceof Uint8Array) || raw.byteLength < 1 || raw.byteLength > CUSTOMER_MAX_CONTAINER_IMAGE_BYTES) {
+        throw new BackendError('payload_too_large', 'Container image archive exceeds the 8 MiB storage bound', 413);
+      }
+      const body = Buffer.from(raw);
+      const digest = sha256(body);
+      return deps.database.tenant(scope.organizationId, async tx => {
+        await authorize(tx, scope.organizationId, actor, writeRoles); await lockApplication(tx, scope);
+        const prior = await tx.query<{ id: string; digest: string; label: string; size: number; created_at: Date }>(`SELECT id,digest,label,size,created_at
+          FROM gotchu.customer_container_images WHERE organization_id=$1 AND application_id=$2 AND digest=$3 AND deleted_at IS NULL`, [scope.organizationId, scope.applicationId, digest]);
+        const existing = prior.rows[0];
+        if (existing) return containerImageSummary(scope, existing);
+        const count = await tx.query<{ count: number }>('SELECT count(*)::int AS count FROM gotchu.customer_container_images WHERE organization_id=$1 AND application_id=$2 AND deleted_at IS NULL', [scope.organizationId, scope.applicationId]);
+        if ((count.rows[0]?.count ?? CUSTOMER_MAX_CONTAINER_IMAGES) >= CUSTOMER_MAX_CONTAINER_IMAGES) throw new BackendError('container_image_limit', 'Application container image limit reached', 429);
+        const daily = await tx.query<{ count: number }>("SELECT count(*)::int AS count FROM gotchu.customer_container_images WHERE organization_id=$1 AND created_at>clock_timestamp()-interval '1 day'", [scope.organizationId]);
+        if ((daily.rows[0]?.count ?? CUSTOMER_MAX_DAILY_CONTAINER_IMAGES) >= CUSTOMER_MAX_DAILY_CONTAINER_IMAGES) throw new BackendError('container_image_daily_limit', 'Workspace daily image admission limit reached', 429);
+        const id = randomUUID();
+        const result = await tx.query<{ created_at: Date }>(`INSERT INTO gotchu.customer_container_images
+          (organization_id,application_id,id,digest,label,size,body,consent_actor) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING created_at`,
+        [scope.organizationId, scope.applicationId, id, digest, metadata.label, body.byteLength, body, actor.userId]);
+        const row = result.rows[0]; if (!row) throw new Error('Container image insert returned no row');
+        await audit(tx, scope.organizationId, actor.userId, 'container_image.uploaded', id, { digest, size: body.byteLength });
+        return containerImageSummary(scope, { id, digest, label: metadata.label, size: body.byteLength, created_at: row.created_at });
+      });
+    },
+    async listContainerImages(identity: Identity, input: Scope): Promise<CustomerContainerImageSummary[]> {
+      const actor = principal(identity); const scope = parse(customerScopeSchema, input);
+      return deps.database.tenant(scope.organizationId, async tx => {
+        await authorize(tx, scope.organizationId, actor); await readApplication(tx, scope);
+        const result = await tx.query<{ id: string; digest: string; label: string; size: number; created_at: Date }>(`SELECT id,digest,label,size,created_at
+          FROM gotchu.customer_container_images WHERE organization_id=$1 AND application_id=$2 AND deleted_at IS NULL ORDER BY created_at DESC,id LIMIT 10`,
+        [scope.organizationId, scope.applicationId]);
+        return result.rows.map(row => containerImageSummary(scope, row));
+      });
+    },
+    async deleteContainerImage(identity: Identity, input: Scope & { imageId: string }): Promise<void> {
+      const actor = principal(identity); const value = parse(customerScopeSchema.extend({ imageId: z.uuid() }).strict(), input);
+      await deps.database.tenant(value.organizationId, async tx => {
+        await authorize(tx, value.organizationId, actor, writeRoles); await lockApplication(tx, value, true);
+        const result = await tx.query<{ status: string }>('SELECT gotchu.customer_delete_container_image($1,$2,$3,$4) AS status', [value.organizationId, value.applicationId, value.imageId, actor.userId]);
+        const status = result.rows[0]?.status;
+        if (status === 'in_use') throw new BackendError('container_image_in_use', 'Wait for queued or running assessments before deleting this image', 409);
+        if (status === 'not_found') throw new BackendError('not_found', 'Container image not found', 404);
+        if (status !== 'deleted') throw new BackendError('forbidden', 'Container image deletion was not authorized', 403);
+      });
+    },
     async queue(identity: Identity, input: CustomerQueueInput): Promise<{ jobId: string }> {
       const actor = principal(identity); const value = parse(customerQueueSchema, input);
+      const inputKind = value.inputKind ?? 'source_snapshot';
+      const imageSelection = value.containerImage ?? null;
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, actor, writeRoles); const app = await lockApplication(tx, value);
         const prior = await tx.query<{ id: string }>("SELECT id FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2 AND kind='audit' AND idempotency_key=$3", [value.organizationId, value.applicationId, value.idempotencyKey]);
         const priorId = prior.rows[0]?.id;
         if (priorId) {
           const request = await loadIntent(tx, { ...value, jobId: priorId });
-          if (request.mode !== value.mode || (request.source?.id ?? null) !== value.sourceSnapshotId || (request.target?.id ?? null) !== value.targetId) throw new BackendError('idempotency_conflict', 'This key identifies a different assessment', 409);
+          const sameImage = request.containerImage?.kind === imageSelection?.kind
+            && (request.containerImage?.kind === 'archive' && imageSelection?.kind === 'archive'
+              ? request.containerImage.id === imageSelection.imageId
+              : request.containerImage?.kind === 'registry' && imageSelection?.kind === 'registry'
+                ? request.containerImage.reference === imageSelection.reference
+                : request.containerImage == null && imageSelection == null);
+          if (request.mode !== value.mode || (request.inputKind ?? 'source_snapshot') !== inputKind
+            || (request.source?.id ?? null) !== value.sourceSnapshotId || (request.target?.id ?? null) !== value.targetId || !sameImage) {
+            throw new BackendError('idempotency_conflict', 'This key identifies a different assessment', 409);
+          }
           if (request.target) {
             const current = await targetRow(tx, value, request.target.id);
             if (!current || current.version !== request.target.version) throw new BackendError('idempotency_conflict', 'This key belongs to an earlier target authorization', 409);
@@ -322,10 +407,22 @@ export function createCustomerService(deps: CustomerDependencies) {
           if (!row.authorization_current || !row.verified_at || !row.expires_at) throw new BackendError('target_not_verified', 'Verify a current target before requesting external assessment', 409);
           target = { id: row.id, origin: row.origin, version: row.version, verifiedAt: row.verified_at.toISOString(), expiresAt: row.expires_at.toISOString(), scanProfile: row.scan_profile };
         }
-        const request = parse(customerAssessmentIntentSchema, { version: 2, organizationId: value.organizationId, applicationId: value.applicationId, jobId: randomUUID(), applicationName: app.name, mode: value.mode, source, target });
+        let containerImage: CustomerAssessmentIntent['containerImage'] = null;
+        let containerImageId: string | null = null;
+        if (imageSelection?.kind === 'archive') {
+          const result = await tx.query<{ id: string; digest: string; size: number }>(`SELECT id,digest,size FROM gotchu.customer_container_images
+            WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND deleted_at IS NULL`, [value.organizationId, value.applicationId, imageSelection.imageId]);
+          const row = result.rows[0]; if (!row) throw new BackendError('not_found', 'Container image not found in this application', 404);
+          containerImageId = row.id;
+          containerImage = { kind: 'archive', id: row.id, digest: row.digest, size: row.size };
+        } else if (imageSelection?.kind === 'registry') {
+          const digest = imageSelection.reference.slice(imageSelection.reference.lastIndexOf('@sha256:') + 8);
+          containerImage = { kind: 'registry', reference: imageSelection.reference, digest };
+        }
+        const request = parse(customerAssessmentIntentSchema, { version: 2, organizationId: value.organizationId, applicationId: value.applicationId, jobId: randomUUID(), applicationName: app.name, mode: value.mode, inputKind, source, containerImage, target });
         const jobId = await enqueue(tx, { organizationId: value.organizationId, applicationId: value.applicationId, id: request.jobId, kind: 'audit', idempotencyKey: value.idempotencyKey, payload: request });
         if (jobId !== request.jobId) throw new BackendError('idempotency_conflict', 'Concurrent audit reused this key', 409);
-        await tx.query('INSERT INTO gotchu.customer_requests(organization_id,application_id,job_id,source_id,target_id,input) VALUES ($1,$2,$3,$4,$5,$6::jsonb)', [value.organizationId, value.applicationId, jobId, value.sourceSnapshotId, value.targetId, JSON.stringify(request)]);
+        await tx.query('INSERT INTO gotchu.customer_requests(organization_id,application_id,job_id,source_id,target_id,container_image_id,input) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)', [value.organizationId, value.applicationId, jobId, value.sourceSnapshotId, value.targetId, containerImageId, JSON.stringify(request)]);
         await audit(tx, value.organizationId, actor.userId, 'customer_assessment.queued', jobId, { mode: value.mode, ...reportSubject(request) });
         return { jobId };
       });

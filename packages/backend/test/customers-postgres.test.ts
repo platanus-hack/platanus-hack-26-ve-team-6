@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { AssessmentAnalysis, CustomerAssessmentReport, CustomerRunInput } from '@gotchu/contracts';
+import { CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, type AssessmentAnalysis, type CustomerAssessmentReport, type CustomerRunInput } from '@gotchu/contracts';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
 import { canonicalJson, createBackend, DEMO_ASSESSMENT_SCOPE, sha256 } from '../src/index.js';
 
@@ -13,10 +13,15 @@ function latch() {
 /** Synthetic report and DNS answers test persistence/authorization, not live HTTPS or DNS. */
 function reportFor(input: CustomerRunInput): CustomerAssessmentReport {
   const timestamp = new Date().toISOString();
-  const analysis = (origin: 'internal' | 'external'): AssessmentAnalysis => ({ origin, status: 'completed', startedAt: timestamp, finishedAt: timestamp, snapshotRef: input.source?.digest ?? input.target?.origin ?? 'test', tool: { name: 'synthetic-test', version: '1' }, findings: [], evidence: [], coverage: [], limitations: ['Synthetic boundary test, not live scanning'] });
+  const analysis = (origin: 'internal' | 'external'): AssessmentAnalysis => ({ origin, status: 'completed', startedAt: timestamp, finishedAt: timestamp, snapshotRef: origin === 'internal' ? input.containerImage ? `container-image:sha256:${input.containerImage.digest}` : input.source?.digest ?? 'test' : input.target?.origin ?? 'test', tool: { name: 'synthetic-test', version: '1' }, findings: [], evidence: [], coverage: [], limitations: ['Synthetic boundary test, not live scanning'] });
   return { version: 2, id: randomUUID(), organizationId: input.organizationId, applicationId: input.applicationId, jobId: input.jobId, applicationName: input.applicationName,
     mode: input.mode, startedAt: timestamp, finishedAt: timestamp, internal: input.mode === 'external' ? null : analysis('internal'), external: input.mode === 'internal' ? null : analysis('external'),
-    comparison: [], limitations: ['Synthetic boundary test'], responseMode: 'observation', actionsPerformed: [], subject: { sourceSnapshotId: input.source?.id ?? null, sourceDigest: input.source?.digest ?? null, targetId: input.target?.id ?? null, targetVersion: input.target?.version ?? null, origin: input.target?.origin ?? null } };
+    comparison: [], limitations: ['Synthetic boundary test'], responseMode: 'observation', actionsPerformed: [], subject: {
+      sourceSnapshotId: input.source?.id ?? null, sourceDigest: input.source?.digest ?? null, targetId: input.target?.id ?? null, targetVersion: input.target?.version ?? null, origin: input.target?.origin ?? null,
+      containerImageId: input.containerImage?.kind === 'archive' ? input.containerImage.id : null,
+      containerImageDigest: input.containerImage?.digest ?? null,
+      containerImageReference: input.containerImage?.kind === 'registry' ? input.containerImage.reference : null,
+    } };
 }
 live('customer workflow on real Postgres roles/RLS with synthetic DNS and reports', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
@@ -271,6 +276,39 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     const other = await api.customers.createApplication(c.identity, { organizationId: c.workspace.id, name: 'Other app' });
     await expect(api.customers.queue(c.identity, { organizationId: c.workspace.id, applicationId: other.applicationId, mode: 'internal', sourceSnapshotId: c.source.id, targetId: null, idempotencyKey: randomUUID() })).rejects.toMatchObject({ status: 404 });
     await expect(f.databases.gotchu_api.tenant(c.workspace.id, tx => tx.query("UPDATE gotchu.customer_sources SET body='{}' WHERE id=$1", [c.source.id]))).rejects.toMatchObject({ code: '42501' });
+  });
+
+  it('stores bounded image bytes privately and hydrates only the digest-bound worker request', async () => {
+    const c = await customer();
+    const archive = Buffer.from('tiny docker-save archive fixture');
+    const image = await api.customers.uploadContainerImage(c.identity, { ...c.scope, label: 'fixture.tar', authorized: true }, archive);
+    expect(image).toMatchObject({ label: 'fixture.tar', size: archive.byteLength, digest: sha256(archive) });
+    expect(await api.customers.uploadContainerImage(c.identity, { ...c.scope, label: 'duplicate.tar', authorized: true }, archive)).toEqual(image);
+    expect(await api.customers.listContainerImages(c.identity, c.scope)).toEqual([image]);
+    await expect(api.customers.listContainerImages({ userId: f.b.userId }, c.scope)).rejects.toMatchObject({ status: 403 });
+    await expect(api.customers.uploadContainerImage(c.identity, { ...c.scope, label: 'empty.tar', authorized: true }, Buffer.alloc(0))).rejects.toMatchObject({ status: 413 });
+    await expect(api.customers.uploadContainerImage(c.identity, { ...c.scope, label: 'large.tar', authorized: true }, Buffer.alloc(CUSTOMER_MAX_CONTAINER_IMAGE_BYTES + 1))).rejects.toMatchObject({ status: 413 });
+
+    const queued = await api.customers.queue(c.identity, {
+      ...c.scope, mode: 'internal', sourceSnapshotId: null, targetId: null,
+      inputKind: 'container_image', containerImage: { kind: 'archive', imageId: image.id }, idempotencyKey: randomUUID(),
+    });
+    const stored = await f.admin.query<{ input: { containerImage: unknown }; body: Buffer }>(`SELECT r.input,i.body FROM gotchu.customer_requests r
+      JOIN gotchu.customer_container_images i ON i.organization_id=r.organization_id AND i.application_id=r.application_id AND i.id=r.container_image_id WHERE r.job_id=$1`, [queued.jobId]);
+    expect(stored.rows[0]?.input.containerImage).toEqual({ kind: 'archive', id: image.id, digest: image.digest, size: image.size });
+    expect(stored.rows[0]?.body).toEqual(archive);
+    await expect(api.customers.deleteContainerImage(c.identity, { ...c.scope, imageId: image.id })).rejects.toMatchObject({ code: 'container_image_in_use' });
+
+    const job = present(await coordinator.jobs.claim({ organizationId: c.workspace.id, jobId: queued.jobId }));
+    const input = await coordinator.customers.getRequest({ ...c.scope, jobId: queued.jobId, leaseToken: job.leaseToken });
+    expect(input).toMatchObject({ inputKind: 'container_image', source: null, containerImage: { kind: 'archive', id: image.id, digest: image.digest, size: image.size, archiveBase64: archive.toString('base64') } });
+    const report = reportFor(input);
+    await coordinator.customers.recordResult({ input, leaseToken: job.leaseToken, report });
+    await api.customers.deleteContainerImage(c.identity, { ...c.scope, imageId: image.id });
+    expect(await api.customers.listContainerImages(c.identity, c.scope)).toEqual([]);
+    expect((await api.customers.getReport(c.identity, { ...c.scope, reportId: report.id })).subject).toMatchObject({ containerImageId: image.id, containerImageDigest: image.digest });
+    const tombstone = await f.admin.query('SELECT body,digest,deleted_at IS NOT NULL AS deleted FROM gotchu.customer_container_images WHERE id=$1', [image.id]);
+    expect(tombstone.rows[0]).toEqual({ body: null, digest: image.digest, deleted: true });
   });
 
   it('persists queue, immutable input and outbox exactly once before quota checks, enforcing concurrent outstanding caps', async () => {
