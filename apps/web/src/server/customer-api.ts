@@ -23,6 +23,7 @@ import { handleMembersApi } from './members-api.js';
 import { handleActionsApi } from './actions-api.js';
 import { createGitHubApi } from './github-api.js';
 import { handleWorkflowExceptionsApi } from './workflow-exceptions-api.js';
+import { handleProtectionApi } from './protection-api.js';
 
 export interface CustomerServices {
   stepUp?: NonNullable<Backend['stepUp']>;
@@ -33,6 +34,7 @@ export interface CustomerServices {
   };
   validations?: Backend['validations'];
   telemetry?: Backend['telemetry'];
+  protection?: Backend['protection'];
   context?: Backend['context'];
   members?: Backend['members'];
   operations?: Backend['operations'];
@@ -138,6 +140,15 @@ export function createCustomerApi(options: {
         }
       }
       const pathParts = url.pathname.split('/').filter(Boolean);
+      if (pathParts.length >= 7 && pathParts[0] === 'api' && pathParts[1] === 'customer'
+        && pathParts[2] === 'workspaces' && pathParts[4] === 'applications' && pathParts[6] === 'protection') {
+        if (!services.protection) throw new HttpError(503, 'protection_not_configured', 'La protección runtime no está configurada.');
+        const protectionResponse = await handleProtectionApi(request, identity, services.protection, pathParts);
+        if (protectionResponse) {
+          for (const cookie of session.cookies) protectionResponse.headers.append('set-cookie', cookie);
+          return protectionResponse;
+        }
+      }
       if (pathParts.length >= 7 && pathParts[0] === 'api' && pathParts[1] === 'customer'
         && pathParts[2] === 'workspaces' && pathParts[4] === 'applications' && pathParts[6] === 'context') {
         if (!services.context) throw new HttpError(503, 'context_not_configured', 'El inventario de contexto no está configurado.');

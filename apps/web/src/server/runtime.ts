@@ -77,6 +77,10 @@ export function createBackendApi(options: { auth: AuthService; origin: string; w
       if (!options.intake) throw new HttpError(503, 'database_not_configured', 'Event ingestion is unavailable');
       return options.intake.events.ingest(input);
     },
+    signedPolicy: async (input) => {
+      if (!options.intake) throw new HttpError(503, 'database_not_configured', 'Runtime protection policy is unavailable');
+      return options.intake.protection.signedPolicy(input);
+    },
     execute: async (identity, operation) => {
       if (!options.web) throw new HttpError(503, 'database_not_configured', 'Customer data access is unavailable');
       return execute(options.web, identity, operation);
@@ -150,7 +154,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
-  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, operations: web.operations, corrections: web.corrections, context: web.context, triage: web.triage,
+  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, protection: web.protection, operations: web.operations, corrections: web.corrections, context: web.context, triage: web.triage,
     members: web.members,
     github: web.github,
     actions: web.actions,
