@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gotchu controlled assessment architecture</title>
+  <title>Gotchu customer assessment architecture</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -26,13 +26,14 @@
     h2 { margin: 29px 0 10px; font-size: 18px; }
     h3 { margin: 0 0 5px; font-size: 14px; line-height: 1.35; }
     p { margin: 0; }
-    .lead { max-width: 820px; color: var(--muted); font-size: 15px; }
+    .lead { max-width: 850px; color: var(--muted); font-size: 15px; }
     .status { display: inline-flex; margin: 15px 0 5px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--ready-bg); color: var(--ready); font-size: 12px; font-weight: 650; }
     .diagram { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
-    .sequence, .profiles, .results, .infra { display: grid; align-items: stretch; gap: 9px; }
-    .sequence { grid-template-columns: minmax(0,1fr) 24px minmax(0,1fr) 24px minmax(0,1fr) 24px minmax(0,1fr); }
-    .profiles { grid-template-columns: minmax(0,1fr) 24px minmax(0,1fr) 24px minmax(0,1fr); }
-    .results { grid-template-columns: minmax(0,1fr) 24px minmax(0,1fr); }
+    .sequence, .profiles, .records, .infra { display: grid; align-items: stretch; gap: 9px; }
+    .sequence { grid-template-columns: minmax(0,1fr) 22px minmax(0,1fr) 22px minmax(0,1fr) 22px minmax(0,1fr); }
+    .profiles { grid-template-columns: minmax(0,1fr) 24px minmax(0,1fr); }
+    .records { grid-template-columns: repeat(3,minmax(0,1fr)); }
+    .infra { grid-template-columns: repeat(3,minmax(0,1fr)); }
     .node { min-width: 0; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
     .node p { color: var(--muted); font-size: 12px; }
     .node.ready { border-color: color-mix(in srgb,var(--ready) 28%,var(--line)); background: var(--ready-bg); }
@@ -41,9 +42,8 @@
     .eyebrow { display: block; margin-bottom: 5px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
     .arrow { display: grid; place-items: center; color: var(--muted); font-size: 20px; }
     .lane-title { margin: 3px 0 -5px; color: var(--muted); font-size: 11px; text-align: center; }
-    .infra { grid-template-columns: repeat(3,minmax(0,1fr)); }
     .split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .callout { margin-top: 17px; padding: 13px 15px; border-left: 3px solid var(--gate); border-radius: 0 8px 8px 0; background: var(--soft); }
+    .callout { margin-top: 15px; padding: 13px 15px; border-left: 3px solid var(--gate); border-radius: 0 8px 8px 0; background: var(--soft); }
     .callout strong { display: block; margin-bottom: 4px; }
     .callout p, .note { color: var(--muted); font-size: 12px; }
     .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 11px; color: var(--muted); font-size: 11px; }
@@ -52,134 +52,148 @@
     .legend .l-gate { color: var(--gate); }
     .legend .l-blocked { color: var(--blocked); }
     a { color: inherit; text-underline-offset: 3px; }
-    .links { margin-top: 14px; font-size: 12px; }
-    @media (max-width: 720px) {
+    .links { margin-top: 14px; color: var(--muted); font-size: 12px; }
+    .small-title { margin: 3px 0 -5px; color: var(--muted); font-size: 11px; text-align: center; }
+    @media (max-width: 760px) {
       main { padding: 22px 14px 28px; }
       .diagram { padding: 12px; }
-      .sequence, .profiles, .results, .split, .infra { grid-template-columns: 1fr; }
+      .sequence, .profiles, .records, .infra, .split { grid-template-columns: 1fr; }
       .arrow { transform: rotate(90deg); height: 12px; }
-      .lane-title { margin: 0; }
+      .lane-title, .small-title { margin: 0; }
     }
   </style>
 </head>
 <body>
   <main>
     <header>
-      <h1>Gotchu controlled assessment</h1>
-      <p class="lead">A narrow, real assessment flow for a fixed demonstration application: bounded source checks, an independent private HTTP check, persisted comparison reports, and a minimal Spanish dashboard.</p>
-      <span class="status">Observation mode · no response actions</span>
+      <h1>Gotchu customer security assessments</h1>
+      <p class="lead">Authenticated customers manage workspaces and applications, authorize source and public HTTPS assessments, and review persisted evidence. The supported runtime is local development. The fictional vulnerable/corrected app is a regression fixture only.</p>
+      <span class="status">Customer workflows implemented · local development only</span>
     </header>
 
     <section aria-labelledby="flow-title">
-      <h2 id="flow-title">Assessment flow</h2>
-      <div class="diagram" role="group" aria-label="Architecture of the controlled assessment demo">
+      <h2 id="flow-title">Customer assessment flow</h2>
+      <div class="diagram" role="group" aria-label="Authenticated customer assessment architecture">
         <div class="sequence">
-          <article class="node">
-            <span class="eyebrow">1 · Interface</span>
-            <h3>Spanish dashboard</h3>
-            <p>Starts an assessment and reads real persisted reports.</p>
+          <article class="node ready">
+            <span class="eyebrow">1 · Customer</span>
+            <h3>Gotchu dashboard</h3>
+            <p>Creates workspaces and apps, uploads source, verifies a target, and reads reports.</p>
           </article>
           <div class="arrow" aria-hidden="true">→</div>
           <article class="node ready">
-            <span class="eyebrow">2 · Fixed scope</span>
-            <h3>TanStack Start + demo API</h3>
-            <p>Injects one operator-seeded tenant, application, and target.</p>
+            <span class="eyebrow">2 · Authenticated API</span>
+            <h3>TanStack Start + Auth.js</h3>
+            <p>Uses the server session for identity and checks tenant membership on each operation.</p>
           </article>
           <div class="arrow" aria-hidden="true">→</div>
           <article class="node ready">
             <span class="eyebrow">3 · Durable state</span>
             <h3>Postgres + Redis</h3>
-            <p>Stores job/outbox intent and reports; Redis carries job delivery.</p>
+            <p>Postgres owns requests, outbox intent, snapshots, and reports; Redis delivers jobs.</p>
           </article>
           <div class="arrow" aria-hidden="true">→</div>
           <article class="node ready">
-            <span class="eyebrow">4 · Independent work</span>
-            <h3>Coordinator assessment lane</h3>
-            <p>One active runner slot per process; 60-second overall bound.</p>
+            <span class="eyebrow">4 · Background work</span>
+            <h3>Separate coordinator</h3>
+            <p>Claims the persisted request and calls the independent scanner service.</p>
           </article>
         </div>
 
-        <p class="lane-title">The runner compares two separate evidence sources; neither is assumed to confirm the other.</p>
+        <p class="lane-title">The selected mode determines which authorized inputs are assessed.</p>
         <div class="profiles">
           <article class="node ready">
-            <span class="eyebrow">Internal profile</span>
-            <h3>Fixed source fixture</h3>
-            <p>Three bounded files from the controlled fixture repository; TypeScript AST/literal and configuration rules; one offline captured lodash GHSA.</p>
+            <span class="eyebrow">Internal · source required</span>
+            <h3>Uploaded source snapshot</h3>
+            <p>Bounded parser profiles inspect uploaded JS/TS, package-lock, YAML, JSON, and TOML bytes. No package scripts or customer code execute.</p>
           </article>
           <div class="arrow" aria-hidden="true">↘</div>
-          <article class="node">
-            <span class="eyebrow">Assessment engine</span>
-            <h3>Compare and persist</h3>
-            <p>Evidence, coverage, confidence, severity, exploitability, and limitations stay distinct.</p>
-          </article>
-          <div class="arrow" aria-hidden="true">↙</div>
           <article class="node ready">
-            <span class="eyebrow">External profile</span>
-            <h3>Private HTTP target</h3>
-            <p>One bounded GET to a fixed route on an operator-configured literal private IPv4 origin. No source access is needed.</p>
+            <span class="eyebrow">External · source not required</span>
+            <h3>DNS-verified public HTTPS origin</h3>
+            <p>Customer proves domain control with a TXT challenge. The transport validates public DNS and TLS, then makes one bounded GET to the origin root.</p>
           </article>
         </div>
+        <p class="small-title">Choose internal, external, or both; each evidence stream keeps its own provenance and coverage.</p>
 
-        <div class="results">
-          <article class="node ready">
-            <span class="eyebrow">Scoped report</span>
-            <h3>Persisted under demo application</h3>
-            <p>Customer business data remains separately protected by authorization and Postgres row-level security.</p>
+        <div class="profiles">
+          <article class="node gate">
+            <span class="eyebrow">Separate scanner service</span>
+            <h3>Signed request · bounded profiles</h3>
+            <p>HMAC-authenticated HTTP boundary; scanner has no database or Redis access. Semgrep 1.90.0 is enforced development/test-only.</p>
           </article>
           <div class="arrow" aria-hidden="true">→</div>
           <article class="node ready">
-            <span class="eyebrow">Read path</span>
-            <h3>Dashboard history and evidence</h3>
-            <p>Shows observations and unknown coverage; exports report JSON.</p>
+            <span class="eyebrow">Persisted result</span>
+            <h3>Evidence-backed report</h3>
+            <p>Stores checksums, provenance, limitations, findings, coverage, and source/HTTPS comparisons for the authorized application.</p>
+          </article>
+        </div>
+
+        <div class="records">
+          <article class="node ready">
+            <span class="eyebrow">Workspace scope</span>
+            <h3>Tenant authorization</h3>
+            <p>Membership checks and Postgres row-level security scope every customer record.</p>
+          </article>
+          <article class="node ready">
+            <span class="eyebrow">Source lifecycle</span>
+            <h3>Digest-bound snapshots</h3>
+            <p>Immutable uploaded snapshots can be deleted once no queued or running assessment uses them.</p>
+          </article>
+          <article class="node gate">
+            <span class="eyebrow">Target lifecycle</span>
+            <h3>Verified for seven days</h3>
+            <p>Authorization expires after seven days and can be revoked earlier. Each application has one target.</p>
           </article>
         </div>
       </div>
       <div class="legend" aria-label="Status legend">
-        <span class="l-ready">Implemented local path</span>
-        <span class="l-gate">Planned or evidence still required</span>
-        <span class="l-blocked">Unavailable or disabled</span>
+        <span class="l-ready">Implemented local workflow</span>
+        <span class="l-gate">Bounded or production evidence still needed</span>
+        <span class="l-blocked">Unavailable or disabled capability</span>
       </div>
     </section>
 
-    <section aria-labelledby="limits-title">
-      <h2 id="limits-title">Fixed demo and assessment limits</h2>
+    <section aria-labelledby="report-title">
+      <h2 id="report-title">How reports state evidence</h2>
       <div class="split">
         <article class="node">
-          <h3>Public API limits</h3>
-          <p>Requests cannot choose a tenant, application, target URL, or path. Backend admission is capped at three unfinished and 100 lifetime jobs. Per web process, the API caps new idempotency keys at 10 per rolling minute and POSTs at 30 per 60-second window.</p>
+          <h3>Unknown remains unknown</h3>
+          <p>Unsupported, missing, partial, or failed checks remain visible as unknown coverage. No finding is not a clean result.</p>
         </article>
         <article class="node">
-          <h3>No general scanner or exploit</h3>
-          <p>No source execution, package installation, customer tests, exploit attempt, general SAST, or broad web scan. A vulnerable advisory match is not proof of installed code or exploitation. Missing coverage is not a secure result.</p>
+          <h3>Observations do not prove exploitation</h3>
+          <p>Package matches and HTTP indicators do not prove reachability, deployment equivalence, exploitation, or compromise. Assessment does not exploit targets.</p>
         </article>
       </div>
       <div class="callout">
-        <strong>Severity does not grant authority.</strong>
-        <p>The demo performs no changes. Exact approval, bounded preauthorized automation, automatic response, and cross-provider recovery are separate later release gates.</p>
+        <strong>Assessment is observation-only.</strong>
+        <p>Severity never grants action permission. Exact approval, provider writes, automatic response, and recovery are separate capabilities and are not enabled in this flow.</p>
       </div>
     </section>
 
-    <section aria-labelledby="infra-title">
-      <h2 id="infra-title">Runtime and deployment evidence</h2>
+    <section aria-labelledby="runtime-title">
+      <h2 id="runtime-title">Runtime and remaining gates</h2>
       <div class="infra">
         <article class="node ready">
-          <h3>Local controlled demo</h3>
-          <p>Node 24, pnpm 11, and Docker. Built web/coordinator processes use loopback ports 3000/3003; the inline HTTP target uses 4100. State and logs are recorded under .local/demo.</p>
+          <h3>Local development</h3>
+          <p>Web at 127.0.0.1:3000, coordinator at 127.0.0.1:3003, scanner at 127.0.0.1:4400. Postgres, Redis, and data volumes are local; no customer seed is applied.</p>
         </article>
         <article class="node gate">
-          <h3>AWS primary target</h3>
-          <p>Pulumi defines two EC2 instances and private S3 artifact storage. Policy tests use mocks. No AWS deployment or live AWS check has been made.</p>
+          <h3>AWS is the planned host</h3>
+          <p>Core contracts and adapters are portable. No AWS deployment, live AWS validation, production TLS ingress, or restore drill has occurred.</p>
         </article>
-        <article class="node">
-          <h3>Portable core</h3>
-          <p>Open contracts and replaceable adapters keep GitHub, model APIs, OIDC vendors, and paid services optional. Auth.js supports generic HTTPS OIDC or GitHub sign-in; live OAuth is unproven.</p>
+        <article class="node blocked">
+          <h3>Production scanning and execution</h3>
+          <p>Upgrade and validate the development-only Semgrep pin. Customer code stays disabled until disposable VM-class isolation is demonstrated.</p>
         </article>
       </div>
       <div class="callout">
-        <strong>This is a controlled assessment demonstration.</strong>
-        <p>Monitoring and alerts, general scanners, customer-code execution, production identity and approvals, provider writes, production TLS, restore evidence, measured capacity, and operating-cost evidence remain gates. Reference limits and mock tests are not production guarantees.</p>
+        <strong>Production controls remain open.</strong>
+        <p>Production MFA and workspace invitations, TLS ingress, recovery, provider-write authorization, scanner validation, and capacity evidence remain unproven or unavailable.</p>
       </div>
-      <p class="links"><a href="architecture.md">Read the architecture details</a> · <a href="implementation-plan.md">Review implementation status and gates</a> · <a href="definition-interview.md">Read historical decisions and the current demo direction</a></p>
+      <p class="links"><a href="architecture.md">Read architecture details</a> · <a href="implementation-plan.md">Review implementation status and gates</a> · <a href="development.md">Run the local customer application</a> · <a href="definition-interview.md#current-user-correction-actual-customer-application-in-development">Read historical decisions and the product correction</a></p>
     </section>
   </main>
 </body>
