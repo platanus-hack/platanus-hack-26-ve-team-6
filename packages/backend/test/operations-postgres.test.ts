@@ -100,9 +100,13 @@ live('operations durable domain with real Postgres roles (synthetic adapter evid
   });
   it('blocks future I/O after config author loses write membership or source is deleted', async () => {
     const c = await monitored({ source: true });
-    await f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2", [c.scope.organizationId, c.identity.userId]);
-    await expect(coordinator.operations.materialize(c.claim)).rejects.toMatchObject({ code: 'monitor_authorization_revoked' });
-    await f.admin.query("UPDATE gotchu.memberships SET role='owner' WHERE organization_id=$1 AND user_id=$2", [c.scope.organizationId, c.identity.userId]);
+    const secondaryOwner = `secondary-owner:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'owner')", [c.scope.organizationId, secondaryOwner]);
+    try {
+      await f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2", [c.scope.organizationId, c.identity.userId]);
+      await expect(coordinator.operations.materialize(c.claim)).rejects.toMatchObject({ code: 'monitor_authorization_revoked' });
+      await f.admin.query("UPDATE gotchu.memberships SET role='owner' WHERE organization_id=$1 AND user_id=$2", [c.scope.organizationId, c.identity.userId]);
+    } finally { await f.admin.query('DELETE FROM gotchu.memberships WHERE organization_id=$1 AND user_id=$2', [c.scope.organizationId, secondaryOwner]); }
     await api.customers.deleteSource(c.identity, { ...c.scope, sourceSnapshotId: present(c.source).id });
     await expect(coordinator.operations.getWatch(c.claim)).rejects.toMatchObject({ code: 'source_unavailable' });
   });

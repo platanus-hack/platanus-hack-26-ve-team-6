@@ -49,9 +49,13 @@ live('real Postgres WebAuthn step-up proof ledger', () => {
     const revoked = await issueProof({ factorRevoked: true });
     await expect(backend.stepUp!.verifier.verify(revoked)).rejects.toMatchObject({ code: 'step_up_factor_revoked' });
     const revokedRole = await issueProof();
-    await f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
-    try { await expect(backend.stepUp!.verifier.verify(revokedRole)).rejects.toMatchObject({ code: 'forbidden' }); }
-    finally { await f.admin.query("UPDATE gotchu.memberships SET role='owner' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]); }
+    const secondaryOwner = `step-up-owner:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'owner')", [f.a.organizationId, secondaryOwner]);
+    try {
+      await f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
+      await expect(backend.stepUp!.verifier.verify(revokedRole)).rejects.toMatchObject({ code: 'forbidden' });
+      await f.admin.query("UPDATE gotchu.memberships SET role='owner' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
+    } finally { await f.admin.query('DELETE FROM gotchu.memberships WHERE organization_id=$1 AND user_id=$2', [f.a.organizationId, secondaryOwner]); }
     const staleEpoch = await issueProof();
     await f.admin.query('UPDATE gotchu.platform_state SET recovery_epoch=recovery_epoch+1 WHERE singleton');
     await expect(backend.stepUp!.verifier.verify(staleEpoch)).rejects.toMatchObject({ code: 'stale_epoch' });
