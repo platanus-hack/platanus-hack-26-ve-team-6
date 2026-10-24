@@ -16,13 +16,18 @@ describe('actual local Docker scanners (no simulated findings)',()=>{
     try {
       const scanners=createDockerScanners();
       expect((await scanners.readiness()).ready).toBe(true);
-      const files=[{path:'src/customer.ts',content:'export function evaluate(userInput: string) { return eval(userInput); }\nconst password = "FAKE_ONLY_1234567890_test_secret";'}, {path:'deployment.yaml',content:'apiVersion: v1\nkind: Pod\nmetadata:\n  name: customer-pod\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27\n      securityContext:\n        privileged: true\n'}, {path:'package.json',content:'{"scripts":{"postinstall":"exit 99"}}'}];
+      const files=[{path:'src/customer.ts',content:'export function evaluate(userInput: string) { return eval(userInput); }\nconst password = "FAKE_ONLY_1234567890_test_secret";'}, {path:'deployment.yaml',content:'apiVersion: v1\nkind: Pod\nmetadata:\n  name: customer-pod\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27\n      securityContext:\n        privileged: true\n'}, {path:'package-lock.json',content:'{"name":"customer","lockfileVersion":3,"packages":{"":{"name":"customer"}}}'}];
       const report=await createCustomerAssessmentRunner({scanners}).run(input(files));
       expect(report.internal?.coverage.filter(c=>['semgrep','gitleaks','trivy'].includes(c.capability))).toEqual(expect.arrayContaining(['semgrep','gitleaks'].map(capability=>expect.objectContaining({capability,state:'inspected'}))));
-      expect(report.internal?.coverage.find(c=>c.capability==='trivy')?.state).toBe('unavailable'); // package.json was not inspected as Kubernetes configuration.
+      expect(report.internal?.coverage.find(c=>c.capability==='trivy')?.state).toBe('inspected');
       expect(report.internal?.findings.some(f=>f.ruleId.includes('javascript.eval'))).toBe(true);
       expect(report.internal?.findings.some(f=>f.ruleId==='gotchu-assigned-secret')).toBe(true);
       expect(report.internal?.findings.some(f=>f.ruleId.startsWith('AVD-KSV'))).toBe(true);
+      expect(report.internal?.findings.find(f=>f.ruleId==='AVD-KSV-0017')?.location).toBe('deployment.yaml:10');
+      const privilegedFinding=report.internal?.findings.find(f=>f.ruleId==='AVD-KSV-0017');
+      const privilegedEvidence=report.internal?.evidence.find(e=>e.id===privilegedFinding?.evidenceIds[0]);
+      expect(privilegedEvidence).toMatchObject({tool:{name:'trivy'},kind:'configuration'});
+      expect(JSON.parse(privilegedEvidence?.excerpt??'{}')).toMatchObject({checkId:'KSV017',causeStartLine:7,causeEndLine:10,correctionLocationLine:10});
       expect(JSON.stringify(report)).not.toContain('FAKE_ONLY_1234567890_test_secret');
       expect(report.internal?.evidence.every(e=>/^[a-f0-9]{64}$/.test(e.checksum))).toBe(true);
       const semgrepProfile=report.internal?.evidence.find(e=>e.locator==='scanner-profile:semgrep');
@@ -43,7 +48,7 @@ describe('actual local Docker scanners (no simulated findings)',()=>{
       {path:'broken.yaml',content:'apiVersion: v1\nkind: Pod\nspec: [unclosed\n'},
     ]));
     expect(report.internal?.findings.some(f=>f.ruleId.startsWith('AVD-KSV'))).toBe(true);
-    expect(report.internal?.coverage.find(c=>c.capability==='trivy')).toMatchObject({state:'unavailable',detail:expect.stringContaining('1 candidate')});
+    expect(report.internal?.coverage.find(c=>c.capability==='trivy')).toMatchObject({state:'unavailable',detail:expect.stringContaining('1 Kubernetes candidate')});
     expect(report.internal?.status).toBe('partial');
   },15000);
   it('settles an aborted real Docker run only after removing its container and source directory',async()=>{
