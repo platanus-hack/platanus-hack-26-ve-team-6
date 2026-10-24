@@ -55,11 +55,14 @@ export function createJobService(deps: BaseDependencies) {
     async claim(input: { organizationId: string; jobId: string; leaseMs?: number }): Promise<JobClaim | null> {
       const value = parse(claimSchema, input);
       return deps.database.tenant(value.organizationId, async tx => {
-        const result = await tx.query<{ id: string; application_id: string; kind: JobEnvelope['kind']; payload: unknown; lease_token: string; lease_until: Date; attempts: number }>(`UPDATE gotchu.jobs SET state='running',lease_token=gen_random_uuid(),lease_until=clock_timestamp()+$3*interval '1 millisecond',attempts=attempts+1
+        const result = await tx.query<{ id: string; application_id: string; kind: JobEnvelope['kind']; state: string; payload: unknown; lease_token: string | null; lease_until: Date | null; attempts: number }>(`UPDATE gotchu.jobs SET state='running',lease_token=gen_random_uuid(),lease_until=clock_timestamp()+$3*interval '1 millisecond',attempts=attempts+1
           WHERE organization_id=$1 AND id=$2 AND (state='queued' OR (state='running' AND lease_until<=clock_timestamp()))
-          RETURNING id,application_id,kind,payload,lease_token,lease_until,attempts`, [value.organizationId, value.jobId, value.leaseMs]);
+          RETURNING id,application_id,kind,state,payload,lease_token,lease_until,attempts`, [value.organizationId, value.jobId, value.leaseMs]);
         const row = result.rows[0];
-        return row ? { envelope: { version: 1, id: row.id, organizationId: value.organizationId, applicationId: row.application_id, kind: row.kind }, payload: row.payload, leaseToken: row.lease_token, leaseUntil: row.lease_until, attempts: row.attempts } : null;
+        // The authorization fence can atomically settle the job during this UPDATE.
+        if (!row || row.state !== 'running') return null;
+        if (row.lease_token === null || row.lease_until === null) throw new BackendError('invalid_job_claim', 'Running job has no lease', 500);
+        return { envelope: { version: 1, id: row.id, organizationId: value.organizationId, applicationId: row.application_id, kind: row.kind }, payload: row.payload, leaseToken: row.lease_token, leaseUntil: row.lease_until, attempts: row.attempts };
       });
     },
     async complete(input: { organizationId: string; jobId: string; leaseToken: string; result?: unknown }): Promise<void> {
