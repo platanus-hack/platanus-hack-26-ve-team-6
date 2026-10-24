@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { z } from 'zod';
 
-const roles = ['gotchu_owner', 'gotchu_api', 'gotchu_ingest', 'gotchu_coordinator', 'gotchu_executor'] as const;
+const roles = ['gotchu_owner', 'gotchu_api', 'gotchu_ingest', 'gotchu_coordinator', 'gotchu_executor', 'gotchu_validator'] as const;
 const ident = (value: string) => '"' + value.replaceAll('"', '""') + '"';
 const literal = (value: string) => "'" + value.replaceAll("'", "''") + "'";
 
@@ -47,10 +47,10 @@ export async function migrate(options: { connectionString: string }): Promise<vo
 }
 
 /** Operator-only bootstrap. Password must be generated externally; never persist it in source. */
-export async function provisionRuntimeLogin(options: { connectionString: string; username: string; password: string; role: 'gotchu_api' | 'gotchu_ingest' | 'gotchu_coordinator' | 'gotchu_executor' }): Promise<void> {
+export async function provisionRuntimeLogin(options: { connectionString: string; username: string; password: string; role: 'gotchu_api' | 'gotchu_ingest' | 'gotchu_coordinator' | 'gotchu_executor' | 'gotchu_validator' }): Promise<void> {
   const username = z.string().regex(/^[a-z][a-z0-9_]{0,62}$/).parse(options.username);
   const password = z.string().min(24).max(1024).refine((x) => !x.includes('\0')).parse(options.password);
-  const role = z.enum(['gotchu_api', 'gotchu_ingest', 'gotchu_coordinator', 'gotchu_executor']).parse(options.role);
+  const role = z.enum(['gotchu_api', 'gotchu_ingest', 'gotchu_coordinator', 'gotchu_executor', 'gotchu_validator']).parse(options.role);
   if (roles.some(roleName => roleName === username)) throw new Error('Runtime login cannot use a group-role name');
   const client = new pg.Client({ connectionString: options.connectionString });
   await client.connect();
