@@ -32,7 +32,7 @@ export function Hero() {
           <p className="g-hero-lead">Sube una versión de tu código o autoriza tu dominio por DNS. Gotchu te devuelve hallazgos con su evidencia y lo que no se pudo comprobar.</p>
           <div className="g-hero-actions">
             <a className="g-button g-button-paper" href="/dashboard" data-catch>Revisar mi aplicación <UiIcon name="arrow" /></a>
-            <a className="g-text-link" href="#codigo">Cómo funciona <span aria-hidden="true">↓</span></a>
+            <a className="g-text-link" href="#codigo">Cómo funciona <span className="g-arrow-down"><UiIcon name="arrow" size={16} /></span></a>
           </div>
         </div>
         <div className="g-hero-mark">
@@ -50,7 +50,7 @@ export function Hero() {
       </div>
     </section>
     <nav className="g-signal-band" aria-label="Flujo de Gotchu">
-      {verbs.map(verb => <a key={verb.label} href={verb.href}>{verb.label}<span aria-hidden="true">↗</span></a>)}
+      {verbs.map(verb => <a key={verb.label} href={verb.href}>{verb.label}<span className="g-arrow-up"><UiIcon name="arrow" size={22} /></span></a>)}
     </nav>
   </>;
 }
