@@ -65,8 +65,41 @@
 .g-scope-stage .g-dots { --dots-size: min(300px, 70%); }
 .g-scope-stage .g-tag { position: absolute; left: 24px; bottom: 22px; color: var(--gc-muted) !important; }
 
+.g-workflow { padding-block: 140px 40px; }
+.g-workflow-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; margin-top: 40px; }
+.g-workflow-grid > .g-card { display: flex; gap: 28px; padding: 32px; }
+.g-workflow-grid .g-dots { --dots-size: 88px; flex-shrink: 0; }
+.g-workflow-grid h3 { font-size: 22px; line-height: 1.1; text-transform: uppercase; letter-spacing: -.005em; margin-bottom: 12px; }
+.g-workflow-grid p { font-size: 15px; }
+.g-workflow-wide { align-items: flex-end; min-height: 260px; }
+.g-workflow-history { flex-direction: column; justify-content: space-between; }
+.g-workflow-history .g-dots { color: var(--gc-canvas); }
+.g-workflow-history p { color: #2b1020; }
+.g-workflow-export { grid-column: 1 / -1; display: grid !important; grid-template-columns: .8fr 1.2fr; align-items: center; }
+.g-workflow-export > div { display: grid; gap: 14px; justify-items: start; }
+.g-workflow-export .g-secondary-link { color: var(--gc-accent-ink); }
+.g-export { border: 1px solid var(--gc-line-soft); border-radius: 18px; background: var(--gc-canvas); overflow: hidden; }
+.g-export figcaption { padding: 14px 18px; border-bottom: 1px solid var(--gc-line-soft); color: var(--gc-muted); }
+.g-export pre { padding: 18px 0; overflow-x: auto; font: 14px/1.95 var(--gc-font-code); color: var(--gc-silver); }
+.g-export code > span { display: block; white-space: pre; padding-right: 18px; }
+.g-export i { display: inline-block; width: 44px; padding-right: 16px; text-align: right; font-style: normal; color: var(--gc-line); user-select: none; }
+.g-export b { font-weight: 500; color: var(--gc-paper); }
 
+.g-faq { display: grid; grid-template-columns: .8fr 1.2fr; gap: 70px; padding-block: 120px; }
+.g-faq details { border-top: 1px solid var(--gc-line); }
+.g-faq details:last-child { border-bottom: 1px solid var(--gc-line); }
+.g-faq summary { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; list-style: none; cursor: pointer; font: 700 17px/1.35 var(--gc-font-display); transition: color 160ms ease; }
+.g-faq summary::-webkit-details-marker { display: none; }
+.g-faq summary > span { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; background: var(--gc-raised); color: var(--gc-paper); transition: transform 240ms var(--gc-ease), background-color 200ms ease, color 200ms ease; }
+.g-faq details[open] summary > span { transform: rotate(45deg); background: var(--gc-accent); color: var(--gc-canvas); }
+.g-faq details p { padding: 0 60px 26px 0; font-size: 16px; line-height: 1.75; }
+.g-faq details::details-content { interpolate-size: allow-keywords; height: 0; overflow: clip; transition: height 240ms var(--gc-ease), content-visibility 240ms allow-discrete; }
+.g-faq details[open]::details-content { height: auto; }
 
+.g-closing { display: grid; justify-items: start; align-content: end; gap: 40px; min-height: 76svh; margin: 0 12px; padding: clamp(32px, 5vw, 72px); }
+.g-closing .g-wordrows { --rows-ink: #1919231c; --rows-size: clamp(5rem, 11vw, 11rem); z-index: -1; }
+.g-closing h2 { font-size: clamp(2.6rem, 6vw, 6.4rem); line-height: .92; letter-spacing: -.025em; text-transform: uppercase; color: var(--gc-canvas); max-width: 13ch; }
+.g-closing h2 > span { color: var(--gc-paper); }
 
 .g-footer { padding: 72px 24px 28px; overflow: hidden; }
 .g-footer-wordmark { display: flex; align-items: center; gap: .08em; width: fit-content; font: 700 clamp(3.6rem, 15.5vw, 16rem)/.9 var(--gc-font-display); letter-spacing: -.035em; text-transform: uppercase; }
@@ -76,32 +109,6 @@
 .g-footer-row .g-tag { color: var(--gc-muted); }
 .g-footer-row > a { min-height: 44px; display: flex; align-items: center; gap: 16px; font: 700 13px/1 var(--gc-font-display); text-transform: uppercase; }
 
-.g-workflow { display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: center; padding-block: 128px 40px; }
-.g-workflow-copy > dl { display: grid; gap: 0; margin: 36px 0 22px; }
-.g-workflow-copy > dl > div { display: grid; grid-template-columns: 220px 1fr; gap: 24px; padding-block: 20px; border-top: 1px solid var(--gc-line-soft); }
-.g-workflow dt { font: 500 18px/1.4 var(--gc-font-display); color: var(--gc-paper); }
-.g-workflow dd { margin: 0; color: var(--gc-silver); font-size: 15px; }
-.g-workflow .g-secondary-link { color: var(--gc-accent-ink); }
-.g-export { position: relative; padding: 34px 32px; border: 1px solid var(--gc-line); border-radius: 14px; background: linear-gradient(160deg, #24232f, #121118); box-shadow: 0 40px 80px #08070daa, inset 0 1px 0 #fffefa1a; transform: perspective(1200px) rotateY(-8deg) rotateX(4deg); }
-.g-export::before { content: ''; position: absolute; inset: 16px -16px -16px 16px; z-index: -1; border-radius: inherit; background: var(--gc-raised); border: 1px solid var(--gc-line-soft); }
-.g-export pre { overflow-x: auto; font: 14px/2 var(--gc-font-code); color: var(--gc-silver); }
-.g-export code > span { display: block; white-space: pre; }
-.g-export b { font-weight: 500; color: var(--gc-accent-ink); }
-.g-export i { font-style: normal; color: var(--gc-paper); }
-.g-faq { display: grid; grid-template-columns: .8fr 1.2fr; gap: 70px; padding-block: 120px; }
-.g-faq details { border-top: 1px solid var(--gc-line); }
-.g-faq details:last-child { border-bottom: 1px solid var(--gc-line); }
-.g-faq summary { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; list-style: none; cursor: pointer; font: 500 19px/1.35 var(--gc-font-display); transition: color 160ms ease; }
-.g-faq summary::-webkit-details-marker { display: none; }
-.g-faq summary > span { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border: 1px solid var(--gc-line); border-radius: 50%; color: var(--gc-accent-ink); transition: transform 240ms var(--gc-ease), background-color 200ms ease, border-color 200ms ease; }
-.g-faq details[open] summary > span { transform: rotate(45deg); background: var(--gc-accent-soft); border-color: var(--gc-accent); }
-.g-faq details p { padding: 0 60px 26px 0; font-size: 16px; line-height: 1.75; }
-.g-faq details::details-content { interpolate-size: allow-keywords; height: 0; overflow: clip; transition: height 240ms var(--gc-ease), content-visibility 240ms allow-discrete; }
-.g-faq details[open]::details-content { height: auto; }
-.g-closing { padding-block: 80px 110px; text-align: center; }
-.g-closing h2 { font-size: clamp(2.5rem, 5vw, 4.5rem); line-height: 1.08; letter-spacing: -.04em; }
-.g-closing h2 > span { color: var(--gc-accent-ink); }
-.g-closing .g-button { margin-top: 40px; }
 @keyframes g-arrive { from { opacity: .35; transform: translateY(18px); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
 @media (prefers-reduced-motion: no-preference) {
   .g-hero-type h1 > span, .g-hero-pitch > * { animation: g-arrive 700ms var(--gc-ease) backwards; }
@@ -126,8 +133,7 @@
   .g-chapters h2 { font-size: 34px; }
   .g-chapters article > p:not(.g-tag) { font-size: 16px; }
   .g-faq, .g-perspective-layout { gap: 36px; }
-  .g-faq { gap: 40px; }
-  .g-workflow { grid-template-columns: 1fr; gap: 56px; }
+  .g-workflow-grid, .g-workflow-export { grid-template-columns: 1fr !important; }
 }
 @media (max-width: 760px) {
   .g-container { width: calc(100% - 40px); }
@@ -151,18 +157,17 @@
   .g-perspective-controls button svg { width: 16px; height: 16px; }
   .g-perspective-layout { grid-template-columns: 1fr; gap: 16px; }
   .g-scope-stage { order: -1; min-height: 260px; }
+  .g-workflow { padding-block: 80px 0; }
+  .g-workflow-grid > .g-card { flex-direction: column; align-items: flex-start; padding: 24px; }
+  .g-export pre { font-size: 12px; }
+  .g-export i { width: 34px; padding-right: 12px; }
+  .g-faq { grid-template-columns: 1fr; gap: 30px; padding-block: 80px; }
+  .g-faq summary { font-size: 16px; min-height: 76px; }
+  .g-faq details p { padding-right: 0; }
+  .g-closing { margin: 0 8px; min-height: 0; padding: 48px 22px 28px; }
+  .g-closing h2 { font-size: clamp(2.2rem, 11vw, 3.4rem); }
   .g-footer { padding: 56px 16px 24px; }
   .g-footer-row { flex-wrap: wrap; gap: 14px; }
-  .g-workflow { padding-block: 72px 0; gap: 40px; }
-  .g-workflow-copy > dl > div { grid-template-columns: 1fr; gap: 6px; }
-  .g-export { padding: 24px 18px; transform: none; }
-  .g-export::before { inset: 10px -10px -10px 10px; }
-  .g-export pre { font-size: 12px; }
-  .g-faq { grid-template-columns: 1fr; gap: 30px; padding-block: 72px; }
-  .g-faq summary { font-size: 17px; min-height: 76px; }
-  .g-faq details p { padding-right: 0; }
-  .g-closing { padding-block: 40px 72px; }
-  .g-closing h2 { font-size: clamp(1.9rem, 8vw, 2.75rem); }
 }
 @media (prefers-reduced-motion: reduce) {
   .g-page *, .g-page *::before, .g-page *::after { animation: none !important; scroll-behavior: auto !important; }
