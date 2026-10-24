@@ -96,3 +96,8 @@ This exclusive-left, inclusive-right range contains 20 commits. Maximum raw chan
 | 2026-10-24 14:21:45 | `d11fd396f320` | test(customer-applications): accept discovered startup orgs | 2 / 1 / 3 | 2 / 1 / 3 |
 | 2026-10-24 14:28:01 | `dc5e74b128ba` | docs(validation): record final assessment evidence | 40 / 19 / 59 | 40 / 19 / 59 |
 | 2026-10-24 14:28:01 | `8c03aca79c9d` | docs(validation): clarify final evidence details | 6 / 6 / 12 | 6 / 6 / 12 |
+
+
+## Continuation through fixed endpoint `e2fe67e692117726a27951b58b03f20cf9001561`
+
+The exclusive-left, inclusive-right range `8c03aca79c9d60aa750f72818611131f86d55bfe..e2fe67e692117726a27951b58b03f20cf9001561` contains **23 commits** (355 reachable total). Raw and authored totals are both **1,586 added, 141 deleted, 1,727 changed lines**; no excluded lockfile, generated, or fixture-data paths changed in this range. The maximum is **283 lines** raw and authored, in root commit `67864482f37a` (`test(scanner): verify production TLS scan persistence`). No continuation commit exceeds 300 authored lines or 1,000 raw/authored lines. The six ledger commits in this range are listed with their root ancestry SHAs in [part 4](commit-history-004.md).
