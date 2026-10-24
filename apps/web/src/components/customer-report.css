@@ -1,0 +1,168 @@
+/* Report: report history and detail, findings, severity, recommendations, dependencies, licenses, corrections, analysis, decision records and supply chain. */
+.customer-report-layout { display: grid; grid-template-columns: minmax(230px, .38fr) minmax(0, 1fr); gap: 15px; align-items: start; }
+.customer-report-history { min-width: 0; padding: 0; overflow: hidden; }
+.customer-report-list { list-style: none; margin: 0; padding: 0; }
+.customer-report-list li + li { border-top: 1px solid #edf1ed; }
+.customer-report-list button { display: flex; width: 100%; min-width: 0; align-items: center; gap: 9px; border: 0; background: #fff; color: #8a978e; padding: 12px 16px; text-align: left; }
+.customer-report-list button:hover, .customer-report-list button.is-selected { background: #f4f8f4; }
+.customer-report-icon { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border-radius: 6px; background: #eff5ef; color: #66806a; font-size: 16px; }
+.customer-report-row-title { display: grid; min-width: 0; flex: 1; gap: 3px; }
+.customer-report-row-title strong { overflow: hidden; color: #48604f; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.customer-report-row-title small { overflow: hidden; color: #89958c; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.customer-report-app { overflow: hidden; color: #89958c; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.customer-report-card { min-height: 390px; padding: 0; overflow: hidden; }
+.customer-report-detail { min-width: 0; padding: 21px; }
+.customer-report-title { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; border-bottom: 1px solid #edf1ed; padding-bottom: 15px; }
+.customer-report-title h2 { margin: 0; color: #2d4938; font-size: 18px; letter-spacing: -.3px; }
+.customer-report-title p { margin: 5px 0 0; color: #79877e; font-size: 11px; }
+.customer-report-subject { display: flex; flex-wrap: wrap; gap: 13px 20px; padding: 14px 0; }
+.customer-report-subject > div { display: grid; min-width: 110px; max-width: 100%; gap: 3px; }
+.customer-report-subject span { color: #8a968d; font-size: 9px; }
+.customer-report-subject strong { overflow-wrap: anywhere; color: #58705e; font-size: 10px; font-weight: 600; }
+.customer-report-callout { border: 1px solid #e1eade; border-radius: 6px; background: #f5f8f1; padding: 12px; }
+.customer-report-callout strong { color: #516b49; font-size: 12px; }
+.customer-report-callout p { margin: 4px 0 0; color: #75866e; font-size: 10px; line-height: 1.7; }
+.customer-report-section { margin-top: 19px; }
+.customer-recommendations-intro { margin-top: 11px; border-left: 3px solid #d9e8db; background: #f7faf6; padding: 10px 12px; }
+.customer-recommendations-intro p { margin: 0; color: #718076; font-size: 10px; line-height: 1.75; }
+.customer-recommendations-intro p + p { margin-top: 6px; }
+.customer-recommendation-list { display: grid; gap: 9px; margin-top: 10px; }
+.customer-dependency-fixes { margin-top: 20px; border-top: 1px solid #edf1ed; padding-top: 14px; }
+.customer-dependency-fixes > h4 { margin: 0; color: #405c48; font-size: 13px; }
+.customer-dependency-fixes > p { max-width: 72ch; margin: 6px 0; color: #728076; font-size: 10px; line-height: 1.7; }
+.customer-dependency-fix-list { display: grid; gap: 9px; margin-top: 10px; }
+.customer-dependency-fix .customer-recommendation-heading > div { min-width: 0; }
+.customer-dependency-fix .customer-recommendation-heading h5 { margin: 0; color: #405c48; font-size: 12px; }
+.customer-dependency-fix .customer-recommendation-heading > div p { margin: 4px 0 0; color: #69796d; font-size: 11px; }
+.customer-dependency-fix code { overflow-wrap: anywhere; font: 10px/1.6 ui-monospace, SFMono-Regular, monospace; }
+.customer-dependency-advisory { display: inline-block; margin: 0 4px; }
+.customer-dependency-validation { margin-top: 9px; border-top: 1px solid #edf1ed; padding-top: 8px; color: #536b5a; font-size: 10px; }
+.customer-dependency-validation p { margin: 4px 0; color: #728076; line-height: 1.65; }
+.customer-dependency-fix > .customer-error { margin: 7px 0; font-size: 10px; }
+.customer-recommendation-card { min-width: 0; border: 1px solid #e2eae2; border-radius: 7px; background: #fff; padding: 13px; }
+.customer-recommendation-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.customer-recommendation-heading h4 { margin: 0; color: #405c48; font-size: 12px; }
+.customer-recommendation-card > p { margin: 8px 0; color: #728076; font-size: 10px; line-height: 1.75; }
+.customer-recommendation-card > h5, .customer-recommendation-confirm h5 { margin: 12px 0 4px; color: #536b5a; font-size: 10px; }
+.customer-recommendation-card > ul { margin: 5px 0 9px; padding-left: 17px; color: #768479; font-size: 10px; line-height: 1.7; }
+.customer-recommendation-card > ul li + li { margin-top: 5px; }
+.customer-recommendation-card > ul p { margin: 2px 0 0; color: #7b887e; }
+.customer-recommendation-evidence strong { color: #526d58; }
+.customer-recommendation-availability { border-top: 1px solid #edf1ed; padding-top: 8px; }
+.customer-recommendation-confirm { margin-top: 12px; border: 1px solid #e2e9dc; border-radius: 6px; background: #f7f9f4; padding: 11px; }
+.customer-recommendation-confirm h5 { margin-top: 0; }
+.customer-recommendation-confirm > p { margin: 6px 0 10px; color: #6e7d70; font-size: 10px; line-height: 1.75; overflow-wrap: anywhere; }
+.customer-recommendation-confirm code, .customer-recommendation-coverage code, .customer-correction-result code { overflow-wrap: anywhere; font: 9px/1.6 ui-monospace, SFMono-Regular, monospace; }
+.customer-recommendation-confirm > label { display: flex; align-items: flex-start; gap: 8px; color: #566d5b; font-size: 10px; line-height: 1.65; }
+.customer-recommendation-confirm input { flex: 0 0 auto; margin-top: 2px; accent-color: #21634a; }
+.customer-recommendation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 11px; }
+.customer-recommendation-coverage { margin-top: 12px; border-top: 1px solid #edf1ed; padding-top: 10px; }
+.customer-recommendation-coverage summary { color: #63806a; cursor: pointer; font-size: 10px; }
+.customer-recommendation-coverage ul { display: grid; gap: 5px; list-style: none; margin: 8px 0 0; padding: 0; }
+.customer-recommendation-coverage li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #7a887d; font-size: 9px; }
+.customer-recommendation-coverage li small { color: #89958c; }
+.customer-correction-result { margin-top: 11px; border: 1px solid #d7e7d8; border-radius: 6px; background: #f2f8f2; padding: 12px; }
+.customer-correction-result > div strong { color: #42664b; font-size: 11px; }
+.customer-correction-result p { margin: 5px 0; color: #728076; font-size: 10px; line-height: 1.7; }
+.customer-correction-result ul { margin: 8px 0; padding-left: 18px; color: #65776a; font-size: 10px; }
+.customer-correction-result li p { margin: 3px 0; }
+.customer-correction-hash { overflow-wrap: anywhere; }
+.customer-job-banner { scroll-margin-top: 15px; }
+.customer-section-heading { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #edf1ed; padding-bottom: 10px; }
+.customer-section-heading h3 { margin: 0; color: #3b5946; font-size: 13px; font-weight: 650; }
+.customer-section-heading .customer-eyebrow { margin-bottom: 3px; }
+.customer-comparison-summary { display: grid; gap: 3px; margin: 10px 0; color: #728076; font-size: 10px; line-height: 1.7; }
+.customer-comparison-summary p { margin: 0; }
+.customer-comparison-summary strong { color: #49614f; }
+.customer-findings { display: grid; gap: 7px; margin-top: 10px; }
+.customer-finding { border: 1px solid #e6ece6; border-radius: 6px; background: #fff; }
+.customer-finding > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; padding: 12px; }
+.customer-finding > summary::-webkit-details-marker { display: none; }
+.customer-finding > summary > span:first-child { display: grid; min-width: 0; gap: 4px; }
+.customer-finding > summary strong { overflow-wrap: anywhere; color: #405c48; font-size: 11px; }
+.customer-finding > summary small { overflow-wrap: anywhere; color: #849087; font-size: 9px; }
+.customer-finding-badges { display: flex; min-width: 0; flex: 0 1 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 5px; }
+.customer-severity { display: inline-flex; align-items: center; border-radius: 4px; padding: 4px 7px; font-size: 9px; white-space: nowrap; }
+.customer-severity-critical, .customer-severity-high { background: #faedeb; color: #a2524a; }
+.customer-severity-medium { background: #fbf3df; color: #8c713b; }
+.customer-severity-low { background: #f2f3e4; color: #777841; }
+.customer-severity-informational { background: #edf2f8; color: #5c7892; }
+.customer-finding > p, .customer-finding-body { margin: 0; padding: 0 12px 12px; color: #77847a; font-size: 10px; line-height: 1.75; }
+.customer-finding-body { border-top: 1px solid #eef2ee; padding-top: 12px; }
+.customer-finding-body p { margin: 8px 0; color: #728076; }
+.customer-finding-body h4 { margin: 12px 0 2px; color: #536b5a; font-size: 10px; }
+.customer-finding-body ul, .customer-report-limitations { margin: 7px 0; padding-left: 17px; color: #768479; font-size: 10px; line-height: 1.8; }
+.customer-tag-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.customer-evidence { margin-top: 10px; border: 1px solid #e2eae2; border-radius: 5px; padding: 9px; }
+.customer-evidence > summary { overflow-wrap: anywhere; color: #4f7058; cursor: pointer; font-size: 10px; }
+.customer-evidence p { margin: 7px 0; }
+.customer-evidence pre { max-height: 190px; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; border: 1px solid #e5ebe4; border-radius: 4px; background: #f7f9f6; color: #526955; padding: 9px; font: 9px/1.6 ui-monospace, SFMono-Regular, monospace; }
+.customer-evidence .customer-evidence-meta { overflow-wrap: anywhere; color: #8a968d; font: 8px/1.6 ui-monospace, SFMono-Regular, monospace; }
+.customer-http-evidence-list { display: grid; gap: 7px; margin-top: 10px; }
+.customer-http-evidence { min-width: 0; margin-top: 0; }
+.customer-http-evidence p, .customer-http-evidence code { overflow-wrap: anywhere; }
+.customer-http-headers { display: grid; gap: 6px; margin: 8px 0; padding: 0; list-style: none; }
+.customer-http-headers li { display: grid; grid-template-columns: minmax(120px, max-content) minmax(0, 1fr); gap: 8px; color: #728076; font-size: 10px; }
+.customer-http-headers strong { overflow-wrap: anywhere; color: #536b5a; font-size: 9px; }
+.customer-http-headers span { min-width: 0; overflow-wrap: anywhere; }
+.customer-analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 10px; }
+.customer-analysis-card { min-width: 0; border: 1px solid #e6ece6; border-radius: 6px; padding: 11px; }
+.customer-analysis-card .customer-card-heading { align-items: center; }
+.customer-analysis-card h4 { margin: 0; color: #49614f; font-size: 11px; }
+.customer-analysis-card > p { color: #7f8c82; font-size: 9px; }
+.customer-analysis-card > ul { list-style: none; margin: 9px 0 0; padding: 0; }
+.customer-analysis-card > ul > li { display: flex; justify-content: space-between; gap: 7px; border-top: 1px solid #edf1ed; padding: 8px 0; }
+.customer-analysis-card > ul > li > span:first-child { display: grid; gap: 3px; }
+.customer-analysis-card > ul strong { overflow-wrap: anywhere; color: #66796c; font-size: 9px; }
+.customer-analysis-card > ul small { color: #8a968d; font-size: 8px; line-height: 1.55; }
+.customer-analysis-limits { margin-top: 9px; border-top: 1px solid #edf1ed; padding-top: 7px; }
+.customer-analysis-limits summary { color: #63806a; cursor: pointer; font-size: 9px; }
+.customer-analysis-limits ul { padding-left: 15px; color: #7f8b82; font-size: 9px; line-height: 1.7; }
+
+@media (max-width: 800px) {
+  .customer-report-layout { grid-template-columns: 1fr; }
+  .customer-report-history .customer-report-list { display: flex; overflow-x: auto; }
+  .customer-report-history .customer-report-list li { min-width: 190px; border-top: 0; border-right: 1px solid #edf1ed; }
+  .customer-report-history .customer-report-list button { height: 100%; }
+  .customer-report-app { display: none; }
+}
+@media (max-width: 620px) {
+  .customer-recommendation-heading { flex-direction: column; }
+  .customer-recommendation-actions { align-items: flex-start; flex-direction: column; }
+  .customer-recent-card, .customer-applications-card, .customer-report-history, .customer-report-card { padding: 0; }
+  .customer-report-detail { padding: 16px; }
+  .customer-report-title { flex-direction: column; }
+  .customer-analysis-grid { grid-template-columns: 1fr; }
+  .customer-finding > summary { align-items: flex-start; flex-direction: column; }
+  .customer-finding-badges { flex-wrap: wrap; }
+}
+.customer-severity-unknown { background: #f0edf7; color: #665780; }
+.customer-report-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; border-bottom: 1px solid #e7ede7; }
+.customer-report-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; color: #718077; padding: 10px 12px; font-size: 12px; cursor: pointer; }
+.customer-report-tab[aria-selected="true"] { border-color: var(--customer-green); color: #31513b; font-weight: 650; }
+.customer-dependency-inventory { margin-top: 16px; }
+.customer-dependency-coverage { display: grid; gap: 5px; margin: 12px 0 16px; border: 1px solid #e3eae3; border-radius: 7px; background: #f7f9f6; padding: 11px 13px; color: #718077; font-size: 11px; }
+.customer-dependency-coverage strong { color: #4c6654; font-size: 11px; }
+.customer-dependency-filters { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(140px, .45fr)); gap: 10px; margin: 14px 0; }
+.customer-dependency-filters label, .customer-license-policy-grid label { display: grid; gap: 6px; color: #5f7366; font-size: 11px; font-weight: 600; }
+.customer-dependency-filters input, .customer-dependency-filters select, .customer-license-policy-grid textarea, .customer-license-policy-grid input { min-width: 0; border: 1px solid #d8e2da; border-radius: 5px; background: #fff; color: #314b3c; padding: 8px; font: inherit; font-weight: 400; }
+.customer-dependency-table-wrap { overflow: auto; border: 1px solid #e3eae3; border-radius: 7px; }
+.customer-dependency-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 11px; }
+.customer-dependency-table th { background: #f7f9f6; color: #6f8175; font-size: 10px; font-weight: 650; }
+.customer-dependency-table th, .customer-dependency-table td { min-width: 100px; border-bottom: 1px solid #edf1ed; padding: 10px 11px; vertical-align: top; }
+.customer-dependency-table td:first-child { min-width: 145px; }
+.customer-dependency-table td strong, .customer-dependency-table td small { display: block; }
+.customer-dependency-table td strong { color: #415d49; font-size: 11px; }
+.customer-dependency-table td small { margin-top: 4px; color: #87948b; font-size: 10px; }
+.customer-dependency-table code { color: #687c6d; overflow-wrap: anywhere; font-size: 10px; }
+.customer-license-status { display: inline-flex; border-radius: 999px; padding: 4px 7px; font-size: 10px; white-space: nowrap; }
+.customer-license-allowed { background: #eaf4ec; color: #3f704b; }
+.customer-license-review { background: #fff3da; color: #87631d; }
+.customer-license-denied { background: #fbe9e5; color: #a04436; }
+.customer-license-policy-panel { display: grid; gap: 13px; }
+.customer-license-policy-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.customer-license-policy-grid textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; line-height: 1.6; }
+.customer-license-policy-grid small { color: #859188; font-size: 10px; font-weight: 400; }
+.customer-license-default-note, .customer-license-saved { margin: 0; border-radius: 6px; background: #f5f8f4; color: #607665; padding: 10px 12px; font-size: 11px; line-height: 1.6; }
+.customer-license-saved { background: #eaf4ec; color: #3f704b; }
+@media (max-width: 700px) { .customer-dependency-filters, .customer-license-policy-grid { grid-template-columns: 1fr; } }

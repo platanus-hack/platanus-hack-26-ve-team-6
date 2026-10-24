@@ -36,7 +36,9 @@ import { WorkflowExceptions } from './workflow-exceptions';
 import { DecisionRecordHistory } from './decision-record-history';
 import { InvestigationActionButton, InvestigationModelSettings, InvestigationsTimeline } from './investigations-panel';
 import { DependencyInventoryPanel, LicensePolicyPanel, RetentionPolicyPanel } from './customer-supply-chain';
-import './customer-dashboard.css';
+import './customer-shell.css';
+import './customer-report.css';
+import './customer-operations.css';
 
 type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
 
