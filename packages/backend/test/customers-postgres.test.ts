@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, type AssessmentAnalysis, type CustomerAssessmentReport, type CustomerRunInput } from '@gotchu/contracts';
+import { CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, defaultLicensePolicy, type AssessmentAnalysis, type CustomerAssessmentReport, type CustomerRunInput } from '@gotchu/contracts';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
 import { canonicalJson, createBackend, DEMO_ASSESSMENT_SCOPE, sha256 } from '../src/index.js';
 
@@ -13,7 +13,12 @@ function latch() {
 /** Synthetic report and DNS answers test persistence/authorization, not live HTTPS or DNS. */
 function reportFor(input: CustomerRunInput): CustomerAssessmentReport {
   const timestamp = new Date().toISOString();
-  const analysis = (origin: 'internal' | 'external'): AssessmentAnalysis => ({ origin, status: 'completed', startedAt: timestamp, finishedAt: timestamp, snapshotRef: origin === 'internal' ? input.containerImage ? `container-image:sha256:${input.containerImage.digest}` : input.source?.digest ?? 'test' : input.target?.origin ?? 'test', tool: { name: 'synthetic-test', version: '1' }, findings: [], evidence: [], coverage: [], limitations: ['Synthetic boundary test, not live scanning'] });
+  const analysis = (origin: 'internal' | 'external'): AssessmentAnalysis => ({ origin, status: 'completed', startedAt: timestamp, finishedAt: timestamp,
+    snapshotRef: origin === 'internal'
+      ? input.containerImage ? `container-image:sha256:${input.containerImage.digest}` : input.source ? `source:${input.source.id}:sha256:${input.source.digest}` : 'test'
+      : input.target?.origin ?? 'test',
+    tool: { name: 'synthetic-test', version: '1' }, findings: [], evidence: [], coverage: [], limitations: ['Synthetic boundary test, not live scanning'],
+    ...(origin === 'internal' && input.source ? { dependencyInventory: { components: [], lockfiles: [], policy: input.licensePolicy ?? defaultLicensePolicy, complete: false, graphComplete: false, unknownCount: 0 } } : {}) });
   return { version: 2, id: randomUUID(), organizationId: input.organizationId, applicationId: input.applicationId, jobId: input.jobId, applicationName: input.applicationName,
     mode: input.mode, startedAt: timestamp, finishedAt: timestamp, internal: input.mode === 'external' ? null : analysis('internal'), external: input.mode === 'internal' ? null : analysis('external'),
     comparison: [], limitations: ['Synthetic boundary test'], responseMode: 'observation', actionsPerformed: [], subject: {
@@ -97,6 +102,36 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     await expect(api.customers.recordReportDownload({ userId: f.b.userId }, { ...c.scope, reportId: result.report.id })).rejects.toMatchObject({ status: 403 });
     const history = await api.decisionRecords.list(c.identity, { organizationId: c.workspace.id, subjectType: 'report', subjectId: result.report.id });
     expect(history.records.map(record => record.action)).toContain('report.download_requested');
+  });
+
+  it('enforces workspace license policy roles, tenant isolation, and snapshots it into persisted reports', async () => {
+    const c = await customer();
+    const viewer = { userId: `oidc:${randomUUID()}` }; const operator = { userId: `credentials:${randomUUID()}` };
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES ($1,$2,'viewer'),($1,$3,'operator')", [c.workspace.id, viewer.userId, operator.userId]);
+    expect(await api.customers.getLicensePolicy(c.identity, { organizationId: c.workspace.id })).toMatchObject({ configured: false, policy: defaultLicensePolicy });
+    expect((await api.customers.getLicensePolicy(viewer, { organizationId: c.workspace.id })).configured).toBe(false);
+    await expect(api.customers.getLicensePolicy({ userId: f.b.userId }, { organizationId: c.workspace.id })).rejects.toMatchObject({ status: 403 });
+    const policy = { allow: ['Apache-2.0', 'MIT'], deny: ['GPL-3.0-only'], review: ['UNKNOWN'] };
+    await expect(api.customers.updateLicensePolicy(viewer, { organizationId: c.workspace.id, policy })).rejects.toMatchObject({ status: 403 });
+    expect(await api.customers.updateLicensePolicy(operator, { organizationId: c.workspace.id, policy })).toMatchObject({ configured: true, policy });
+    await expect(api.customers.updateLicensePolicy(operator, { organizationId: f.b.organizationId, policy })).rejects.toMatchObject({ status: 403 });
+
+    const result = await claim(c);
+    expect(result.input.licensePolicy).toEqual(policy);
+    const internal = result.report.internal;
+    if (!internal?.dependencyInventory) throw new Error('Synthetic source report did not include dependency inventory');
+    const component = { name: 'alpha', version: '1.0.0', purl: 'pkg:npm/alpha@1.0.0', sourceFile: 'package-lock.json', location: 'package-lock.json:node_modules/alpha', relationship: 'direct' as const, dependencies: [], declaredLicense: 'GPL-3.0', licenseExpression: 'GPL-3.0-only', licenseSource: 'lockfile' as const, licenseConfidence: 'declared' as const, policyStatus: 'denied' as const };
+    internal.dependencyInventory.components.push(component);
+    await expect(coordinator.customers.recordResult({ input: result.input, leaseToken: result.leaseToken, report: {
+      ...result.report,
+      internal: { ...internal, dependencyInventory: { ...internal.dependencyInventory, components: [{ ...component, policyStatus: 'allowed' }] } },
+    } })).rejects.toMatchObject({ code: 'assessment_license_result_invalid' });
+    await coordinator.customers.recordResult({ input: result.input, leaseToken: result.leaseToken, report: result.report });
+    const persisted = await api.customers.getReport(c.identity, { ...c.scope, reportId: result.report.id });
+    expect(persisted.internal?.dependencyInventory?.policy).toEqual(policy);
+    const sbom = await api.customers.exportSbom(c.identity, { ...c.scope, reportId: result.report.id });
+    expect(sbom).toMatchObject({ bomFormat: 'CycloneDX', specVersion: '1.5', components: [{ 'bom-ref': 'pkg:npm/alpha@1.0.0', licenses: [{ expression: 'GPL-3.0-only' }] }], compositions: [{ aggregate: 'incomplete' }] });
+    await expect(api.customers.exportSbom({ userId: f.b.userId }, { ...c.scope, reportId: result.report.id })).rejects.toMatchObject({ status: 403 });
   });
 
   it('enforces tenant roles, application uniqueness, archive and restore', async () => {
