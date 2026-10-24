@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { BackendError } from '@gotchu/backend';
 import { createCustomerApi, type CustomerServices } from '../src/server/customer-api.js';
 import type { AuthService } from '../src/server/auth.js';
+import { operationPlanSchema } from '@gotchu/contracts';
 const origin = 'http://localhost:3000';
 const organizationId = randomUUID();
 const applicationId = randomUUID();
@@ -15,6 +16,13 @@ function ports() {
 }
 function request(path: string, payload?: unknown, headers: HeadersInit = {}) {
   return new Request(`${origin}/api/customer/${path}`, payload === undefined ? {} : { method: 'POST', headers: { origin, 'content-type': 'application/json', ...headers }, body: JSON.stringify(payload) });
+}
+function operationPorts() {
+  const result = ports();
+  const unused = async (): Promise<never> => { throw new Error('Unexpected operation service invocation'); };
+  const operations: NonNullable<CustomerServices['operations']> = { getConfig: unused, configure: unused, claimDue: unused, getWatch: unused, heartbeatRun: unused, materialize: unused, finishRun: unused, recordObservation: unused, listAlerts: unused, updateAlert: unused, getCoverage: unused, createPlan: unused, listPlans: unused, requestPreparation: unused, attestStep: unused, checkReadiness: unused, requestExecution: unused };
+  result.services.operations = operations;
+  return { ...result, operations };
 }
 describe('authenticated customer HTTP adapter (injected services)', () => {
   it('exposes no customer data to anonymous sessions or identity headers', async () => {
@@ -110,5 +118,33 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ deleted: true });
     expect(services.deleteSource).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, sourceSnapshotId });
+  });
+
+  it('binds monitoring writes to the session/path and never exposes trusted observation ingestion', async () => {
+    const { services, auth, operations } = operationPorts();
+    const targetId = randomUUID();
+    operations.configure = vi.fn(async (_identity, input) => ({ ...input, sourceSnapshotId: input.sourceSnapshotId ?? null, targetId: input.targetId ?? null, repositoryKey: input.repositoryKey ?? null, providers: input.providers ?? [], revision: 1, nextDueAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const prefix = `workspaces/${organizationId}/applications/${applicationId}`;
+    const value = { enabled: true, intervalSeconds: 21600, targetId };
+    const put = (body: unknown) => new Request(`${origin}/api/customer/${prefix}/monitoring`, { method: 'PUT', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await handle(put({ ...value, organizationId: randomUUID(), verified: true }))).status).toBe(400);
+    expect((await handle(put(value))).status).toBe(200);
+    expect(operations.configure).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, enabled: true, intervalSeconds: 21600, sourceSnapshotId: null, targetId, repositoryKey: null, providers: [] });
+    expect((await handle(request(`${prefix}/observations`, { kind: 'upstream_outage', verified: true }))).status).toBe(404);
+  });
+
+  it('requires the exact stored plan binding and propagates disabled execution instead of reporting success', async () => {
+    const { services, auth, operations } = operationPorts(); const planId = randomUUID(); const actionHash = 'a'.repeat(64);
+    const plan = operationPlanSchema.parse({ organizationId, applicationId, id: planId, kind: 'review_improvement', revision: 2, actionHash, state: 'preparation_requested', observationIds: [randomUUID()], steps: [], limitations: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), execution: 'disabled' });
+    operations.requestPreparation = vi.fn(async () => plan);
+    operations.requestExecution = async () => { throw new BackendError('operation_execution_unavailable', 'Independent execution requirements are unavailable', 503); };
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const prefix = `workspaces/${organizationId}/applications/${applicationId}/plans/${planId}`;
+    expect((await handle(request(`${prefix}/prepare`, { revision: 1, actionHash, approved: true }))).status).toBe(400);
+    expect((await handle(request(`${prefix}/prepare`, { revision: 1, actionHash }))).status).toBe(200);
+    expect(operations.requestPreparation).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, planId, revision: 1, actionHash });
+    const unavailable = await handle(request(`${prefix}/execute`, { revision: 2, actionHash }));
+    expect(unavailable.status).toBe(503); expect(await unavailable.json()).toMatchObject({ error: { code: 'operation_execution_unavailable' } });
   });
 });

@@ -11,11 +11,16 @@ import {
   operationPlanSchema, operationPlanKindSchema, operationPlanBindingSchema, operationPlanStepSchema, operationReadinessSchema,
 } from '@gotchu/contracts';
 import type { Identity, Backend } from '@gotchu/backend';
+import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, reportRecommendationsResponseSchema, type PrepareCorrectionRequest, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
 import type { AuthService } from './auth.js';
 import { localRegistrationSchema, type LocalAccounts } from './local-accounts.js';
 import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } from './http.js';
 
 export interface CustomerServices {
+  corrections?: {
+    recommendations(identity: Identity, input: { organizationId: string; applicationId: string; reportId: string }): Promise<ReportRecommendationsResponse>;
+    prepare(identity: Identity, input: PrepareCorrectionRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<PrepareCorrectionResponse>;
+  };
   telemetry?: Backend['telemetry'];
   operations?: Backend['operations'];
   repositoryCatalog?: (identity: Identity, scope: { organizationId: string; applicationId: string }) => Promise<Array<{ key: string; label: string }>>;
@@ -183,6 +188,15 @@ export function createCustomerApi(options: {
         return new Response(null, { status: 204, headers });
       }
       if (parts.length === 8 && parts[6] === 'reports' && request.method === 'GET') return send(customerAssessmentReportSchema.parse(await services.getReport(identity, { ...scope, reportId: parse(uuid, parts[7]) })));
+      if (parts.length === 9 && parts[6] === 'reports' && ['recommendations', 'corrections'].includes(parts[8] ?? '')) {
+        if (!services.corrections) throw new HttpError(503, 'corrections_not_configured', 'La preparación de correcciones no está configurada.');
+        const reportScope = { ...scope, reportId: parse(uuid, parts[7]) };
+        if (parts[8] === 'recommendations' && request.method === 'GET') return send(reportRecommendationsResponseSchema.parse(await services.corrections.recommendations(identity, reportScope)));
+        if (parts[8] === 'corrections' && request.method === 'POST') {
+          const selection = parse(prepareCorrectionRequestSchema, await body(request));
+          return send(prepareCorrectionResponseSchema.parse(await services.corrections.prepare(identity, { ...reportScope, ...selection })), 201);
+        }
+      }
       if (parts.length === 8 && parts[6] === 'sources' && request.method === 'DELETE') {
         await services.deleteSource(identity, { ...scope, sourceSnapshotId: parse(uuid, parts[7]) });
         headers.set('Cache-Control', 'private, no-store');

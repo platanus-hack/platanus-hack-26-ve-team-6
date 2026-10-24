@@ -9,6 +9,7 @@ import { createLocalAccounts } from './local-accounts.js';
 import { createCustomerApi } from './customer-api.js';
 import { createCustomerDnsVerifier } from './customer-dns.js';
 import { createFileEventCredentials } from './event-credentials.js';
+import { loadMonitoringRepositoryCatalog } from '@gotchu/monitoring';
 
 function credentialStore(value: string | undefined): CredentialStore | undefined {
   if (!value) return undefined;
@@ -70,7 +71,14 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
-  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, telemetry: web.telemetry, operations: web.operations, job: (identity, value) => web.web.getJob(identity, value) } : null,
+  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, telemetry: web.telemetry, operations: web.operations, corrections: web.corrections,
+    repositoryCatalog: async (identity, scope) => {
+      await web.operations.getConfig(identity, scope);
+      if (!env.GOTCHU_MONITORING_CONFIG_FILE) return [];
+      const catalog = await loadMonitoringRepositoryCatalog(env.GOTCHU_MONITORING_CONFIG_FILE);
+      return catalog.listAllowedRepositoryOptions(scope).map(entry => ({ key: entry.repositoryKey, label: entry.displayName }));
+    },
+    job: (identity, value) => web.web.getJob(identity, value) } : null,
     ...(accounts ? { localAccounts: accounts } : {}),
     registrationEnabled: Boolean(accounts) && auth.enabled && env.NODE_ENV === 'development' && env.GOTCHU_ALLOW_LOCAL_REGISTRATION === 'true',
     providers: publicAuthProviders(settings),
