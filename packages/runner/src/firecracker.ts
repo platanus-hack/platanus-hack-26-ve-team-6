@@ -132,10 +132,29 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
   const packageLock = readArchiveFiles(archive.tarBytes).get('package-lock.json');
   if (!packageLock) throw new Error('node24-npm-test requires package-lock.json');
   const npmDependencies = await fetchNpmDependencies(packageLock);
+  const dependencyEvidence = { lockfileSha256: npmDependencies.lockfileSha256, tarballSetSha256: npmDependencies.tarballSetSha256 };
   const lock = await readImageLock();
-  if (!lock) throw new Error('Runner image lock could not be read');
+  if (!lock) {
+    return {
+      result: runnerResultSchema.parse({
+        status: 'infrastructure_failed', reason: 'Runner image lock could not be read', durationMs: 0,
+        isolation: isolationEvidence(job, lock, false, true, dependencyEvidence),
+      }),
+      cleanupVerified: true,
+    };
+  }
   const started = Date.now();
-  const tempDir = await mkdtemp(join(cacheDir, `job-${job.jobId}-`));
+  let tempDir: string;
+  try { tempDir = await mkdtemp(join(cacheDir, `job-${job.jobId}-`)); }
+  catch (error) {
+    return {
+      result: runnerResultSchema.parse({
+        status: 'infrastructure_failed', reason: error instanceof Error ? error.message.slice(0, 512) : 'Could not create runner job directory', durationMs: Date.now() - started,
+        isolation: isolationEvidence(job, lock, false, true, dependencyEvidence),
+      }),
+      cleanupVerified: true,
+    };
+  }
   let child: ChildProcess | undefined;
   let exit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
   let exitPromise: Promise<{ code: number | null; signal: NodeJS.Signals | null }> | undefined;
@@ -200,22 +219,22 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
     if (timedOut) {
       outcome = runnerResultSchema.parse({
         status: 'timed_out', durationMs: Date.now() - started,
-        isolation: isolationEvidence(job, lock, true, false), stdout: emptyOutput(job.limits.outputBytes), stderr: emptyOutput(job.limits.outputBytes),
+        isolation: isolationEvidence(job, lock, true, false, dependencyEvidence), stdout: emptyOutput(job.limits.outputBytes), stderr: emptyOutput(job.limits.outputBytes),
       });
     } else if (signal?.aborted) {
       outcome = runnerResultSchema.parse({
         status: 'infrastructure_failed', reason: 'Run cancelled by caller', durationMs: Date.now() - started,
-        isolation: isolationEvidence(job, lock, true, false),
+        isolation: isolationEvidence(job, lock, true, false, dependencyEvidence),
       });
     } else if (outputExceeded) {
       outcome = runnerResultSchema.parse({
         status: 'resource_exceeded', resource: 'output', durationMs: Date.now() - started,
-        isolation: isolationEvidence(job, lock, true, false), stdout: emptyOutput(job.limits.outputBytes), stderr: emptyOutput(job.limits.outputBytes),
+        isolation: isolationEvidence(job, lock, true, false, dependencyEvidence), stdout: emptyOutput(job.limits.outputBytes), stderr: emptyOutput(job.limits.outputBytes),
       });
     } else {
       const guest = validateGuestPayload(parseGuestFrame(serial));
-      const parsed = parseResult(guest, job, Date.now() - started);
-      outcome = runnerResultSchema.parse({ ...parsed, isolation: isolationEvidence(job, lock, true, false) });
+      const parsed = parseResult(guest, job, Date.now() - started, dependencyEvidence);
+      outcome = runnerResultSchema.parse({ ...parsed, isolation: isolationEvidence(job, lock, true, false, dependencyEvidence) });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown Firecracker adapter failure';
@@ -223,20 +242,20 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
     if (timedOut) {
       outcome = runnerResultSchema.parse({
         status: 'timed_out', durationMs: Date.now() - started,
-        isolation: isolationEvidence(job, lock, imagesVerified, false),
+        isolation: isolationEvidence(job, lock, imagesVerified, false, dependencyEvidence),
         stdout: emptyOutput(job.limits.outputBytes), stderr: emptyOutput(job.limits.outputBytes),
       });
     } else if (signal?.aborted) {
       outcome = runnerResultSchema.parse({
         status: 'infrastructure_failed', reason: 'Run cancelled by caller', durationMs: Date.now() - started,
         ...(firecrackerStderr ? { firecrackerStderr } : {}),
-        isolation: isolationEvidence(job, lock, imagesVerified, false),
+        isolation: isolationEvidence(job, lock, imagesVerified, false, dependencyEvidence),
       });
     } else {
       outcome = runnerResultSchema.parse({
         status: 'infrastructure_failed', reason: reason.slice(0, 512), durationMs: Date.now() - started,
         ...(firecrackerStderr ? { firecrackerStderr } : {}),
-        isolation: isolationEvidence(job, lock, imagesVerified, false),
+        isolation: isolationEvidence(job, lock, imagesVerified, false, dependencyEvidence),
       });
     }
   } finally {

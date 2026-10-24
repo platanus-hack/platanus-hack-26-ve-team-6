@@ -5,6 +5,11 @@ import { makeOutput, type GuestPayload } from './protocol.js';
 import { isolationEvidence } from './images.js';
 import { isAllowedArtifactPath, NODE24_NPM_TEST_PROFILE } from './profile.js';
 
+export interface DependencyEvidence {
+  readonly lockfileSha256: string;
+  readonly tarballSetSha256: string;
+}
+
 export const MAX_SERIAL_BYTES = 8 * 1024 * 1024;
 
 export interface VmOutcome {
@@ -16,14 +21,17 @@ export function emptyOutput(limitBytes: number) {
   return makeOutput('', limitBytes);
 }
 
-export function parseResult(payload: GuestPayload, job: RunnerJob, durationMs: number): RunnerResult {
+export function parseResult(payload: GuestPayload, job: RunnerJob, durationMs: number, dependencies: DependencyEvidence): RunnerResult {
+  if (payload.status !== 'infrastructure_failed'
+    && (payload.lockfileSha256 !== dependencies.lockfileSha256 || payload.tarballSetSha256 !== dependencies.tarballSetSha256)) {
+    throw new Error('Guest dependency evidence does not match host-verified dependencies');
+  }
+  const isolation = isolationEvidence(job, undefined, false, true, dependencies);
   if (payload.status === 'infrastructure_failed') {
-    const isolation = isolationEvidence(job, undefined, false, true);
     return runnerResultSchema.parse({
       status: 'infrastructure_failed', reason: payload.reason, durationMs, isolation,
     });
   }
-  const isolation = isolationEvidence(job, undefined, false, true, { lockfileSha256: payload.lockfileSha256, tarballSetSha256: payload.tarballSetSha256 });
   const maxPerStream = Math.floor(job.limits.outputBytes / 2);
   const guestCappedOutput = payload.status === 'resource_exceeded' && payload.resource === 'output';
   const captured = (value: string) => {
@@ -100,4 +108,3 @@ export function finalResult(outcome: RunnerResult, cleanupVerified: boolean): Vm
   }
   return { result: runnerResultSchema.parse({ ...outcome, isolation }), cleanupVerified };
 }
-
