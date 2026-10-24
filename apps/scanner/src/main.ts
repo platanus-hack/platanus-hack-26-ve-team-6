@@ -21,6 +21,10 @@ async function main() {
   });
 
   console.log(JSON.stringify({ event: 'scanner_started', host: config.host, port: config.port, tls: Boolean(config.tls) }));
+  void runner.readiness().then(
+    (state) => console.log(JSON.stringify({ event: 'scanner_readiness_checked', ...state })),
+    (error: unknown) => console.error(JSON.stringify({ event: 'scanner_readiness_failed', type: error instanceof Error ? error.name : 'unknown' })),
+  );
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       server.close();

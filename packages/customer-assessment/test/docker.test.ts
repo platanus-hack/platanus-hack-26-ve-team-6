@@ -31,6 +31,20 @@ it('latches cleanup uncertainty and preserves its directory for operator reconci
   } finally {if(directory)await rm(directory,{recursive:true,force:true});}
 });
 
+it('removes anonymous volumes attached to the exact scanner container',async()=>{
+  const source=input().source;if(!source)throw new Error('missing_source');
+  vi.mocked(spawn).mockImplementation((_command,args)=>{
+    const child=Object.assign(new ChildProcess(),{stdout:new PassThrough(),stderr:new PassThrough(),kill:vi.fn()});
+    queueMicrotask(()=>{if(args?.includes('start'))child.stdout.write('[]');child.emit('close',0);});
+    return child;
+  });
+  await createDockerScanners().run('gitleaks',source,AbortSignal.timeout(1000));
+  const cleanup=vi.mocked(spawn).mock.calls.map(([,args])=>args).find(args=>args.includes('rm'));
+  const removeIndex=cleanup?.indexOf('rm')??-1;
+  expect(cleanup?.slice(removeIndex,removeIndex+3)).toEqual(['rm','--force','--volumes']);
+  expect(cleanup?.[removeIndex+3]).toMatch(/^gotchu-scan-/);
+});
+
 it('waits for an aborted Docker CLI to close before issuing removal',async()=>{
   const source=input().source;if(!source)throw new Error('missing_source');
   let abortedChild:EventEmitter|undefined;let removeStarted=false;

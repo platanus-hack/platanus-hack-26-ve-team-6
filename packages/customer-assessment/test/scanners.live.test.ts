@@ -198,7 +198,7 @@ describe('actual local Docker scanners (no simulated findings)',()=>{
     } finally {
       controller.abort();await outcome;
       // Failure-path cleanup touches only the exact resources identified by our unique marker.
-      if(container)await docker('rm','--force',container).catch(()=>{});
+      if(container)await docker('rm','--force','--volumes',container).catch(()=>{});
       if(directory)await rm(directory,{recursive:true,force:true});
     }
   },20000);
