@@ -15,7 +15,7 @@ const perspectives = [
 const chapters = [
   { title: 'Sube los archivos. Conserva la revisión.', text: 'Selecciona una carpeta y etiqueta la versión. Gotchu guarda una instantánea con su huella SHA-256 y revisa código, posibles secretos y dependencias según el perfil disponible.', detail: 'Instantánea', id: 'codigo' },
   { title: 'Tu dominio. Tu autorización.', text: 'Registra un origen HTTPS, confirma que puedes evaluarlo y publica el registro TXT que te entrega Gotchu. La evaluación externa puede iniciarse sin subir código.', detail: 'Autorización DNS', id: 'https' },
-  { title: 'Del hallazgo a su evidencia.', text: 'Abre una observación para revisar su severidad, confianza, extractos y herramienta de origen. Consulta la cobertura, contrasta ambas perspectivas y descarga el informe completo en JSON.', detail: 'Informe y evidencia', id: 'evidencia' },
+  { title: 'Cobertura, contraste y exportación.', text: 'Consulta qué se inspeccionó y qué quedó fuera, compara lo que vio cada perspectiva y conserva las limitaciones por escrito. Descarga el informe completo en JSON.', detail: 'Cobertura y contraste', id: 'evidencia' },
 ];
 const questions = [
   ['¿Tengo que compartir mi código?', 'No. Puedes evaluar únicamente un origen HTTPS autorizado. Para el análisis interno, cargas una instantánea del código que quieres revisar.'],

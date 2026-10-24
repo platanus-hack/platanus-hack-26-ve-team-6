@@ -1,32 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
-import { UiIcon } from './ui';
-import { useTilt } from './spatial-objects';
+import { DotMatrix, type PictogramName } from './dot-matrix';
 import './product-flow.css';
 
-const sheetPose = (x: number, y: number) => `rotateX(${(3 - y * 7).toFixed(2)}deg) rotateY(${(-6 + x * 9).toFixed(2)}deg)`;
+const sheets: { key: string; tag: string; title: string; pictogram: PictogramName }[] = [
+  { key: 'source', tag: '[ Instantánea ]', title: 'Instantánea de código', pictogram: 'code' },
+  { key: 'target', tag: '[ Autorización DNS ]', title: 'Origen HTTPS', pictogram: 'globe' },
+  { key: 'report', tag: '[ Cobertura y contraste ]', title: 'Informe de evaluación', pictogram: 'json' },
+];
 
 /** Product structure only: no invented customer records, findings or verification results. */
 export function ProductFlow({ step, className = '' }: { step: number; className?: string }) {
-  const { root, body } = useTilt(sheetPose);
-  return <div ref={root} className={`g-product-flow ${className}`} data-step={step}>
-    <div ref={body} className="g-flow-body" style={{ transform: sheetPose(0, 0) }}>
-      <div className="g-flow-depth" aria-hidden="true" />
-      {step === 0 ? <div className="g-flow-sheet" key="source">
-        <header><UiIcon name="code" size={24} /><h3>Instantánea de código</h3></header>
+  const sheet = sheets[step] ?? sheets[0]!;
+  return <div className={`g-product-flow ${className}`} data-step={step}>
+    <div className="g-flow-sheet" key={sheet.key}>
+      <header><span className="g-tag">{sheet.tag}</span><DotMatrix name={sheet.pictogram} className="g-flow-dots" /></header>
+      <h3>{sheet.title}</h3>
+      {step === 0 ? <>
         <div className="g-file-formats" aria-label="Formatos admitidos"><code>JS / TS</code><code>JSON</code><code>YAML</code><code>TOML</code></div>
         <dl className="g-flow-fields"><div><dt>Revisión</dt><dd>La versión que compartes</dd></div><div><dt>Huella SHA-256</dt><dd>Identifica los archivos analizados</dd></div></dl>
-        <div className="g-source-checks"><span>Código</span><span>Secretos</span><span>Dependencias</span></div>
-        <footer><UiIcon name="shield" />Sin ejecutar código ni instalar paquetes</footer>
-      </div> : step === 1 ? <div className="g-flow-sheet" key="target">
-        <header><UiIcon name="globe" size={24} /><h3>Origen HTTPS</h3></header>
+        <footer>Sin ejecutar código ni instalar paquetes</footer>
+      </> : step === 1 ? <>
         <div className="g-dns-record"><span>Registro TXT</span><code>{'_gotchu.<dominio>'}</code></div>
         <ol className="g-dns-steps"><li>Confirmas la autorización</li><li>Publicas el registro DNS</li><li>Gotchu comprueba el dominio</li></ol>
-        <footer><UiIcon name="shield" />Autorización con vigencia y revocación</footer>
-      </div> : <div className="g-flow-sheet" key="report">
-        <header><UiIcon name="report" size={24} /><h3>Informe de evaluación</h3></header>
-        <dl className="g-flow-fields g-report-fields"><div><dt>Hallazgos</dt><dd>Severidad y confianza</dd></div><div><dt>Evidencia</dt><dd>Extracto, herramienta y checksum</dd></div><div><dt>Cobertura</dt><dd>Qué se inspeccionó y qué quedó fuera</dd></div><div><dt>Contraste</dt><dd>Observaciones internas y externas</dd></div></dl>
-        <footer><UiIcon name="report" /><span>Informe completo exportable</span><code>JSON</code></footer>
-      </div>}
+        <footer>Autorización con vigencia y revocación</footer>
+      </> : <>
+        <dl className="g-flow-fields"><div><dt>Cobertura</dt><dd>Inspeccionado, no solicitado, no compatible o no disponible</dd></div><div><dt>Contraste</dt><dd>Ambas perspectivas, solo código, solo HTTPS o sin contraste</dd></div><div><dt>Limitaciones</dt><dd>Lo que no se pudo comprobar, por escrito</dd></div></dl>
+        <footer>Informe completo exportable <code>JSON</code></footer>
+      </>}
     </div>
   </div>;
 }
