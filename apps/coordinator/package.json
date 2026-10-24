@@ -28,6 +28,7 @@
     "jose": "^6.2.13",
     "zod": "^4.0.0",
     "@gotchu/scanner": "workspace:*",
-    "@gotchu/monitoring": "workspace:*"
+    "@gotchu/monitoring": "workspace:*",
+    "@gotchu/triage": "workspace:*"
   }
 }

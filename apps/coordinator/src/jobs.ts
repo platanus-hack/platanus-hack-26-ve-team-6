@@ -6,6 +6,7 @@ import type { Database, Transaction } from '@gotchu/database';
 import { z } from 'zod';
 import { runAssessment, runCustomerAssessment, type AssessmentRunner, type CustomerAssessmentRunner } from './assessment.js';
 import { observeRuntime, observeAssessment, backendInTransaction } from './observations.js';
+import { evaluateTriage } from './triage.js';
 
 const WINDOW_MS = 600_000;
 const MAX_WINDOW_EVENTS = 10_000;
@@ -40,6 +41,7 @@ async function aggregate(dependencies: CoordinatorDependencies, claim: JobClaim)
       AND pg_input_is_valid(payload->>'occurredAt','timestamptz') IS TRUE`, [organizationId, applicationId, jobId]);
     const current = input.rows.map((row) => securityEventSchema.parse(row.payload));
     const operationalProjection = await observeRuntime(dependencies.database, tx, claim, current);
+    await evaluateTriage(tx,{organizationId,applicationId});
     const auth = current.filter((event) => event.type === 'auth.login_failed' || event.type === 'auth.login_succeeded');
     if (auth.length === 0) {
       await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', incidents: 0, quarantinedTimestamps: quarantined, operationalProjection } });
