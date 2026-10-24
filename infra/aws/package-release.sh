@@ -21,7 +21,11 @@ for service in web coordinator scanner; do
 import { readFile } from 'node:fs/promises';
 const { dependencies } = JSON.parse(await readFile('package.json', 'utf8'));
 for (const name of Object.keys(dependencies).filter(name => name.startsWith('@gotchu/'))) {
-  await import(name);
+  const manifest = JSON.parse(await readFile(`node_modules/${name}/package.json`, 'utf8'));
+  for (const path of Object.keys(manifest.exports)) {
+    if (path === '.') await import(name);
+    else if (path.startsWith('./') && !path.includes('*')) await import(name + path.slice(1));
+  }
 }
 NODE
   )
