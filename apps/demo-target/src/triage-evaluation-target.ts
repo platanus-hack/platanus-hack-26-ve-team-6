@@ -49,7 +49,6 @@ export async function startTriageEvaluationTarget(options: EvaluationTargetOptio
   let dependencyLatencyMs = 0;
   let authIp = '192.0.2.55';
   let accountSequence = 0;
-  let eventLoopFaultPending = false;
   const pending: EventBatchInput['events'] = [];
   const sinkExecutions = { sql: 0, filesystem: 0 };
 
@@ -62,7 +61,6 @@ export async function startTriageEvaluationTarget(options: EvaluationTargetOptio
     dependentRouteFails = faultOptions.dependentRouteFails ?? false;
     dependencyLatencyMs = faultOptions.dependencyLatencyMs ?? 0;
     authIp = faultOptions.authIp ?? '192.0.2.55';
-    eventLoopFaultPending = faults.has('event_loop_pressure');
   }
 
   function requestMetrics(request: Parameters<RequestListener>[0], response: Parameters<RequestListener>[1], startedAt: number) {
@@ -110,8 +108,7 @@ export async function startTriageEvaluationTarget(options: EvaluationTargetOptio
       }
       if (path === '/checkout' || path === '/work') {
         if (path === '/checkout' && faults.has('bad_release')) { reply(503, 'injected release failure'); return; }
-        if (path === '/work' && eventLoopFaultPending) {
-          eventLoopFaultPending = false;
+        if (path === '/work' && faults.has('event_loop_pressure')) {
           const until = performance.now() + 1_050;
           while (performance.now() < until) { /* bounded local event-loop fault */ }
         }
