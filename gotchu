@@ -190,17 +190,24 @@ scanner_probe() {
   "${compose[@]}" exec -T -e GOTCHU_SCANNER_PROBE_INLINE=1 coordinator node --input-type=module -e "$probe_source"
 }
 up() {
-  local started; started="$(date +%s)"; ensure_state; check_docker; check_node; check_container_identity; read_setup_environment; ensure_scanner_secret; check_pnpm
+  local started rebuild=false; started="$(date +%s)"
+  if [[ "${1:-}" == true ]]; then rebuild=true; fi
+  ensure_state; check_docker; check_node; check_container_identity; read_setup_environment; ensure_scanner_secret; check_pnpm
   [[ -d "$root/node_modules" ]] || pnpm install --frozen-lockfile --ignore-scripts
   INFRA_ENV_FILE="$env_file" GOTCHU_STATE_DIR="$state_dir" bash "$root/scripts/infra-compose-validate.sh"
-  GOTCHU_ENV_FILE="$env_file" GOTCHU_AUTH_MODE=self_host pnpm dev:prepare
-  pnpm build
+  if [[ "$rebuild" == true ]] || ! prepared_images_exist || [[ ! -f "$root/apps/scanner/dist/main.js" ]]; then
+    rebuild=true
+    GOTCHU_ENV_FILE="$env_file" GOTCHU_AUTH_MODE=self_host pnpm dev:prepare
+    pnpm build
+  else
+    printf '%s\n' 'Usando las imágenes y el scanner ya preparados. Ejecuta ./gotchu upgrade para reconstruirlos.'
+  fi
   "${compose[@]}" up -d postgres redis; compose_ready
   INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" bash "$root/scripts/infra-db-bootstrap.sh"
   local bridge_gateway; bridge_gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
   [[ "$bridge_gateway" =~ ^[0-9.]+$ ]] || fail 'No se pudo identificar una puerta de enlace Docker para preparar el certificado del scanner.'
   ensure_scanner_tls "$bridge_gateway"
-  "${compose[@]}" --profile web --profile coordinator build web coordinator
+  if [[ "$rebuild" == true ]]; then "${compose[@]}" --profile web --profile coordinator build web coordinator; fi
   "${compose[@]}" --profile web --profile coordinator create --no-build web coordinator
   local network gateway port; network="${project}_local-app-host"; port="$(env_value SCANNER_HOST_PORT)"
   gateway="$(docker network inspect "$network" --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
@@ -221,7 +228,7 @@ up() {
   fi
   [[ "$probe_output" == scanner_ready ]] || fail 'El coordinator no confirmó la disponibilidad del scanner.'
   printf 'Gotchu listo en %s (%ss desde ./gotchu up).\n' "$(env_value PUBLIC_APP_URL)" "$(($(date +%s)-started))"
-  printf '%s\n' 'Semgrep 1.90.0 está habilitado sólo para desarrollo/pruebas; no es un perfil SAST de producción.'
+  printf '%s\n' 'Semgrep 1.182.0 está fijado por digest; la cobertura es parcial y no demuestra que la aplicación sea segura.'
   setup_link
 }
 status() {
