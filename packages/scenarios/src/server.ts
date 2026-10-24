@@ -90,7 +90,7 @@ function validateAssessment(rawInput: unknown, rawReport: unknown): ValidatedAss
   const subject = report.subject;
   const sourceSnapshotRef = input.source ? `source:${input.source.id}:sha256:${input.source.digest}` : null;
   const targetSnapshotRef = input.target
-    ? `target:${input.target.id}:${input.target.version}:${createHash('sha256').update(input.target.origin).digest('hex')}`
+    ? `target:${input.target.id}:${input.target.version}:${createHash('sha256').update(input.target.origin).digest('hex')}${input.target.scanProfile === 'public_surface' ? ':public_surface' : ''}`
     : null;
   const internalEvidenceBound = !report.internal || (report.internal.snapshotRef === sourceSnapshotRef
     && report.internal.evidence.every((item) => item.snapshotRef === sourceSnapshotRef));

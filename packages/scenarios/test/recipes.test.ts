@@ -227,12 +227,12 @@ describe('versioned evidence-selected recipes', () => {
     expect(prepareCandidatePatch(input, credential, selection(input, 'credential-exposure'))).toMatchObject({ status: 'blocked', reason: 'recipe_requires_integration' });
   });
 
-  it('supports authorized HTTPS-only reports without inventing source coverage', () => {
+  it.each([undefined, 'root', 'public_surface'] as const)('supports authorized HTTPS-only reports with profile %s', (scanProfile) => {
     const input: CustomerRunInput = {
       organizationId, applicationId, jobId, version: 2, applicationName: 'External application', mode: 'external', source: null,
-      target: { id: sourceId, origin: 'https://app.example.com', version: 3, verifiedAt: timestamp, expiresAt: '2026-10-31T00:00:00.000Z' },
+      target: { id: sourceId, origin: 'https://app.example.com', version: 3, verifiedAt: timestamp, expiresAt: '2026-10-31T00:00:00.000Z', ...(scanProfile ? { scanProfile } : {}) },
     };
-    const targetSnapshotRef = `target:${sourceId}:3:${createHash('sha256').update('https://app.example.com').digest('hex')}`;
+    const targetSnapshotRef = `target:${sourceId}:3:${createHash('sha256').update('https://app.example.com').digest('hex')}${scanProfile === 'public_surface' ? ':public_surface' : ''}`;
     const externalFinding = {
       id: findingId, ruleId: 'https.missing-content-security-policy', correlationKey: 'http:content-security-policy', origin: 'external' as const,
       title: 'Response omits Content-Security-Policy', location: 'https://app.example.com/', description: 'The observed root response omitted a header.',
@@ -255,6 +255,17 @@ describe('versioned evidence-selected recipes', () => {
     });
     const result = buildRecipeRecommendations(input, report);
 
+    if (report.external) {
+      const wrong = structuredClone(report);
+      if (!wrong.external) throw new Error('external_required');
+      wrong.external.snapshotRef = targetSnapshotRef + ':wrong-profile';
+      expect(() => buildRecipeRecommendations(input, wrong)).toThrow(RecipeBoundaryError);
+      wrong.external.snapshotRef = targetSnapshotRef;
+      const evidence = wrong.external.evidence[0];
+      if (!evidence) throw new Error('evidence_required');
+      evidence.snapshotRef = targetSnapshotRef + ':wrong-profile';
+      expect(() => buildRecipeRecommendations(input, wrong)).toThrow(RecipeBoundaryError);
+    }
     expect(result.scope).toMatchObject({ sourceSnapshotId: null, sourceDigest: null, targetId: sourceId, targetVersion: 3, targetOrigin: 'https://app.example.com' });
     expect(result.repositoryContext.manifestState).toBe('not_requested');
     expect(result.repositoryContext.configurationState).toBe('not_requested');
