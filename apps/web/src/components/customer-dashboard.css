@@ -427,7 +427,7 @@ body { margin: 0; }
   .customer-application-select { margin-top: 10px; }
   .customer-sidebar-bottom { display: none; }
   .customer-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-top: 11px; }
-  .customer-nav-item { justify-content: center; gap: 5px; min-height: 40px; padding: 7px 4px; font-size: 11px; }
+  .customer-nav-item { min-width: 0; min-height: 44px; flex-direction: column; justify-content: center; gap: 3px; padding: 5px 2px; font-size: 11px; line-height: 1.2; text-align: center; hyphens: auto; overflow-wrap: anywhere; }
   .customer-icon { width: auto; font-size: 16px; }
   .customer-topbar { position: static; height: 47px; padding: 0 15px; }
   .customer-breadcrumb { font-size: 11px; }
