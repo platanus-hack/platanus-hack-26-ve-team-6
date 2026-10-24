@@ -38,8 +38,8 @@ export function createTriageService(deps: BaseDependencies) {
       const value = parse(scopeSchema.extend(statusSchema.shape), input);
       await deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx,value.organizationId,identity,['owner','operator']);
-        const updated = await tx.query('UPDATE gotchu.triage_incidents SET status=$4,updated_at=clock_timestamp() WHERE organization_id=$1 AND application_id=$2 AND id=$3', [value.organizationId,value.applicationId,value.incidentId,value.status]);
-        if (!updated.rowCount) throw new BackendError('not_found','Incident not found',404);
+        const updated = await tx.query<{ updated: boolean }>('SELECT gotchu.triage_update_status($1,$2,$3,$4) AS updated', [value.organizationId,value.applicationId,value.incidentId,value.status]);
+        if (!updated.rows[0]?.updated) throw new BackendError('not_found','Incident not found',404);
         await audit(tx,value.organizationId,identity.userId,'triage.status_changed',value.incidentId,{status:value.status,meaning:'user_triage_only'});
       });
       return this.get(identity,{organizationId:value.organizationId,applicationId:value.applicationId,incidentId:value.incidentId});

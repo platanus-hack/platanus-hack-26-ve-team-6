@@ -28,7 +28,6 @@ CREATE POLICY tenant_scope ON gotchu.triage_incidents USING(organization_id=gotc
 CREATE POLICY tenant_scope ON gotchu.triage_revisions USING(organization_id=gotchu.tenant_id()) WITH CHECK(organization_id=gotchu.tenant_id());
 REVOKE ALL ON gotchu.triage_incidents,gotchu.triage_revisions FROM PUBLIC;
 GRANT SELECT ON gotchu.triage_incidents,gotchu.triage_revisions TO gotchu_api,gotchu_coordinator;
-GRANT UPDATE(status,updated_at) ON gotchu.triage_incidents TO gotchu_api;
 CREATE FUNCTION gotchu.triage_insert_revision(p_org uuid,p_app uuid,p_incident uuid,p_revision uuid,p_environment text,p_started timestamptz,p_ended timestamptz,p_body jsonb,p_evidence jsonb) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE current_incident gotchu.triage_incidents; latest gotchu.triage_revisions; next_revision integer;
@@ -54,6 +53,15 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION gotchu.triage_insert_revision(uuid,uuid,uuid,uuid,text,timestamptz,timestamptz,jsonb,jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION gotchu.triage_insert_revision(uuid,uuid,uuid,uuid,text,timestamptz,timestamptz,jsonb,jsonb) TO gotchu_coordinator;
+CREATE FUNCTION gotchu.triage_update_status(p_org uuid,p_app uuid,p_incident uuid,p_status text) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ IF p_org IS DISTINCT FROM gotchu.tenant_id() OR p_status NOT IN ('open','monitoring','closed') THEN RAISE EXCEPTION 'invalid_triage_status'; END IF;
+ UPDATE gotchu.triage_incidents SET status=p_status,updated_at=clock_timestamp() WHERE organization_id=p_org AND application_id=p_app AND id=p_incident;
+ RETURN FOUND;
+END $$;
+REVOKE ALL ON FUNCTION gotchu.triage_update_status(uuid,uuid,uuid,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION gotchu.triage_update_status(uuid,uuid,uuid,text) TO gotchu_api;
 
 ALTER POLICY customer_pending_discovery ON gotchu.jobs TO gotchu_owner
  USING(current_setting('gotchu.pending_discovery',true)='enabled' AND state IN ('queued','running')

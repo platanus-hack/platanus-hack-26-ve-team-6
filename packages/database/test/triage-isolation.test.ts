@@ -17,6 +17,7 @@ live('triage revision RLS and append-only storage on real PostgreSQL',()=>{
    await f.databases[role].tenant(f.b.organizationId,async tx=>expect((await tx.query('SELECT * FROM gotchu.triage_revisions WHERE organization_id=$1',[f.a.organizationId])).rows).toEqual([]));
    await f.databases[role].tenant(f.a.organizationId,async tx=>expect((await tx.query('SELECT * FROM gotchu.triage_revisions WHERE organization_id=$1 AND application_id=$2',[f.a.organizationId,f.b.applicationId])).rows).toEqual([]));
    await expect(f.databases[role].tenant(f.a.organizationId,tx=>tx.query('UPDATE gotchu.triage_revisions SET input_digest=$4 WHERE organization_id=$1 AND application_id=$2 AND incident_id=$3',[f.a.organizationId,f.a.applicationId,incidentId,'c'.repeat(64)]))).rejects.toMatchObject({code:'42501'});
+   await expect(f.databases[role].tenant(f.a.organizationId,tx=>tx.query("UPDATE gotchu.triage_incidents SET status='closed' WHERE organization_id=$1 AND application_id=$2 AND id=$3",[f.a.organizationId,f.a.applicationId,incidentId]))).rejects.toMatchObject({code:'42501'});
   }
   const history=await f.databases.gotchu_api.tenant(f.a.organizationId,tx=>tx.query<{revision:number}>(`SELECT revision FROM gotchu.triage_revisions WHERE organization_id=$1 AND application_id=$2 AND incident_id=$3 ORDER BY revision DESC`,[f.a.organizationId,f.a.applicationId,incidentId]));
   expect(history.rows.map(row=>row.revision)).toEqual([2,1]);
