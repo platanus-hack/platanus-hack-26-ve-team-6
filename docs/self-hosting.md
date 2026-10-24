@@ -45,10 +45,17 @@ Semgrep está fijado en 1.182.0 por digest. La validación local Linux/amd64 cub
 ./gotchu down               # detiene procesos; conserva los datos
 ./gotchu up                 # reinicia y conserva los datos
 ./gotchu upgrade            # reconstruye desde el checkout actual y migra
+./gotchu backup             # crea un archivo cifrado en .gotchu.backups/
+./gotchu backup /mnt/secure/gotchu.backup  # elige otra ubicación
+./gotchu restore /mnt/secure/gotchu.backup # reemplaza datos en una instalación detenida
 ./gotchu github setup       # callbacks exactos y ubicación de credenciales de sólo lectura
 ./gotchu google setup       # origen y callback exactos para OAuth de Google
 ./gotchu reset              # pide escribir RESET; borra volúmenes y secretos locales
 ```
+
+`backup` pide una frase de paso de 16 a 1024 bytes UTF-8 dos veces; `restore` la pide una vez y solicita confirmar la sustitución. El dump Postgres es consistente y el archivo se cifra con AES-256-GCM y una clave derivada mediante scrypt. Redis no se copia: las colas y el outbox se recuperan desde el estado durable de Postgres. El respaldo contiene `.env`, las claves del scanner y, si existe, las credenciales de GitHub; guarda la frase de paso por separado. La carpeta `.gotchu.backups/` queda junto al directorio de estado y sobrevive a `./gotchu reset`, pero sigue en el mismo disco por defecto. Copia el archivo a almacenamiento cifrado separado para cubrir una pérdida del host; Gotchu no hace copias programadas ni mide RPO/RTO.
+
+`restore` necesita una instalación ya inicializada y detenida. Después de `./gotchu reset`, ejecuta `./gotchu up` y `./gotchu down` antes de restaurar el archivo externo. El comando deja todos los servicios detenidos, congela escrituras de proveedor e incrementa el recovery epoch; luego `./gotchu up` reinicia la aplicación. Los valores locales de Postgres y los puertos permanecen de la instalación destino. Para borrar una copia, elimina su archivo y las demás copias que hayas guardado; la limpieza de una workspace no puede editar respaldos cifrados existentes.
 
 `./gotchu doctor` comprueba requisitos frecuentes. GitHub App es opcional y sólo necesita permisos de lectura. El executor, las escrituras a proveedores y el validator VM no están disponibles. El validator requiere Linux, `/dev/kvm`, `bwrap`, una sesión systemd de usuario, runtime login, clave privada y preparación de imágenes; el worker se puede ejecutar manualmente después de configurar esos valores con `GOTCHU_VALIDATOR_DATABASE_URL=… GOTCHU_VALIDATOR_KEY_PATH=… pnpm --filter @gotchu/validator start`. `doctor` indica cuando faltan esos requisitos. No hay una promesa de aislamiento VM lista para producción.
 
@@ -83,10 +90,10 @@ Si el correo verificado ya pertenece a una cuenta local, Gotchu no vincula Googl
 - El bootstrap inicial usa el flujo local `/setup` para crear el primer Owner. Google, GitHub y OIDC no pueden sustituirlo. Las contraseñas locales usan el hash scrypt existente y los límites actuales de autenticación.
 - `PUBLIC_APP_URL` es el origen canónico usado por Auth.js. En producción detrás de un proxy reverso, configúralo como `https://gotchu.kevinbravo.com`; TLS debe terminar en el proxy, que debe limitar tamaños y tiempos de petición y reenviar únicamente a la dirección loopback del puerto web configurado. `GOTCHU_PUBLIC_URL` sólo establece el valor inicial al crear `${state_dir}/.env`; después, edita `PUBLIC_APP_URL` en ese archivo y reinicia con `./gotchu up`. Gotchu no termina TLS y no afirma que esta topología esté endurecida para producción.
 - La evaluación externa sólo debe apuntar a un origen cuya autorización tenga el cliente. Las acciones de proveedor, ejecución de código cliente, respuesta automática y recuperación permanecen deshabilitadas.
-- Los comandos integrados `./gotchu backup` y `./gotchu restore` no están implementados. Antes de actualizar datos, crea una copia consistente con un procedimiento local probado y protege esa copia como los secretos originales. La restauración aún no congela escrituras ni revoca aprobaciones emitidas antes de recuperarla.
+- `./gotchu backup [archivo]` y `./gotchu restore <archivo>` usan un respaldo local cifrado y probado contra Postgres desechable. La restauración incrementa el epoch, deja las escrituras de proveedor congeladas y los servicios detenidos. La copia por defecto permanece en el mismo disco; la réplica externa, retención de archivos y objetivos medidos de recuperación siguen pendientes.
 
 ## Actualizar y desinstalar
 
 `./gotchu upgrade` no modifica el checkout ni ejecuta `git pull`: reconstruye desde los archivos locales, aplica migraciones y reinicia conservando volúmenes y configuración. Actualiza el repositorio después de revisar sus cambios y luego ejecuta el comando. No hay rollback automatizado: toma una copia de datos antes de actualizar.
 
-Para detener Gotchu sin borrar los datos, usa `./gotchu down`. Para eliminar sus contenedores, volúmenes y secretos de ese estado local, confirma `./gotchu reset`; luego puedes borrar el checkout. `reset` destruye todo el estado local y no sustituye un flujo de backup/restore.
+Para detener Gotchu sin borrar los datos, usa `./gotchu down`. Para eliminar sus contenedores, volúmenes y secretos de ese estado local, confirma `./gotchu reset`; luego puedes borrar el checkout. `reset` conserva la carpeta hermana `.gotchu.backups/`; borra sus respaldos cifrados manualmente cuando ya no deban conservarse. Mantén fuera del directorio de estado la única copia que necesites para restaurar después de una pérdida del host.

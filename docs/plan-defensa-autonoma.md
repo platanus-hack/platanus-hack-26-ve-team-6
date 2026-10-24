@@ -315,11 +315,14 @@ Trabajo:
 - [ ] Completar la revocación de integraciones y MFA. No exponer registros privados de checkpoint o credenciales.
 
 Las invitaciones se vinculan al correo normalizado de la cuenta y el token sólo se almacena como SHA-256. El registro de cuentas locales todavía no verifica el correo; por tanto, esta unión es defensa en profundidad y no prueba control del buzón. El enlace se muestra una sola vez; la entrega por correo no está configurada.
-- [ ] Preparar identidad fuera de dev, TLS de cada frontera, actualizaciones de perfiles/imágenes, secretos fuera de logs, backups externos cifrados y restauración probada con freeze de escrituras.
+- [x] Añadir `./gotchu backup [archivo]` y `./gotchu restore <archivo>` locales. El respaldo cifra un `pg_dump` consistente y los secretos locales de estado con clave scrypt y AES-256-GCM; Redis se reconstruye desde el estado durable de Postgres. Restore en una instalación detenida incrementa el recovery epoch, congela escrituras de proveedor y conserva la instalación detenida. La prueba live recrea Postgres aislado, restaura workspace/aprobación y rechaza la aprobación anterior tras comprobar también el bloqueo por epoch.
+- [ ] Preparar identidad fuera de dev, TLS de cada frontera, actualizaciones de perfiles/imágenes y secretos fuera de logs; automatizar copias cifradas fuera del host y probar recuperación medida. La copia actual es manual/local y no ofrece RPO/RTO medidos; borrar datos de una base no elimina las copias cifradas.
 - [ ] Medir capacidad, equidad entre organizaciones, retrasos de entrega, coste por run y storage. Conservar carriles reservados para monitoreo determinista frente a investigaciones y validaciones lentas.
 - [ ] Presentar datos salientes al modelo, consentimiento, retención y borrado incluyendo backups. Redacción automática reduce riesgo pero no garantiza ausencia de información sensible.
 
 **Aceptación:** alcanzar cuotas durante un incidente sin perder trabajo ya aceptado; borrar/desconectar/cancelar; restore real de datos aislados; aprobación anterior a restore rechazada; alertas retrasadas/duplicadas; fairness; perfil de producción incompatible falla cerrado. AWS sigue siendo destino configurable, no una garantía establecida por mocks de Pulumi.
+
+La vuelta de backup/restore se probó con el CLI real, un volumen Postgres desechable y un workspace/aprobación sintéticos; la prueba levantó la instalación vacía entre captura y restore. La comprobación temporalmente descongeló sólo ese fixture para demostrar `stale_epoch` en el ledger y volvió a congelarlo. No es un ejercicio de restauración externa ni mide objetivos de recuperación.
 
 ### D15 — Evaluación, interfaz y demostración repetible
 
