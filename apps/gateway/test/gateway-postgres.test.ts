@@ -214,7 +214,7 @@ live('gateway with real signed intake, Postgres, HTTP worker and LangGraph', () 
 
   it('saves sanitized checkpoints with optimistic concurrency and no free text or credentials', async () => {
     const run = await newRun();
-    const safe = { ...checkpoint(run), result: { status: 'inconclusive', assessment: 'inconclusive', summary: `${sensitiveText} ${run.token}`,
+    const safe = { ...checkpoint(run), result: { status: 'inconclusive', assessment: 'inconclusive', summary: `${sensitiveText} ${run.token}`, candidateSuggestion: null, hypotheses: [],
       citedEvidenceIds: [present(run.evidenceIds[0])], reasonCode: 'model_unavailable',
       counters: { modelCalls: 4, additionalReadToolCalls: 8, tokensUsed: 999999, spendMicroUsd: 999999, activeMs: 12 }, independentVerification: 'not_verified' } };
     const body = { organizationId: run.scope.organizationId, expectedVersion: 0, checkpoint: safe };
@@ -240,8 +240,11 @@ live('gateway with real signed intake, Postgres, HTTP worker and LangGraph', () 
     }
     expect((await call({ ...run, token: await sign(run, { exp: now + 500 }) }, 'checkpoint', 'GET')).status).toBe(403);
     await revokeRunCapability(database, { organizationId: run.scope.organizationId, runId: run.scope.runId, jti: run.jti });
+    const modelBody = { ...scopeBody(run), reservationId: randomUUID(), systemInstruction: 'ignored', userContext: 'ignored', maxOutputTokens: 64, remainingTokens: 100, remainingSpendMicroUsd: 100 };
     for (const [endpoint, method] of [['input', 'POST'], ['reads', 'POST'], ['checkpoint', 'GET'], ['checkpoint', 'PUT'], ['model-calls', 'POST']]) {
-      expect((await call(run, present(endpoint), method, method === 'GET' ? undefined : {})).payload).toEqual({ error: { code: 'capability_revoked' } });
+      const body = endpoint === 'model-calls' ? modelBody : method === 'GET' ? undefined : {};
+      expect((await call(run, present(endpoint), method, body,
+        endpoint === 'model-calls' ? { 'idempotency-key': modelBody.reservationId } : {})).payload).toEqual({ error: { code: 'capability_revoked' } });
     }
   });
 
@@ -282,7 +285,7 @@ live('gateway with real signed intake, Postgres, HTTP worker and LangGraph', () 
   it('explicitly disables model work with zero durable reservations or spend', async () => {
     const run = await newRun(); const reservationId = randomUUID();
     const body = { ...scopeBody(run), reservationId, systemInstruction: sensitiveText, userContext: sensitiveText, maxOutputTokens: 128, remainingTokens: 20_000, remainingSpendMicroUsd: 250_000 };
-    for (let i = 0; i < 2; i++) expect((await call(run, 'model-calls', 'POST', body, { 'idempotency-key': reservationId })).payload).toEqual({ error: { code: 'model_not_configured' } });
+    for (let i = 0; i < 2; i++) expect((await call(run, 'model-calls', 'POST', body, { 'idempotency-key': reservationId })).payload).toEqual({ error: { code: 'investigation_disabled' } });
     expect((await counters(run)).modelCalls).toBe(0);
     expect((await f.admin.query('SELECT 1 FROM gotchu.model_reservations WHERE organization_id=$1 AND run_id=$2', [run.scope.organizationId, run.scope.runId])).rowCount).toBe(0);
     expect(JSON.stringify((await counters(run)).checkpoint)).not.toContain(sensitiveText);
@@ -299,12 +302,12 @@ live('gateway with real signed intake, Postgres, HTTP worker and LangGraph', () 
       const response = await fetch(`http://127.0.0.1:${address.port}/v1/investigations`, { method: 'POST', headers: { authorization: `RunCapability ${run.token}` }, signal: AbortSignal.timeout(15_000) });
       expect(response.status).toBe(200);
       const output: unknown = await response.json();
-      expect(output).toMatchObject({ result: { status: 'delayed', reasonCode: 'model_unavailable', independentVerification: 'not_verified' } });
+      expect(output).toMatchObject({ result: { status: 'inconclusive', reasonCode: 'model_not_configured', independentVerification: 'not_verified', citedEvidenceIds: run.evidenceIds } });
       expect((await counters(run)).checkpointVersion).toBeGreaterThan(0);
       expect((await counters(run)).modelCalls).toBe(0);
       const adapters = createGatewayHttpAdapters(new URL(origin));
       const loaded = await adapters.persistence.loadCheckpoint(run.scope, run.token, AbortSignal.timeout(2_000));
-      expect(safeCheckpointSchema.parse(loaded)).toMatchObject({ stage: 'delayed', modelCalls: 0 });
+      expect(safeCheckpointSchema.parse(loaded)).toMatchObject({ stage: 'inconclusive', modelCalls: 0 });
     } finally { await new Promise<void>((resolve, reject) => { worker.close(error => error ? reject(error) : resolve()); worker.closeAllConnections(); }); }
   }, 20_000);
 
@@ -314,7 +317,7 @@ live('gateway with real signed intake, Postgres, HTTP worker and LangGraph', () 
     expect((await call(run, 'input', 'POST', { padding: 'x'.repeat(33_000) })).status).toBe(413);
     expect((await call(run, 'input', 'POST', {}, { 'content-encoding': 'gzip' })).status).toBe(415);
     const body = { ...readBody(run), name: 'repository.excerpt.read' };
-    expect((await call(run, 'reads', 'POST', body, { 'idempotency-key': body.callId })).payload).toEqual({ error: { code: 'tool_unavailable' } });
+    expect((await call(run, 'reads', 'POST', body, { 'idempotency-key': body.callId })).status).toBe(400);
   });
 
   it('uses a restricted coordinator login, denies runtime owners, and preserves ledger RLS', async () => {

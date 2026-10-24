@@ -9,7 +9,7 @@ import { GatewayError } from './errors.js';
 import type { GatewayService } from './service.js';
 
 export const MAX_GATEWAY_BODY_BYTES = 32_768;
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 250_000;
 
 function respond(response: ServerResponse, status: number, payload: unknown): void {
   if (response.destroyed || response.writableEnded) return;

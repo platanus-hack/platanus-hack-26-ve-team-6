@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { importSPKI, type CryptoKey } from 'jose';
 import { z } from 'zod';
 
@@ -11,6 +12,7 @@ export interface GatewayConfig {
   readonly databaseUrl: string;
   readonly capabilityPublicKey: CryptoKey;
   readonly transport: GatewayTransport;
+  readonly modelSecretDirectory?: string;
 }
 
 export function assertTransport(host: string, transport: GatewayTransport): void {
@@ -45,5 +47,6 @@ export async function loadGatewayConfig(env: NodeJS.ProcessEnv = process.env): P
     transport = { mode: 'loopback-http', nodeEnv };
   }
   assertTransport(host, transport);
-  return { host, port, databaseUrl, capabilityPublicKey, transport };
+  const modelSecretDirectory = env.GOTCHU_MODEL_SECRET_DIRECTORY ?? (nodeEnv === 'production' ? undefined : resolve('.local/dev/model-secrets'));
+  return { host, port, databaseUrl, capabilityPublicKey, transport, ...(modelSecretDirectory ? { modelSecretDirectory } : {}) };
 }
