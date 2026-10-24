@@ -19,7 +19,7 @@
 .g-hero-object-right { right: 26px; }
 
 .g-hero-pitch { display: flex; flex-direction: column; justify-content: space-between; gap: 18px; padding: clamp(22px, 2.4vw, 34px); }
-.g-lockup { display: flex; align-items: center; gap: 14px; color: var(--gc-canvas) !important; font: 700 clamp(1.1rem, 1.6vw, 1.5rem)/1.05 var(--gc-font-display); text-transform: uppercase; letter-spacing: .01em; max-width: 16ch; }
+.g-lockup { display: flex; align-items: center; gap: 14px; color: var(--gc-canvas) !important; font: 700 clamp(1.1rem, 1.6vw, 1.5rem)/1.05 var(--gc-font-display); text-transform: uppercase; letter-spacing: .01em; max-width: 22ch; }
 .g-lockup .g-mark { flex-shrink: 0; }
 .g-hero-lead { color: #3b3742 !important; font-size: 17px; line-height: 1.6; max-width: 420px; }
 .g-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
