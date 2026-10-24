@@ -7,21 +7,31 @@ import { createServer } from 'node:https';
 import type { RequestListener } from 'node:http';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { describe, expect, it } from 'vitest';
-import { createCustomerAssessmentRunner, createDockerScanners, createOsvAdapter } from '../src/index.js';
+import { describe, expect, it, vi } from 'vitest';
+import { createCustomerAssessmentRunner, createDockerScanners, createOsvAdapter, profiles } from '../src/index.js';
 import { input } from './fixtures.js';
 describe('actual local Docker scanners (no simulated findings)',()=>{
   it('executes pinned Semgrep, Gitleaks and Trivy profiles against arbitrary uploaded bytes',async()=>{
-    const scanners=createDockerScanners();expect((await scanners.readiness()).ready).toBe(true);
-    const files=[{path:'src/customer.ts',content:'export function evaluate(userInput: string) { return eval(userInput); }\nconst password = "FAKE_ONLY_1234567890_test_secret";'}, {path:'deployment.yaml',content:'apiVersion: v1\nkind: Pod\nmetadata:\n  name: customer-pod\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27\n      securityContext:\n        privileged: true\n'}, {path:'package.json',content:'{"scripts":{"postinstall":"exit 99"}}'}];
-    const report=await createCustomerAssessmentRunner({scanners}).run(input(files));
-    expect(report.internal?.coverage.filter(c=>['semgrep','gitleaks','trivy'].includes(c.capability))).toEqual(expect.arrayContaining(['semgrep','gitleaks'].map(capability=>expect.objectContaining({capability,state:'inspected'}))));
-    expect(report.internal?.coverage.find(c=>c.capability==='trivy')?.state).toBe('unavailable'); // package.json was not inspected as Kubernetes configuration.
-    expect(report.internal?.findings.some(f=>f.ruleId.includes('javascript.eval'))).toBe(true);
-    expect(report.internal?.findings.some(f=>f.ruleId==='gotchu-assigned-secret')).toBe(true);
-    expect(report.internal?.findings.some(f=>f.ruleId.startsWith('AVD-KSV'))).toBe(true);
-    expect(JSON.stringify(report)).not.toContain('FAKE_ONLY_1234567890_test_secret');
-    expect(report.internal?.evidence.every(e=>/^[a-f0-9]{64}$/.test(e.checksum))).toBe(true);
+    vi.stubEnv('NODE_ENV','production');
+    try {
+      const scanners=createDockerScanners();
+      expect((await scanners.readiness()).ready).toBe(true);
+      const files=[{path:'src/customer.ts',content:'export function evaluate(userInput: string) { return eval(userInput); }\nconst password = "FAKE_ONLY_1234567890_test_secret";'}, {path:'deployment.yaml',content:'apiVersion: v1\nkind: Pod\nmetadata:\n  name: customer-pod\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27\n      securityContext:\n        privileged: true\n'}, {path:'package.json',content:'{"scripts":{"postinstall":"exit 99"}}'}];
+      const report=await createCustomerAssessmentRunner({scanners}).run(input(files));
+      expect(report.internal?.coverage.filter(c=>['semgrep','gitleaks','trivy'].includes(c.capability))).toEqual(expect.arrayContaining(['semgrep','gitleaks'].map(capability=>expect.objectContaining({capability,state:'inspected'}))));
+      expect(report.internal?.coverage.find(c=>c.capability==='trivy')?.state).toBe('unavailable'); // package.json was not inspected as Kubernetes configuration.
+      expect(report.internal?.findings.some(f=>f.ruleId.includes('javascript.eval'))).toBe(true);
+      expect(report.internal?.findings.some(f=>f.ruleId==='gotchu-assigned-secret')).toBe(true);
+      expect(report.internal?.findings.some(f=>f.ruleId.startsWith('AVD-KSV'))).toBe(true);
+      expect(JSON.stringify(report)).not.toContain('FAKE_ONLY_1234567890_test_secret');
+      expect(report.internal?.evidence.every(e=>/^[a-f0-9]{64}$/.test(e.checksum))).toBe(true);
+      const semgrepProfile=report.internal?.evidence.find(e=>e.locator==='scanner-profile:semgrep');
+      if (!semgrepProfile) throw new Error('missing_semgrep_profile_provenance');
+      expect(semgrepProfile.tool).toEqual({name:'semgrep',version:profiles.semgrep.version});
+      const provenanceSchema=z.object({image:z.string(),matched:z.number(),scanned:z.number()});
+      const payload:unknown=JSON.parse(semgrepProfile.excerpt);
+      expect(provenanceSchema.parse(payload)).toMatchObject({image:profiles.semgrep.image,matched:1,scanned:1});
+    } finally { vi.unstubAllEnvs(); }
   },60000);
   it('retains real Trivy findings while marking an omitted malformed YAML file unknown',async()=>{
     const scanners=createDockerScanners();
