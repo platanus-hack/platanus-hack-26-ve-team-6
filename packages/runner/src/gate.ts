@@ -1,0 +1,93 @@
+import { createHash } from 'node:crypto';
+import { access, readFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
+
+const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const sandboxSchema = z.object({
+  version: z.literal(1),
+  executionEnabled: z.boolean(),
+  jailerRequired: z.literal(true),
+  jailerUid: z.number().int().positive(),
+  jailerGid: z.number().int().positive(),
+  networkMode: z.literal('none'),
+  seccomp: z.literal('firecracker-default'),
+  pidsCgroup: z.literal(true),
+}).strict();
+
+const imageLockSchema = z.object({
+  version: z.literal(1),
+  architecture: z.literal('x86_64'),
+  firecracker: z.object({
+    version: z.string(),
+    archiveSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    binarySha256: z.string().regex(/^[a-f0-9]{64}$/),
+    jailerSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }).passthrough(),
+  kernel: z.object({ version: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).passthrough(),
+  rootfs: z.object({ sha256: z.union([z.string().regex(/^[a-f0-9]{64}$/), z.literal('pending-image-build')]) }).passthrough(),
+}).passthrough();
+
+export interface RunnerGateOptions {
+  readonly cacheDir?: string;
+  readonly packageRoot?: string;
+  readonly sandboxConfigPath?: string;
+  readonly kvmPath?: string;
+  readonly effectiveUid?: number;
+}
+
+export type RunnerGate = { status: 'open' } | { status: 'closed'; reason: string };
+
+async function sha256(path: string): Promise<string> {
+  const bytes = await readFile(path);
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+export async function checkRunnerGate(options: RunnerGateOptions = {}): Promise<RunnerGate> {
+  const root = options.packageRoot ?? packageRoot;
+  const cache = options.cacheDir ?? join(homedir(), '.cache', 'gotchu-runner');
+  const kvm = options.kvmPath ?? '/dev/kvm';
+  try {
+    const sandboxRaw: unknown = JSON.parse(await readFile(options.sandboxConfigPath ?? join(root, 'sandbox.json'), 'utf8'));
+    const sandbox = sandboxSchema.parse(sandboxRaw);
+    const lockRaw: unknown = JSON.parse(await readFile(join(root, 'images.lock.json'), 'utf8'));
+    const lock = imageLockSchema.parse(lockRaw);
+
+    await access(kvm, constants.R_OK | constants.W_OK);
+    const firecrackerArchive = join(cache, `firecracker-v${lock.firecracker.version}-x86_64.tgz`);
+    const kernel = join(cache, `vmlinux-${lock.kernel.version}`);
+    const rootfs = join(cache, 'rootfs.ext4');
+    const firecracker = join(cache, `firecracker-v${lock.firecracker.version}-x86_64`);
+    const jailer = join(cache, `jailer-v${lock.firecracker.version}-x86_64`);
+
+    if (await sha256(firecrackerArchive) !== lock.firecracker.archiveSha256) {
+      return { status: 'closed', reason: 'Pinned Firecracker release archive is missing or its SHA-256 does not match images.lock.json.' };
+    }
+    if (await sha256(kernel) !== lock.kernel.sha256) {
+      return { status: 'closed', reason: 'Pinned guest kernel is missing or its SHA-256 does not match images.lock.json.' };
+    }
+    if (lock.rootfs.sha256 === 'pending-image-build' || await sha256(rootfs) !== lock.rootfs.sha256) {
+      return { status: 'closed', reason: 'Pinned guest root filesystem is missing or its SHA-256 does not match images.lock.json.' };
+    }
+    await access(firecracker, constants.X_OK);
+    await access(jailer, constants.X_OK);
+    if (await sha256(firecracker) !== lock.firecracker.binarySha256 || await sha256(jailer) !== lock.firecracker.jailerSha256) {
+      return { status: 'closed', reason: 'Installed Firecracker or jailer binary digest does not match the signed release archive contents.' };
+    }
+    if ((options.effectiveUid ?? process.geteuid?.() ?? 1) !== 0) {
+      return { status: 'closed', reason: 'Firecracker jailer requires the runner service to start with its configured privileged sandbox identity.' };
+    }
+    if (!sandbox.executionEnabled) {
+      return { status: 'closed', reason: 'Execution is deliberately disabled until the jailer-backed launch and cgroup controls are independently validated.' };
+    }
+    return { status: 'closed', reason: 'The current adapter does not yet launch through the configured jailer; execution remains disabled.' };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown runner readiness error';
+    return { status: 'closed', reason: `Runner prerequisites are unavailable or invalid: ${message}` };
+  }
+}
+
+export const runnerPackageRoot = packageRoot;

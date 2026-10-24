@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "executionEnabled": false,
+  "jailerRequired": true,
+  "jailerUid": 1001,
+  "jailerGid": 1001,
+  "networkMode": "none",
+  "seccomp": "firecracker-default",
+  "pidsCgroup": true
+}
