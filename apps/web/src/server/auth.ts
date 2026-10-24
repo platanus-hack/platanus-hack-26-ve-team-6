@@ -166,7 +166,7 @@ export function createAuthService(settings: AuthSettings | null): AuthService {
         email: z.string().max(254).nullable().optional(),
       }).passthrough() }).passthrough().safeParse(await response.json());
       if (!session.success) return null;
-      const displayName = session.data.user.name?.trim() || session.data.user.email?.trim();
+      const displayName = session.data.user.name?.trim() || session.data.user.email?.trim().split('@', 1)[0];
       return { userId: session.data.user.id, cookies: response.headers.getSetCookie(), ...(displayName ? { displayName } : {}) };
     },
     accountEmail: async userId => settings.localAccounts ? settings.localAccounts.accountEmail(userId) : null,

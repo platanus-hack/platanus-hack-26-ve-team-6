@@ -12,8 +12,8 @@ const settings: AuthSettings = {
 const service = createAuthService(settings);
 const cookieName = 'authjs.session-token';
 
-async function sessionCookie(secret = settings.secret) {
-  const token = await encode({ secret, salt: cookieName, token: { sub: 'github:42', name: 'Test operator' } });
+async function sessionCookie(secret = settings.secret, user: { sub: string; name?: string; email?: string } = { sub: 'github:42', name: 'Test operator' }) {
+  const token = await encode({ secret, salt: cookieName, token: user });
   return `${cookieName}=${token}`;
 }
 
@@ -23,6 +23,11 @@ describe('Auth.js Request/Response integration', () => {
     expect(identity?.userId).toBe('github:42');
     expect(identity?.displayName).toBe('Test operator');
     expect(identity?.cookies.some((cookie) => cookie.startsWith(`${cookieName}=`))).toBe(true);
+  });
+
+  it('uses a bounded email local part as a workspace name hint when no display name exists', async () => {
+    const identity = await service.identity(new Request(`${settings.origin}/api/v1/applications`, { headers: { cookie: await sessionCookie(settings.secret, { sub: 'github:42', email: `${'a'.repeat(64)}@example.test` }) } }));
+    expect(identity?.displayName).toBe('a'.repeat(64));
   });
 
   it('does not accept unsigned identity headers or cookies encrypted with another key', async () => {
