@@ -53,6 +53,29 @@ describe('Node runtime protection', () => {
     } finally { await instance.close(); }
   });
 
+  it('carries Express request values into wrapped sinks across async middleware work', async () => {
+    const { instance } = guard();
+    await instance.refreshPolicy();
+    const attack = "' OR 1=1 --";
+    const execute = vi.fn(async () => 'ran');
+    try {
+      const continued = new Promise<unknown>((resolve, reject) => {
+        instance.middleware()({
+          originalUrl: '/users/42?q=ignored',
+          route: { path: '/users/:id' },
+          params: { id: '42' },
+          query: { q: attack },
+          body: { note: 'ordinary text' },
+        }, {}, error => {
+          if (error) { reject(error); return; }
+          void Promise.resolve().then(() => instance.sql(`SELECT * FROM users WHERE name='${attack}'`, execute)).then(resolve, reject);
+        });
+      });
+      await expect(continued).rejects.toBeInstanceOf(GotchuProtectionBlockedError);
+      expect(execute).not.toHaveBeenCalled();
+    } finally { await instance.close(); }
+  });
+
   it('blocks traversal only when a request path escapes its declared root', async () => {
     const { instance } = guard();
     await instance.refreshPolicy();
@@ -89,6 +112,9 @@ describe('Node runtime protection', () => {
       const local = 'http://127.0.0.1:5432/private';
       await expect(instance.runWithContext({ route: '/proxy', userInputs: [local] }, () => instance.httpRequest(local, async () => outbound('http')))).rejects.toBeInstanceOf(GotchuProtectionBlockedError);
       expect(outbound).not.toHaveBeenCalled();
+      const publicAddress = 'http://8.8.8.8/health';
+      await expect(instance.runWithContext({ route: '/proxy', userInputs: [publicAddress] }, () => instance.fetch(publicAddress))).resolves.toBeInstanceOf(Response);
+      expect(outbound).toHaveBeenCalledOnce();
     } finally { await instance.close(); }
   });
 
