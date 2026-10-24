@@ -76,10 +76,12 @@ export function createTriageService(deps: BaseDependencies) {
           ON d.organization_id=s.organization_id AND d.application_id=s.application_id AND d.service_id=s.id AND d.environment_id=s.environment_id
           WHERE s.organization_id=$1 AND s.application_id=$2 AND NOT e.archived ORDER BY service,provider,component`,[scope.organizationId,scope.applicationId]);
         const routes = configured.rows.map(value=>({route:value.route,serviceId:value.service_id,service:value.service,dependencyId:value.dependency_id,dependsOnProvider:value.provider,role:value.role,declared:true as const,declaredBy:value.declared_by,declaredAt:value.declared_at.toISOString()}));
+        const options = optionRows.rows.map(value => ({ serviceId: value.service_id, service: value.service, dependencyId: value.dependency_id,
+          provider: value.provider, component: value.component, state: value.state }));
         const profile = await tx.query<{scan_profile:'root'|'public_surface'}>(`SELECT t.scan_profile FROM gotchu.operation_monitors m JOIN gotchu.customer_targets t ON t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id
           WHERE m.organization_id=$1 AND m.application_id=$2 AND m.enabled AND t.status='verified' AND t.expires_at>clock_timestamp()`,[scope.organizationId,scope.applicationId]);
         const allowedRoutes = profile.rows[0]?.scan_profile==='public_surface' ? ['/','/.well-known/security.txt','/security.txt','/robots.txt','/sitemap.xml'] : profile.rows[0] ? ['/'] : [];
-        return triageProbeRouteSettingsSchema.parse({routes,allowedRoutes,options:optionRows.rows});
+        return triageProbeRouteSettingsSchema.parse({routes,allowedRoutes,options});
       });
     },
     async declareProbeRoute(identity: Identity, input: unknown) {

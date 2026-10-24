@@ -20,4 +20,29 @@ live('triage customer authorization on real PostgreSQL',()=>{
   const audit=await f.admin.query("SELECT detail FROM gotchu.audit_records WHERE organization_id=$1 AND action='triage.status_changed' AND subject_id=$2",[scope.organizationId,incidentId]);
   expect(audit.rows[0]?.detail).toMatchObject({status:'closed',meaning:'user_triage_only'});
  });
+ it('maps probe route settings to the strict DTO and preserves tenant authorization on real PostgreSQL',async()=>{
+  const identity={userId:`triage-route:${randomUUID()}`};const workspace=await api.customers.createWorkspace(identity,{name:'Probe route settings'});const app=await api.customers.createApplication(identity,{organizationId:workspace.id,name:'Application'});const scope={organizationId:workspace.id,applicationId:app.applicationId};
+  const environment=await api.context.createEnvironment(identity,{...scope,name:'production',kind:'production'});if(!environment)throw new Error('Environment fixture was not created');
+  const service=await api.context.createService(identity,{...scope,environmentId:environment.id,name:'checkout',kind:'web'});if(!service)throw new Error('Service fixture was not created');
+  const dependency=await api.context.createDependency(identity,{...scope,environmentId:environment.id,serviceId:service.id,kind:'provider_component',provider:'cloudflare',component:'Workers API',region:null});if(!dependency)throw new Error('Dependency fixture was not created');
+  const targetId=randomUUID();
+  await f.admin.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at,verified_at,expires_at,scan_profile)
+    VALUES($1,$2,$3,'https://example.com',1,'verified',$4,repeat('a',64),clock_timestamp()+interval '30 minutes',clock_timestamp(),clock_timestamp()+interval '1 hour','public_surface')`,[scope.organizationId,scope.applicationId,targetId,identity.userId]);
+  await f.admin.query(`INSERT INTO gotchu.operation_monitors(organization_id,application_id,enabled,interval_seconds,target_id,target_version,providers,author_id)
+    VALUES($1,$2,true,3600,$3,1,'[]'::jsonb,$4)`,[scope.organizationId,scope.applicationId,targetId,identity.userId]);
+
+  const viewer={userId:`viewer:${randomUUID()}`};
+  await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'viewer')",[scope.organizationId,viewer.userId]);
+  await expect(api.triage.declareProbeRoute(viewer,{...scope,route:'/',serviceId:service.id,dependencyId:dependency.id,role:'application'})).rejects.toMatchObject({status:403});
+  const before=await api.triage.getProbeRoute(viewer,scope);
+  expect(before.options).toEqual(expect.arrayContaining([
+    expect.objectContaining({serviceId:service.id,service:'checkout',dependencyId:null,provider:null,state:'declared'}),
+    expect.objectContaining({serviceId:service.id,service:'checkout',dependencyId:dependency.id,provider:'cloudflare',component:'Workers API',state:'declared'}),
+  ]));
+  await api.triage.declareProbeRoute(identity,{...scope,route:'/',serviceId:service.id,dependencyId:dependency.id,role:'application'});
+  await expect(api.triage.getProbeRoute(identity,scope)).resolves.toMatchObject({
+    routes:[expect.objectContaining({route:'/',serviceId:service.id,service:'checkout',dependencyId:dependency.id,dependsOnProvider:'cloudflare',declared:true})],
+  });
+  await expect(api.triage.getProbeRoute({userId:randomUUID()},scope)).rejects.toMatchObject({status:403});
+ });
 });
