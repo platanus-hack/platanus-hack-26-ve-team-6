@@ -69,6 +69,15 @@ export function createGatewayHttpHandler(service: GatewayService, onUnexpectedEr
     timeout.unref();
     try {
       const authorization = uniqueHeader(request, 'authorization');
+      if (request.url === '/internal/v1/model-probes') {
+        if (request.method !== 'POST') throw new GatewayError('method_not_allowed', 405);
+        if (uniqueHeader(request, 'origin')) throw new GatewayError('origin_not_allowed', 403);
+        const probeToken = authorization?.match(/^GatewayProbe ([A-Za-z0-9_.-]+)$/)?.[1];
+        if (!probeToken) throw new GatewayError('invalid_probe_capability', 401);
+        const output = await service.probe(probeToken, await readBody(request));
+        respond(response, 200, output);
+        return;
+      }
       const token = authorization?.match(/^RunCapability ([A-Za-z0-9_.-]+)$/)?.[1];
       if (!token) throw new GatewayError('invalid_capability', 401);
       await service.authenticate(token);

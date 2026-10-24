@@ -22,9 +22,30 @@ const token = await new SignJWT({
 }).setProtectedHeader({ alg: 'EdDSA' }).sign(pair.privateKey);
 
 // Transport-only fixture. Durable authorization is exercised separately against Postgres.
-const service: GatewayService = { authenticate: value => verifyRunCapability(value, publicKey), request: async () => ({ ok: true }) };
+const service: GatewayService = { authenticate: value => verifyRunCapability(value, publicKey), request: async () => ({ ok: true }),
+  probe: async () => ({ status: 'succeeded', reason: null, inputTokens: 2, outputTokens: 1 }) };
 
 describe('real Node HTTP/TLS transport boundary (fixture service)', () => {
+  it('accepts only the signed-probe route shape and rejects browser origins', async () => {
+    const gateway = await startGatewayServer({ service, host: '127.0.0.1', port: 0, transport: { mode: 'loopback-http', nodeEnv: 'test' } });
+    try {
+      const send = (headers: Record<string, string>) => new Promise<{ status: number | undefined; body: string }>((resolve, reject) => {
+        const request = httpRequest({ hostname: '127.0.0.1', port: gateway.port, path: '/internal/v1/model-probes', method: 'POST', headers: {
+          'content-type': 'application/json', ...headers,
+        } }, response => {
+          let body = '';
+          response.setEncoding('utf8'); response.on('data', (chunk: string) => { body += chunk; });
+          response.on('end', () => resolve({ status: response.statusCode, body })); response.on('error', reject);
+        });
+        request.on('error', reject); request.setTimeout(5_000, () => request.destroy(new Error('probe transport timeout')));
+        request.end(JSON.stringify({ organizationId: randomUUID(), requestId: randomUUID() }));
+      });
+      expect((await send({ authorization: 'GatewayProbe fixture.token' })).status).toBe(200);
+      expect((await send({ authorization: 'GatewayProbe fixture.token', origin: 'https://attacker.example' })).status).toBe(403);
+      expect((await send({ authorization: 'RunCapability fixture.token' })).status).toBe(401);
+    } finally { await gateway.close(); }
+  });
+
   it('bounds streaming chunked bodies without relying on Content-Length', async () => {
     const gateway = await startGatewayServer({ service, host: '127.0.0.1', port: 0, transport: { mode: 'loopback-http', nodeEnv: 'test' } });
     try {
