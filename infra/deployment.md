@@ -1,70 +1,68 @@
-# Gotchu infrastructure foundation
+# AWS deployment foundation
 
-This directory defines local data services, runnable web/coordinator images, and a proposed DigitalOcean two-droplet foundation. Gateway, agent, executor, and scanner Compose profiles remain disabled. The Pulumi program has policy/configuration tests; it has not been deployed. Follow [the local runtime guide](README.md) for app startup and readiness configuration.
+## Product stage and portability
 
-## Local development data services
+The first deliverable is a controlled demonstration application assessed internally and externally, with evidence-backed comparison reports. Core assessment uses deterministic local checks and an attributed advisory snapshot; it does not require a model or paid API. An external assessment must work without repository source access, stay within explicitly authorized scope, and report confirmed observations, indications, unknown coverage, severity, confidence, and exploitability separately. This infrastructure does not expose a public assessment target.
 
-Generate local-only credentials first. The script creates `infra/.env` with mode `0600`, random Postgres/Redis and runtime-login passwords, and an Auth.js secret. It refuses to replace an existing file and never prints values.
+The demo service listens on loopback/private port `4100`. Keep the seeded vulnerable demo target private; do not publish or route public traffic to it. The AWS security groups do not open port `4100`. The private scanner EC2 host is a persistent host, not a disposable VM boundary per job, so it does not satisfy the customer-code execution gate. Customer code, package install scripts, and customer tests remain disabled.
 
-```sh
-scripts/infra-local-setup.sh
-scripts/infra-compose-validate.sh
-scripts/infra-local-up.sh
-scripts/infra-live-check.sh
-```
+Live monitoring, approval, bounded automation, and provider recovery are later stages. This foundation does not implement those capabilities. Auth.js will support generic OIDC, including self-hosted providers; AWS identity is optional, GitHub is optional, and no sign-in provider is enabled by this infrastructure. PostgreSQL and Redis remain self-hosted/open-source runtime choices. Storage, identity, and model adapters remain replaceable; AWS-specific resources and policies stay in this Pulumi package.
 
-`infra-local-up.sh` starts Postgres and Redis under a worktree-specific Compose project. Persistent volumes survive restarts and `scripts/infra-local-down.sh`. The live check creates a separate project with temporary credentials and volumes, verifies pinned service versions, loopback connectivity and persistence after restart, and then removes only its own project. If Docker or its daemon is unavailable, the script exits with a clear failure; it does not count an unavailable daemon as a pass.
+## Provisioned AWS resources
 
-| Service | Compose profile | Local access | Credentials and trust boundary |
-| --- | --- | --- | --- |
-| PostgreSQL 17.11 | Always on | `127.0.0.1:55432` | Bootstrap operator login is generated locally. Migrations use this operator connection; application connections use distinct logins provisioned by `@gotchu/database`. |
-| Redis 7.4.11 | Always on | `127.0.0.1:56379` | Password protected, AOF enabled, persistent volume. Only the trusted coordinator receives its URL. |
-| Web | `web` | `127.0.0.1:3000` | `gotchu_api` and separate `gotchu_ingest` runtime login URLs; Auth.js settings. |
-| Coordinator | `coordinator` | `127.0.0.1:3003` | `gotchu_coordinator` login and Redis; optional worker URL and capability signing key. Health endpoints are `/health/live` and `/health/ready`. |
-| Gateway | `gateway` | Internal port 3002 | Its own login in the `gotchu_coordinator` role and the public run-capability verification key. No Redis or signing private key. |
-| Isolated agent (`apps/worker`) | `agent` | Internal port 3001 | Joins only `agent-link`; receives no database, Redis, provider credentials, or capability-signing private key. |
-| Executor | `executor` | Not published | Separate `gotchu_executor` login. Provider writes and provider credentials remain disabled. |
-| Scanner boundary | `scanner` | Not published | Isolated static network with no host paths, Docker socket, database, Redis, or control-plane credentials. It does not run customer code. |
+The Pulumi program provisions two configurable EC2 instance types in one configurable AWS region and one Availability Zone. Defaults are `us-east-1`, `t3.small` for control, and `t3.medium` for the scanner. These are starting values, not measured capacity or a cost estimate.
 
-`docker compose up` starts only the data services. Profiles are opt-in. Web and coordinator now build and run real images; the other four profiles exit with status 78. The web profile serves `/api/health` and `/api/ready` from its built Nitro output. Auth.js configuration is `PUBLIC_APP_URL`, `AUTH_SECRET`, `AUTH_GITHUB_ID`, and `AUTH_GITHUB_SECRET`; optional `GOTCHU_EVENT_SIGNING_KEYS_JSON` supplies the local web-only signing-key adapter. Setup generates no provider or event-signing secrets. Fresh MFA approval remains unavailable.
+| Resource | Configuration and boundary |
+| --- | --- |
+| VPC and subnets | `10.42.0.0/16`; control uses a public `/24`, scanner uses a private `/24`. One Availability Zone keeps this pilot foundation small and does not provide AZ redundancy. |
+| Public route | Internet gateway and default route attach only to the control subnet. Control gets a dynamic public IPv4 address; no Elastic IP or DNS record is provisioned. |
+| Scanner route | No internet default route and no NAT gateway. A regional S3 gateway endpoint is attached to the scanner route table. |
+| Control security group | Public IPv4 TCP 80/443 for a separately installed TLS ingress; TCP 22 only from configured operator CIDRs. Egress is TCP 443 to any public IPv4 destination, VPC DNS, and SSH to the scanner subnet; there is no destination allowlist. |
+| Scanner security group | No public IP. Inbound SSH is allowed only from the control security group. Egress is HTTPS to the S3 gateway endpoint prefix list only. No app, database, Redis, or port `4100` rule is open. |
+| EC2 instances | Ubuntu 24.04 x86-64 AMIs from Canonical, required IMDSv2 tokens with hop limit 1, and encrypted 30 GiB `gp3` root EBS volumes. Both instances are protected from Pulumi destroy by default. |
+| S3 bucket | Private, bucket-owner enforced, all four S3 public-access blocks enabled, TLS required by bucket policy, SSE-S3 enabled, versioning enabled, and Pulumi deletion protection enabled. There is no lifecycle or retention rule. |
+| Instance IAM | Control can list only named storage prefixes, read the artifact, backup, runner-bootstrap, input, and result prefixes, and write artifacts, backups, runner-bootstrap, and inputs. Scanner can read only runner-bootstrap and input objects and write only scanner results. Neither role can delete objects. |
 
-The coordinator interface is `GOTCHU_COORDINATOR_DATABASE_URL`, `GOTCHU_REDIS_URL`, `GOTCHU_ORGANIZATION_IDS`, optional `GOTCHU_WORKER_URL`, and optional `GOTCHU_RUN_CAPABILITY_PRIVATE_KEY`. Its container binds through `GOTCHU_COORDINATOR_HOST`. The gateway requires a separate coordinator-role login, an SPKI public verification key, and TLS configuration; the coordinator signs with its PKCS8 private key. No keys are generated here. The model provider remains unavailable and this stack supplies no model credential. Stop the old shared-queue coordinator before upgrading to the reserved deterministic/investigation lanes; Postgres reconciliation recovers unfinished old deliveries. The executor remains disabled until its provider service and trusted approval adapters exist.
+The bucket policy and security groups are AWS-specific. An application-side S3-compatible storage adapter can be replaced without changing the core assessment contracts. Postgres and Redis remain self-hosted/open-source runtime choices, and identity and model services remain replaceable adapters. Container images are replaceable release artifacts. This AWS foundation does not provision managed database/cache services or configure either daemon on EC2.
 
-Postgres and Redis join an internal `data` network and a local publishing bridge with peer communication and masquerading disabled. Coordinator has a dedicated host publishing bridge with the same restrictions; web has an egress bridge for GitHub HTTPS. Compose does not restrict that egress by destination. Only Postgres, Redis, web, and coordinator publish ports, all on loopback. Data and app containers use unprivileged runtime UIDs, read-only roots, dropped capabilities, and resource limits. Persistent data is writable through named volumes. A deployed TLS ingress, provider egress policy, and scanner/VM isolation are separate gates.
+The scanner IAM role and S3 endpoint support a future private image path: a trusted release workflow could place a pinned OCI archive under `scanner-bootstrap/`, and the scanner host could retrieve it without a public address. No image publisher, checksum/signature verifier, host bootstrap, image loader, or scanner service is implemented here. The control host has outbound HTTPS for operator-managed image delivery, but that security-group rule is not limited to named endpoints. The scanner cannot reach package repositories, public registries, GitHub, or other internet destinations; it needs a reviewed base-image refresh or controlled package-delivery process. Do not treat the IAM policy or mocked Pulumi tests as proof that an image can be installed or a scan can run.
 
-The `@gotchu/database` migrations create the non-login group roles and schema. Local bootstrap invokes its migration command using the generated operator URL, then provisions five distinct logins: API, ingest, coordinator, gateway, and executor. Gateway is a separate login granted only the coordinator group role. Runtime logins are not table owners and must not have `BYPASSRLS` or elevated role attributes. Never configure an app with the operator/migration URL.
+## Configuration and credentials
 
-Postgres 17.11 is pinned to the supported Node `pg` compatibility range; Redis 7.4.11 is from its maintained extended-support line. The image versions are pinned to patch releases rather than floating major tags. See the [PostgreSQL 17.11 release](https://www.postgresql.org/about/news/postgresql-186-1711-1615-1519-1424-and-19-beta-3-released-3365/), [node-postgres compatibility](https://node-postgres.com/), and [Redis 7.4 release notes](https://redis.io/docs/latest/operate/oss_and_stack/stack-with-enterprise/release-notes/redisce/redisce-7.4-release-notes/).
+The Pulumi AWS provider uses the normal AWS SDK credential chain. Prefer an operator SSO profile or a short-lived assumed role and verify the account before later infrastructure operations. Do not put AWS access keys in `Pulumi.*.yaml` or application environment files. The deployment identity needs AWS permissions to create VPC, EC2, security-group, IAM role/profile/policy, S3, and route/endpoint resources; use a dedicated account or permission boundary and review the actual policy before granting it. Pulumi state also contains infrastructure metadata and must use a trusted backend with access control and encryption.
 
-## DigitalOcean baseline
-
-The Pulumi TypeScript package defines two Ubuntu 24.04 Droplets in one private VPC:
-
-- The control Droplet has public networking. Its tagged firewall allows public TCP 80/443 and TCP 22 only from operator-configured SSH CIDRs. Its outbound rules allow HTTPS, DNS, and NTP plus SSH only to the scanner tag.
-- The scanner Droplet has public networking disabled. Its tagged firewall accepts SSH only from the control Droplet tag and allows outbound TCP 443 only to that tag. Customer code execution is not enabled by this foundation.
-- A private DigitalOcean Space is created with the `private` ACL, object versioning, and deletion protection. DigitalOcean documents that the private ACL blocks public access. Spaces encrypts stored files on physical disks with 256-bit AES-XTS; Spaces does not provide bucket-level server-side encryption configuration, so this definition does not claim customer-managed object encryption. The application must use HTTPS and may add client-side encryption where the data policy requires it.
-
-The firewall is created against stack-specific tags before each Droplet is created, so the firewall policy is attached as the Droplet appears. SSH CIDRs are validated as explicit, narrow IPv4/IPv6 ranges; `0.0.0.0/0` and `::/0` are rejected. The program uses encrypted Pulumi secrets for the DigitalOcean API token and Spaces key pair. It only provisions network, firewall, Droplet, and object-storage resources; it does not install or run application services, Postgres, Redis, a Docker sandbox, or a VM job supervisor.
-
-Set encrypted secrets and operator configuration in a local Pulumi stack, then run unit/config validation before considering any cloud plan:
+Create a local stack and set its non-secret configuration:
 
 ```sh
 cd infra/pulumi
-pulumi stack init dev
-pulumi config set --secret gotchu:digitalOceanToken
-pulumi config set --secret gotchu:spacesAccessId
-pulumi config set --secret gotchu:spacesSecretKey
-pulumi config set gotchu:sshPublicKey 'ssh-ed25519 ...'
+pulumi stack init demo
+pulumi config set gotchu:awsRegion us-east-1
+pulumi config set gotchu:artifactBucketName 'globally-unique-private-bucket-name'
+pulumi config set gotchu:sshPublicKey "$(cat ~/.ssh/id_ed25519.pub)"
 pulumi config set --path gotchu:sshAdminCidrs[0] '198.51.100.10/32'
-pulumi config set gotchu:spacesBucketName 'unique-private-bucket-name'
+pulumi config set gotchu:controlInstanceType t3.small
+pulumi config set gotchu:scannerInstanceType t3.medium
+pulumi config set gotchu:customerCodeExecutionEnabled false
 pnpm test
 pnpm typecheck
 ```
 
-The commands above describe configuration only. No Pulumi preview or deployment has been run. DigitalOcean resources incur charges and require an operator-owned account and keys. The proposed USD 250/month budget, 15-minute recovery-point target, and four-hour recovery-time target remain unverified. A disposable VM-capable runner with demonstrated isolation remains a release gate; Docker containers are not an approved substitute. The `customerCodeExecutionEnabled` Pulumi setting is rejected while VM-class isolation evidence is absent.
+Replace the documentation-only key and CIDR with real operator values. Restrict SSH to a known operator address. The example config file is a template, not a usable key or bucket name. The program rejects `customerCodeExecutionEnabled: true` while VM-class isolation evidence has not been reviewed. No AWS preview or deployment has been run for this change; mocked policy tests do not contact AWS and do not establish that the account can deploy these resources.
 
-Provider references: [Pulumi DigitalOcean Droplets](https://www.pulumi.com/registry/packages/digitalocean/api-docs/droplet/), [VPCs](https://www.pulumi.com/registry/packages/digitalocean/api-docs/vpc/), [Firewalls](https://www.pulumi.com/registry/packages/digitalocean/api-docs/firewall/), [Spaces buckets](https://www.pulumi.com/registry/packages/digitalocean/api-docs/spacesbucket/), [Spaces ACL compatibility](https://docs.digitalocean.com/products/spaces/reference/s3-compatibility/), and [DigitalOcean encryption overview](https://www.digitalocean.com/resources/articles/cloud-encryption).
+## Application delivery and public ingress
 
-## CI checks
+Pulumi creates hosts and storage only. It does not install Docker, copy images, set secrets, start web/coordinator services, install a database, configure TLS, run migrations, or install the scanner. A real deployment needs an operator-reviewed release process that pins images by digest, transfers them through a trusted channel, verifies provenance, and rolls back safely. Keep application and database credentials in an appropriate secret store; the EC2 instance roles above are for S3 objects only.
 
-`.github/workflows/ci.yml` configures frozen installation, workspace build/typecheck/package tests, Compose policy and image probes, and isolated database/backend, gateway, executor, and full pipeline suites. Compose checks include repeatable role bootstrap, restart persistence, readiness, loopback publishing, GitHub TLS, and teardown. Pulumi policy tests use mocks without cloud credentials. Remote CI results have not been claimed; locally executed checks are recorded in [validation](../docs/validation.md).
+Before exposing the control-plane web service, point a DNS name using an operator-selected DNS provider at the control host's current public IP, then configure a TLS terminator on that host or another reviewed ingress. The security group allows port 80 for HTTP redirect/ACME challenge and port 443 for HTTPS; no certificate, renewal, proxy, DNS integration, or stable address is provisioned. Set the application public URL to the final HTTPS origin. Bind the web app and all internal services to loopback/private interfaces; do not publish Postgres, Redis, coordinator, gateway, or port `4100`. The public TLS path and OAuth/OIDC callbacks require a real deployment verification.
+
+Use the local Compose guide for the existing OSS Postgres/Redis and web/coordinator setup. This AWS plan does not make a cloud identity or repository vendor mandatory. Configure a generic OIDC provider only after its application adapter and secret custody are available; no GitHub, Cognito, or other login credentials are created by Pulumi.
+
+## Backups, recovery, and cost gates
+
+S3 versioning protects prior object versions from ordinary overwrites, but it is not a database backup or a tested recovery plan. No automated Postgres dump/WAL archive, EBS snapshot schedule, backup retention policy, cross-account copy, restore automation, or recovery drill is present. The control host's root disk is encrypted but not backed up. Before a pilot, define backup consistency, retention, access, deletion, and recovery ownership; restore into a clean environment and measure the accepted data loss and time to service. After a restore, invalidate pre-restore approvals, reconcile provider executions, and keep writes frozen until state is reconciled. Existing recovery objectives are targets, not demonstrated guarantees.
+
+AWS resource use, storage, requests, and data transfer can incur charges. No free-tier assumption or operating-cost estimate is made here. Check current AWS pricing before provisioning. The proposed pilot spending ceiling and any recovery targets need current pricing review and measured exercises before they can be treated as gates passed.
+
+## Local checks
+
+`pnpm test` runs Pulumi mock resource-policy/configuration checks without AWS credentials. `pnpm typecheck` checks the package types. These checks validate the declared resource inputs; they do not prove cloud API acceptance, public TLS, image delivery, backup creation, restoration, scanner isolation, or customer-code isolation. Do not run a cloud preview or deployment as part of this local implementation task.

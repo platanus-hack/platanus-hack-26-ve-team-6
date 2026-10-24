@@ -9,7 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@pulumi/digitalocean": "^4.84.1",
+    "@pulumi/aws": "^7.51.1",
     "@pulumi/pulumi": "^3.272.0",
     "zod": "^4.0.0"
   },

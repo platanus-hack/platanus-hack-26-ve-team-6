@@ -3,5 +3,5 @@ runtime:
   name: nodejs
   options:
     typescript: true
-description: Proposed two-VPS foundation and private encrypted object storage for Gotchu.
+description: AWS-first two-EC2 pilot foundation with a private scanner and S3 artifact storage.
 main: .

@@ -1,11 +1,18 @@
-# Copy to Pulumi.<stack>.yaml only through Pulumi CLI configuration.
-# Set these with `pulumi config set --secret` so values are encrypted in stack state.
+name: gotchu-infra
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: AWS-first two-EC2 pilot foundation with a private scanner and S3 artifact storage.
+main: .
+# Replace the example bucket name, public key, and documentation-only SSH CIDR before use.
+# Pulumi reads AWS credentials through the normal AWS SDK credential chain; do not store them here.
 config:
-  gotchu:digitalOceanRegion: fra1
-  gotchu:spacesRegion: fra1
-  gotchu:spacesBucketName: replace-with-a-globally-unique-private-bucket-name
+  gotchu:awsRegion: us-east-1
+  gotchu:artifactBucketName: gotchu-demo-replace-with-unique-name
   gotchu:sshAdminCidrs:
     - 198.51.100.12/32
-  gotchu:sshPublicKey: ssh-ed25519 replace-with-the-operator-public-key
-  gotchu:controlDropletSize: s-1vcpu-2gb
-  gotchu:runnerDropletSize: s-2vcpu-4gb
+  gotchu:sshPublicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE9ubHktZXhhbXBsZS1rZXktbm90LXJlYWwtcHVibGljLWtleQ example-only-replace-me
+  gotchu:controlInstanceType: t3.small
+  gotchu:scannerInstanceType: t3.medium
+  gotchu:customerCodeExecutionEnabled: false
