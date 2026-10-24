@@ -22,6 +22,34 @@ function jsonResponse(value: unknown, headers: Record<string, string> = {}) {
 }
 
 describe('GitHub REST repository reader', () => {
+  it('uses a short-lived installation token supplied by the caller', async () => {
+    const root = await tempDirectory();
+    const scope = { organizationId: randomUUID(), applicationId: randomUUID() };
+    const repositoryKey = 'github-installation-repo';
+    const catalog = createMonitoringRepositoryCatalog({ repositoryRoot: root, repositories: [{ ...scope, repositoryKey, displayName: 'App repository', provider: 'github', owner: 'acme', repository: 'product' }] });
+    const token = 'ghs_fixture_installation_token';
+    const contents = Buffer.from('export const source = true;\n');
+    const blobSha = createHash('sha1').update('blob ' + contents.length + '\0').update(contents).digest('hex');
+    const treeSha = 'b'.repeat(40); const commitSha = 'a'.repeat(40);
+    const authorizations: string[] = [];
+    const fetchFixture: typeof fetch = async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      authorizations.push(new Headers(init?.headers).get('authorization') ?? '');
+      if (url.pathname === '/repos/acme/product') return jsonResponse({ default_branch: 'main' });
+      if (url.pathname === '/repos/acme/product/commits/main') return jsonResponse({ sha: commitSha, commit: { tree: { sha: treeSha } } });
+      if (url.pathname === `/repos/acme/product/git/trees/${treeSha}`) return jsonResponse({ sha: treeSha, truncated: false, tree: [{ path: 'src/index.ts', mode: '100644', type: 'blob', sha: blobSha, size: contents.length }] });
+      if (url.pathname === `/repos/acme/product/git/blobs/${blobSha}`) return jsonResponse({ sha: blobSha, size: contents.length, encoding: 'base64', content: contents.toString('base64') });
+      throw new Error('unexpected_github_route');
+    };
+    const tokenScope = vi.fn(async () => token);
+    const reader = createGitHubRepositoryReader(catalog, { fetchImplementation: fetchFixture, installationTokenProvider: tokenScope });
+    const snapshot = await reader.read({ ...scope, repositoryKey });
+    expect(snapshot.snapshot.files).toEqual([{ path: 'src/index.ts', content: contents.toString('utf8') }]);
+    expect(tokenScope).toHaveBeenCalledWith({ ...scope, repositoryKey });
+    expect(authorizations.length).toBe(4);
+    expect(authorizations.every(value => value === `Bearer ${token}`)).toBe(true);
+  });
+
   it('pins snapshots to a resolved commit, follows bounded commit pagination, and sends an optional token only in Authorization', async () => {
     const root = await tempDirectory();
     const tokenFile = join(root, 'github-token');

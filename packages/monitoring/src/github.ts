@@ -55,6 +55,7 @@ const blobResponseSchema = z.object({
 
 export interface GitHubRepositoryReaderOptions {
   fetchImplementation?: typeof fetch;
+  installationTokenProvider?: (repository: { organizationId: string; applicationId: string; repositoryKey: string }) => Promise<string>;
   now?: () => Date;
   deadlineMs?: number;
   requestTimeoutMs?: number;
@@ -70,7 +71,9 @@ export function createGitHubRepositoryReader(catalog: MonitoringRepositoryCatalo
       const signal = input.signal
         ? AbortSignal.any([input.signal, AbortSignal.timeout(options.deadlineMs ?? 60_000)])
         : AbortSignal.timeout(options.deadlineMs ?? 60_000);
-      const token = entry.tokenFile ? await readGitHubToken(entry.tokenFile) : null;
+      const token = options.installationTokenProvider
+        ? await options.installationTokenProvider({ organizationId: input.organizationId, applicationId: input.applicationId, repositoryKey: input.repositoryKey })
+        : entry.tokenFile ? await readGitHubToken(entry.tokenFile) : null;
       const requestOptions = {
         headers: {
           accept: 'application/vnd.github+json',
