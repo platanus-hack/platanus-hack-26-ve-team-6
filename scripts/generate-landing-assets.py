@@ -44,45 +44,47 @@ fingerprint = ''.join(
 <path d="M14 34a14 14 0 0 1 14-14h92a14 14 0 0 1 11.6 6.2L141 40h231a14 14 0 0 1 14 14v208a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14Z" fill="url(#sheen)"/>
 </svg>''')
 
-# The report the lens returns: findings with severity and confidence marks, an evidence excerpt and coverage cells.
-findings = []
+# The report the lens returns, labelled with real report fields and no values.
+label = lambda x, y, text, anchor='start', colour='#a39aa8', size=11: f'<text x="{x}" y="{y}" text-anchor="{anchor}" fill="{colour}" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="{size}" font-weight="600" letter-spacing=".4">{text}</text>'
+findings = [label(44, 112, 'Hallazgo'), label(250, 112, 'Severidad', 'middle'), label(318, 112, 'Confianza', 'middle')]
 for index, (filled, confidence) in enumerate(((True, 3), (False, 2), (False, 1))):
-    y = 118 + index * 46
-    pip = '#e7147d' if filled else 'none'
-    findings.append(f'<path d="M44 {y - 8}l8 8-8 8-8-8Z" fill="{pip}" stroke="#ff8fbe" stroke-width="1.6"/>')
-    findings.append(f'<path d="M68 {y - 4}h{150 - index * 26}" stroke="#d9d0d6" stroke-width="6" stroke-linecap="round"/>')
-    findings.append(f'<path d="M68 {y + 9}h{96 + index * 14}" stroke="#6d6577" stroke-width="4" stroke-linecap="round"/>')
+    y = 140 + index * 38
+    findings.append(f'<path d="M44 {y - 5}h{132 - index * 22}" stroke="#d9d0d6" stroke-width="6" stroke-linecap="round"/>')
+    findings.append(f'<path d="M44 {y + 8}h{84 + index * 12}" stroke="#6d6577" stroke-width="4" stroke-linecap="round"/>')
+    findings.append(f'<path d="M250 {y - 8}l8 8-8 8-8-8Z" fill="{"#e7147d" if filled else "none"}" stroke="{"#e7147d" if filled else "#c7bfbd"}" stroke-width="1.6"/>')
     for tick in range(3):
         opacity = '1' if tick < confidence else '.25'
-        findings.append(f'<path d="M{290 + tick * 10} {y - 7}v14" stroke="#ff8fbe" stroke-opacity="{opacity}" stroke-width="3" stroke-linecap="round"/>')
-    findings.append(f'<path d="M32 {y + 23}h296" stroke="#3d3a47"/>')
-cells = []
-for index in range(14):
-    x = 36 + (index % 7) * 42
-    y = 344 + (index // 7) * 26
-    dashed = index in (5, 6, 12, 13)
+        findings.append(f'<path d="M{308 + tick * 10} {y - 7}v14" stroke="#c7bfbd" stroke-opacity="{opacity}" stroke-width="3" stroke-linecap="round"/>')
+    findings.append(f'<path d="M32 {y + 21}h312" stroke="#3d3a47"/>')
+cells = [label(44, 372, 'Cobertura')]
+for index in range(8):
+    x = 44 + index * 37
+    dashed = index >= 6
     style = 'fill="none" stroke="#8d8296" stroke-dasharray="3 3"' if dashed else 'fill="#4a4552" stroke="#8d8296" stroke-opacity=".5"'
-    cells.append(f'<rect x="{x}" y="{y}" width="34" height="18" rx="3" {style}/>')
-(out / 'report-sheet.svg').write_text(f'''<svg xmlns="http://www.w3.org/2000/svg" width="360" height="430" viewBox="0 0 360 430">
+    cells.append(f'<rect x="{x}" y="382" width="30" height="16" rx="3" {style}/>')
+(out / 'report-sheet.svg').write_text(f"""<svg xmlns="http://www.w3.org/2000/svg" width="376" height="470" viewBox="0 0 376 470">
 <defs>
 <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#34303d"/><stop offset=".6" stop-color="#211f29"/><stop offset="1" stop-color="#1a1921"/></linearGradient>
 <linearGradient id="sheen" x1="0" y1="0" x2=".7" y2=".9"><stop stop-color="#fffefa" stop-opacity=".18"/><stop offset=".35" stop-color="#fffefa" stop-opacity="0"/></linearGradient>
-<linearGradient id="excerpt" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#e7147d"/><stop offset="1" stop-color="#ff8fbe"/></linearGradient>
 </defs>
-<path d="M22 6h268l60 60v344a14 14 0 0 1-14 14H22a14 14 0 0 1-14-14V20A14 14 0 0 1 22 6Z" fill="url(#paper)" stroke="#9a90a2" stroke-opacity=".55" stroke-width="1.5"/>
-<path d="M290 6v46a14 14 0 0 0 14 14h46" fill="#3f3a49" stroke="#9a90a2" stroke-opacity=".55" stroke-width="1.5"/>
-<circle cx="48" cy="52" r="18" fill="#e7147d"/>
-<path d="M42 44h8l4 4v12H42Zm8 0v5h4m-9 5h6" fill="none" stroke="#fffefa" stroke-width="1.6" stroke-linejoin="round"/>
-<path d="M80 46h120" stroke="#fffefa" stroke-width="7" stroke-linecap="round"/>
-<path d="M80 62h72" stroke="#8d8296" stroke-width="4" stroke-linecap="round"/>
-<path d="M32 86h296" stroke="#4a4552"/>
+<path d="M22 6h284l62 62v380a14 14 0 0 1-14 14H22a14 14 0 0 1-14-14V20A14 14 0 0 1 22 6Z" fill="url(#paper)" stroke="#9a90a2" stroke-opacity=".55" stroke-width="1.5"/>
+<path d="M306 6v48a14 14 0 0 0 14 14h48" fill="#3f3a49" stroke="#9a90a2" stroke-opacity=".55" stroke-width="1.5"/>
+<circle cx="48" cy="50" r="18" fill="#e7147d"/>
+<path d="M42 42h8l4 4v12H42Zm8 0v5h4m-9 5h6" fill="none" stroke="#fffefa" stroke-width="1.6" stroke-linejoin="round"/>
+{label(78, 48, 'Informe de evaluación', colour='#fffefa', size=15)}
+<path d="M78 62h96" stroke="#6d6577" stroke-width="4" stroke-linecap="round"/>
+<path d="M32 86h312" stroke="#4a4552"/>
 {''.join(findings)}
-<rect x="32" y="262" width="296" height="62" rx="8" fill="#121118" stroke="#3d3a47"/>
-<path d="M48 282h64m10 0h90M48 304h40" stroke="#5d5666" stroke-width="5" stroke-linecap="round"/>
-<path d="M98 304h132" stroke="url(#excerpt)" stroke-width="5" stroke-linecap="round"/>
+{label(44, 268, 'Evidencia · extracto')}
+<rect x="32" y="278" width="312" height="50" rx="8" fill="#121118" stroke="#3d3a47"/>
+<path d="M48 296h64m10 0h90M48 312h40" stroke="#5d5666" stroke-width="5" stroke-linecap="round"/>
+<path d="M98 312h132" stroke="#c7bfbd" stroke-width="5" stroke-linecap="round"/>
+{label(44, 350, 'Herramienta')}
+<path d="M130 346h92" stroke="#6d6577" stroke-width="4" stroke-linecap="round"/>
 {''.join(cells)}
-<path d="M32 400h112" stroke="#6d6577" stroke-width="4" stroke-linecap="round"/>
-<text x="328" y="405" text-anchor="end" fill="#ff8fbe" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" letter-spacing="1">{{ JSON }}</text>
-<path d="M22 6h268l60 60v344a14 14 0 0 1-14 14H22a14 14 0 0 1-14-14V20A14 14 0 0 1 22 6Z" fill="url(#sheen)"/>
-</svg>''')
+<path d="M32 420h312" stroke="#3d3a47"/>
+{label(44, 444, 'Exportación')}
+<text x="344" y="445" text-anchor="end" fill="#ff8fbe" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" letter-spacing="1">{{ JSON }}</text>
+<path d="M22 6h284l62 62v380a14 14 0 0 1-14 14H22a14 14 0 0 1-14-14V20A14 14 0 0 1 22 6Z" fill="url(#sheen)"/>
+</svg>""")
 print('Authored assets:', ', '.join(sorted(p.name for p in out.glob('*.svg'))))

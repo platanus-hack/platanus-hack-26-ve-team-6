@@ -137,7 +137,7 @@ export function ReportSheet({ className = '' }: { className?: string }) {
     <div className="g-object-shadow" />
     <div ref={body} className="g-object-body" style={{ transform: reportPose(0, 0) }}>
       {[4, 3, 2, 1].map(depth => <div key={depth} className="g-report-edge" style={{ transform: `translateZ(${-depth * 4}px)` }} />)}
-      <img className="g-report-face" src="/landing/report-sheet.svg" width="360" height="430" alt="" draggable={false} />
+      <img className="g-report-face" src="/landing/report-sheet.svg" width="376" height="470" alt="" draggable={false} />
     </div>
   </div>;
 }
