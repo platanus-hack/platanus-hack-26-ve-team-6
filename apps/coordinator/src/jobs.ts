@@ -46,6 +46,8 @@ async function aggregate(dependencies: CoordinatorDependencies, claim: JobClaim)
     const current = input.rows.map((row) => securityEventSchema.parse(row.payload));
     const operationalProjection = await observeRuntime(dependencies.database, tx, claim, current);
     const auth = current.filter((event) => event.type === 'auth.login_failed' || event.type === 'auth.login_succeeded');
+    await enqueue(tx, { organizationId, applicationId, id: randomUUID(), kind: 'notification',
+      idempotencyKey: `triage:${jobId}`, payload: { kind: 'triage_evaluation', windowBucket: Math.floor(Date.now() / WINDOW_MS) } });
     if (auth.length === 0) {
       await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', incidents: 0, quarantinedTimestamps: quarantined, operationalProjection } });
       return;
