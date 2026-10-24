@@ -129,6 +129,9 @@ export const assessmentReportSchema = z.object({
 });
 
 export const assessmentRequestSchema = z.object({ mode: assessmentModeSchema, revision: demoRevisionSchema }).strict();
+export const assessmentRunInputSchema = assessmentRequestSchema.extend({
+  organizationId: z.uuid(), applicationId: z.uuid(), jobId: z.uuid(), targetKey: z.string().min(1).max(128),
+}).strict();
 export type AssessmentMode = z.infer<typeof assessmentModeSchema>;
 export type DemoRevision = z.infer<typeof demoRevisionSchema>;
 export type AssessmentEvidence = z.infer<typeof assessmentEvidenceSchema>;
@@ -137,3 +140,4 @@ export type AssessmentAnalysis = z.infer<typeof assessmentAnalysisSchema>;
 export type AssessmentComparison = z.infer<typeof assessmentComparisonSchema>;
 export type AssessmentReport = z.infer<typeof assessmentReportSchema>;
 export type AssessmentRequest = z.infer<typeof assessmentRequestSchema>;
+export type AssessmentRunInput = z.infer<typeof assessmentRunInputSchema>;
