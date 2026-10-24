@@ -39,8 +39,8 @@ function TextLink({ href, children, className }: { href: string; children: React
 }
 
 /** Prose with its margin notes beside it (inline below 1100px). */
-function Block({ children, notes, className = '', blockClass = '' }: { children: ReactNode; notes?: ReactNode; className?: string; blockClass?: string }) {
-  return <div className={`gl-block ${blockClass}`}>
+function Block({ children, notes, className = '' }: { children: ReactNode; notes?: ReactNode; className?: string }) {
+  return <div className="gl-block">
     <div className={`gl-block-main ${className}`}>{children}</div>
     {notes && <div className="gl-notes">{notes}</div>}
   </div>;
@@ -175,12 +175,15 @@ function JsonExhibit() {
 
 function Team() {
   return <Section titleId="gl-equipo-titulo" title={['Que el equipo', 'tenga contexto.']}>
-    <ol className="gl-numbered">
-      {TEAM.map((item, index) => <li key={item}><span aria-hidden="true">{['i', 'ii', 'iii', 'iv'][index]}</span><p>{item}</p></li>)}
-    </ol>
-    <Block blockClass="gl-block--exhibit" notes={<Note n={10}><strong>La copia corregida es privada.</strong> No modifica el repositorio ni producción, no se publica ni despliega y no ejecuta pruebas de comportamiento.</Note>}>
+    <div className="gl-team">
+      <div className="gl-team-list">
+        <ol className="gl-numbered">
+          {TEAM.map((item, index) => <li key={item}><span aria-hidden="true">{['i', 'ii', 'iii', 'iv'][index]}</span><p>{item}</p></li>)}
+        </ol>
+        <div className="gl-notes"><Note n={10}><strong>La copia corregida es privada.</strong> No modifica el repositorio ni producción, no se publica ni despliega y no ejecuta pruebas de comportamiento.</Note></div>
+      </div>
       <JsonExhibit />
-    </Block>
+    </div>
   </Section>;
 }
 
