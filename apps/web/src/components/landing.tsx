@@ -1,6 +1,8 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { Brand, UiIcon } from './ui';
 import { Convergence } from './convergence';
+import { LensEye } from './lens-eye';
+import { CodeSlab, OriginGlobe } from './spatial-objects';
 import { ProductFlow, useChapterTracking } from './product-flow';
 import './landing.css';
 
@@ -54,10 +56,19 @@ export function LandingPage() {
         <div className="g-chapters">{chapters.map((chapter, index) => <article key={chapter.id} id={chapter.id} data-chapter={index} className={active === index ? 'is-current' : ''}><h2>{chapter.title}</h2><p>{chapter.text}</p><ProductFlow step={index} className="g-mobile-flow" /></article>)}</div>
       </section>
       <section id="perspectivas" className="g-perspectives" aria-labelledby="perspectives-title">
-        <div className="g-container"><div className="g-perspectives-heading"><h2 id="perspectives-title">Empieza donde<br />lo necesitas.</h2><p>Una aplicación. Tres formas de revisarla.<br />Tú eliges el alcance.</p></div>
+        <div className="g-container">
+          <div className="g-perspectives-heading"><h2 id="perspectives-title">Empieza donde<br />lo necesitas.</h2><p>Una aplicación. Tres formas de revisarla. Tú eliges el alcance.</p></div>
+          <div className="g-perspective-controls" role="tablist" aria-label="Perspectiva de evaluación">
+            <span className="g-tab-indicator" aria-hidden="true" style={{ transform: `translateX(${perspective * 100}%)` }} />
+            {perspectives.map((item, index) => <button id={`tab-${item.id}`} key={item.id} ref={element => { tabs.current[index] = element; }} role="tab" type="button" aria-controls={`panel-${item.id}`} aria-selected={perspective === index} tabIndex={perspective === index ? 0 : -1} onClick={() => { setKeyboardSelection(false); setPerspective(index); }} onKeyDown={tabKeys}><UiIcon name={item.icon} size={20} />{item.label}</button>)}
+          </div>
           <div className="g-perspective-layout">
-            <div className="g-perspective-controls" role="tablist" aria-label="Perspectiva de evaluación">{perspectives.map((item, index) => <button id={`tab-${item.id}`} key={item.id} ref={element => { tabs.current[index] = element; }} role="tab" type="button" aria-controls={`panel-${item.id}`} aria-selected={perspective === index} tabIndex={perspective === index ? 0 : -1} onClick={() => { setKeyboardSelection(false); setPerspective(index); }} onKeyDown={tabKeys}><UiIcon name={item.icon} size={24} />{item.label}<UiIcon name="arrow" /></button>)}</div>
             <div className="g-perspective-panels" data-keyboard={keyboardSelection}>{perspectives.map((item, index) => <div key={item.id} role="tabpanel" id={`panel-${item.id}`} aria-labelledby={`tab-${item.id}`} hidden={perspective !== index} tabIndex={0} className="g-perspective-panel"><h3>{item.title}</h3><p>{item.description}</p><ul>{item.facts.map(fact => <li key={fact}><UiIcon name="shield" />{fact}</li>)}</ul><a className="g-secondary-link" href="/dashboard">Abrir Gotchu <UiIcon name="arrow" /></a></div>)}</div>
+            <div className="g-scope-stage" data-scope={perspectives[perspective]?.id} aria-hidden="true">
+              <div className="g-scope-slab"><CodeSlab /></div>
+              <div className="g-scope-lens"><LensEye /></div>
+              <div className="g-scope-globe"><OriginGlobe /></div>
+            </div>
           </div>
         </div>
       </section>

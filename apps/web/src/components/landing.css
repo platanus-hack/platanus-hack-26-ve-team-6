@@ -38,30 +38,48 @@
 .g-chapters article.is-current h2 { color: var(--gc-paper); }
 .g-chapters p { margin-top: 24px; font-size: 18px; max-width: 460px; line-height: 1.75; }
 
-@starting-style { .g-perspective-panels:not([data-keyboard=true]) .g-perspective-panel:not([hidden]) { opacity: 0; transform: translateY(10px); } }
-
-
-
-
-
-
-.g-perspectives { padding-block: 88px; background: var(--gc-paper); color: var(--gc-canvas); }
-.g-perspectives-heading { display: flex; align-items: end; justify-content: space-between; gap: 40px; margin-bottom: 48px; }
-.g-perspectives h2, .g-faq h2 { font-size: clamp(2.25rem, 3.8vw, 3.5rem); line-height: 1.12; letter-spacing: -.035em; }
+.g-perspectives { padding-block: 112px 120px; background: var(--gc-paper); color: var(--gc-canvas); --gc-contact: #8b7f8a; }
+.g-perspectives-heading { display: flex; align-items: end; justify-content: space-between; gap: 40px; margin-bottom: 44px; }
 .g-perspectives p { color: #55505a; }
-.g-perspective-layout { display: grid; grid-template-columns: .8fr 1.2fr; border-top: 1px solid #c7bfbd; gap: 70px; padding-top: 24px; }
-.g-perspective-controls { display: flex; flex-direction: column; align-self: start; }
-.g-perspective-controls button { display: flex; align-items: center; gap: 16px; width: 100%; min-height: 86px; padding: 20px; border: 0; border-bottom: 1px solid #c7bfbd; background: transparent; color: #69616c; text-align: left; font: 500 25px/1.2 var(--gc-font-display); cursor: pointer; transition: background-color 160ms ease, color 160ms ease; }
-.g-perspective-controls button > svg:last-child { margin-left: auto; }
-.g-perspective-controls button[aria-selected=true] { background: #eee8ec; color: #9d0c54; }
-.g-perspective-panel { padding: 24px 0; min-height: 350px; }
-.g-perspective-panel h3 { font-size: 32px; letter-spacing: -.025em; line-height: 1.25; margin-bottom: 18px; }
-.g-perspective-panel p { font-size: 16px; max-width: 510px; }
-.g-perspective-panel ul { list-style: none; padding: 0; margin: 26px 0; display: grid; gap: 10px; }
-.g-perspective-panel li { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+.g-perspectives-heading > p { max-width: 300px; font-size: 18px; }
+.g-perspective-controls { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); width: min(560px, 100%); padding: 6px; border-radius: 12px; background: #eee8ec; }
+.g-tab-indicator { position: absolute; top: 6px; bottom: 6px; left: 6px; width: calc((100% - 12px) / 3); border-radius: 8px; background: var(--gc-canvas); box-shadow: 0 8px 20px #19192333; transition: transform 300ms cubic-bezier(.77, 0, .175, 1); }
+.g-perspective-controls button { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 10px 16px; border: 0; border-radius: 8px; background: transparent; color: #55505a; font: 500 18px/1.2 var(--gc-font-display); cursor: pointer; transition: color 200ms ease; }
+.g-perspective-controls button[aria-selected=true] { color: var(--gc-paper); }
+.g-perspective-controls button[aria-selected=true] svg { color: var(--gc-accent-ink); }
+.g-perspective-layout { display: grid; grid-template-columns: .9fr 1.1fr; gap: 56px; align-items: center; margin-top: 28px; }
+.g-perspective-panel { padding: 24px 0; min-height: 360px; }
+.g-perspective-panel h3 { font-size: 34px; letter-spacing: -.03em; line-height: 1.2; margin-bottom: 18px; }
+.g-perspective-panel p { font-size: 17px; max-width: 480px; }
+.g-perspective-panel ul { list-style: none; padding: 0; margin: 28px 0; display: grid; gap: 12px; }
+.g-perspective-panel li { display: flex; align-items: center; gap: 12px; font-size: 15px; }
 .g-perspective-panel li svg { color: #9d0c54; flex-shrink: 0; }
 .g-perspective-panel .g-secondary-link { color: #9d0c54; }
-.g-perspective-panels:not([data-keyboard=true]) .g-perspective-panel:not([hidden]) { opacity: 1; transition: opacity 200ms ease; }
+.g-perspective-panels:not([data-keyboard=true]) .g-perspective-panel:not([hidden]) { opacity: 1; transform: none; transition: opacity 260ms ease, transform 320ms var(--gc-ease); }
+@starting-style { .g-perspective-panels:not([data-keyboard=true]) .g-perspective-panel:not([hidden]) { opacity: 0; transform: translateY(10px); } }
+
+.g-scope-stage { position: relative; height: 440px; border-radius: 20px; background: radial-gradient(ellipse 70% 60% at 50% 45%, #fffefa, #eee8ec 70%, #e2dbe0); box-shadow: inset 0 1px 0 #fffefa, inset 0 0 0 1px #c7bfbd80; overflow: hidden; perspective: 1200px; }
+.g-scope-stage > div { position: absolute; top: 50%; left: 50%; transition: transform 640ms cubic-bezier(.77, 0, .175, 1), opacity 400ms ease; }
+.g-scope-slab { --slab: 300px; margin: -110px 0 0 -150px; }
+.g-scope-globe { --globe: 250px; margin: -125px 0 0 -125px; }
+.g-scope-lens { width: 200px; margin: -100px 0 0 -100px; }
+.g-scope-lens .g-lens { width: 100%; }
+.g-scope-stage[data-scope='code'] .g-scope-slab { transform: translate3d(0, 0, 0) scale(1.15); }
+.g-scope-stage[data-scope='code'] .g-scope-globe { transform: translate3d(70%, 0, 0) scale(.7); opacity: 0; }
+.g-scope-stage[data-scope='code'] .g-scope-lens { transform: translate3d(-120%, -60%, 0) scale(.6); opacity: 0; }
+.g-scope-stage[data-scope='https'] .g-scope-slab { transform: translate3d(-70%, 0, 0) scale(.7); opacity: 0; }
+.g-scope-stage[data-scope='https'] .g-scope-globe { transform: translate3d(0, 0, 0) scale(1.3); }
+.g-scope-stage[data-scope='https'] .g-scope-lens { transform: translate3d(120%, -60%, 0) scale(.6); opacity: 0; }
+.g-scope-stage[data-scope='both'] .g-scope-slab { transform: translate3d(-58%, 18%, 0) scale(.78); }
+.g-scope-stage[data-scope='both'] .g-scope-globe { transform: translate3d(62%, 14%, 0) scale(.82); }
+.g-scope-stage[data-scope='both'] .g-scope-lens { transform: translate3d(0, -38%, 0) scale(1); }
+.g-scope-stage .g-object-chip { display: none; }
+
+
+
+
+
+.g-perspectives h2, .g-faq h2 { font-size: clamp(2.25rem, 3.8vw, 3.5rem); line-height: 1.12; letter-spacing: -.035em; }
 .g-faq { display: grid; grid-template-columns: .8fr 1.2fr; gap: 70px; padding-block: 100px; }
 .g-faq details { border-top: 1px solid var(--gc-line); }
 .g-faq details:last-child { border-bottom: 1px solid var(--gc-line); }
@@ -97,7 +115,7 @@
   .g-button-small:hover { background: var(--gc-silver); box-shadow: none; }
   .g-nav > a:not(.g-button):hover { color: var(--gc-paper); }
   .g-nav > a:not(.g-button):hover::after { transform: scaleX(1); }
-  .g-perspective-controls button:hover { background: #eee8ec; }
+  .g-perspective-controls button:not([aria-selected=true]):hover { color: var(--gc-canvas); }
 }
 @media (max-width: 1050px) {
   .g-container { width: calc(100% - 64px); }
@@ -105,6 +123,7 @@
   .g-journey { gap: 32px; }
   .g-chapters h2 { font-size: 36px; }
   .g-chapters p { font-size: 16px; }
+  .g-perspective-layout { gap: 32px; }
   .g-perspective-layout, .g-faq { gap: 40px; }
 }
 @media (max-width: 760px) {
@@ -123,18 +142,19 @@
   .g-chapters article { min-height: 0; padding: 36px 0; border-top: 1px solid var(--gc-line-soft); }
   .g-chapters h2 { font-size: 32px; max-width: 350px; color: var(--gc-paper); }
   .g-chapters p { margin-top: 18px; font-size: 16px; }
-  .g-perspectives { padding-block: 48px; }
+  .g-perspectives { padding-block: 64px; }
   .g-perspectives-heading { display: block; margin-bottom: 28px; }
-  .g-perspectives-heading > p { margin-top: 22px; font-size: 16px; }
+  .g-perspectives-heading > p { margin-top: 18px; font-size: 16px; }
+  .g-perspective-controls button { min-height: 48px; font-size: 16px; padding: 8px; gap: 6px; }
+  .g-perspective-controls button svg { width: 18px; height: 18px; }
+  .g-perspective-layout { grid-template-columns: 1fr; gap: 8px; }
+  .g-perspective-panel { min-height: 0; }
+  .g-perspective-panel h3 { font-size: 26px; }
+  .g-scope-stage { order: -1; height: 280px; margin-top: 8px; }
+  .g-scope-slab { --slab: 220px; margin: -80px 0 0 -110px; }
+  .g-scope-globe { --globe: 190px; margin: -95px 0 0 -95px; }
+  .g-scope-lens { width: 140px; margin: -70px 0 0 -70px; }
   .g-perspectives h2, .g-faq h2 { font-size: 36px; }
-  .g-perspective-layout { grid-template-columns: 1fr; gap: 12px; padding-top: 18px; }
-  .g-perspective-controls { flex-direction: row; border-bottom: 1px solid #c7bfbd; }
-  .g-perspective-controls button { width: auto; flex: 1; min-height: 60px; font-size: 16px; padding: 12px; gap: 8px; justify-content: center; }
-  .g-perspective-controls button > svg:first-child { width: 18px; height: 18px; }
-  .g-perspective-controls button > svg:last-child { display: none; }
-  .g-perspective-panel { min-height: 350px; padding-top: 24px; }
-  .g-perspective-panel h3 { font-size: 24px; }
-  .g-perspective-panel li { font-size: 14px; }
   .g-faq { grid-template-columns: 1fr; gap: 30px; padding-block: 56px; }
   .g-faq summary { font-size: 16px; min-height: 76px; }
   .g-closing { padding-block: 22px 56px; }
