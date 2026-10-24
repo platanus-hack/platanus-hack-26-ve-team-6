@@ -275,7 +275,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     const dashboard = await fetch(`${origin}/dashboard`, { signal: AbortSignal.timeout(5000) });
     expect(dashboard.status).toBe(200);
     expect(dashboard.headers.get('content-type')).toContain('text/html');
-    expect(await dashboard.text()).toContain('gotchu');
+    expect(await dashboard.text()).toContain('Espacio de trabajo');
     const anonymous = cookieClient(origin);
     await rejected(await anonymous.api('/workspaces'), 401, 'unauthenticated');
     const denied = await fetch(`${origin}/api/customer/register`, { method: 'POST', headers: { origin: 'https://other.org', 'content-type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(5000) });
