@@ -91,7 +91,7 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     await expect(api.customers.recordReportDownload(c.identity, { ...c.scope, reportId: randomUUID() })).rejects.toMatchObject({ status: 404 });
     await expect(api.customers.recordReportDownload({ userId: f.b.userId }, { ...c.scope, reportId: result.report.id })).rejects.toMatchObject({ status: 403 });
     const history = await api.decisionRecords.list(c.identity, { organizationId: c.workspace.id, subjectType: 'report', subjectId: result.report.id });
-    expect(history.records.map(record => record.action)).toContain('report.downloaded');
+    expect(history.records.map(record => record.action)).toContain('report.download_requested');
   });
 
   it('enforces tenant roles, application uniqueness, archive and restore', async () => {

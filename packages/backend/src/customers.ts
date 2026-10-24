@@ -356,7 +356,7 @@ export function createCustomerService(deps: CustomerDependencies) {
         await authorize(tx, value.organizationId, actor);
         const result = await tx.query('SELECT id FROM gotchu.customer_reports WHERE organization_id=$1 AND application_id=$2 AND id=$3', [value.organizationId, value.applicationId, value.reportId]);
         if (!result.rowCount) throw new BackendError('not_found', 'Report not found', 404);
-        await audit(tx, value.organizationId, actor.userId, 'report.downloaded', value.reportId);
+        await audit(tx, value.organizationId, actor.userId, 'report.download_requested', value.reportId);
       });
     },
     async getRequest(input: CustomerClaim): Promise<CustomerRunInput> {

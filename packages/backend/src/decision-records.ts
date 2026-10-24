@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { z } from 'zod';
-import { decisionRecordPageSchema, decisionRecordQuerySchema, decisionRecordSchema, decisionRecordSubjectTypeSchema, type DecisionRecordPage } from '@gotchu/contracts';
+import { decisionRecordActionSchema, decisionRecordPageSchema, decisionRecordQuerySchema, decisionRecordSchema, decisionRecordSubjectTypeSchema, type DecisionRecordPage } from '@gotchu/contracts';
 import { authorize, BackendError, parse, type BaseDependencies, type Identity } from './core.js';
 
 const inputSchema = z.object({ organizationId: z.uuid(), ...decisionRecordQuerySchema.shape }).strict()
@@ -8,7 +8,7 @@ const inputSchema = z.object({ organizationId: z.uuid(), ...decisionRecordQueryS
 const cursorSchema = z.object({ createdAt: z.iso.datetime(), id: z.uuid() }).strict();
 const rowSchema = z.object({
   id: z.string(), actor_id: z.string(), actor_email: z.string().nullable(), action: z.string().min(1).max(256),
-  subject_id: z.string().nullable(), subject_type: decisionRecordSubjectTypeSchema, created_at: z.coerce.date(),
+  subject_id: z.string().nullable(), subject_type: decisionRecordSubjectTypeSchema, created_at: z.iso.datetime(),
 }).strict();
 const systemActorNames: Record<string, string> = {
   coordinator: 'Sistema de evaluación',
@@ -18,11 +18,12 @@ const systemActorNames: Record<string, string> = {
   'model-gateway': 'Gestión de modelos',
 };
 const subjectCase = `CASE
+  WHEN action = 'workspace.created' THEN 'workspace'
   WHEN action LIKE 'alert.%' THEN 'alert'
   WHEN action LIKE 'operation_plan.%' THEN 'plan'
   WHEN action LIKE 'action.%' OR action LIKE 'proposal.%' THEN 'action'
   WHEN action LIKE 'execution.%' THEN 'execution'
-  WHEN action IN ('assessment.recorded','customer_assessment.recorded','report.downloaded') THEN 'report'
+  WHEN action IN ('assessment.recorded','customer_assessment.recorded','report.download_requested') THEN 'report'
   WHEN action IN ('assessment.queued','customer_assessment.queued') THEN 'assessment'
   WHEN action LIKE 'target.%' THEN 'target'
   WHEN action LIKE 'source.%' THEN 'source'
@@ -61,6 +62,7 @@ function decodeCursor(value: string | undefined) {
 function outcomeFor(action: string) {
   if (action === 'alert.acknowledged') return 'acknowledged';
   if (action === 'alert.resolved') return 'resolved';
+  if (action === 'correction.prepared') return 'requested';
   if (action.endsWith('.approved')) return 'approved';
   if (action.endsWith('.rejected')) return 'rejected';
   if (action.endsWith('.cancelled')) return 'cancelled';
@@ -76,6 +78,7 @@ function outcomeFor(action: string) {
 
 function summaryFor(action: string) {
   const summaries: Record<string, string> = {
+    'workspace.created': 'Se creó el espacio de trabajo.',
     'alert.acknowledged': 'Una persona reconoció esta alerta.',
     'alert.resolved': 'Una persona marcó esta alerta como resuelta.',
     'operation_plan.created': 'Se creó una guía de revisión para la aplicación.',
@@ -92,7 +95,7 @@ function summaryFor(action: string) {
     'assessment.recorded': 'Se registró un informe de evaluación.',
     'customer_assessment.queued': 'Se solicitó una evaluación del alcance autorizado.',
     'customer_assessment.recorded': 'Se registró un informe de evaluación.',
-    'report.downloaded': 'Se descargó una copia JSON del informe.',
+    'report.download_requested': 'Se solicitó una copia JSON del informe.',
     'correction.prepared': 'Se solicitó preparar una corrección privada y su reanálisis.',
   };
   if (summaries[action]) return summaries[action];
@@ -117,8 +120,8 @@ function displayActor(actorId: string, email: string | null, currentUserId: stri
   return { kind: 'member' as const, displayName: 'Miembro anterior' };
 }
 
-function encodeCursor(createdAt: Date, id: string) {
-  return Buffer.from(JSON.stringify({ createdAt: createdAt.toISOString(), id })).toString('base64url');
+function encodeCursor(createdAt: string, id: string) {
+  return Buffer.from(JSON.stringify({ createdAt, id })).toString('base64url');
 }
 
 export function createDecisionRecordService(deps: BaseDependencies) {
@@ -128,7 +131,8 @@ export function createDecisionRecordService(deps: BaseDependencies) {
       const cursor = decodeCursor(value.cursor);
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, identity);
-        const result = await tx.query(`SELECT a.id,a.actor_id,m.email AS actor_email,a.action,a.subject_id,(${subjectCase}) AS subject_type,a.created_at
+        const result = await tx.query(`SELECT a.id,a.actor_id,m.email AS actor_email,a.action,a.subject_id,(${subjectCase}) AS subject_type,
+            to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at
           FROM gotchu.audit_records a
           LEFT JOIN gotchu.memberships m ON m.organization_id=a.organization_id AND m.user_id=a.actor_id
           WHERE a.organization_id=$1
@@ -141,15 +145,19 @@ export function createDecisionRecordService(deps: BaseDependencies) {
           value.subjectId ?? null, value.from ?? null, value.to ?? null, cursor?.createdAt ?? null, cursor?.id ?? null, value.limit + 1]);
         const rows = result.rows.map(row => rowSchema.parse(row));
         const hasMore = rows.length > value.limit;
-        const records = rows.slice(0, value.limit).map(row => decisionRecordSchema.parse({
-          id: row.id,
-          actor: displayActor(row.actor_id, row.actor_email, identity.userId),
-          action: row.action.length <= 100 ? row.action : 'unknown',
-          subject: { type: row.subject_type, id: row.subject_id },
-          createdAt: row.created_at.toISOString(),
-          outcome: outcomeFor(row.action),
-          summary: summaryFor(row.action),
-        }));
+        const records = rows.slice(0, value.limit).map(row => {
+          const parsedAction = decisionRecordActionSchema.safeParse(row.action);
+          const action = parsedAction.success ? parsedAction.data : 'unknown';
+          return decisionRecordSchema.parse({
+            id: row.id,
+            actor: displayActor(row.actor_id, row.actor_email, identity.userId),
+            action,
+            subject: { type: row.subject_type, id: row.subject_id },
+            createdAt: row.created_at,
+            outcome: outcomeFor(action),
+            summary: summaryFor(action),
+          });
+        });
         const cursorRow = rows[value.limit - 1];
         return decisionRecordPageSchema.parse({ records, nextCursor: hasMore && cursorRow
           ? encodeCursor(cursorRow.created_at, cursorRow.id) : null });

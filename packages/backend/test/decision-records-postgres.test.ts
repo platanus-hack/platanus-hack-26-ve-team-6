@@ -12,7 +12,7 @@ live('customer decision records with real Postgres tenant RLS', () => {
   afterAll(async () => { await f?.close(); });
 
   async function insertRecord(organizationId: string, input: {
-    actorId?: string; action: string; subjectId?: string | null; detail?: Record<string, unknown>; createdAt?: Date;
+    actorId?: string; action: string; subjectId?: string | null; detail?: Record<string, unknown>; createdAt?: Date | string;
   }) {
     const id = randomUUID();
     await f.admin.query(`INSERT INTO gotchu.audit_records(organization_id,id,actor_id,action,subject_id,detail,created_at)
@@ -26,8 +26,12 @@ live('customer decision records with real Postgres tenant RLS', () => {
     await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'viewer')", [f.a.organizationId, viewerId]);
     const ownSubject = randomUUID();
     const otherSubject = randomUUID();
+    const correctionSubject = randomUUID();
+    const workspaceSubject = randomUUID();
     await insertRecord(f.a.organizationId, { action: 'alert.acknowledged', subjectId: ownSubject });
     await insertRecord(f.b.organizationId, { action: 'alert.acknowledged', subjectId: otherSubject });
+    await insertRecord(f.a.organizationId, { action: 'correction.prepared', subjectId: correctionSubject });
+    await insertRecord(f.a.organizationId, { action: 'workspace.created', subjectId: workspaceSubject });
 
     await expect(api.decisionRecords.list({ userId: viewerId }, { organizationId: f.a.organizationId, subjectType: 'alert', subjectId: ownSubject }))
       .resolves.toMatchObject({ records: [{ subject: { type: 'alert', id: ownSubject } }] });
@@ -35,18 +39,23 @@ live('customer decision records with real Postgres tenant RLS', () => {
       .rejects.toMatchObject({ status: 403 });
     await expect(api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'alert', subjectId: otherSubject }))
       .resolves.toEqual({ records: [], nextCursor: null });
+    await expect(api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'correction', subjectId: correctionSubject }))
+      .resolves.toMatchObject({ records: [{ action: 'correction.prepared', outcome: 'requested' }] });
+    await expect(api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'workspace', subjectId: workspaceSubject }))
+      .resolves.toMatchObject({ records: [{ action: 'workspace.created', summary: 'Se creó el espacio de trabajo.' }] });
   });
 
   it('enforces the maximum page size and returns older records through a stable keyset cursor', async () => {
-    const createdAt = new Date('2026-10-24T12:00:00.000Z');
-    const ids = await Promise.all(Array.from({ length: 53 }, () => insertRecord(f.a.organizationId, { action: 'future.audit_action', createdAt })));
-    const first = await api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'other', limit: 50 });
+    const createdAt = '2026-10-24T12:00:00.000001Z';
+    const subjectId = randomUUID();
+    const ids = await Promise.all(Array.from({ length: 53 }, () => insertRecord(f.a.organizationId, { action: 'future.audit_action', subjectId, createdAt })));
+    const first = await api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'other', subjectId, limit: 50 });
     expect(first.records).toHaveLength(50);
     expect(first.nextCursor).toEqual(expect.any(String));
-    await expect(api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'other', limit: 51 }))
+    await expect(api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'other', subjectId, limit: 51 }))
       .rejects.toMatchObject({ code: 'invalid_input' });
 
-    const second = await api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'other', limit: 50, cursor: first.nextCursor ?? undefined });
+    const second = await api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'other', subjectId, limit: 50, cursor: first.nextCursor ?? undefined });
     const returnedIds = [...first.records, ...second.records].map(record => record.id);
     expect(second.records).toHaveLength(3);
     expect(second.nextCursor).toBeNull();
@@ -76,8 +85,9 @@ live('customer decision records with real Postgres tenant RLS', () => {
     expect(serialized).not.toContain(f.a.userId);
     expect(page.records).toEqual([expect.objectContaining({ actor: { kind: 'member', displayName: 'owner@example.test' }, action: 'target.enrolled', subject: { type: 'target', id: f.a.integrationId } })]);
     expect(unknown.records).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actor: { kind: 'member', displayName: 'Miembro anterior' }, action: 'future.audit_action', summary: 'Esta actividad quedó registrada en el historial del espacio.', subject: { type: 'other' } }),
+      expect.objectContaining({ actor: { kind: 'member', displayName: 'Miembro anterior' }, action: 'unknown', summary: 'Esta actividad quedó registrada en el historial del espacio.', subject: expect.objectContaining({ type: 'other' }) }),
     ]));
     expect(member.records).toEqual([expect.objectContaining({ outcome: 'changed', summary: 'Se retiró a una persona del espacio de trabajo.' })]);
+    expect(unknown.records.every(record => record.action === 'unknown')).toBe(true);
   });
 });
