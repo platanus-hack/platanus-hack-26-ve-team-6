@@ -24,6 +24,7 @@ const factBundleSchema = validationFactsSchema.extend({
   runActionRef: z.uuid(),
   storedRunId: z.uuid(),
   candidateSourceId: z.uuid(),
+  validationMode: z.enum(['correction', 'dependency']),
   patchDigest: digest,
   candidateTreeDigest: digest,
   storedAttestations: z.array(z.object({ id: z.uuid(), keyId: digest, signature: z.string().min(1), expiresAt: z.date() }).strict()),
@@ -54,8 +55,8 @@ function validationReason(raw: unknown, runner: {
     : action.evidence[0]?.id;
   if (facts.runOrganizationId !== action.organizationId || facts.runApplicationId !== action.applicationId
     || facts.runActionRef !== facts.actionRef || facts.storedRunId !== facts.runId || facts.candidateSourceId !== expectedActionRef) return 'validation_tampered';
-  if (action.kind === 'dependency_pull_request' && runner.validationMode !== 'dependency'
-    || action.kind === 'source_patch_pull_request' && runner.validationMode !== 'correction') return 'validation_tampered';
+  if (action.kind === 'dependency_pull_request' && facts.validationMode !== 'dependency'
+    || action.kind === 'source_patch_pull_request' && facts.validationMode !== 'correction') return 'validation_tampered';
   if (action.kind === 'source_patch_pull_request'
     && (facts.patchDigest !== action.patchSha256 || facts.candidateTreeDigest !== action.snapshotSha256)) return 'validation_tampered';
   const boundAttestationIds = action.kind === 'source_patch_pull_request' ? action.validationAttestationIds
@@ -164,13 +165,21 @@ export function createActionVerifier(input: {
         return { eligible: false, blockingReasons: ['sin adaptador de escritura'] };
       }
       const link = await input.database.tenant(action.organizationId, async tx => {
-        const result = await tx.query<{ repository_key: string; default_branch: string; state: string; revoked: boolean; write_access: string; installation_id: string | null; installation_state: string | null }>(
-          `SELECT l.repository_key,l.default_branch,l.state,l.revoked,l.write_access,l.installation_id,g.state AS installation_state
-           FROM gotchu.application_repository_links l LEFT JOIN gotchu.github_installations g
-             ON g.organization_id=l.organization_id AND g.installation_id=l.installation_id
-           WHERE l.organization_id=$1 AND l.application_id=$2 AND l.id=$3`,
-          [action.organizationId, action.applicationId, action.target.repositoryLinkId],
-        );
+        type RepositoryLink = {
+          repository_key: string; default_branch: string; state: string; revoked: boolean; write_access: string;
+          installation_id: string | null; installation_state: string | null;
+        };
+        const result = action.kind === 'dependency_pull_request'
+          ? await tx.query<RepositoryLink>(`SELECT l.repository_key,l.default_branch,l.state,l.revoked,l.write_access,l.installation_id,g.state AS installation_state
+              FROM gotchu.application_repository_links l LEFT JOIN gotchu.github_installations g
+                ON g.organization_id=l.organization_id AND g.installation_id=l.installation_id
+              WHERE l.organization_id=$1 AND l.application_id=$2 AND l.id=$3`,
+          [action.organizationId, action.applicationId, action.target.repositoryLinkId])
+          : await tx.query<RepositoryLink>(`SELECT repository_key,default_branch,state,revoked,write_access,
+                NULL::text AS installation_id,NULL::text AS installation_state
+              FROM gotchu.application_repository_links
+              WHERE organization_id=$1 AND application_id=$2 AND id=$3`,
+          [action.organizationId, action.applicationId, action.target.repositoryLinkId]);
         return result.rows[0];
       });
       const linkValid = link !== undefined && !link.revoked && link.state === 'verified'

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { actionV2Schema } from '@gotchu/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { computeGitTreeSha } from '@gotchu/git-adapters';
-import { canonicalJson, createBackend, sha256 } from '../src/index.js';
+import { canonicalJson, createActionVerifier, createBackend, createValidationService, readPinnedRootfsDigest, sha256 } from '../src/index.js';
 import { fixture, liveUrl } from '../../database/test/support.js';
 
 const live = liveUrl ? describe : describe.skip;
@@ -129,5 +130,24 @@ live('dependency candidate action persistence on real PostgreSQL (synthetic vali
     expect(hiddenCandidate.rowCount).toBe(0);
     expect(hiddenProposal.rowCount).toBe(0);
     expect(hiddenArtifact.rowCount).toBe(0);
+
+    const validations = createValidationService({ database: f.databases.gotchu_api });
+    const verifier = createActionVerifier({
+      database: f.databases.gotchu_api,
+      pinnedRootfsDigest: readPinnedRootfsDigest(),
+      repository: {
+        readHead: async () => baseCommit,
+        isPolicyCurrent: async () => true,
+        inspectAutomation: async () => [],
+      },
+      validationFacts: {
+        getFacts: async input => {
+          const facts = await validations.getValidationFacts(input);
+          return facts ? { ...facts, attestations: [], keys: [] } : null;
+        },
+      },
+    });
+    const verified = await verifier.verify(actionV2Schema.parse(stored.rows[0]?.body), { phase: 'proposal' });
+    expect(verified.blockingReasons).toContain('validation_unsigned');
   }, 30_000);
 });
