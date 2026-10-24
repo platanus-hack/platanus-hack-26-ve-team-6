@@ -13,7 +13,7 @@ Scope: public landing, Persuade. Audience: people maintaining a business applica
 
 THESIS: A brand board that works. Gotchu speaks like an identity system: one bold mark, giant wide type, drenched magenta fields and technical blueprint detail. User-pinned references: the VAULTXO brand board (type, mark, panels), firecrawl.dev (blueprint grid, bracket labels, ASCII and pixel art), exa.ai (dot fields, mono tags). Refuses the centred headline over a product render.
 
-OWN-WORLD: Graphite #191923 ground, magenta #e7147d display fields, action #c80c68 where small text sits on magenta, silver #c7bfbd and ink #0f0f16 cards, small smooth radii (8px controls, 16px cards). Archivo expanded uppercase display, Archivo text body, ui-monospace bracket tags. The `[◆]` mark, ASCII 3D render, 11×11 dot pictograms, hairline 96px grid with plus marks.
+OWN-WORLD: Graphite #191923 ground, magenta #e7147d display fields, action #c80c68 where small text sits on magenta, silver #c7bfbd and ink #0f0f16 cards, small smooth radii (8px controls, 16px cards). Saira expanded uppercase display, Saira text body, ui-monospace bracket tags. The `[◆]` mark, ASCII 3D render, 11×11 dot pictograms, hairline 96px grid with plus marks.
 
 STORY: See the claim and the mark; scroll as the brackets split into Código and HTTPS and close on one finding (GOTCHU); see the report vocabulary; learn how each perspective enters; choose scope; read limits; open Gotchu.
 

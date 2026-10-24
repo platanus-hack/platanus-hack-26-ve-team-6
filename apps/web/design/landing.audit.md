@@ -6,7 +6,7 @@ Scope: public `/` and local design context only. Customer/demo presentation, bac
 
 - Product claims checked against `packages/contracts/src/assessment.ts` (severity, confidence and coverage enums, `responseMode: 'observation'`, empty `actionsPerformed`), `customer-dashboard.tsx` and `docs/architecture.md`.
 - Copy distinguishes source snapshots, explicitly authorized HTTPS and combined evidence. No monitoring, automatic fixes, whole-site crawl, execution of uploaded code or guaranteed security is advertised.
-- The landing ships no raster or SVG artwork files; the mark, ASCII render, pictograms and grid are authored in components. No reference-site assets, AIRNT or loader are included. Archivo ships with its OFL license.
+- The landing ships no raster or SVG artwork files; the mark, ASCII render, pictograms and grid are authored in components. No reference-site assets, AIRNT or loader are included. Saira ships with its OFL license.
 - No artwork explanations, mock-analysis captions, invented scanner results, metrics or testimonials.
 
 ## Verification exercised

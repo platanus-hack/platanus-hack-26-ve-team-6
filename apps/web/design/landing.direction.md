@@ -6,6 +6,10 @@
 - **Signature moment:** in the framed hero panel, the `[◆]` mark rendered in 3D ASCII turns toward the pointer under a sweeping scan line (pausable); its brackets snap shut on the finding whenever a `data-catch` action is hovered. The pinned stage spreads the brackets under [ Código ] and [ HTTPS ], closes them behind a giant GOTCHU flash, then hands over to the report panel.
 - **Boundaries:** landing, local design context, presentation helpers and tests only. Customer/demo UI, backend, permissions, auth and deployment remain untouched.
 
+## Voice
+
+Short two-beat statements and one human sentence underneath, in the style of brote-three.vercel.app; copy drafted with GPT-6.1 Sol and checked against product truth. Hero: "Mira de cerca. Decide con pruebas." No helper captions, scope labels or bracket tags around content.
+
 ## Motion decisions
 
 | Location | Purpose | Frequency | Implementation |
@@ -33,7 +37,7 @@ Below 761px wide, below 560px tall, under reduced motion and without JavaScript,
 
 - Mark geometry and lockup: `gotchu-mark.tsx`. ASCII render: `ascii-mark.tsx`. Pictograms: `dot-matrix.tsx`. Texture: `wordmark-rows.tsx`. Grid: `blueprint-grid.tsx`. Pointer field: `pointer-field.ts`.
 - Hero: `hero.tsx`. Stage: `convergence.tsx`. Journey panels: `product-flow.tsx`. Page and sections: `landing.tsx`, `landing.css`, `src/styles/tokens.css`.
-- Faces: Archivo (OFL variable) self-hosted in `public/fonts`, exposed as Gotchu Display (118% width) and Gotchu Text (100%). AIRNT is a visual reference only.
+- Faces: Saira (OFL variable) self-hosted in `public/fonts`, exposed as Gotchu Display (125% width) and Gotchu Text (100%). AIRNT is a visual reference only.
 - Regression gate: `e2e/design.spec.ts`, `test/ui.test.ts`.
 
 ## Open decisions

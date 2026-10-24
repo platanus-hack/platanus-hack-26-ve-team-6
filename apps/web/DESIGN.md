@@ -20,25 +20,25 @@ colors:
   focus: "#ffabd0"
 typography:
   display:
-    fontFamily: "'Gotchu Display', 'Archivo', sans-serif"
+    fontFamily: "'Gotchu Display', 'Saira', sans-serif"
     fontSize: "clamp(2.3rem, 4vw, 4.25rem)"
     fontWeight: 700
     lineHeight: 1.06
     letterSpacing: "-0.02em"
   headline:
-    fontFamily: "'Gotchu Display', 'Archivo', sans-serif"
+    fontFamily: "'Gotchu Display', 'Saira', sans-serif"
     fontSize: "clamp(2.5rem, 4.6vw, 4.5rem)"
     fontWeight: 700
     lineHeight: 0.98
     letterSpacing: "-0.025em"
   title:
-    fontFamily: "'Gotchu Display', 'Archivo', sans-serif"
+    fontFamily: "'Gotchu Display', 'Saira', sans-serif"
     fontSize: "22px"
     fontWeight: 700
     lineHeight: 1.1
     letterSpacing: "-0.005em"
   label:
-    fontFamily: "'Gotchu Display', 'Archivo', sans-serif"
+    fontFamily: "'Gotchu Display', 'Saira', sans-serif"
     fontSize: "14px"
     fontWeight: 700
     lineHeight: 1
@@ -194,7 +194,7 @@ The landing tokens are scoped to `.g-page`; customer and demo surfaces keep thei
 
 **Key Characteristics:**
 - Graphite ground, magenta display fields, silver and ink panels, porcelain type.
-- One Archivo variable file in two faces: Gotchu Display (118% width, 700, uppercase) for everything that speaks, Gotchu Text (100% width) for reading; ui-monospace for tags, nav and numbers.
+- One Saira variable file in two faces: Gotchu Display (125% width, 700, uppercase) for everything that speaks, Gotchu Text (100% width) for reading; ui-monospace for tags, nav and numbers.
 - Near-square geometry: a small radius scale from 2px pixels to 16px section cards; flat fields and hairlines; a hard-edged, translucent 4px offset on hover.
 - ASCII and pixel art only: the ASCII mark, 11×11 dot pictograms, blueprint grids.
 - Motion moves in straight lines and squares (scan lines, widening square radar, sliding bars); every moving piece has a still equivalent.
@@ -227,8 +227,8 @@ Four brand colours (graphite, magenta, porcelain, silver) on a tonal graphite la
 
 ## Typography
 
-**Display Font:** Gotchu Display: Archivo variable fixed at 118% width (self-hosted OFL, `public/fonts/archivo-latin.woff2`), falling back to Archivo then sans-serif
-**Body Font:** Gotchu Text: the same Archivo file at 100% width, falling back to the platform sans
+**Display Font:** Gotchu Display: Saira variable fixed at 125% width (self-hosted OFL, `public/fonts/saira-latin.woff2`), falling back to Saira then sans-serif
+**Body Font:** Gotchu Text: the same Saira file at 100% width, falling back to the platform sans
 **Label/Mono Font:** ui-monospace
 
 **Character:** a wide grotesque shouting in uppercase over its own normal-width cut; mono tags and numbers read like the labels on a technical drawing.
@@ -244,9 +244,9 @@ Four brand colours (graphite, magenta, porcelain, silver) on a tonal graphite la
 - **Code** (14px/1.95 mono): export listing with gutter line numbers; DNS record at 18px.
 
 ### Named Rules
-**The Two-Width Rule.** Both faces come from one variable file: Display is always 118% width, 700 and uppercase, with negative tracking at headline sizes and positive tracking at label sizes; Text is 100% width for every reading line. Reading copy is never set in the display cut.
+**The Two-Width Rule.** Both faces come from one variable file: Display is always 125% width, 700 and uppercase, with negative tracking at headline sizes and positive tracking at label sizes; Text is 100% width for every reading line. Reading copy is never set in the display cut.
 
-**The Licence Rule.** AIRNT is a visual reference only. Ship Archivo (OFL, licence file alongside the woff2); never embed or distribute AIRNT without licence evidence.
+**The Licence Rule.** AIRNT is a visual reference only. Ship Saira (OFL, licence file alongside the woff2); never embed or distribute AIRNT without licence evidence.
 
 ## Layout
 
@@ -351,6 +351,6 @@ A full-width 16px-radius panel on a 125° gradient (magenta to 38%, action at 68
 - **Don't** show a loader or splash before content.
 - **Don't** invent results, metrics, findings, customers or animated pseudo-data; show product structure instead.
 - **Don't** set small text on signal magenta (#e7147d) or graphite text on action magenta (#c80c68).
-- **Don't** ship or embed AIRNT; Archivo is the licensed face.
+- **Don't** ship or embed AIRNT; Saira is the licensed face.
 - **Don't** use custom cursors, scroll snapping or hijacking, or particles that cover content.
 - **Don't** put a tag or mono line above a headline as a kicker.
