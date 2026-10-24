@@ -4,7 +4,7 @@ import { Dialog } from '@base-ui/react/dialog';
 import { GotchuMark } from '../components/gotchu-mark';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { ThemeSwitch } from './theme';
+import { ThemeSwitch } from '../components/theme-switch';
 
 const LINKS = [
   { href: '#gl-codigo', label: 'Cómo funciona' },

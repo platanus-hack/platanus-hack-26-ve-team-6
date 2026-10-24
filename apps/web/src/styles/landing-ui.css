@@ -1,9 +1,9 @@
 /*
- * shadcn/ui theme for the landing, mapped from DESIGN.md.
+ * shadcn/ui theme for the whole app, mapped from DESIGN.md. Loaded once from the root route.
  *
- * Tailwind's preflight is left out on purpose: this stylesheet can stay loaded after client
- * navigation, and a global reset would restyle /dashboard and /demo. Tokens and the minimal reset
- * below are scoped to the landing root (.gl) for the same reason. The theme follows the
+ * Tailwind's preflight is left out on purpose: a global reset
+ * would restyle anything outside the branded roots. Tokens and the minimal reset below are scoped to page roots that
+ * carry the .gl class (landing, /dashboard, /setup, /privacy, /terms). The theme follows the
  * html[data-theme] attribute that THEME_SCRIPT sets, with prefers-color-scheme as the no-JS fallback.
  */
 @layer theme, base, components, utilities;
@@ -169,11 +169,11 @@
   }
 }
 
-/* The page behind the landing matches its ground, so overscroll never shows another color. */
-html:has(.gl-page), html:has(.gl-page) body { background: #ffffff; }
-html[data-theme='dark']:has(.gl-page), html[data-theme='dark']:has(.gl-page) body { background: #000000; }
+/* The page behind every surface matches its ground, so overscroll never shows another color. */
+html, body { margin: 0; background: #ffffff; }
+html[data-theme='dark'], html[data-theme='dark'] body { background: #000000; }
 @media (prefers-color-scheme: dark) {
-  html:not([data-theme]):has(.gl-page), html:not([data-theme]):has(.gl-page) body { background: #000000; }
+  html:not([data-theme]), html:not([data-theme]) body { background: #000000; }
 }
 
 /* Minimal reset scoped to the landing, standing in for preflight. */

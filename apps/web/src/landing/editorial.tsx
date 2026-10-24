@@ -46,7 +46,7 @@ type MarkProps = {
 export function Mark({ children, size = 'body', delay = 0, load = false, hover = false }: MarkProps) {
   const ref = useReveal<HTMLSpanElement>();
   const className = `gl-mark gl-mark--${size}${load ? ' gl-mark--load' : ''}${hover ? ' gl-mark--hover' : ''}`;
-  return <span ref={load ? undefined : ref} className={className} style={{ '--gl-delay': `${delay}ms` }}>{children}</span>;
+  return <span ref={load ? undefined : ref} className={className} style={{ '--gl-delay': `${delay}ms` }}>{size === 'big' ? <span className="gl-mark-ink">{children}</span> : children}</span>;
 }
 
 type DisplayProps = {
