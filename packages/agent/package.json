@@ -1,0 +1,20 @@
+{
+  "name": "@gotchu/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@langchain/langgraph": "^1.5.2",
+    "jose": "^6.2.13",
+    "zod": "^4.0.0"
+  }
+}
