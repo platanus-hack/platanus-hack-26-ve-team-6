@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { CUSTOMER_MAX_SOURCE_BYTES, CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES, customerOriginSchema, customerSourceSnapshotSchema, customerQueueSchema, customerRunInputSchema, customerAssessmentIntentSchema, customerAssessmentReportSchema, customerEnrollTargetSchema } from '../src/index.js';
+import { CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, CUSTOMER_MAX_SOURCE_BYTES, CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES, customerOriginSchema, customerPublicImageReferenceSchema, customerSourceSnapshotSchema, customerQueueSchema, customerRunInputSchema, customerAssessmentIntentSchema, customerAssessmentReportSchema, customerEnrollTargetSchema } from '../src/index.js';
 
 const snapshot = () => ({ revision: 'real-revision', files: [{ path: 'src/index.ts', content: 'export const value = 1;' }] });
 describe('customer assessment input boundaries', () => {
@@ -35,6 +35,28 @@ describe('customer assessment input boundaries', () => {
     expect(customerQueueSchema.safeParse({ ...scope, mode: 'both', sourceSnapshotId: null, targetId: randomUUID() }).success).toBe(false);
     expect(customerQueueSchema.safeParse({ ...scope, mode: 'internal', sourceSnapshotId: randomUUID(), targetId: randomUUID() }).success).toBe(false);
   });
+  it('accepts digest-pinned public images and bounded archive inputs only in internal mode', () => {
+    const scope = { organizationId: randomUUID(), applicationId: randomUUID(), idempotencyKey: 'image-key' };
+    const jobId = randomUUID();
+    const imageId = randomUUID();
+    const digest = 'a'.repeat(64);
+    const reference = `docker.io/library/alpine@sha256:${digest}`;
+    const archive = Buffer.from('tiny archive');
+    expect(CUSTOMER_MAX_CONTAINER_IMAGE_BYTES).toBe(8 * 1024 * 1024);
+    expect(customerPublicImageReferenceSchema.safeParse(reference).success).toBe(true);
+    for (const invalid of ['docker.io/library/alpine:latest', 'private.example.com/team/app@sha256:' + digest, 'docker.io/library/alpine@sha256:' + 'A'.repeat(64)]) {
+      expect(customerPublicImageReferenceSchema.safeParse(invalid).success, invalid).toBe(false);
+    }
+    const archiveQueue = { ...scope, mode: 'internal', sourceSnapshotId: null, targetId: null, inputKind: 'container_image', containerImage: { kind: 'archive', imageId } };
+    expect(customerQueueSchema.safeParse(archiveQueue).success).toBe(true);
+    expect(customerQueueSchema.safeParse({ ...archiveQueue, mode: 'both' }).success).toBe(false);
+    const fullInput = { version: 2, organizationId: scope.organizationId, applicationId: scope.applicationId, jobId, applicationName: 'Customer', mode: 'internal', inputKind: 'container_image', source: null, target: null,
+      containerImage: { kind: 'archive', id: imageId, digest, size: archive.byteLength, archiveBase64: archive.toString('base64') } };
+    expect(customerRunInputSchema.safeParse(fullInput).success).toBe(true);
+    expect(customerRunInputSchema.safeParse({ ...fullInput, containerImage: { ...fullInput.containerImage, size: archive.byteLength + 1 } }).success).toBe(false);
+    expect(customerAssessmentIntentSchema.safeParse({ ...fullInput, containerImage: { kind: 'archive', id: imageId, digest, size: archive.byteLength } }).success).toBe(true);
+    expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: [{ path: 'main.tf', content: 'resource "x" "y" {}' }, { path: 'Dockerfile', content: 'FROM scratch' }, { path: 'app.py', content: 'pass' }, { path: 'main.go', content: 'package main' }, { path: 'App.java', content: 'class App {}' }] }).success).toBe(true);
+  });
   it('keeps durable source pointers compact while materialized inputs accept the full source limit', () => {
     const input = { version: 2, organizationId: randomUUID(), applicationId: randomUUID(), jobId: randomUUID(), applicationName: 'Customer', mode: 'internal', target: null,
       source: { id: randomUUID(), digest: 'a'.repeat(64), revision: 'r', files: Array.from({ length: 4 }, (_, i) => ({ path: `${i}.ts`, content: 'x'.repeat(CUSTOMER_MAX_SOURCE_FILE_BYTES - 1000) })) } };
@@ -55,5 +77,11 @@ describe('customer assessment input boundaries', () => {
     expect(customerAssessmentReportSchema.safeParse({ ...report, internal: { ...report.internal, origin: 'external' } }).success).toBe(false);
     const evidence = Array.from({ length: 200 }, () => ({ id: randomUUID(), origin: 'internal', kind: 'source', locator: 'src/index.ts', collectedAt: timestamp, snapshotRef: 'sha256:test', tool: { name: 'test', version: '1' }, checksum: 'a'.repeat(64), excerpt: 'é'.repeat(4096) }));
     expect(customerAssessmentReportSchema.safeParse({ ...report, internal: { ...report.internal, status: 'completed', evidence } }).success).toBe(false);
+    const imageDigest = 'b'.repeat(64);
+    const imageReport = { ...report, internal: { ...report.internal, snapshotRef: `container-image:sha256:${imageDigest}` }, subject: {
+      sourceSnapshotId: null, sourceDigest: null, targetId: null, targetVersion: null, origin: null,
+      containerImageId: randomUUID(), containerImageDigest: imageDigest, containerImageReference: null,
+    } };
+    expect(customerAssessmentReportSchema.safeParse(imageReport).success).toBe(true);
   });
 });
