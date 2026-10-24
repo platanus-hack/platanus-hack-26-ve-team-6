@@ -11,7 +11,7 @@ const userId = `credentials:${randomUUID()}`;
 function ports() {
   const unused = async (): Promise<never> => { throw new Error('Unexpected service invocation'); };
   const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listReports: unused, getReport: unused, queue: unused, job: unused };
-  const auth: AuthService = { enabled: true, handle: async () => new Response(), identity: async () => ({ userId, cookies: [] }) };
+  const auth: AuthService = { enabled: true, handle: async () => new Response(), identity: async () => ({ userId, cookies: ['authjs.session-token=refreshed; Path=/; HttpOnly'] }) };
   return { services, auth };
 }
 function request(path: string, payload?: unknown, headers: HeadersInit = {}) {
@@ -29,6 +29,7 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     const { services, auth } = ports();
     services.stepUp = {
       verifier: { verify: async () => { throw new Error('Unexpected verifier call'); } },
+      invalidateSession: vi.fn(async () => undefined),
       list: vi.fn(async () => []), beginEnrollment: vi.fn(async () => ({ challengeId: randomUUID(), expiresAt: new Date(), options: { challenge: 'random-challenge', rp: { name: 'Gotchu' }, user: { id: 'user', name: 'user', displayName: 'user' }, pubKeyCredParams: [{ type: 'public-key' as const, alg: -7 }] } })),
       beginRecoveryEnrollment: vi.fn(async () => ({ challengeId: randomUUID(), expiresAt: new Date(), options: { challenge: 'random-challenge', rp: { name: 'Gotchu' }, user: { id: 'user', name: 'user', displayName: 'user' }, pubKeyCredParams: [{ type: 'public-key' as const, alg: -7 }] } })),
       finishEnrollment: vi.fn(async () => ({ factor: { id: randomUUID(), credentialId: 'credential', label: 'Llave', createdAt: new Date().toISOString(), lastUsedAt: null }, recoveryCodes: [] })),
@@ -40,6 +41,7 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     const response = await handle(request('step-up/challenges', { organizationId, actionHash: 'a'.repeat(64) }));
     expect(response.status).toBe(201);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.getSetCookie()).toContain('authjs.session-token=refreshed; Path=/; HttpOnly');
     expect(services.stepUp?.beginChallenge).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, actionHash: 'a'.repeat(64) });
     auth.identity = async () => null;
     expect((await handle(request('step-up/challenges', { organizationId, actionHash: 'a'.repeat(64) }))).status).toBe(401);

@@ -92,7 +92,10 @@ export function createCustomerApi(options: {
         const stepUp = services.stepUp;
         if (!stepUp) throw new HttpError(503, 'step_up_not_configured', 'La verificación en dos pasos no está configurada.');
         const response = await handleStepUpApi(request, identity, stepUp);
-        if (response) return response;
+        if (response) {
+          for (const cookie of session.cookies) response.headers.append('set-cookie', cookie);
+          return response;
+        }
       }
       const pathParts = url.pathname.split('/').filter(Boolean);
       if (pathParts.length >= 7 && pathParts[0] === 'api' && pathParts[1] === 'customer'

@@ -25,8 +25,8 @@ export async function handleStepUpApi(request: Request, identity: Identity, step
       return send(await stepUp.list(identity, parse(uuid, url.searchParams.get('organizationId'))));
     }
     if (path.length === 2 && path[0] === 'factors' && path[1] === 'enrollment-options' && request.method === 'POST') {
-      const value = parse(z.object({ organizationId: uuid }).strict(), await body(request));
-      return send(await stepUp.beginEnrollment(identity, value.organizationId), 201);
+      const value = parse(z.object({ organizationId: uuid, proof: z.string().min(32).max(128).optional(), password: z.string().min(1).max(128).optional() }).strict(), await body(request));
+      return send(await stepUp.beginEnrollment(identity, value.organizationId, { ...(value.proof ? { proof: value.proof } : {}), ...(value.password ? { password: value.password } : {}) }), 201);
     }
     if (path.length === 2 && path[0] === 'factors' && path[1] === 'recovery-options' && request.method === 'POST') {
       const value = parse(z.object({ organizationId: uuid, recoveryCode: z.string().min(10).max(128) }).strict(), await body(request));

@@ -64,11 +64,12 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const apiDatabase = env.GOTCHU_API_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_API_DATABASE_URL, role: 'gotchu_api', max: 5 }) : null;
   const ingestDatabase = env.GOTCHU_INGEST_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_INGEST_DATABASE_URL, role: 'gotchu_ingest', max: 5 }) : null;
   const accounts = apiDatabase && env.GOTCHU_LOCAL_AUTH_ENABLED === 'true' ? createLocalAccounts(apiDatabase) : undefined;
-  const settings = authSettings(env, accounts);
-  const auth = createAuthService(settings);
   const dnsServers = env.GOTCHU_DNS_SERVERS_JSON ? z.array(z.string().min(1).max(100)).max(5).parse(JSON.parse(env.GOTCHU_DNS_SERVERS_JSON)) : [];
   const eventCredentials = env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY ? createFileEventCredentials(env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY) : undefined;
-  const web = apiDatabase ? createBackend({ database: apiDatabase, webAuthn: { rpID, origin, rpName: 'Gotchu' }, customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, webAuthn: { rpID, origin, rpName: 'Gotchu', ...(accounts ? { verifyPassword: (userId, password) => accounts.reauthenticate(userId, password) } : {}) }, customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const stepUp = web?.stepUp;
+  const settings = authSettings(env, accounts, stepUp ? userId => stepUp.invalidateSession(userId) : undefined);
+  const auth = createAuthService(settings);
   const configuredCredentials = credentialStore(env.GOTCHU_EVENT_SIGNING_KEYS_JSON);
   const credentials: CredentialStore | undefined = eventCredentials || configuredCredentials ? { getSigningSecret: async reference => {
     if (reference.startsWith('local-event:') && eventCredentials) return eventCredentials.getSigningSecret(reference);
