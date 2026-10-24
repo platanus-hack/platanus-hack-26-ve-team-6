@@ -3,6 +3,7 @@ import '../styles/tokens.css';
 
 const options = [
   { href: '/', label: 'Actual' },
+  { href: '/variantes/anterior', label: 'Anterior' },
   { href: '/variantes/a', label: 'Variante A' },
   { href: '/variantes/b', label: 'Variante B' },
   { href: '/variantes/c', label: 'Variante C' },
