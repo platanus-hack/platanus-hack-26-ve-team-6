@@ -15,9 +15,11 @@ docker compose -p "gotchu-$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr -c
   --profile web --profile coordinator up -d --build web coordinator
 ```
 
-The setup script creates `infra/.env` with mode `0600`. It contains local database passwords and `AUTH_SECRET`; it does not create identity-provider credentials, organization assignments, an event-signing key, or a worker signing key. No Auth.js identity provider is enabled by default. `GOTCHU_EVENT_SIGNING_KEYS_JSON` is an optional web-only local credential-map adapter, with JSON keys mapped to base64-encoded signing keys. It is empty by default and is not production secret custody. Keep this file local. The root `.dockerignore` excludes it and other environment files from image build contexts.
+The setup script creates `infra/.env` with mode `0600`. It contains local database passwords and `AUTH_SECRET`; it does not create identity-provider credentials, organization assignments, an event-signing key, or a worker signing key. GitHub and generic OIDC sign-in are optional. Set `AUTH_OIDC_ISSUER`, `AUTH_OIDC_CLIENT_ID`, `AUTH_OIDC_CLIENT_SECRET`, and optionally `AUTH_OIDC_NAME` in the local environment file when configuring an OIDC provider. `GOTCHU_EVENT_SIGNING_KEYS_JSON` is an optional web-only local credential-map adapter, with JSON keys mapped to base64-encoded signing keys. It is empty by default and is not production secret custody. Keep this file local. The root `.dockerignore` excludes it and other environment files from image build contexts.
 
-Both app profiles use the root Dockerfile. The build stages use Node 24.18.1, pnpm 11.21.0, and `pnpm install --frozen-lockfile`; runtime images contain production dependencies and compiled output only. Containers run as UID/GID 1000 with a read-only root filesystem, a writable `/tmp` tmpfs, dropped capabilities, `no-new-privileges`, and CPU, memory, and process limits.
+Both app profiles use the root Dockerfile. The build stages use Node 24.18.1, pnpm 11.21.0, and `pnpm install --frozen-lockfile`; runtime images contain production dependencies and compiled output only. The coordinator image also includes `@gotchu/assessment` compiled output, its production dependencies and offline advisory snapshot, plus `@gotchu/demo-target` compiled output, dependencies, and trusted fixture files at their workspace paths. Containers run as UID/GID 1000 with a read-only root filesystem, a writable `/tmp` tmpfs, dropped capabilities, `no-new-privileges`, and CPU, memory, and process limits.
+
+The controlled demo is opt-in: `GOTCHU_DEMO_ENABLED` defaults to `false` for both web and coordinator. Set it to `true` in `infra/.env` to enable the fixed fictional target and assessment flow. When `GOTCHU_DEMO_TARGET_ORIGIN` is unset, the coordinator starts its own trusted target at `127.0.0.1:4100`; an operator may set an approved loopback/private target origin as an override. Compose never publishes port `4100`. The assessment reads only the bundled fixtures and offline advisory snapshot; it does not need a model, paid service, source repository, or external identity provider. Customer-code execution remains disabled.
 
 | Service | Profile | Published address | Readiness gate |
 | --- | --- | --- | --- |
@@ -26,7 +28,7 @@ Both app profiles use the root Dockerfile. The build stages use Node 24.18.1, pn
 | Postgres | always on | `127.0.0.1:55432` | Persistent named volume; bootstrap credentials are not used by app containers. |
 | Redis | always on | `127.0.0.1:56379` | Password protected, AOF enabled, persistent named volume. |
 
-No sign-in provider is enabled by default. Configure a supported generic OIDC provider when interactive sign-in is needed; GitHub is optional. Fresh second-factor approval remains explicitly unavailable in the web readiness capability data. The coordinator returns 503 while no organization is assigned. Investigator availability is reported separately: deterministic queue processing can be ready without a model worker, and investigation jobs remain visibly unavailable until one is configured.
+No sign-in provider is enabled by default. Configure a supported generic OIDC provider or optional GitHub OAuth when interactive sign-in is needed. The controlled demo itself has no external provider dependency. Fresh second-factor approval remains explicitly unavailable in the web readiness capability data. The coordinator returns 503 while no organization is assigned. Investigator availability is reported separately: deterministic queue processing can be ready without a model worker, and investigation jobs remain visibly unavailable until one is configured.
 
 The coordinator reads `GOTCHU_COORDINATOR_HOST` for its bind address. Its container sets this to `0.0.0.0` so Docker can publish the listener; it does not use the unrelated `HOST` variable. Never publish the database or Redis ports beyond loopback, and do not attach the agent to either data network or mount the Docker socket.
 
@@ -44,6 +46,14 @@ The isolated agent profile receives no database, Redis, provider credential, sig
 scripts/infra-compose-validate.sh
 scripts/infra-live-check.sh
 scripts/infra-local-down.sh
+```
+
+After building the coordinator image, the focused packaging check accepts normalized Compose JSON on stdin and optionally an image name. It checks the opt-in/default and private-port policy, then runs both built-in assessment revisions from that image with networking disabled:
+
+```sh
+docker build --target coordinator -t gotchu-coordinator-check -f Dockerfile .
+docker compose --profile '*' --env-file infra/.env -f infra/compose.yaml config --format json \
+  | node scripts/infra-check.mjs gotchu-coordinator-check
 ```
 
 The live check uses a unique Compose project, random loopback ports, mode-0600 temporary credentials, and isolated named volumes. It verifies persistent Postgres/Redis state, invokes database bootstrap twice to check role idempotency and safety, builds and probes the real web/coordinator images, and confirms the four gated profiles still exit 78. Its cleanup removes only that test project's containers, local images, volumes, and temporary credentials. Normal `infra-local-down.sh` retains the local persistent volumes.

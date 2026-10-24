@@ -103,6 +103,11 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:?run scripts/infra-local-setup.sh first}
       AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
       AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET:-}
+      AUTH_OIDC_ISSUER: ${AUTH_OIDC_ISSUER:-}
+      AUTH_OIDC_CLIENT_ID: ${AUTH_OIDC_CLIENT_ID:-}
+      AUTH_OIDC_CLIENT_SECRET: ${AUTH_OIDC_CLIENT_SECRET:-}
+      AUTH_OIDC_NAME: ${AUTH_OIDC_NAME:-}
+      GOTCHU_DEMO_ENABLED: ${GOTCHU_DEMO_ENABLED:-false}
       GOTCHU_EVENT_SIGNING_KEYS_JSON: ${GOTCHU_EVENT_SIGNING_KEYS_JSON:-}
       GOTCHU_API_DATABASE_URL: postgresql://${GOTCHU_API_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_API_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
       GOTCHU_INGEST_DATABASE_URL: postgresql://${GOTCHU_INGEST_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_INGEST_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
@@ -154,6 +159,8 @@ services:
       GOTCHU_ORGANIZATION_IDS: ${GOTCHU_ORGANIZATION_IDS:-}
       GOTCHU_WORKER_URL: ${GOTCHU_WORKER_URL:-}
       GOTCHU_RUN_CAPABILITY_PRIVATE_KEY: ${GOTCHU_RUN_CAPABILITY_PRIVATE_KEY:-}
+      GOTCHU_DEMO_ENABLED: ${GOTCHU_DEMO_ENABLED:-false}
+      GOTCHU_DEMO_TARGET_ORIGIN:
       PORT: 3003
       GOTCHU_COORDINATOR_HOST: 0.0.0.0
     depends_on:
