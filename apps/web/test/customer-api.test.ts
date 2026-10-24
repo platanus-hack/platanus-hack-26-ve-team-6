@@ -122,7 +122,7 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
       observationDays: 30, runDays: 30, notificationDeliveryDays: 90, protectionEventDays: 30, updatedAt: new Date().toISOString() };
     const getPolicy = vi.fn(async () => policy);
     const updatePolicy = vi.fn(async (_identity: { userId: string }, input: { organizationId: string; sourceSnapshotDays: number; containerImageDays: number; reportDays: number; observationDays: number; runDays: number; notificationDeliveryDays: number; protectionEventDays: number }) => ({ ...input, updatedAt: new Date().toISOString() }));
-    services.retention = { getPolicy, updatePolicy, claimDue: async () => [], purge: async () => ({ sourceSnapshots: 0, containerImages: 0, reports: 0, observations: 0, runs: 0, notificationDeliveries: 0, protectionEvents: 0, proposalsInvalidated: 0 }) };
+    services.retention = { getPolicy, updatePolicy, claimDue: async () => [], purge: async () => ({ sourceSnapshots: 0, containerImages: 0, reports: 0, observations: 0, runs: 0, notificationDeliveries: 0, protectionEvents: 0, proposalsInvalidated: 0, runsTrimmed: 0, observationsTrimmed: 0, plansTrimmed: 0 }) };
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
     const path = `/api/customer/workspaces/${organizationId}/retention`;
     const fetched = await handle(new Request(`${origin}${path}`));

@@ -97,4 +97,26 @@ live('workspace retention with real Postgres roles', () => {
     expect(audit.rows[0]?.detail).toMatchObject({ sourceSnapshots: 1, proposalsInvalidated: 1 });
     expect(JSON.stringify(audit.rows[0]?.detail)).not.toContain('source-to-purge');
   });
+
+  it('trims count quotas and exposes the remaining workspace application capacity', async () => {
+    const c = await customer();
+    await f.admin.query('INSERT INTO gotchu.operation_monitors(organization_id,application_id,enabled,interval_seconds,author_id) VALUES($1,$2,false,3600,$3)', [c.organizationId,c.applicationId,c.identity.userId]);
+    await f.admin.query(`INSERT INTO gotchu.operation_runs(organization_id,application_id,id,monitor_revision,lease_token,lease_until,status)
+      SELECT $1,$2,gen_random_uuid(),1,gen_random_uuid(),clock_timestamp(),'completed' FROM generate_series(1,1000)`, [c.organizationId,c.applicationId]);
+    await f.admin.query(`WITH seeded AS (SELECT gen_random_uuid() AS id,n FROM generate_series(1,2000) n)
+      INSERT INTO gotchu.operation_observations(organization_id,application_id,id,idempotency_key,content_hash,body,basis,expires_at)
+      SELECT $1,$2,id,'quota-seed:'||n,repeat('a',64),jsonb_build_object('id',id::text,'organizationId',$1::uuid::text,'applicationId',$2::uuid::text,'verification','trusted_observation'),
+        '{}'::jsonb,clock_timestamp()+interval '1 day' FROM seeded`, [c.organizationId,c.applicationId]);
+    await f.admin.query(`WITH seeded AS (SELECT gen_random_uuid() AS id FROM generate_series(1,100))
+      INSERT INTO gotchu.operation_plans(organization_id,application_id,id,revision,action_hash,body)
+      SELECT $1,$2,id,1,repeat('b',64),jsonb_build_object('id',id::text,'organizationId',$1::uuid::text,'applicationId',$2::uuid::text,
+        'revision',1,'actionHash',repeat('b',64),'execution','disabled','state','draft','observationIds','[]'::jsonb) FROM seeded`, [c.organizationId,c.applicationId]);
+
+    const claim = present((await coordinator.retention.claimDue({ organizationId: c.organizationId }))[0]);
+    const result = await coordinator.retention.purge(claim);
+    expect(result).toMatchObject({ runsTrimmed: 1, observationsTrimmed: 1, plansTrimmed: 1 });
+    await expect(api.operations.getCoverage(c.identity, { organizationId: c.organizationId, applicationId: c.applicationId })).resolves.toMatchObject({
+      quotas: { runs: { used: 999, limit: 1000 }, observations: { used: 1999, limit: 2000 }, plans: { used: 99, limit: 100 } },
+    });
+  });
 });
