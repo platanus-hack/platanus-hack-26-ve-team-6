@@ -158,7 +158,10 @@ up() {
   INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" bash "$root/scripts/infra-db-bootstrap.sh"
   start_scanner; local port gateway; port="$(env_value SCANNER_HOST_PORT)"; gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
   wait_http "http://${gateway}:${port}/readyz" scanner
-  "${compose[@]}" --profile web --profile coordinator up -d --build web coordinator
+  "${compose[@]}" --profile web --profile coordinator build web coordinator
+  local coordinator_image="${project}-coordinator:latest"
+  "${compose[@]}" --profile web --profile coordinator config --format json | node "$root/scripts/infra-check.mjs" "$coordinator_image"
+  "${compose[@]}" --profile web --profile coordinator up -d web coordinator
   wait_http "$(env_value PUBLIC_APP_URL)/api/ready" web
   wait_http "http://127.0.0.1:$(env_value COORDINATOR_HOST_PORT)/health/ready" coordinator
   printf 'Gotchu listo en %s (%ss desde ./gotchu up).\n' "$(env_value PUBLIC_APP_URL)" "$(($(date +%s)-started))"

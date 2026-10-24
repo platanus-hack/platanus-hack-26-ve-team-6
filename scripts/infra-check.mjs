@@ -105,6 +105,7 @@ const triageRevision = triageRevisionSchema.parse({
 });
 assert.equal(triageRevision.id, 'runtime-package-smoke');
 process.stdout.write('Runtime @gotchu/triage import and schema check passed.\\n');
+assert.equal(triageRevisionSchema.safeParse({}).success, false, 'coordinator image must bundle its transitive @gotchu/triage runtime dependency');
 const target = await startDemoTargetServer({ host: '127.0.0.1', port: 0 });
 try {
   const runner = createControlledAssessmentRunner({ origin: target.origin });
