@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { aggregateAuthFailures, investigationResultSchema, safeCheckpointSchema, type AuthFailureEvent, type InvestigationResult } from '@gotchu/agent';
-import { BackendError, completeJob, createRunService, enqueue, type Backend, type JobClaim } from '@gotchu/backend';
+import { BackendError, completeJob, createRunService, enqueue, enqueueNotificationEvent, type Backend, type JobClaim } from '@gotchu/backend';
 import { jobEnvelopeSchema, securityEventSchema, type JobEnvelope } from '@gotchu/contracts';
 import type { Database, Transaction } from '@gotchu/database';
 import { z } from 'zod';
@@ -16,11 +16,13 @@ const payloadSchema = z.object({ incidentId: z.uuid(), evidenceIds: z.array(z.uu
 const projectionPayloadSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('assessment_observation'), reportId: z.uuid() }).strict(),
   z.object({ kind: z.literal('triage_evaluation'), windowBucket: z.number().int().nonnegative() }).strict(),
+  z.object({ kind: z.literal('alert_delivery'), eventId: z.uuid() }).strict(),
 ]);
 export interface Investigator {
   investigate(input: { organizationId: string; applicationId: string; runId: string; deadline: Date; evidenceIds: readonly string[] }): Promise<InvestigationResult>;
 }
-export interface CoordinatorDependencies { readonly database: Database; readonly backend: Backend; readonly investigator?: Investigator; readonly assessmentRunner?: AssessmentRunner; readonly customerAssessmentRunner?: CustomerAssessmentRunner }
+export interface NotificationEventWorker { deliverEvent(input: { organizationId: string; eventId: string }): Promise<void> }
+export interface CoordinatorDependencies { readonly database: Database; readonly backend: Backend; readonly investigator?: Investigator; readonly assessmentRunner?: AssessmentRunner; readonly customerAssessmentRunner?: CustomerAssessmentRunner; readonly notificationEventWorker?: NotificationEventWorker }
 
 async function failJob(tx: Transaction, claim: JobClaim, reason: string) {
   const result = await tx.query("UPDATE gotchu.jobs SET state='failed',result=$4::jsonb,completed_at=clock_timestamp(),lease_until=NULL WHERE organization_id=$1 AND id=$2 AND lease_token=$3 AND state='running' AND lease_until>clock_timestamp()", [claim.envelope.organizationId, claim.envelope.id, claim.leaseToken, JSON.stringify({ reasonCode: reason })]);
@@ -81,6 +83,8 @@ async function aggregate(dependencies: CoordinatorDependencies, claim: JobClaim)
       const fresh = inserted.rows[0];
       if (fresh) {
         created++;
+        await enqueueNotificationEvent(tx, { organizationId, applicationId, eventKey:`runtime-detector:${fresh.id}`, eventKind:'runtime_alert',
+          severity:'high', title:'Alerta del detector de autenticación', message:summary });
         await enqueue(tx, { organizationId, applicationId, id: randomUUID(), kind: 'investigation', idempotencyKey: `incident:${fresh.id}`, payload: { incidentId: fresh.id, evidenceIds } });
       } else {
         // Preserve the original evidence references while updating the counter summary.
@@ -200,25 +204,31 @@ export async function processDurableJob(dependencies: CoordinatorDependencies, r
     if (envelope.kind === 'events.aggregate') await aggregate(dependencies, claim);
     else if (envelope.kind === 'investigation') await investigate(dependencies, claim);
     else if (envelope.kind === 'audit') await assess(dependencies, claim);
-    else if (envelope.kind === 'notification') await dependencies.database.tenant(envelope.organizationId, async tx => {
-      const current = await tx.query("SELECT id FROM gotchu.jobs WHERE organization_id=$1 AND id=$2 AND state='running' AND lease_token=$3 AND lease_until>clock_timestamp() FOR UPDATE", [envelope.organizationId, envelope.id, claim.leaseToken]);
-      if (!current.rowCount) throw new BackendError('stale_lease', 'Observation projection requires a current job claim', 409);
+    else if (envelope.kind === 'notification') {
       const payload = projectionPayloadSchema.parse(claim.payload);
-      try {
-        if(payload.kind==='assessment_observation') await observeAssessment(backendInTransaction(dependencies.database, envelope.organizationId, tx), tx, { organizationId: envelope.organizationId, applicationId: envelope.applicationId, reportId: payload.reportId });
-        else await evaluateTriage(tx,{organizationId:envelope.organizationId,applicationId:envelope.applicationId});
-        await completeJob(tx, { organizationId: envelope.organizationId, jobId: envelope.id, leaseToken: claim.leaseToken });
-      } catch (error) {
-        // Expired evidence, archived scope and full storage cannot improve through transport retries.
-        if (!(error instanceof BackendError) || !['evidence_stale', 'application_archived', 'observation_capacity_exceeded', 'evidence_not_found'].includes(error.code)) throw error;
-        const reason = `assessment_projection_${error.code}`;
-        await tx.query(`INSERT INTO gotchu.coverage(organization_id,application_id,capability,state,reason,checked_at)
-          VALUES($1,$2,'assessment_alert_projection','degraded',$3,clock_timestamp())
-          ON CONFLICT(organization_id,application_id,capability) DO UPDATE SET state=EXCLUDED.state,reason=EXCLUDED.reason,checked_at=EXCLUDED.checked_at`,
-        [envelope.organizationId, envelope.applicationId, reason]);
-        await failJob(tx, claim, reason);
-      }
-    });
+      if (payload.kind === 'alert_delivery') {
+        if (!dependencies.notificationEventWorker) throw new BackendError('notification_adapter_not_configured', 'External notification delivery is not configured', 503);
+        await dependencies.notificationEventWorker.deliverEvent({ organizationId:envelope.organizationId,eventId:payload.eventId });
+        await dependencies.backend.jobs.complete({ organizationId:envelope.organizationId,jobId:envelope.id,leaseToken:claim.leaseToken });
+      } else await dependencies.database.tenant(envelope.organizationId, async tx => {
+        const current = await tx.query("SELECT id FROM gotchu.jobs WHERE organization_id=$1 AND id=$2 AND state='running' AND lease_token=$3 AND lease_until>clock_timestamp() FOR UPDATE", [envelope.organizationId, envelope.id, claim.leaseToken]);
+        if (!current.rowCount) throw new BackendError('stale_lease', 'Observation projection requires a current job claim', 409);
+        try {
+          if(payload.kind==='assessment_observation') await observeAssessment(backendInTransaction(dependencies.database, envelope.organizationId, tx), tx, { organizationId: envelope.organizationId, applicationId: envelope.applicationId, reportId: payload.reportId });
+          else await evaluateTriage(tx,{organizationId:envelope.organizationId,applicationId:envelope.applicationId});
+          await completeJob(tx, { organizationId: envelope.organizationId, jobId: envelope.id, leaseToken: claim.leaseToken });
+        } catch (error) {
+          // Expired evidence, archived scope and full storage cannot improve through transport retries.
+          if (!(error instanceof BackendError) || !['evidence_stale', 'application_archived', 'observation_capacity_exceeded', 'evidence_not_found'].includes(error.code)) throw error;
+          const reason = `assessment_projection_${error.code}`;
+          await tx.query(`INSERT INTO gotchu.coverage(organization_id,application_id,capability,state,reason,checked_at)
+            VALUES($1,$2,'assessment_alert_projection','degraded',$3,clock_timestamp())
+            ON CONFLICT(organization_id,application_id,capability) DO UPDATE SET state=EXCLUDED.state,reason=EXCLUDED.reason,checked_at=EXCLUDED.checked_at`,
+          [envelope.organizationId, envelope.applicationId, reason]);
+          await failJob(tx, claim, reason);
+        }
+      });
+    }
     else await dependencies.database.tenant(envelope.organizationId, (tx) => failJob(tx, claim, `${envelope.kind}_adapter_not_configured`));
     return { status: 'processed' };
   } catch (error) {

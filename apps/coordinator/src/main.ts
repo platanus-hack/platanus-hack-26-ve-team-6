@@ -14,6 +14,12 @@ import { reconcileDurableDeliveries } from './delivery.js';
 import { createCoordinatorTransport } from './transport.js';
 import { runMonitoringWork } from './monitoring.js';
 import { createConfiguredMonitoringAdapters } from './monitoring-adapters.js';
+import { inspectMonitoringLiveness, recordSchedulerHeartbeat } from './liveness.js';
+import { createNotificationDeliveryWorker } from './notification-delivery.js';
+import { createNotificationDeliverySender, readSmtpSettings } from './notification-adapters.js';
+import { createFileNotificationSecretStore } from '@gotchu/backend';
+import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 function report(event: string, error?: unknown) {
   console.error(JSON.stringify({ event, type: error instanceof Error ? error.name : 'unknown', ...(error instanceof z.ZodError ? { fields: error.issues.map((issue) => issue.path.join('.')) } : {}) }));
@@ -34,7 +40,11 @@ async function main() {
   });
   if (!['redis:', 'rediss:'].includes(new URL(config.redisUrl).protocol)) throw new Error('Invalid Redis connection protocol');
   const database = createDatabase({ connectionString: config.databaseUrl, role: 'gotchu_coordinator', max: 5 });
-  const backend = createBackend({ database });
+  const notificationSecretDirectory=process.env.GOTCHU_NOTIFICATION_SECRET_DIRECTORY ?? (config.nodeEnv==='production'?undefined:resolve('.local/dev/notification-secrets'));
+  const notificationSecrets=notificationSecretDirectory?createFileNotificationSecretStore(notificationSecretDirectory):undefined;
+  const backend = createBackend({ database, ...(notificationSecrets?{notificationSecrets}:{}) });
+  const smtp=readSmtpSettings(process.env);
+  const notificationEventWorker=createNotificationDeliveryWorker({backend,sender:createNotificationDeliverySender({...(notificationSecrets?{secrets:notificationSecrets}:{}),smtp})});
   const workerUrl = process.env.GOTCHU_WORKER_URL;
   const privateKeyPem = process.env.GOTCHU_RUN_CAPABILITY_PRIVATE_KEY;
   if (Boolean(workerUrl) !== Boolean(privateKeyPem)) throw new Error('Worker URL and capability signing key must be configured together');
@@ -59,16 +69,29 @@ async function main() {
   const controlledTarget = demoEnabled && !process.env.GOTCHU_DEMO_TARGET_ORIGIN ? await startDemoTargetServer({ host: '127.0.0.1', port: 4100 }) : undefined;
   const origin = process.env.GOTCHU_DEMO_TARGET_ORIGIN ?? controlledTarget?.origin;
   const assessmentRunner = demoEnabled ? createControlledAssessmentRunner(origin ? { origin } : {}) : undefined;
-  const dependencies = { database, backend, ...(investigator ? { investigator } : {}), ...(assessmentRunner ? { assessmentRunner } : {}), ...(customerAssessmentRunner ? { customerAssessmentRunner } : {}) };
+  const dependencies = { database, backend, notificationEventWorker, ...(investigator ? { investigator } : {}), ...(assessmentRunner ? { assessmentRunner } : {}), ...(customerAssessmentRunner ? { customerAssessmentRunner } : {}) };
   const transport = createCoordinatorTransport({ redisUrl: config.redisUrl, organizationIds: config.organizationIds, dependencies, report });
   const stop = new AbortController();
   const monitoringEnabled = process.env.GOTCHU_MONITORING_ENABLED === 'true';
   const monitoringAdapters = createConfiguredMonitoringAdapters({ ...(process.env.GOTCHU_MONITORING_CONFIG_FILE ? { configFile: process.env.GOTCHU_MONITORING_CONFIG_FILE } : {}), advisories: process.env.GOTCHU_MONITORING_OSV === 'true' });
+  const coordinatorId=randomUUID();
+  await inspectMonitoringLiveness(database,[...allowedOrganizations]);
+  await recordSchedulerHeartbeat(database,coordinatorId);
+  let lastHeartbeat=Date.now();
   let monitoringTask: Promise<void> | undefined;
+  const livenessTask=(async()=>{
+    while(!stop.signal.aborted){
+      try{await inspectMonitoringLiveness(database,[...allowedOrganizations]);}
+      catch(error){report('monitoring_liveness_check_failed',error);}
+      try{await delay(5_000,undefined,{signal:stop.signal});}
+      catch(error){if(!stop.signal.aborted)throw error;}
+    }
+  })();
   const loop = (async () => {
     let lastReconciliation = 0;
     while (!stop.signal.aborted) {
       try {
+        if(Date.now()-lastHeartbeat>=5_000){await recordSchedulerHeartbeat(database,coordinatorId);lastHeartbeat=Date.now();}
         if (monitoringEnabled && !monitoringTask) {
           const due = await backend.operations.claimDue({ limit: 1 });
           const work = due[0];
@@ -111,6 +134,7 @@ async function main() {
   const shutdown = async () => {
     stop.abort();
     await loop;
+    await livenessTask;
     await monitoringTask;
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     try { await transport.close(); }
