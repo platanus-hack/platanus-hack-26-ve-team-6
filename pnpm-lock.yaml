@@ -17,6 +17,9 @@ importers:
       '@gotchu/agent':
         specifier: workspace:*
         version: link:packages/agent
+      '@gotchu/assessment':
+        specifier: workspace:*
+        version: link:packages/assessment
       '@gotchu/backend':
         specifier: workspace:*
         version: link:packages/backend
@@ -26,6 +29,9 @@ importers:
       '@gotchu/database':
         specifier: workspace:*
         version: link:packages/database
+      '@gotchu/demo-target':
+        specifier: workspace:*
+        version: link:apps/demo-target
       '@gotchu/gateway':
         specifier: workspace:*
         version: link:apps/gateway
@@ -68,6 +74,9 @@ importers:
       '@gotchu/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@gotchu/assessment':
+        specifier: workspace:*
+        version: link:../../packages/assessment
       '@gotchu/backend':
         specifier: workspace:*
         version: link:../../packages/backend
@@ -77,6 +86,9 @@ importers:
       '@gotchu/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@gotchu/demo-target':
+        specifier: workspace:*
+        version: link:../demo-target
       bullmq:
         specifier: 6.4.0
         version: 6.4.0(ioredis@6.0.0)(pg@8.23.1)
@@ -86,6 +98,12 @@ importers:
       jose:
         specifier: ^6.2.13
         version: 6.2.13
+      zod:
+        specifier: ^4.0.0
+        version: 4.6.7
+
+  apps/demo-target:
+    dependencies:
       zod:
         specifier: ^4.0.0
         version: 4.6.7
@@ -197,9 +215,9 @@ importers:
 
   infra/pulumi:
     dependencies:
-      '@pulumi/digitalocean':
-        specifier: ^4.84.1
-        version: 4.84.1(typescript@5.9.3)
+      '@pulumi/aws':
+        specifier: ^7.51.1
+        version: 7.51.1(typescript@5.9.3)
       '@pulumi/pulumi':
         specifier: ^3.272.0
         version: 3.272.0(typescript@5.9.3)
@@ -228,6 +246,22 @@ importers:
       zod:
         specifier: ^4.0.0
         version: 4.6.7
+
+  packages/assessment:
+    dependencies:
+      '@gotchu/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      zod:
+        specifier: ^4.0.0
+        version: 4.6.7
+    devDependencies:
+      '@gotchu/demo-target':
+        specifier: workspace:*
+        version: link:../../apps/demo-target
 
   packages/backend:
     dependencies:
@@ -852,8 +886,8 @@ packages:
   '@protobufjs/utf8@1.1.2':
     resolution: {integrity: sha512-b1UQwcEZ4yCnMCD8DAL1VlbvBJE9/IX4FTIp7BG1xYpf29SLazLSrqUkj4w7Y5y7cCVP6E5tcqqcI0xemPkHug==}
 
-  '@pulumi/digitalocean@4.84.1':
-    resolution: {integrity: sha512-d4+6qkGyOWIxdr4UkhGPP/hEEkilPsfFThMSY+mt/mLW6aPuhi+WjfOl+10RlLpB+TJcsLEFrH/DMepvOoaa1A==}
+  '@pulumi/aws@7.51.1':
+    resolution: {integrity: sha512-uJBvElDsU2UVZOwFT3VBprUhc1i1WeHi8MAbbw4mag4okzZDfarHwfSimoMiBkO4XfdQScdY7rDI0g6xIZiosA==}
 
   '@pulumi/pulumi@3.272.0':
     resolution: {integrity: sha512-DepbT+tA3HnNo5+OtEMEevK1pC45PD/71sQh3tlWYFtW4tjuZijAQprvgCYcQUKNwRP3/Y3z83Kbvxn7y9HR2w==}
@@ -1917,6 +1951,11 @@ packages:
 
   merge-stream@2.0.0:
     resolution: {integrity: sha512-abv/qOcuPfk3URPfDzmZU1LKmuw8kT+0nIHvKrKgFrwifol/doWcdA4ZqsWQ8ENrFKkd67Mfpo/LovbIUsbt3w==}
+
+  mime@2.6.0:
+    resolution: {integrity: sha512-USPkMeET31rOMiarsBNIHZKLGgvKc/LrjofAnBlOttf5ajRvqiRA8QsenbcooctK6d6Ts6aqZXBA+XbkKthiQg==}
+    engines: {node: '>=4.0.0'}
+    hasBin: true
 
   mimic-fn@2.1.0:
     resolution: {integrity: sha512-OqbOk5oEQeAZ8WXWydlu9HJjz9WVdEIvamMCcXmuqUYjTknH/sqsWvhQ3vgwKFRR1HpjvNBKQ37nbJgYzGqGcg==}
@@ -3292,9 +3331,10 @@ snapshots:
 
   '@protobufjs/utf8@1.1.2': {}
 
-  '@pulumi/digitalocean@4.84.1(typescript@5.9.3)':
+  '@pulumi/aws@7.51.1(typescript@5.9.3)':
     dependencies:
       '@pulumi/pulumi': 3.272.0(typescript@5.9.3)
+      mime: 2.6.0
     transitivePeerDependencies:
       - supports-color
       - ts-node
@@ -4259,6 +4299,8 @@ snapshots:
       - supports-color
 
   merge-stream@2.0.0: {}
+
+  mime@2.6.0: {}
 
   mimic-fn@2.1.0: {}
 

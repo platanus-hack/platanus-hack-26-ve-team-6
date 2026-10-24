@@ -11,9 +11,13 @@
     "typecheck": "pnpm -r --sort --if-present typecheck && tsc -p test/tsconfig.json",
     "test": "pnpm -r --sort --if-present test",
     "test:integration": "node test/run-stack.mjs",
-    "check": "pnpm build && pnpm typecheck && pnpm test"
+    "check": "pnpm build && pnpm typecheck && pnpm test",
+    "demo:start": "node scripts/controlled-demo.mjs start",
+    "demo:stop": "node scripts/controlled-demo.mjs stop"
   },
   "devDependencies": {
+    "@gotchu/assessment": "workspace:*",
+    "@gotchu/demo-target": "workspace:*",
     "@auth/core": "0.41.3",
     "@gotchu/agent": "workspace:*",
     "@gotchu/backend": "workspace:*",
