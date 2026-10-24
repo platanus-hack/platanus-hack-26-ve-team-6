@@ -14,6 +14,7 @@ const exactVersion = z.string().max(100).regex(new RegExp(`^${semverPattern}$`))
 const pnpmVersionPrefix = new RegExp(`^(${semverPattern})(?=$|[_(])`);
 const packageLockEntrySchema = z.object({
   name: packageName.optional(), version: z.string().optional(), link: z.boolean().optional(),
+  integrity: z.string().max(1_024).optional(),
   dependencies: z.record(z.string(), z.unknown()).optional(), devDependencies: z.record(z.string(), z.unknown()).optional(),
   optionalDependencies: z.record(z.string(), z.unknown()).optional(), license: z.unknown().optional(),
   peerDependencies: z.record(z.string(), z.unknown()).optional(),
@@ -21,6 +22,7 @@ const packageLockEntrySchema = z.object({
 const npmLockSchema = z.object({ lockfileVersion: z.union([z.literal(2), z.literal(3)]), packages: z.record(z.string(), packageLockEntrySchema) });
 const yamlPackageSchema = z.object({
   name: z.string().optional(), version: z.string().optional(), license: z.unknown().optional(),
+  resolution: z.object({ integrity: z.string().max(1_024).optional() }).passthrough().optional(),
   dependencies: z.record(z.string(), z.unknown()).optional(), optionalDependencies: z.record(z.string(), z.unknown()).optional(),
   peerDependencies: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();
@@ -47,6 +49,7 @@ export interface LockedPackage {
   relationship: 'direct' | 'transitive' | 'unknown';
   dependencies: string[];
   declaredLicense: string | null;
+  integrity: string | null;
 }
 
 interface ParsedFile {
@@ -152,11 +155,11 @@ function rootManifestDependencies(files: NonNullable<CustomerRunInput['source']>
   return { dependencies: result, determinable };
 }
 
-function buildPackage(nameValue: unknown, versionValue: unknown, sourceFile: string, location: string, relationship: LockedPackage['relationship'], licenseValue: unknown): LockedPackage | null {
+function buildPackage(nameValue: unknown, versionValue: unknown, sourceFile: string, location: string, relationship: LockedPackage['relationship'], licenseValue: unknown, integrityValue?: unknown): LockedPackage | null {
   if (typeof nameValue !== 'string') return null;
   const name = npmName(nameValue); const version = typeof versionValue === 'string' ? npmVersion(versionValue) : null;
   if (!name.success || !version || location.length > 1_024) return null;
-  return { name: name.data, version, purl: npmPurl(name.data, version), sourceFile, location, relationship, dependencies: [], declaredLicense: declaredLicense(licenseValue) };
+  return { name: name.data, version, purl: npmPurl(name.data, version), sourceFile, location, relationship, dependencies: [], declaredLicense: declaredLicense(licenseValue), integrity: typeof integrityValue === 'string' ? integrityValue.slice(0, 1_024) : null };
 }
 
 function parseNpmLock(sourceFile: string, content: string): ParsedFile {
@@ -188,7 +191,7 @@ function parseNpmLock(sourceFile: string, content: string): ParsedFile {
   for (const [path, entry] of Object.entries(parsed.packages).sort(([left], [right]) => left.localeCompare(right))) {
     if (!path) continue;
     const inferred = path.split('node_modules/').at(-1) ?? '';
-    const component = buildPackage(entry.name ?? inferred, entry.version, sourceFile, `${sourceFile}:${path}`, path === `node_modules/${inferred}` && direct.has(inferred) ? 'direct' : 'transitive', entry.license);
+    const component = buildPackage(entry.name ?? inferred, entry.version, sourceFile, `${sourceFile}:${path}`, path === `node_modules/${inferred}` && direct.has(inferred) ? 'direct' : 'transitive', entry.license, entry.integrity);
     if (entry.link || !path.includes('node_modules/') || !component) { unknownCount++; continue; }
     if (Object.keys(entry.peerDependencies ?? {}).length > 0) graphComplete = false;
     byPath.set(path, component);
@@ -280,7 +283,7 @@ function parsePnpmLock(sourceFile: string, content: string): ParsedFile {
   let unknownCount = 0; let graphComplete = true;
   for (const [rawId, entry] of Object.entries(rawPackages)) {
     const id = pnpmPackageId(rawId); const metadataName = entry.name ?? id?.name; const metadataVersion = entry.version ?? id?.version;
-    const component = buildPackage(metadataName, metadataVersion, sourceFile, `${sourceFile}:${rawId}`, 'transitive', entry.license);
+    const component = buildPackage(metadataName, metadataVersion, sourceFile, `${sourceFile}:${rawId}`, 'transitive', entry.license, entry.resolution?.integrity);
     if (!component) { unknownCount++; continue; }
     if (Object.keys(entry.peerDependencies ?? {}).length > 0 || /\([^)]*\)/.test(rawId)) graphComplete = false;
     packages.push(component);
@@ -327,7 +330,7 @@ function parsePnpmLock(sourceFile: string, content: string): ParsedFile {
   return { packages, format, state, graphComplete, unknownCount };
 }
 
-interface YarnEntry { selectors: string[]; version: string | null; dependencies: Map<string, string>; license: string | null; incompleteGraph: boolean }
+interface YarnEntry { selectors: string[]; version: string | null; dependencies: Map<string, string>; license: string | null; integrity: string | null; incompleteGraph: boolean }
 function splitYarnSelectors(value: string) {
   const selectors: string[] = []; let quote = ''; let current = '';
   for (const char of value) {
@@ -362,7 +365,7 @@ function parseYarnEntries(content: string) {
       const selectors = splitYarnSelectors(line.slice(0, -1));
       if (metadataBlock) metadataBlock = false;
       if (selectors.length === 0 || selectors.some(selector => !selector.trim())) { malformed = true; current = null; continue; }
-      current = { selectors, version: null, dependencies: new Map(), license: null, incompleteGraph: false }; section = null; continue;
+      current = { selectors, version: null, dependencies: new Map(), license: null, integrity: null, incompleteGraph: false }; section = null; continue;
     }
     const indent = /^ */.exec(line)?.[0].length ?? 0;
     if (metadataBlock && indent === 2 && /^\s{2}[A-Za-z][A-Za-z0-9_-]*:\s*[^:]+\s*$/.test(line)) continue;
@@ -371,7 +374,9 @@ function parseYarnEntries(content: string) {
     if (version) { current.version = version[1] ?? version[2] ?? version[3] ?? null; section = null; continue; }
     const license = /^\s{2}license(?::\s*|\s+)(?:"([^"]+)"|'([^']+)'|([^\s#]+))/.exec(line);
     if (license) { current.license = license[1] ?? license[2] ?? license[3] ?? null; section = null; continue; }
-    if (/^\s{2}(?:resolved|integrity)\s+(?:"[^"]+"|'[^']+'|[^\s#]+)\s*$/.test(line)) { section = null; continue; }
+    const integrity = /^\s{2}integrity\s+(?:"([^"]+)"|'([^']+)'|([^\s#]+))\s*$/.exec(line);
+    if (integrity) { current.integrity = integrity[1] ?? integrity[2] ?? integrity[3] ?? null; section = null; continue; }
+    if (/^\s{2}(?:resolved|checksum)\s+(?:"[^"]+"|'[^']+'|[^\s#]+)\s*$/.test(line)) { section = null; continue; }
     const property = /^\s{2}([A-Za-z][A-Za-z0-9_-]*):(?:\s*(.*))?$/.exec(line);
     if (property) {
       const key = property[1]; const scalar = property[2] ?? '';
@@ -425,7 +430,7 @@ function parseYarnLock(sourceFile: string, content: string, directDependencies: 
     const isDirect = descriptors.some(item => directDependencies.get(item.name)?.has(item.range));
     const directRangeUnmatched = descriptors.some(item => directDependencies.has(item.name)) && !isDirect;
     const relationship = isDirect ? 'direct' : directnessDeterminable && !directRangeUnmatched ? 'transitive' : 'unknown';
-    const component = buildPackage(name, version, sourceFile, `${sourceFile}:${entry.selectors.join(', ')}`, relationship, entry.license);
+    const component = buildPackage(name, version, sourceFile, `${sourceFile}:${entry.selectors.join(', ')}`, relationship, entry.license, entry.integrity);
     if (!component) { unknownCount++; continue; }
     packages.push(component);
     for (const descriptor of descriptors) selectorToPackage.set(`${descriptor.name}\0${descriptor.range}`, component);

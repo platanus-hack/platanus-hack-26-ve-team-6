@@ -29,6 +29,31 @@ const osvDetailsSchema = z.object({
   }).passthrough()).max(50),
 }).passthrough();
 
+const symbolKeys = new Set(['symbol', 'symbols', 'function', 'functions', 'affected_function', 'affected_functions', 'affected_symbol', 'affected_symbols']);
+function advisorySymbols(value: unknown) {
+  const symbols = new Set<string>();
+  const visit = (current: unknown, depth: number) => {
+    if (depth > 5 || current === null || typeof current !== 'object') return;
+    if (Array.isArray(current)) { for (const item of current.slice(0, 100)) visit(item, depth + 1); return; }
+    for (const [key, child] of Object.entries(current).slice(0, 100)) {
+      if (symbolKeys.has(key.toLowerCase().replaceAll('-', '_'))) {
+        const values = Array.isArray(child) ? child : [child];
+        for (const item of values.slice(0, 50)) {
+          const name = typeof item === 'string' ? item : typeof item === 'object' && item !== null && 'name' in item && typeof item.name === 'string' ? item.name : null;
+          if (name && name.length <= 256 && /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(name)) symbols.add(name);
+        }
+      } else visit(child, depth + 1);
+      if (symbols.size >= 50) return;
+    }
+  };
+  visit(value, 0);
+  return [...symbols].sort().slice(0, 50);
+}
+
+export function extractOsvAffectedSymbols(affectedSpecific: unknown, vulnerabilitySpecific: unknown) {
+  return advisorySymbols({ ecosystem_specific: affectedSpecific, database_specific: vulnerabilitySpecific });
+}
+
 async function requestJson(path: string, signal: AbortSignal, limit: number): Promise<unknown> {
   const bytes = await new Promise<Buffer>((resolve, reject) => {
     const req = request({ hostname: 'api.osv.dev', port: 443, path, method: 'GET', agent: false, rejectUnauthorized: true, signal, maxHeaderSize: 8192, headers: { accept: 'application/json', 'accept-encoding': 'identity' } }, response => {
@@ -63,6 +88,10 @@ async function readAdvisories(ids: readonly string[], parentSignal: AbortSignal)
           package: { ecosystem: item.package.ecosystem, name: item.package.name },
           ...(item.versions === undefined ? {} : { versions: item.versions }),
           ...(item.ranges === undefined ? {} : { ranges: item.ranges }),
+          symbols: extractOsvAffectedSymbols(
+            Reflect.get(item, 'ecosystem_specific'),
+            { affected: Reflect.get(item, 'database_specific'), vulnerability: Reflect.get(parsed.data, 'database_specific') },
+          ),
         }));
         const metadata = osvAdvisoryMetadataSchema.safeParse({ id, withdrawn: parsed.data.withdrawn ?? null, affected: filtered });
         if (!metadata.success) { complete = false; continue; }
