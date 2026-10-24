@@ -69,6 +69,13 @@ COPY --from=coordinator-build --chown=node:node /workspace/apps/demo-target/pack
 COPY --from=coordinator-build --chown=node:node /workspace/apps/demo-target/dist /workspace/apps/demo-target/dist
 COPY --from=coordinator-build --chown=node:node /workspace/apps/demo-target/src/fixtures /workspace/apps/demo-target/src/fixtures
 COPY --from=coordinator-production-dependencies --chown=node:node /workspace/apps/demo-target/node_modules /workspace/apps/demo-target/node_modules
+COPY --from=coordinator-build --chown=node:node /workspace/apps/scanner/package.json /workspace/apps/scanner/package.json
+COPY --from=coordinator-build --chown=node:node /workspace/apps/scanner/dist /workspace/apps/scanner/dist
+COPY --from=coordinator-production-dependencies --chown=node:node /workspace/apps/scanner/node_modules /workspace/apps/scanner/node_modules
+COPY --from=coordinator-build --chown=node:node /workspace/packages/customer-assessment/package.json /workspace/packages/customer-assessment/package.json
+COPY --from=coordinator-build --chown=node:node /workspace/packages/customer-assessment/dist /workspace/packages/customer-assessment/dist
+COPY --from=coordinator-build --chown=node:node /workspace/packages/customer-assessment/profiles /workspace/packages/customer-assessment/profiles
+COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/customer-assessment/node_modules /workspace/packages/customer-assessment/node_modules
 WORKDIR /workspace/apps/coordinator
 USER node
 CMD ["node", "dist/main.js"]
