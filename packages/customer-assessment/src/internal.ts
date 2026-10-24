@@ -1,13 +1,17 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { defaultLicensePolicy, type AssessmentAnalysis, type AssessmentFinding, type CustomerRunInput } from '@gotchu/contracts';
+import { customerSourceFileSchema, defaultLicensePolicy, type AssessmentAnalysis, type AssessmentFinding, type CustomerRunInput, type DependencyArtifactAnalysis, type DependencyArtifactFinding, type DependencyReachability } from '@gotchu/contracts';
 import { analysis, bounded, isScannerCleanupError, evidence, finding, finish } from './common.js';
 import type { ScannerAdapter, ScannerName, ToolResult } from './docker.js';
 import { parseLockfile, type AdvisoryAdapter } from './advisory.js';
+import type { OsvAdvisoryMetadata } from '@gotchu/contracts';
 import type { LockedPackage } from './lockfiles.js';
 import type { LicenseAdapter, LicenseLookup } from './licenses.js';
 import { evaluateLicensePolicy, normalizeLicenseExpression, normalizeLicensePolicy } from './licenses.js';
 import { createHelmetCspGate, HELMET_CSP_GATE_VERSION, isHelmetCspCandidateRule, HELMET_CSP_TYPESCRIPT_VERSION } from './helmet-csp-gate.js';
 import { classifyKubernetesCandidate, findKubernetesCorrectionLocation } from './kubernetes.js';
+import type { NpmArtifactAdapter, NpmArtifactScanner, NpmArtifactSourceFile } from './npm-artifacts.js';
+import { analyzeDependencyReachability } from './reachability.js';
 
 const position = z.object({line:z.number().int().positive()});
 const semgrepPosition = position.extend({offset:z.number().int().nonnegative().optional(),col:z.number().int().positive().optional()});
@@ -133,7 +137,66 @@ function addTool(a: AssessmentAnalysis, name: ScannerName, result: ToolResult, s
       : 'Trivy ejecutó los comprobadores integrados de Kubernetes, Terraform y Dockerfile sobre los archivos subidos; no encontrar una regla no demuestra seguridad.';
   a.coverage.push({capability:name,state:parsed.incomplete || helmetGateIncomplete || truncated ? 'unavailable':'inspected',detail:helmetGateIncomplete ? 'A Helmet CSP Semgrep candidate lacked a unique call offset or fell outside the bounded parser gate; no correlated finding was emitted for that candidate.' : parsed.incomplete ? 'Scanner reported parsing or analysis errors; findings retain only available evidence.' : truncated ? 'Finding cap reached; additional matches were omitted.' : completedDetail});
 }
-export async function assessInternal(input: CustomerRunInput, signal: AbortSignal, scanners: ScannerAdapter, advisory?: AdvisoryAdapter, licenses?: LicenseAdapter) {
+export function createNpmArtifactScanner(scanners: ScannerAdapter): NpmArtifactScanner {
+  return async ({ package: pkg, artifactSha256 }, rawFiles, signal) => {
+    const packageLabel = `${pkg.name}@${pkg.version}`;
+    const files: NpmArtifactSourceFile[] = [];
+    let totalBytes = 0;
+    let complete = rawFiles.length > 0;
+    for (const file of rawFiles) {
+      const parsed = customerSourceFileSchema.safeParse(file);
+      if (!parsed.success || files.length >= 1_000 || totalBytes + Buffer.byteLength(file.content, 'utf8') > 4 * 1_048_576) {
+        complete = false;
+        continue;
+      }
+      files.push(file);
+      totalBytes += Buffer.byteLength(file.content, 'utf8');
+    }
+    if (files.length === 0) return { findings: [], tools: [], evidence: [], complete: false };
+    const source = { id: randomUUID(), digest: artifactSha256, revision: `npm:${packageLabel}`, files };
+    const artifactAnalysis = analysis('internal', `dependency:${packageLabel}:sha256:${artifactSha256}`);
+    const tools: { name: 'semgrep' | 'gitleaks'; version: string; image: string; profileChecksum: string }[] = [];
+    const findings: DependencyArtifactFinding[] = [];
+    for (const name of ['semgrep', 'gitleaks'] as const) {
+      signal.throwIfAborted();
+      try {
+        const result = await scanners.run(name, source, signal);
+        const before = artifactAnalysis.findings.length;
+        addTool(artifactAnalysis, name, result, source);
+        tools.push({ name, version: result.version, image: result.image, profileChecksum: result.profileChecksum });
+        for (const finding of artifactAnalysis.findings.slice(before)) {
+          findings.push({
+            tool: name,
+            ruleId: finding.ruleId,
+            title: finding.title,
+            location: `${packageLabel}:${finding.location}`.slice(0, 1_024),
+            severity: finding.severity,
+            confidence: finding.confidence,
+            exploitability: finding.exploitability,
+            description: finding.description.slice(0, 2_000),
+            evidenceIds: finding.evidenceIds,
+          });
+        }
+        if (artifactAnalysis.coverage.at(-1)?.state !== 'inspected') complete = false;
+      } catch (error) {
+        if (isScannerCleanupError(error)) throw error;
+        complete = false;
+      }
+    }
+    if (findings.length > 40) complete = false;
+    const retained = findings.slice(0, 40);
+    const retainedEvidenceIds = new Set(retained.flatMap(item => item.evidenceIds));
+    const evidence = artifactAnalysis.evidence
+      .filter(item => item.kind === 'configuration' || retainedEvidenceIds.has(item.id))
+      .slice(0, 100)
+      .map(item => ({ ...item, locator: `${packageLabel}:${item.locator}`.slice(0, 1_024) }));
+    const validEvidenceIds = new Set(evidence.map(item => item.id));
+    const retainedFindings = retained.filter(item => item.evidenceIds.every(id => validEvidenceIds.has(id)));
+    return { findings: retainedFindings, tools, evidence, complete: complete && retainedFindings.length === findings.length };
+  };
+}
+
+export async function assessInternal(input: CustomerRunInput, signal: AbortSignal, scanners: ScannerAdapter, advisory?: AdvisoryAdapter, licenses?: LicenseAdapter, artifacts?: NpmArtifactAdapter) {
   const source = input.source; if (!source) throw new Error('missing_source');
   const a = analysis('internal',`source:${source.id}:sha256:${source.digest}`);
   a.limitations.push('Static analysis only. Customer code, imports, build tools, package scripts and tests never execute.', 'The vendored Semgrep rule pack covers selected JavaScript/TypeScript, Python, Go and Java patterns. Gitleaks uses its pinned default rules. Trivy checks Kubernetes, Terraform and Dockerfile configuration. Rule matches are indications, not proof of exploitability.', 'Lockfile metadata is not proof of installed/deployed packages, reachability, exploitation or compromise. License values are declared metadata, not verified license text. No provider changes or remediation occur.');
@@ -245,35 +308,168 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
         : `License registry lookups or policy findings were capped or unavailable. ${inventoryComponents.filter(component => component.licenseConfidence === 'unknown').length} packages have unknown declared license metadata.`,
   });
 
+  const advisoryByPackage = new Map<string, { ids: string[]; symbols: string[]; complete: boolean; metadata: Map<string, OsvAdvisoryMetadata> }>();
+  let advisoryIncomplete = false;
   if (!advisory) {
+    advisoryIncomplete = true;
     a.coverage.push({ capability: 'dependency_advisories', state: 'unavailable', detail: 'Optional OSV adapter is not configured. No clean dependency claim.' });
   } else try {
     const advisoryPackages = uniquePackages.slice(0, 200);
     const matches = await bounded(() => advisory.query(advisoryPackages.map(({ name, version }) => ({ name, version })), signal), signal);
     if (matches.length !== advisoryPackages.length) throw new Error('advisory_count');
-    let incomplete = uniquePackages.length > advisoryPackages.length || matches.some(match => !match.complete);
+    advisoryIncomplete = uniquePackages.length > advisoryPackages.length || matches.some(match => !match.complete);
     for (let index = 0; index < matches.length; index++) {
       const match = matches[index]; const pkg = advisoryPackages[index]; if (!match || !pkg) continue;
-      for (const id of match.ids) {
-        if (a.findings.length >= 100 || a.evidence.length >= 200) { incomplete = true; break; }
-        const advisoryMetadata = match.advisories?.find(item => item.id === id);
-        const affected = advisoryMetadata?.affected.filter(item => item.package.ecosystem === 'npm' && item.package.name === pkg.name) ?? [];
-        const metadata = advisoryMetadata ? { id, withdrawn: advisoryMetadata.withdrawn ?? null, affected } : null;
-        const metadataIsBounded = metadata !== null && JSON.stringify(metadata).length <= 3_500;
-        if (!metadataIsBounded) incomplete = true;
-        const evidenceId = evidence(a, 'advisory', `osv:${id}`, { schemaVersion: 1, id, package: pkg, sourceDigest: source.digest,
-          advisory: metadataIsBounded ? metadata : null, queriedAt: new Date().toISOString() }, { name: 'OSV-querybatch', version: 'v1' });
-        finding(a, { ruleId: `osv.${id}`.slice(0, 128), correlationKey: `npm:${pkg.name}:${id}`, title: `Advisory match: ${pkg.name}@${pkg.version}`.slice(0, 256), location: pkg.location,
-          description: `The exact ${pkg.relationship} lockfile version matched ${id} in the configured OSV-compatible adapter. Advisory severity was not fetched.`, severity: 'unknown', confidence: 'observed',
-          impact: 'An advisory applies to the recorded version; installed state, reachability and exploitability remain unknown.', recommendation: 'Review the advisory and dependency path, choose a supported fix and validate the application.',
-          limitations: ['Severity is unassessed; do not interpret this as a low-risk determination.', 'No package installation, package source upload or exploit attempt.'], evidenceIds: [evidenceId] });
-      }
+      const records = (match.advisories ?? []).flatMap(item => item.affected.some(affected => affected.package.ecosystem === 'npm' && affected.package.name === pkg.name) ? [item] : []);
+      advisoryByPackage.set(`${pkg.name}\0${pkg.version}`, {
+        ids: match.ids,
+        symbols: [...new Set(records.flatMap(item => item.affected.filter(affected => affected.package.ecosystem === 'npm' && affected.package.name === pkg.name).flatMap(affected => affected.symbols ?? [])))].slice(0, 50),
+        complete: match.complete,
+        metadata: new Map(records.map(item => [item.id, item])),
+      });
     }
-    a.coverage.push({ capability: 'dependency_advisories', state: incomplete ? 'unavailable' : 'inspected', detail: incomplete
+    a.coverage.push({ capability: 'dependency_advisories', state: advisoryIncomplete ? 'unavailable' : 'inspected', detail: advisoryIncomplete
       ? `The bounded exact-version OSV query covered at most ${advisoryPackages.length} unique package versions. Remaining results are unknown.`
       : 'Bounded exact-version advisory queries completed; only package names and exact versions were sent to OSV.' });
   } catch {
-    a.coverage.push({ capability: 'dependency_advisories', state: 'unavailable', detail: 'Optional OSV adapter missing, failed or exceeded its request cap. No clean dependency claim.' });
+    advisoryIncomplete = true;
+    a.coverage.push({ capability: 'dependency_advisories', state: 'unavailable', detail: 'Optional OSV adapter failed or exceeded its request cap. No clean dependency claim.' });
+  }
+
+  const vulnerablePackages = uniquePackages.filter(pkg => (advisoryByPackage.get(`${pkg.name}\0${pkg.version}`)?.ids.length ?? 0) > 0);
+  const symbolsByPackage = new Map(vulnerablePackages.map(pkg => [`${pkg.name}\0${pkg.version}`, advisoryByPackage.get(`${pkg.name}\0${pkg.version}`)?.symbols ?? []]));
+  const reachability = analyzeDependencyReachability(source, locked.inventory, vulnerablePackages, symbolsByPackage, locked.graphComplete);
+  for (const pkg of vulnerablePackages) {
+    const value = reachability.get(pkg.purl);
+  }
+  a.coverage.push({
+    capability: 'dependency_reachability',
+    state: vulnerablePackages.length === 0 ? 'not_requested' : [...reachability.values()].some(value => value.state === 'unknown') ? 'unavailable' : 'inspected',
+    detail: vulnerablePackages.length === 0
+      ? 'Reachability was not requested because no exact-version advisory match was available.'
+      : 'A TypeScript compiler AST inspected supported JavaScript/TypeScript import, require, literal dynamic import and re-export syntax. Static non-matches are not proof of unreachability.',
+  });
+
+  const artifactByPackage = new Map<string, { analysis: DependencyArtifactAnalysis; evidence: AssessmentAnalysis['evidence'] }>();
+  const prioritized = [...vulnerablePackages].sort((left, right) => {
+    const rank = (pkg: LockedPackage) => {
+      const state = reachability.get(pkg.purl)?.state;
+      return (state === 'reachable' ? 0 : state === 'imported' ? 1 : state === 'unknown' ? 2 : 3) * 2 + (pkg.relationship === 'direct' ? 0 : 1);
+    };
+    return rank(left) - rank(right) || left.name.localeCompare(right.name) || left.version.localeCompare(right.version);
+  });
+  const artifactBatch = prioritized.slice(0, 3);
+  if (artifacts && artifactBatch.length > 0) {
+    try {
+      const results = await bounded(() => artifacts.analyze(artifactBatch.map(pkg => ({ name: pkg.name, version: pkg.version, integrity: pkg.integrity })), signal), signal);
+      for (const pkg of artifactBatch) {
+        const result = results.get(`${pkg.name}\0${pkg.version}`);
+        artifactByPackage.set(`${pkg.name}\0${pkg.version}`, result ?? {
+          analysis: { status: 'unavailable', integrity: 'missing', artifactSha256: null, extractedFileCount: 0, scannedFileCount: 0, tools: [], findings: [], limitation: ['The npm artifact adapter returned no result for this exact package version.'] }, evidence: [],
+        });
+      }
+    } catch (error) {
+      if (signal.aborted || isScannerCleanupError(error)) throw error;
+      for (const pkg of artifactBatch) artifactByPackage.set(`${pkg.name}\0${pkg.version}`, {
+        analysis: { status: 'unavailable', integrity: 'missing', artifactSha256: null, extractedFileCount: 0, scannedFileCount: 0, tools: [], findings: [], limitation: ['Exact npm artifact analysis failed or exceeded its time bound; no clean package-content result is inferred.'] }, evidence: [],
+      });
+    }
+  }
+
+  const artifactState = (pkg: LockedPackage) => artifactByPackage.get(`${pkg.name}\0${pkg.version}`)?.analysis.status ?? 'not_requested';
+  for (const pkg of vulnerablePackages) {
+    const key = `${pkg.name}\0${pkg.version}`;
+    const result = artifactByPackage.get(key);
+    if (!result) continue;
+    let remaining = 200 - a.evidence.length;
+    const retainedEvidence = result.evidence.slice(0, Math.max(0, remaining));
+    const evidenceIds = new Set(retainedEvidence.map(item => item.id));
+    const findings = result.analysis.findings.filter(item => item.evidenceIds.every(id => evidenceIds.has(id)));
+    remaining -= retainedEvidence.length;
+    a.evidence.push(...retainedEvidence);
+    const scanTruncated = findings.length !== result.analysis.findings.length || remaining < 0;
+    artifactByPackage.set(key, {
+      evidence: retainedEvidence,
+      analysis: scanTruncated ? { ...result.analysis, status: result.analysis.status === 'checksum_mismatch' ? 'checksum_mismatch' : 'scan_incomplete', findings, limitation: [...result.analysis.limitation, 'Artifact evidence exceeded the report bound; omitted evidence remains unknown.'].slice(0, 10) } : { ...result.analysis, findings },
+    });
+  }
+
+  const inventoryWithD12 = inventoryComponents.map(component => {
+    const key = `${component.name}\0${component.version}`;
+    const reachabilityResult = reachability.get(component.purl);
+    const artifact = artifactByPackage.get(key)?.analysis;
+    return {
+      ...component,
+      ...(reachabilityResult ? { reachability: reachabilityResult } : {}),
+      ...(vulnerablePackages.some(pkg => pkg.name === component.name && pkg.version === component.version) ? {
+        artifactAnalysis: artifact ?? {
+          status: 'not_requested' as const,
+          integrity: 'missing' as const,
+          artifactSha256: null,
+          extractedFileCount: 0,
+          scannedFileCount: 0,
+          tools: [],
+          findings: [],
+          limitation: [artifacts ? 'This package was outside the per-assessment artifact analysis cap.' : 'Exact npm artifact analysis is not configured.'],
+        },
+      } : {}),
+    };
+  });
+  a.dependencyInventory = { ...dependencyInventory, components: inventoryWithD12 };
+
+  const anyArtifactIncomplete = vulnerablePackages.some(pkg => artifactState(pkg) !== 'verified');
+  a.coverage.push({
+    capability: 'dependency_artifact_analysis',
+    state: vulnerablePackages.length === 0 ? 'not_requested' : artifacts && artifactBatch.length === vulnerablePackages.length && !anyArtifactIncomplete ? 'inspected' : 'unavailable',
+    detail: vulnerablePackages.length === 0
+      ? 'Exact package artifact analysis was not requested because OSV returned no advisory match.'
+      : artifacts
+        ? `At most ${artifactBatch.length} prioritized exact npm artifacts were fetched, SHA-512 checked, safely extracted in memory, and sent to Semgrep/Gitleaks. Other versions and incomplete results remain unknown.`
+        : 'Exact npm artifact adapter is not configured. Package contents, registry substitution and source-profile findings remain unknown.',
+  });
+
+  for (const pkg of vulnerablePackages) {
+    const key = `${pkg.name}\0${pkg.version}`;
+    const packageReachability = reachability.get(pkg.purl) ?? {
+      state: 'unknown', symbolCoverage: 'unknown', symbols: [], importEvidence: [], symbolEvidence: [], dependencyPath: null,
+      limitation: ['Static reachability analysis did not produce a result.'],
+    } satisfies DependencyReachability;
+    const packageArtifact = artifactByPackage.get(key)?.analysis;
+    const integrityMismatchCount = vulnerablePackages.filter(item => artifactState(item) === 'checksum_mismatch').length;
+    for (const id of advisoryByPackage.get(key)?.ids ?? []) {
+      if (a.findings.length >= 100 - integrityMismatchCount || a.evidence.length >= 200) break;
+      const record = advisoryByPackage.get(key)?.metadata.get(id);
+      const metadata = record ? { id, withdrawn: record.withdrawn ?? null, affected: record.affected.filter(item => item.package.ecosystem === 'npm' && item.package.name === pkg.name) } : null;
+      const metadataIsBounded = metadata !== null && JSON.stringify(metadata).length <= 3_500;
+      const evidenceId = evidence(a, 'advisory', `osv:${id}`, { schemaVersion: 2, id, package: pkg, sourceDigest: source.digest,
+        advisory: metadataIsBounded ? metadata : null, queriedAt: new Date().toISOString() }, { name: 'OSV-querybatch', version: 'v1' });
+      finding(a, {
+        ruleId: `osv.${id}`.slice(0, 128), correlationKey: `npm:${pkg.name}:${id}`, title: `Advisory match: ${pkg.name}@${pkg.version}`.slice(0, 256), location: pkg.location,
+        description: `The exact ${pkg.relationship} lockfile version matched ${id}. Severity, package import reachability, symbol use and exploitability are separate assessments.`, severity: 'unknown', confidence: 'observed',
+        impact: 'An advisory applies to the recorded version. The static import result and package-content scan do not establish deployment or exploitability.', recommendation: 'Review the advisory, import evidence and package artifact findings; choose a supported fix and validate the application.',
+        limitations: ['OSV did not provide a normalized severity value for this result; severity remains unknown.', 'Static import analysis cannot resolve every runtime loader, bundler alias or framework convention.', 'No package installation or exploit attempt.'],
+        evidenceIds: [evidenceId], dependencyAssessment: { name: pkg.name, version: pkg.version, purl: pkg.purl, reachability: packageReachability, artifactStatus: packageArtifact?.status ?? 'not_requested' },
+      });
+    }
+  }
+
+  for (const pkg of vulnerablePackages) {
+    const artifact = artifactByPackage.get(`${pkg.name}\0${pkg.version}`)?.analysis;
+    if (artifact?.status !== 'checksum_mismatch' || a.findings.length >= 100 || a.evidence.length >= 200) continue;
+    const evidenceId = evidence(a, 'dependency', `npm-registry:${pkg.name}@${pkg.version}`, {
+      name: pkg.name, version: pkg.version, lockfileIntegrity: pkg.integrity, artifactSha256: artifact.artifactSha256, verification: artifact.status,
+    }, { name: 'npm-registry-tarball-verifier', version: 'v1' });
+    const packageReachability = reachability.get(pkg.purl) ?? {
+      state: 'unknown', symbolCoverage: 'unknown', symbols: [], importEvidence: [], symbolEvidence: [], dependencyPath: null,
+      limitation: ['Static reachability analysis did not produce a result.'],
+    } satisfies DependencyReachability;
+    finding(a, {
+      ruleId: 'dependency.artifact.integrity_mismatch', correlationKey: `npm:${pkg.name}:${pkg.version}:integrity`, title: `Checksum mismatch: ${pkg.name}@${pkg.version}`.slice(0, 256), location: pkg.location,
+      description: `The downloaded npm registry artifact for ${pkg.name}@${pkg.version} did not match the recorded SHA-512 integrity value. The artifact was not extracted or scanned.`, severity: 'high', confidence: 'observed',
+      impact: 'The exact package bytes differ from the lockfile expectation. This is a high-signal integrity discrepancy, but it does not alone prove malicious substitution or exploitation.', recommendation: 'Do not consume this artifact until the lockfile and registry provenance are independently reconciled.',
+      limitations: ['The mismatch could arise from tampered or stale lockfile data or registry substitution; this check does not attribute a cause.', 'No package code was executed.', 'Maintainer Git main was not compared with the published artifact.'],
+      evidenceIds: [evidenceId], dependencyAssessment: { name: pkg.name, version: pkg.version, purl: pkg.purl, reachability: packageReachability, artifactStatus: artifact.status },
+    });
   }
   return finish(a);
 }

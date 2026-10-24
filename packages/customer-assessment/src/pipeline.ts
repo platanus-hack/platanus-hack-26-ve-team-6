@@ -15,6 +15,7 @@ import { assessInternal } from './internal.js';
 import { assessContainerImage } from './container-image.js';
 import type { AdvisoryAdapter } from './advisory.js';
 import type { LicenseAdapter } from './licenses.js';
+import type { NpmArtifactAdapter } from './npm-artifacts.js';
 import { assessPublicSurface, publicSurfaceTargetSchema } from './public-surface.js';
 import type { ScannerAdapter } from './docker.js';
 
@@ -22,6 +23,7 @@ export interface CustomerAssessmentPipelineOptions {
   scanners: ScannerAdapter;
   advisory?: AdvisoryAdapter;
   licenses?: LicenseAdapter;
+  artifacts?: NpmArtifactAdapter;
   https?: HttpsOptions;
   deadlineMs: number;
 }
@@ -158,7 +160,7 @@ export async function runCustomerAssessmentPipeline(
         input.mode,
         () => input.inputKind === 'container_image'
           ? assessContainerImage(input, signal, options.scanners)
-          : assessInternal(input, signal, options.scanners, options.advisory, options.licenses),
+          : assessInternal(input, signal, options.scanners, options.advisory, options.licenses, options.artifacts),
         () => {
           const target = input.target;
           if (!target) throw new Error('missing_target');
