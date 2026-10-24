@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "cases": [
+    { "id": "holdout-provider-down-app-healthy", "scenario": "provider-down-app-healthy", "truth": { "impact": "none_observed_at_checked_points", "causes": [] } },
+    { "id": "holdout-provider-healthy-release-error", "scenario": "release-regression", "truth": { "impact": "degraded", "causes": ["application_regression"] }, "expectedConfidence": "medium" },
+    { "id": "holdout-provider-and-dependency-failure", "scenario": "provider-compatible-failure", "truth": { "impact": "unavailable", "causes": ["provider_dependency"] }, "expectedConfidence": "high" },
+    { "id": "holdout-stale-telemetry", "scenario": "stale-telemetry", "truth": { "impact": "unknown", "causes": [] } },
+    { "id": "holdout-two-causes", "scenario": "simultaneous-causes", "truth": { "impact": "degraded", "causes": ["application_regression", "abuse"] } },
+    { "id": "holdout-incomplete-regional-feed", "scenario": "incomplete-regional-feed", "truth": { "impact": "unknown", "causes": [] } },
+    { "id": "holdout-legitimate-increase", "scenario": "legitimate-traffic-increase", "truth": { "impact": "none_observed_at_checked_points", "causes": ["legitimate_load"] }, "expectedConfidence": "medium" },
+    { "id": "holdout-abstain-app-without-signals", "scenario": "abstention-control", "truth": { "impact": "unknown", "causes": [] } }
+  ]
+}

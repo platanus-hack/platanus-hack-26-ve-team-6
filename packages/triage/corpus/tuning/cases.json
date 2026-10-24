@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "cases": [
+    { "id": "tuning-provider-down-app-healthy", "scenario": "provider-down-app-healthy", "truth": { "impact": "none_observed_at_checked_points", "causes": [] } },
+    { "id": "tuning-release-error", "scenario": "release-regression", "truth": { "impact": "degraded", "causes": ["application_regression"] } },
+    { "id": "tuning-provider-compatible-impact", "scenario": "provider-compatible-failure", "truth": { "impact": "unavailable", "causes": ["provider_dependency"] } },
+    { "id": "tuning-stale", "scenario": "stale-telemetry", "truth": { "impact": "unknown", "causes": [] } },
+    { "id": "tuning-two-causes", "scenario": "simultaneous-causes", "truth": { "impact": "degraded", "causes": ["application_regression", "abuse"] } },
+    { "id": "tuning-incomplete-regional-feed", "scenario": "incomplete-regional-feed", "truth": { "impact": "unknown", "causes": [] } },
+    { "id": "tuning-legitimate-increase", "scenario": "legitimate-traffic-increase", "truth": { "impact": "none_observed_at_checked_points", "causes": ["legitimate_load"] } },
+    { "id": "tuning-abstain-unrelated-feed", "scenario": "abstention-control", "truth": { "impact": "unknown", "causes": [] } }
+  ]
+}
