@@ -392,22 +392,43 @@ body { margin: 0; }
 @keyframes customer-spin { to { transform: rotate(360deg); } }
 .customer-footer { display: flex; justify-content: space-between; gap: 14px; border-top: 1px solid #e8eee9; margin-top: 25px; padding: 14px 0 18px; color: #8a968d; font-size: 9px; }
 
-.customer-auth-page { display: grid; min-height: 100vh; place-items: center; background: radial-gradient(ellipse at 50% 15%, #eef5ef 0, #f7faf7 55%, #f2f6f2 100%); color: var(--customer-ink); font: 14px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; }
-.customer-auth-card { width: min(450px, 100%); border: 1px solid #dfe8e0; border-radius: 12px; background: #fff; box-shadow: 0 18px 60px #193b2510; padding: 34px; }
-.customer-auth-card > .customer-brand { margin-bottom: 33px; }
+.customer-auth-page { --customer-green: #21634a; --customer-ink: #1e3028; --customer-muted: #52675b; --customer-border: #dfe7e1; display: grid; min-height: 100vh; place-items: center; background: radial-gradient(ellipse at 50% 15%, #eef5ef 0, #f7faf7 55%, #f2f6f2 100%); color: var(--customer-ink); font: 14px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; }
+.customer-auth-card { width: min(470px, 100%); border: 1px solid #dfe8e0; border-radius: 12px; background: #fff; box-shadow: 0 18px 60px #193b2510; padding: 34px; }
+.customer-auth-card > .customer-brand { margin-bottom: 28px; }
 .customer-auth-card h1 { margin: 0; color: #243d2f; font-size: 27px; font-weight: 650; letter-spacing: -.7px; line-height: 1.2; }
-.customer-auth-copy { margin: 10px 0 22px; color: #718076; font-size: 12px; line-height: 1.8; }
-.customer-auth-form { gap: 8px; }
-.customer-auth-form > label { margin-top: 4px; color: #5f7266; font-size: 11px; font-weight: 600; }
+.customer-auth-copy { margin: 9px 0 0; color: #52675b; font-size: 12px; line-height: 1.8; }
+.customer-auth-form { gap: 8px; margin-top: 15px; }
+.customer-auth-form > label:not(.customer-auth-remember) { margin-top: 4px; color: #4e6658; font-size: 12px; font-weight: 600; }
 .customer-auth-form input { padding: 11px; }
 .customer-auth-form .customer-button { margin-top: 10px; }
 .customer-auth-switch { justify-self: center; text-align: center; }
-.customer-auth-privacy { margin: 20px 0 0; border-top: 1px solid #edf1ed; padding-top: 14px; color: #87928a; font-size: 10px; line-height: 1.8; }
-.customer-auth-providers { display: grid; gap: 8px; margin-top: 15px; }
-.customer-provider-button { width: 100%; }
-.customer-auth-divider { display: flex; align-items: center; gap: 10px; color: #8b978d; font-size: 10px; }
-.customer-auth-divider::before, .customer-auth-divider::after { height: 1px; flex: 1; background: #e9eee9; content: ''; }
-.customer-inline-error { border: 1px solid #efdcd5; border-radius: 6px; background: #fcf2ef; color: #9c5a4c; padding: 10px; font-size: 11px; }
+.customer-auth-privacy { margin: 19px 0 0; border-top: 1px solid #edf1ed; padding-top: 13px; color: #586c60; font-size: 11px; line-height: 1.7; }
+.customer-auth-social-row { display: grid; gap: 10px; margin-top: 23px; }
+.customer-auth-social-row.has-multiple { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.customer-auth-social-row.has-single { grid-template-columns: 1fr; }
+.customer-provider-button { display: inline-flex; min-height: 46px; width: 100%; align-items: center; justify-content: center; gap: 10px; border: 1px solid #d6e0d8; border-radius: 6px; background: #fff; color: #304a39; padding: 10px 13px; font-size: 12px; font-weight: 600; }
+.customer-provider-button:hover:not(:disabled) { border-color: #91ad98; background: #f8faf8; }
+.customer-provider-button:disabled { cursor: wait; opacity: .76; }
+.customer-provider-button svg { width: 19px; height: 19px; flex: 0 0 19px; }
+.customer-provider-button-sso { margin-top: 10px; }
+.customer-auth-divider { display: flex; align-items: center; gap: 13px; margin: 21px 0 0; color: #52675b; font-size: 11px; font-weight: 600; }
+.customer-auth-divider::before, .customer-auth-divider::after { height: 1px; flex: 1; background: #e3eae4; content: ''; }
+.customer-auth-password { position: relative; }
+.customer-auth-password input { padding-right: 46px; }
+.customer-auth-password-toggle { position: absolute; top: 50%; right: 5px; display: grid; width: 36px; height: 36px; transform: translateY(-50%); place-items: center; border: 0; border-radius: 5px; background: transparent; color: #52675b; }
+.customer-auth-password-toggle:hover { background: #f0f5f1; }
+.customer-auth-password-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.customer-auth-remember { display: flex; align-items: flex-start; gap: 9px; margin-top: 8px; color: #465e50; font-size: 11px; line-height: 1.55; cursor: pointer; }
+.customer-auth-remember input { width: 16px; height: 16px; flex: 0 0 16px; margin: 1px 0 0; accent-color: var(--customer-green); }
+.customer-auth-last-method { margin: -2px 0 2px 25px; color: #52675b; font-size: 10px; }
+.customer-auth-legal { display: flex; justify-content: center; gap: 18px; margin-top: 12px; }
+.customer-auth-legal a { color: #42614d; font-size: 11px; text-underline-offset: 3px; }
+.customer-auth-legal a:hover { color: #174a36; }
+.customer-inline-error { margin-top: 15px; border: 1px solid #e7c9c1; border-radius: 6px; background: #fcf2ef; color: #7d3e32; padding: 10px 11px; font-size: 12px; line-height: 1.6; }
+.customer-auth-card > .customer-inline-error + .customer-auth-social-row { margin-top: 16px; }
+.customer-auth-card > .customer-inline-error + .customer-auth-form { margin-top: 16px; }
+.customer-auth-page ::selection { background: #d4e9da; color: #193b29; }
+.customer-auth-page input { caret-color: var(--customer-green); }
 
 @media (max-width: 1150px) {
   .customer-sidebar { width: 225px; flex-basis: 225px; }
@@ -464,6 +485,8 @@ body { margin: 0; }
   .customer-auth-page { padding: 14px; }
   .customer-auth-card { padding: 25px 20px; }
   .customer-auth-card h1 { font-size: 24px; }
+  .customer-auth-social-row { gap: 8px; }
+  .customer-provider-button { gap: 7px; padding: 10px 8px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { .customer-spinner { animation: none; } }
 

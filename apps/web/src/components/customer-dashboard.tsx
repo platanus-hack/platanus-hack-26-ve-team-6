@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { z } from 'zod';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -60,6 +61,8 @@ const confidenceLabels = { observed: 'Observado', inferred: 'Indicado', uncertai
 const coverageLabels = { inspected: 'Evaluado', not_requested: 'No solicitado', unsupported: 'No disponible en este perfil', unavailable: 'No disponible' };
 const analysisLabels = { completed: 'Completado', partial: 'Parcial', unavailable: 'No disponible' };
 const scanProfileLabels: Record<CustomerScanProfile, string> = { root: 'Raíz del sitio', public_surface: 'Superficie pública limitada' };
+const rememberedSignInKey = 'gotchu.sign-in-preference';
+const rememberedSignInSchema = z.object({ email: z.string().max(254), method: z.string().min(1).max(128) }).strict();
 
 function date(value: string) {
   return new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
@@ -84,17 +87,81 @@ function ErrorNotice({ message, retry }: { message: string; retry?: () => void }
   return <div className="customer-error" role="alert"><strong>No se pudo completar la operación</strong><p>{message}</p>{retry && <button className="customer-link-button" onClick={retry}>Reintentar</button>}</div>;
 }
 
+function ProviderLogo({ providerId }: { providerId: string }) {
+  if (providerId === 'google') return <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.49 12.27c0-.78-.07-1.53-.2-2.27H12v4.3h6.44a5.5 5.5 0 0 1-2.39 3.61v3h3.87c2.27-2.09 3.57-5.17 3.57-8.64Z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.93l-3.87-3c-1.08.72-2.45 1.15-4.06 1.15-3.13 0-5.78-2.11-6.73-4.95H1.27v3.09A12 12 0 0 0 12 24Z"/><path fill="#FBBC05" d="M5.27 14.27A7.2 7.2 0 0 1 4.9 12c0-.79.14-1.55.37-2.27V6.64H1.27A12 12 0 0 0 0 12c0 1.94.46 3.78 1.27 5.36l4-3.09Z"/><path fill="#EA4335" d="M12 4.78c1.77 0 3.35.61 4.6 1.81l3.45-3.45C17.95 1.17 15.24 0 12 0A12 12 0 0 0 1.27 6.64l4 3.09C6.22 6.89 8.87 4.78 12 4.78Z"/></svg>;
+  if (providerId === 'github') return <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.69.08-.69 1.13.08 1.73 1.16 1.73 1.16 1 1.72 2.62 1.22 3.26.93.1-.73.39-1.22.71-1.5-2.5-.28-5.13-1.25-5.13-5.56 0-1.23.44-2.24 1.16-3.03-.12-.29-.5-1.44.11-2.99 0 0 .95-.3 3.1 1.16a10.8 10.8 0 0 1 5.64 0c2.15-1.46 3.1-1.16 3.1-1.16.62 1.55.23 2.7.12 2.99.72.79 1.15 1.8 1.15 3.03 0 4.32-2.63 5.28-5.14 5.56.4.35.75 1.03.75 2.08v3.1c0 .3.2.65.77.54A11.25 11.25 0 0 0 12 .75Z"/></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="M12 3 4.5 6v5.1c0 4.6 3.2 8.6 7.5 9.9 4.3-1.3 7.5-5.3 7.5-9.9V6L12 3Z"/><path fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="m9 12 2 2 4-4"/></svg>;
+}
+
 function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onAuthenticated: (session: CustomerSession) => void }) {
   const [registering, setRegistering] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberAccess, setRememberAccess] = useState(false);
+  const [lastMethod, setLastMethod] = useState<string | null>(null);
+  const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(rememberedSignInKey);
+      if (saved) {
+        const parsed = rememberedSignInSchema.safeParse(JSON.parse(saved));
+        if (parsed.success) {
+          setEmail(parsed.data.email);
+          setLastMethod(parsed.data.method);
+          setRememberAccess(true);
+        } else {
+          window.localStorage.removeItem(rememberedSignInKey);
+        }
+      }
+    } catch {
+      try { window.localStorage.removeItem(rememberedSignInKey); } catch { /* Storage can be disabled by the browser. */ }
+    }
+
+    const url = new URL(window.location.href);
+    const authError = url.searchParams.get('authError') ?? url.searchParams.get('error');
+    const messages: Record<string, string> = {
+      GoogleEmailUnverified: 'Google debe proporcionar un correo verificado para iniciar sesión.',
+      GoogleAccountRequiresPassword: 'Ya existe una cuenta local con este correo. Inicia sesión con tu contraseña. Google no se ha vinculado; la opción para vincularlo desde la configuración de cuenta aún está pendiente.',
+      BootstrapRequired: 'Esta instalación todavía necesita crear su primer Owner. Usa el enlace de un solo uso de /setup que imprime ./gotchu setup-link; ningún proveedor de acceso puede crear ese primer Owner.',
+      OAuthAccountNotLinked: 'Ya existe una cuenta con este correo. Inicia sesión con tu contraseña; Gotchu no vinculará Google sin una acción explícita.',
+    };
+    if (authError && messages[authError]) setError(messages[authError]);
+    if (authError) {
+      url.searchParams.delete('authError');
+      url.searchParams.delete('error');
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    }
+  }, []);
+
+  function saveAccessMethod(method: string) {
+    setLastMethod(method);
+    if (!rememberAccess) return;
+    try { window.localStorage.setItem(rememberedSignInKey, JSON.stringify({ email: email.trim(), method })); } catch { /* Remembering is optional; never block sign-in. */ }
+  }
+
+  function changeRememberAccess(checked: boolean) {
+    setRememberAccess(checked);
+    if (checked) return;
+    setLastMethod(null);
+    try { window.localStorage.removeItem(rememberedSignInKey); } catch { /* Storage can be disabled by the browser. */ }
+  }
+
+  function startProvider(providerId: string) {
+    saveAccessMethod(providerId);
+    setLoadingProvider(providerId);
+    const query = new URLSearchParams({ callbackUrl: '/dashboard' });
+    window.location.assign(`/api/auth/signin/${encodeURIComponent(providerId)}?${query}`);
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError(null);
+    saveAccessMethod('credentials');
     try {
       const signedIn = registering
         ? await customerApi.register(email.trim(), password)
@@ -108,31 +175,47 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
   }
 
   const oauthProviders = session.providers.filter(provider => provider.type !== 'credentials');
+  const socialProviders = ['google', 'github']
+    .map(id => oauthProviders.find(provider => provider.id === id))
+    .filter((provider): provider is (typeof oauthProviders)[number] => provider !== undefined);
+  const ssoProviders = oauthProviders.filter(provider => provider.id !== 'google' && provider.id !== 'github');
+  const lastProvider = oauthProviders.find(provider => provider.id === lastMethod);
+  const lastMethodLabel = lastMethod === 'credentials' ? 'correo y contraseña' : lastProvider?.name ?? (lastMethod ? 'SSO' : null);
   return <main className="customer-auth-page">
     <section className="customer-auth-card" aria-labelledby="auth-title">
       <a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>
-      <span className="customer-eyebrow">SEGURIDAD CON EVIDENCIAS</span>
-      <h1 id="auth-title">{registering ? 'Crea tu espacio de trabajo' : 'Protege lo que construyes'}</h1>
-      <p className="customer-auth-copy">Evalúa aplicaciones reales dentro del alcance que autorizas y conserva informes con evidencias verificables.</p>
+      <h1 id="auth-title">{registering ? 'Crea tu espacio de trabajo' : 'Inicia sesión en Gotchu'}</h1>
+      <p className="customer-auth-copy">Accede para revisar tus espacios de trabajo y las aplicaciones que administra tu equipo.</p>
 
+      {error && <div className="customer-inline-error" role="alert">{error}</div>}
+
+      {socialProviders.length > 0 && <div className={`customer-auth-social-row ${socialProviders.length > 1 ? 'has-multiple' : 'has-single'}`} aria-label="Otros métodos de acceso">
+        {socialProviders.map(provider => <button className="customer-button customer-provider-button customer-provider-button-social" key={provider.id} type="button" disabled={loadingProvider !== null} onClick={() => startProvider(provider.id)} aria-busy={loadingProvider === provider.id}>
+          {loadingProvider === provider.id ? <span className="customer-spinner" aria-hidden="true" /> : <ProviderLogo providerId={provider.id} />}
+          <span>{loadingProvider === provider.id ? `Conectando con ${provider.name}…` : provider.name}</span>
+        </button>)}
+      </div>}
+      {ssoProviders.map(provider => <button className="customer-button customer-provider-button customer-provider-button-sso" key={provider.id} type="button" disabled={loadingProvider !== null} onClick={() => startProvider(provider.id)} aria-busy={loadingProvider === provider.id}>
+        {loadingProvider === provider.id ? <span className="customer-spinner" aria-hidden="true" /> : <ProviderLogo providerId={provider.id} />}
+        <span>{loadingProvider === provider.id ? 'Conectando con SSO…' : 'Continuar con SSO'}</span>
+      </button>)}
+
+      {oauthProviders.length > 0 && session.localAuthEnabled && <div className="customer-auth-divider"><span>O</span></div>}
       {session.localAuthEnabled && <form className="customer-form customer-auth-form" onSubmit={submit}>
         <label htmlFor="customer-email">Correo electrónico</label>
         <input id="customer-email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} />
         <label htmlFor="customer-password">Contraseña</label>
-        <input id="customer-password" type="password" autoComplete={registering ? 'new-password' : 'current-password'} required minLength={registering ? 15 : undefined} maxLength={128} value={password} onChange={event => setPassword(event.target.value)} />
+        <div className="customer-auth-password"><input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete={registering ? 'new-password' : 'current-password'} required minLength={registering ? 15 : undefined} maxLength={128} value={password} onChange={event => setPassword(event.target.value)} /><button type="button" className="customer-auth-password-toggle" aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'} aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.6"/>{showPassword && <path d="m4 4 16 16"/>}</svg></button></div>
+        {!registering && <label className="customer-auth-remember"><input type="checkbox" checked={rememberAccess} onChange={event => changeRememberAccess(event.target.checked)} /><span>Recordar email y método de acceso en este dispositivo</span></label>}
+        {rememberAccess && lastMethodLabel && <p className="customer-auth-last-method" role="status">Último método: {lastMethodLabel}</p>}
         {registering && <p className="customer-field-note">Usa al menos 15 caracteres. La autenticación local está habilitada para este entorno.</p>}
-        {error && <div className="customer-inline-error" role="alert">{error}</div>}
-        <button className="customer-button customer-button-primary customer-button-full" disabled={busy}>{busy ? <><span className="customer-spinner" />Conectando…</> : registering ? 'Crear cuenta' : 'Iniciar sesión'}</button>
+        <button className="customer-button customer-button-primary customer-button-full" disabled={busy || loadingProvider !== null}>{busy ? <><span className="customer-spinner" />Conectando…</> : registering ? 'Crear cuenta' : 'Iniciar sesión'}</button>
         {session.registrationEnabled && <button className="customer-link-button customer-auth-switch" type="button" onClick={() => { setRegistering(value => !value); setError(null); }}>{registering ? 'Ya tienes cuenta: iniciar sesión' : 'Crear una cuenta de desarrollo'}</button>}
       </form>}
 
-      {oauthProviders.length > 0 && <div className="customer-auth-providers">
-        {session.localAuthEnabled && <div className="customer-auth-divider"><span>o continúa con</span></div>}
-        {oauthProviders.map(provider => <a className="customer-button customer-provider-button" key={provider.id} href={`/api/auth/signin/${encodeURIComponent(provider.id)}?callbackUrl=%2Fdashboard`}>Continuar con {provider.name}</a>)}
-      </div>}
-
       {!session.localAuthEnabled && oauthProviders.length === 0 && <div className="customer-inline-error" role="status">El inicio de sesión todavía no está configurado para este entorno.</div>}
       <p className="customer-auth-privacy">Tus fuentes e informes pertenecen a tu espacio de trabajo. No ejecutamos código fuente ni hacemos cambios en tus aplicaciones.</p>
+      <nav className="customer-auth-legal" aria-label="Información legal"><a href="/privacy">Privacidad</a><a href="/terms">Términos</a></nav>
     </section>
   </main>;
 }
