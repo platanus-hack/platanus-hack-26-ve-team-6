@@ -261,4 +261,3 @@ export function findKubernetesCorrectionLocation(
   if (sameKeyInContext.length !== 1) return undefined;
   return candidate.line;
 }
-
