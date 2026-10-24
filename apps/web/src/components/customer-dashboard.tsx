@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
+import { AppWindowIcon, ArchiveIcon, FileTextIcon, GavelIcon, HouseIcon, LogOutIcon, MenuIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -36,21 +37,23 @@ import { WorkflowExceptions } from './workflow-exceptions';
 import { DecisionRecordHistory } from './decision-record-history';
 import { InvestigationActionButton, InvestigationModelSettings, InvestigationsTimeline } from './investigations-panel';
 import { DependencyInventoryPanel, LicensePolicyPanel, RetentionPolicyPanel } from './customer-supply-chain';
+import { GotchuMark } from './gotchu-mark';
+import { ThemeSwitch } from './theme-switch';
 import './customer-shell.css';
 import './customer-report.css';
 import './customer-operations.css';
 
 type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
 
-const pages: { id: Page; label: string; glyph: string }[] = [
-  { id: 'overview', label: 'Inicio', glyph: '⌂' },
-  { id: 'applications', label: 'Aplicaciones', glyph: '▦' },
-  { id: 'operations', label: 'Vigilancia', glyph: '◉' },
-  { id: 'reports', label: 'Informes', glyph: '≋' },
-  { id: 'license-policy', label: 'Licencias', glyph: '©' },
-  { id: 'retention-policy', label: 'Retención', glyph: '◴' },
-  { id: 'members', label: 'Equipo', glyph: '♧' },
-  { id: 'decision-records', label: 'Decisiones', glyph: '◷' },
+const pages: { id: Page; label: string; icon: LucideIcon }[] = [
+  { id: 'overview', label: 'Inicio', icon: HouseIcon },
+  { id: 'applications', label: 'Aplicaciones', icon: AppWindowIcon },
+  { id: 'operations', label: 'Vigilancia', icon: RadarIcon },
+  { id: 'reports', label: 'Informes', icon: FileTextIcon },
+  { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
+  { id: 'retention-policy', label: 'Retención', icon: ArchiveIcon },
+  { id: 'members', label: 'Equipo', icon: UsersIcon },
+  { id: 'decision-records', label: 'Decisiones', icon: GavelIcon },
 ];
 
 const modeLabels: Record<AssessmentMode, string> = {
@@ -80,8 +83,9 @@ function readableError(error: unknown) {
   return 'No se pudo completar la operación. Inténtalo de nuevo.';
 }
 
-function Icon({ children }: { children: string }) {
-  return <span className="customer-icon" aria-hidden="true">{children}</span>;
+/** The landing's lockup: the mark plus the wordmark in the display face. */
+function Brand() {
+  return <a className="customer-brand" href="/dashboard" aria-label="Gotchu, inicio"><GotchuMark size={26} /><span>Gotchu</span></a>;
 }
 
 function Loading({ label }: { label: string }) {
@@ -205,7 +209,7 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
   const lastMethodLabel = lastMethod === 'credentials' ? 'correo y contraseña' : lastProvider?.name ?? (lastMethod ? 'SSO' : null);
   return <main className="gl customer-auth-page">
     <section className="customer-auth-card" aria-labelledby="auth-title">
-      <a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>
+      <Brand />
       <h1 id="auth-title">{registering ? 'Crea tu espacio de trabajo' : 'Inicia sesión en Gotchu'}</h1>
       <p className="customer-auth-copy">Accede para revisar tus espacios de trabajo y las aplicaciones que administra tu equipo.</p>
 
@@ -252,7 +256,7 @@ function WorkspaceCreate({ onCreated, disabled }: { onCreated: (workspace: Custo
   });
   return <form className="customer-inline-create" onSubmit={event => { event.preventDefault(); setError(null); create.mutate(); }}>
     <label htmlFor="new-workspace">Nuevo espacio</label>
-    <div className="customer-inline-control"><input id="new-workspace" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre del equipo" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Crear espacio de trabajo">+</button></div>
+    <div className="customer-inline-control"><input id="new-workspace" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre del equipo" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Crear espacio de trabajo"><PlusIcon aria-hidden="true" /></button></div>
     {error && <p className="customer-form-error" role="alert">{error}</p>}
   </form>;
 }
@@ -287,7 +291,7 @@ function ApplicationCreate({ organizationId, onCreated, disabled }: { organizati
   });
   return <form className="customer-inline-create" onSubmit={event => { event.preventDefault(); setError(null); create.mutate(); }}>
     <label htmlFor="new-application">Añadir aplicación</label>
-    <div className="customer-inline-control"><input id="new-application" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre de la aplicación" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Añadir aplicación">+</button></div>
+    <div className="customer-inline-control"><input id="new-application" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre de la aplicación" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Añadir aplicación"><PlusIcon aria-hidden="true" /></button></div>
     {error && <p className="customer-form-error" role="alert">{error}</p>}
   </form>;
 }
@@ -652,7 +656,14 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const [activeJob, setActiveJob] = useState<{ organizationId: string; applicationId: string; jobId: string; purpose: 'assessment' | 'correction' } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [menuOpen]);
   useEffect(() => {
     if (!acceptedInvitationId) return;
     setSelectedWorkspaceId(acceptedInvitationId);
@@ -771,21 +782,28 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
 
   return <div className="gl customer-app-shell">
     <aside className="customer-sidebar">
-      <a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>
+      <div className="customer-sidebar-head">
+        <Brand />
+        <button type="button" className="customer-menu-button" aria-expanded={menuOpen} aria-controls="customer-sidebar-body" onClick={() => setMenuOpen(value => !value)}>{menuOpen ? <XIcon aria-hidden="true" /> : <MenuIcon aria-hidden="true" />}{menuOpen ? 'Cerrar' : 'Menú'}</button>
+      </div>
+      <div className="customer-sidebar-body" id="customer-sidebar-body" data-open={menuOpen || undefined}>
       <div className="customer-workspace-select"><label htmlFor="workspace-select">ESPACIO DE TRABAJO</label><select id="workspace-select" value={organizationId ?? ''} onChange={event => { setSelectedWorkspaceId(event.target.value); setSelectedApplicationId(null); setSelectedReportId(null); setNotice(null); }}><option value="" disabled>Selecciona un espacio</option>{workspaces.data?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>{workspace && <span>{workspace.role === 'owner' ? 'Propietario' : workspace.role === 'operator' ? 'Operador' : 'Sólo lectura'}</span>}{workspace && <WorkspaceSettings key={workspace.id} organizationId={workspace.id} name={workspace.name} canManage={canManage} onSaved={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); setNotice('El espacio de trabajo se actualizó.'); }} />}</div>
       {workspace && <div className="customer-application-select"><label htmlFor="application-select">APLICACIÓN</label><select id="application-select" value={applicationId ?? ''} onChange={event => { setSelectedApplicationId(event.target.value); setSelectedReportId(null); setNotice(null); }}><option value="" disabled>Selecciona una aplicación</option>{applications.data?.map(item => <option key={item.applicationId} value={item.applicationId}>{item.name}{item.archived ? ' · archivada' : ''}</option>)}</select></div>}
-      <nav className="customer-nav" aria-label="Navegación principal">{pages.map(item => <button type="button" key={item.id} className={page === item.id ? 'customer-nav-item is-active' : 'customer-nav-item'} aria-current={page === item.id ? 'page' : undefined} onClick={() => setPage(item.id)}><Icon>{item.glyph}</Icon>{item.label}</button>)}</nav>
+      <nav className="customer-nav" aria-label="Navegación principal">{pages.map(item => <button type="button" key={item.id} className={page === item.id ? 'customer-nav-item is-active' : 'customer-nav-item'} aria-current={page === item.id ? 'page' : undefined} onClick={() => { setPage(item.id); setMenuOpen(false); }}><item.icon aria-hidden="true" />{item.label}</button>)}</nav>
       <div className="customer-sidebar-bottom">
         {workspaces.data?.length === 0 && <div className="customer-sidebar-note">Crea tu primer espacio para incorporar aplicaciones autorizadas.</div>}
         {Boolean(workspaces.data?.length) && <WorkspaceCreate disabled={false} onCreated={created => { setSelectedWorkspaceId(created.id); setSelectedApplicationId(null); queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); }} />}
-        <div className="customer-user-row"><span className="customer-user-avatar">U</span><span>Sesión activa</span><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}>↗</button></div>
+        <div className="customer-user-row"><span className="customer-user-avatar" aria-hidden="true">U</span><span>Sesión activa</span><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOutIcon aria-hidden="true" /></button></div>
+        <ThemeSwitch />
+      </div>
       </div>
     </aside>
+    {menuOpen && <button type="button" className="customer-menu-backdrop" tabIndex={-1} aria-label="Cerrar menú" onClick={() => setMenuOpen(false)} />}
     <div className="customer-main-column">
-      <header className="customer-topbar"><span className="customer-breadcrumb">{workspace?.name ?? 'Tu organización'} <span>/</span><strong>{pageTitle}</strong></span><span className="customer-mode-pill"><i />Evaluación en observación</span></header>
+      <header className="customer-topbar"><span className="customer-breadcrumb">{workspace?.name ?? 'Tu organización'} <span aria-hidden="true">/</span><strong>{pageTitle}</strong></span><span className="customer-mode-pill">Evaluación en observación</span></header>
       <main className="customer-main">
         {invitationMessage && <div className="customer-success" role="status">{invitationMessage}</div>}
-        {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}>×</button></div>}
+        {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}><XIcon aria-hidden="true" /></button></div>}
         {operationError && <ErrorNotice message={operationError} retry={() => { setPageError(null); refreshApplicationData(); workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} />}
         {page === 'members' && organizationId && workspace ? <MembersPanel key={`${userId}:${organizationId}`} organizationId={organizationId} userId={userId} role={workspace.role} />
         : !organizationId ? <Onboarding userId={userId} {...(session.user?.displayName ? { displayName: session.user.displayName } : {})} onWorkspaceCreated={() => { queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); }} onScanQueued={(scope, jobId) => { queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'applications', scope.organizationId] }).catch(caught => setPageError(readableError(caught))); setSelectedWorkspaceId(scope.organizationId); setSelectedApplicationId(scope.applicationId); setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />
@@ -902,7 +920,7 @@ export function CustomerDashboard() {
   const invitationBanner = invitationError ? <div role="alert" className="customer-error"><p>No se pudo aceptar la invitación: {invitationError}</p><button type="button" className="customer-link-button" onClick={() => setAcceptAttempt(value => value + 1)}>Volver a intentar</button></div>
     : invitationToken && !session.data?.user ? <p role="status" className="customer-success">Inicia sesión con la cuenta invitada para aceptar esta invitación.</p> : null;
   if (session.isPending) return <main className="gl customer-auth-page"><Loading label="Comprobando tu sesión…" /></main>;
-  if (session.error) return <main className="gl customer-auth-page"><section className="customer-auth-card"><a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>{invitationBanner}<ErrorNotice message={readableError(session.error)} retry={() => session.refetch()} /></section></main>;
+  if (session.error) return <main className="gl customer-auth-page"><section className="customer-auth-card"><Brand />{invitationBanner}<ErrorNotice message={readableError(session.error)} retry={() => session.refetch()} /></section></main>;
   if (!session.data.user) return <>{invitationBanner}<AuthPanel session={session.data} onAuthenticated={value => { queryClient.setQueryData(['customer-session'], value); }} /></>;
   return <><CustomerWorkspace key={session.data.user.id} session={session.data} userId={session.data.user.id} acceptedInvitationId={acceptedInvitation?.organizationId ?? null} invitationMessage={invitationMessage} />{invitationBanner}</>;
 }
