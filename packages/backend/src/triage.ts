@@ -1,0 +1,63 @@
+import { triageIncidentDetailSchema, triageIncidentSchema, triageRevisionSchema, updateIncidentStatusSchema } from '@gotchu/contracts';
+import { audit, authorize, BackendError, parse, type BaseDependencies, type Identity } from './core.js';
+
+const scopeSchema = triageIncidentSchema.pick({ organizationId: true, applicationId: true });
+const statusSchema = updateIncidentStatusSchema.extend({ incidentId: triageIncidentSchema.shape.id });
+export function createTriageService(deps: BaseDependencies) {
+  return {
+    async list(identity: Identity, input: unknown) {
+      const scope = parse(scopeSchema, input);
+      return deps.database.tenant(scope.organizationId, async tx => {
+        await authorize(tx, scope.organizationId, identity);
+        const rows = await tx.query<{ id: string; environment: string; status: string; window_started_at: Date; window_ended_at: Date; created_at: Date; updated_at: Date; body: unknown | null; created_revision_at: Date | null }>(`SELECT i.id,i.environment,i.status,i.window_started_at,i.window_ended_at,i.created_at,i.updated_at,r.body,r.created_at AS created_revision_at
+          FROM gotchu.triage_incidents i LEFT JOIN LATERAL (SELECT body,created_at FROM gotchu.triage_revisions WHERE organization_id=i.organization_id AND application_id=i.application_id AND incident_id=i.id ORDER BY revision DESC LIMIT 1) r ON true
+          WHERE i.organization_id=$1 AND i.application_id=$2 ORDER BY i.updated_at DESC,i.id LIMIT 500`, [scope.organizationId, scope.applicationId]);
+        return rows.rows.map(row => triageIncidentSchema.parse({ ...scope, id: row.id, environment: row.environment, status: row.status,
+          windowStartedAt: row.window_started_at.toISOString(), windowEndedAt: row.window_ended_at.toISOString(), createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString(),
+          latest: row.body ? summary(triageRevisionSchema.parse(row.body), row.created_revision_at?.toISOString() ?? row.updated_at.toISOString()) : null }));
+      });
+    },
+    async get(identity: Identity, input: unknown) {
+      const value = parse(scopeSchema.extend({ incidentId: triageIncidentSchema.shape.id }), input);
+      return deps.database.tenant(value.organizationId, async tx => {
+        await authorize(tx, value.organizationId, identity);
+        const incident = await tx.query<{ id: string; environment: string; status: string; window_started_at: Date; window_ended_at: Date; created_at: Date; updated_at: Date }>('SELECT id,environment,status,window_started_at,window_ended_at,created_at,updated_at FROM gotchu.triage_incidents WHERE organization_id=$1 AND application_id=$2 AND id=$3', [value.organizationId,value.applicationId,value.incidentId]);
+        const row = incident.rows[0]; if (!row) throw new BackendError('not_found','Incident not found',404);
+        const history = await tx.query<{ body: unknown; created_at: Date }>('SELECT body,created_at FROM gotchu.triage_revisions WHERE organization_id=$1 AND application_id=$2 AND incident_id=$3 ORDER BY revision DESC LIMIT 200', [value.organizationId,value.applicationId,value.incidentId]);
+        const monitor = await tx.query<{ target_id: string | null; providers: unknown }>('SELECT target_id,providers FROM gotchu.operation_monitors WHERE organization_id=$1 AND application_id=$2 AND enabled',[value.organizationId,value.applicationId]);
+        const configured = monitor.rows[0];
+        const requestableEvidence = configured ? [...(configured.target_id ? ['https_health' as const] : []), ...(Array.isArray(configured.providers) && configured.providers.length ? ['provider_status' as const] : [])] : [];
+        const revisions = history.rows.map(item => ({ revision: triageRevisionSchema.parse(item.body), createdAt: item.created_at.toISOString() }));
+        const latest = revisions[0];
+        return triageIncidentDetailSchema.parse({ incident: { organizationId:value.organizationId,applicationId:value.applicationId,id:row.id,environment:row.environment,status:row.status,windowStartedAt:row.window_started_at.toISOString(),windowEndedAt:row.window_ended_at.toISOString(),createdAt:row.created_at.toISOString(),updatedAt:row.updated_at.toISOString(),latest:latest ? summary(latest.revision,latest.createdAt) : null }, revisions, requestableEvidence });
+      });
+    },
+    async updateStatus(identity: Identity, input: unknown) {
+      const value = parse(scopeSchema.extend(statusSchema.shape), input);
+      await deps.database.tenant(value.organizationId, async tx => {
+        await authorize(tx,value.organizationId,identity,['owner','operator']);
+        const updated = await tx.query('UPDATE gotchu.triage_incidents SET status=$4,updated_at=clock_timestamp() WHERE organization_id=$1 AND application_id=$2 AND id=$3', [value.organizationId,value.applicationId,value.incidentId,value.status]);
+        if (!updated.rowCount) throw new BackendError('not_found','Incident not found',404);
+        await audit(tx,value.organizationId,identity.userId,'triage.status_changed',value.incidentId,{status:value.status,meaning:'user_triage_only'});
+      });
+      return this.get(identity,{organizationId:value.organizationId,applicationId:value.applicationId,incidentId:value.incidentId});
+    },
+    async requestEvidence(identity: Identity, input: unknown) {
+      const value = parse(scopeSchema.extend({ incidentId: triageIncidentSchema.shape.id }), input);
+      return deps.database.tenant(value.organizationId, async tx => {
+        await authorize(tx,value.organizationId,identity,['owner','operator']);
+        const found = await tx.query<{ id: string }>('SELECT id FROM gotchu.triage_incidents WHERE organization_id=$1 AND application_id=$2 AND id=$3',[value.organizationId,value.applicationId,value.incidentId]);
+        if (!found.rowCount) throw new BackendError('not_found','Incident not found',404);
+        const config = await tx.query<{ target_id: string | null; providers: unknown }>(`UPDATE gotchu.operation_monitors SET next_due_at=clock_timestamp()
+          WHERE organization_id=$1 AND application_id=$2 AND enabled AND next_due_at>clock_timestamp()-interval '5 minutes'
+          RETURNING target_id,providers`,[value.organizationId,value.applicationId]);
+        const row = config.rows[0]; const requested = row ? [...(row.target_id ? ['https_health' as const] : []), ...(Array.isArray(row.providers) && row.providers.length ? ['provider_status' as const] : [])] : [];
+        await audit(tx,value.organizationId,identity.userId,'triage.evidence_requested',value.incidentId,{requested,scope:'existing_monitor_configuration_only'});
+        return {requested,message:requested.length ? 'La comprobación se solicitará mediante la configuración de vigilancia existente.' : 'No hay comprobaciones consentidas configuradas para solicitar.'};
+      });
+    },
+  };
+}
+function summary(revision: ReturnType<typeof triageRevisionSchema.parse>, createdAt: string) {
+  return { id: revision.id, revision: revision.revision, rulesVersion: revision.rulesVersion, impact: revision.impact, hypothesisCount: revision.hypotheses.length, createdAt };
+}
