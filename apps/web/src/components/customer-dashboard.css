@@ -469,6 +469,27 @@ body { margin: 0; }
 
 .customer-severity-unknown { background: #f0edf7; color: #665780; }
 
+.customer-investigation-settings, .customer-investigation-timeline { display: grid; gap: 12px; margin-top: 16px; }
+.customer-investigation-settings > p { margin: 0; color: #687b6e; font-size: 12px; line-height: 1.7; }
+.customer-investigation-settings > label:not(.customer-investigation-consent), .customer-investigation-budget-grid > label { display: grid; gap: 5px; color: #536a5b; font-size: 11px; font-weight: 650; }
+.customer-investigation-settings input:not([type="checkbox"]), .customer-investigation-settings select { min-width: 0; border: 1px solid #d8e2da; border-radius: 6px; background: #fff; color: #314b3c; padding: 9px 10px; font: inherit; font-weight: 400; }
+.customer-investigation-settings fieldset { display: grid; gap: 7px; margin: 4px 0; border: 1px solid #e1e9e2; border-radius: 7px; padding: 12px; }
+.customer-investigation-settings legend { color: #3c5947; font-size: 12px; font-weight: 650; }
+.customer-investigation-consent { display: flex; align-items: flex-start; gap: 8px; color: #63776a; font-size: 11px; line-height: 1.6; }
+.customer-investigation-consent input { flex: 0 0 15px; margin: 2px 0 0; accent-color: var(--customer-green); }
+.customer-investigation-budget-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.customer-investigation-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.customer-investigation-action small { color: #8a7040; font-size: 10px; }
+.customer-investigation-timeline > ol { display: grid; gap: 12px; margin: 0; padding-left: 21px; }
+.customer-investigation-timeline > ol > li { min-width: 0; border-bottom: 1px solid #edf1ed; padding: 0 0 12px 3px; }
+.customer-investigation-run-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: #3b5946; font-size: 12px; }
+.customer-investigation-run-heading > span { color: #819087; font-size: 10px; }
+.customer-investigation-timeline li p { margin: 7px 0; color: #63776a; font-size: 12px; line-height: 1.7; }
+.customer-investigation-timeline details { margin-top: 7px; color: #526b5b; font-size: 11px; }
+.customer-investigation-timeline details ul { overflow-wrap: anywhere; }
+.customer-investigation-timeline code { overflow-wrap: anywhere; }
+@media (max-width: 640px) { .customer-investigation-budget-grid { grid-template-columns: 1fr; } }
+
 .customer-operations { display: grid; gap: 16px; }
 .customer-ops-card { min-width: 0; }
 .customer-ops-card > .customer-card-heading { align-items: center; }

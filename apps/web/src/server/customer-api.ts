@@ -16,6 +16,8 @@ import {
   dependencyFixPreparationRequestSchema, dependencyFixPreparationResponseSchema,
   type DependencyFixPreparationRequest, type DependencyFixPreparationResponse,
   licensePolicySchema, workspaceLicensePolicySchema,
+  configureInvestigationModelSchema, investigationModelSettingsSchema,
+  investigationActionSchema, investigationRunSchema, investigationSubjectSchema,
 } from '@gotchu/contracts';
 import { type Identity, type Backend } from '@gotchu/backend';
 import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, reportRecommendationsResponseSchema, type PrepareCorrectionRequest, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
@@ -49,6 +51,8 @@ export interface CustomerServices {
   decisionRecords?: Backend['decisionRecords'];
   notifications?: Backend['notifications'];
   triage?: Backend['triage'];
+  investigationModels?: Backend['investigationModels'];
+  investigations?: Backend['investigations'];
   getLicensePolicy?: Backend['customers']['getLicensePolicy'];
   updateLicensePolicy?: Backend['customers']['updateLicensePolicy'];
   exportSbom?: Backend['customers']['exportSbom'];
@@ -218,6 +222,16 @@ export function createCustomerApi(options: {
       }
       if (parts[0] !== 'api' || parts[1] !== 'customer' || parts[2] !== 'workspaces') throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
       const organizationId = parse(uuid, parts[3]);
+      if (parts.length === 5 && parts[4] === 'investigation-model') {
+        const modelSettings = services.investigationModels;
+        if (!modelSettings) throw new HttpError(503, 'investigation_model_not_configured', 'La configuración del modelo no está disponible.');
+        if (request.method === 'GET') return send(investigationModelSettingsSchema.parse(await modelSettings.get(identity, { organizationId })));
+        if (request.method === 'PUT') {
+          const value = parse(configureInvestigationModelSchema.extend({ clearApiKey: z.boolean().optional() }).strict(), await body(request, 12_288));
+          return send(investigationModelSettingsSchema.parse(await modelSettings.configure(identity, { organizationId, ...value })));
+        }
+        if (request.method === 'DELETE') return send(investigationModelSettingsSchema.parse(await modelSettings.disable(identity, { organizationId })));
+      }
       if (parts.length === 5 && parts[4] === 'license-policy') {
         if (request.method === 'GET') {
           if (!services.getLicensePolicy) throw new HttpError(503, 'license_policy_not_configured', 'La política de licencias no está configurada.');
@@ -255,6 +269,22 @@ export function createCustomerApi(options: {
         if (!services.triage) throw new HttpError(503,'triage_not_configured','La clasificación de incidentes no está configurada.');
         const response = await handleTriageApi(request,identity,services.triage,scope,parts);
         if (response !== null) return send(response);
+      }
+      if (parts[6] === 'investigations') {
+        const investigations = services.investigations;
+        if (!investigations) throw new HttpError(503, 'investigations_not_configured', 'Las investigaciones no están disponibles.');
+        if (parts.length === 7 && request.method === 'GET') return send(z.array(investigationRunSchema).max(50).parse(await investigations.list(identity, scope)));
+        if (parts.length === 7 && request.method === 'POST') {
+          const value = parse(z.object({ subject: investigationSubjectSchema }).strict(), await body(request));
+          return send(investigationActionSchema.parse(await investigations.request(identity, { ...scope, ...value })), 202);
+        }
+        if (parts.length === 9 && request.method === 'POST') {
+          parse(z.object({}).strict(), await body(request));
+          const action = parts[8];
+          if (action === 'cancel') return send(investigationActionSchema.parse(await investigations.cancel(identity, { ...scope, jobId: parse(uuid, parts[7]) })));
+          if (action === 'resume') return send(investigationActionSchema.parse(await investigations.resume(identity, { ...scope, jobId: parse(uuid, parts[7]) })));
+        }
+        throw new HttpError(404, 'not_found', 'Ruta de investigación no encontrada.');
       }
       if (['monitoring', 'alerts', 'plans', 'repositories'].includes(parts[6] ?? '')) {
         const operations = services.operations;

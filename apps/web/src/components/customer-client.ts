@@ -33,8 +33,14 @@ import {
   dependencyFixPreparationRequestSchema,
   dependencyFixPreparationResponseSchema,
   validationPublicProjectionSchema,
+  configureInvestigationModelSchema,
+  investigationModelSettingsSchema,
+  investigationRunSchema,
+  investigationSubjectSchema,
+  investigationActionSchema,
   type DependencyFixPreparationRequest,
   type DependencyFixPreparationResponse,
+  type InvestigationSubject,
 } from '@gotchu/contracts';
 import {
   prepareCorrectionRequestSchema,
@@ -235,6 +241,19 @@ export const customerApi = {
   },
   licensePolicy: (organizationId: string) => request(`${organizationPath(organizationId)}/license-policy`, workspaceLicensePolicySchema),
   updateLicensePolicy: (organizationId: string, policy: unknown) => request(`${organizationPath(organizationId)}/license-policy`, workspaceLicensePolicySchema, { method: 'PUT', ...jsonBody(licensePolicySchema.parse(policy)) }),
+  investigationModel: (organizationId: string) => request(`${organizationPath(organizationId)}/investigation-model`, investigationModelSettingsSchema),
+  configureInvestigationModel: (organizationId: string, config: unknown) => {
+    const input = configureInvestigationModelSchema.extend({ clearApiKey: z.boolean().optional() }).strict().parse(config);
+    return request(`${organizationPath(organizationId)}/investigation-model`, investigationModelSettingsSchema, { method: 'PUT', ...jsonBody(input) });
+  },
+  disableInvestigationModel: (organizationId: string) => request(`${organizationPath(organizationId)}/investigation-model`, investigationModelSettingsSchema, { method: 'DELETE' }),
+  investigations: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/investigations`, z.array(investigationRunSchema).max(50)),
+  requestInvestigation: (organizationId: string, applicationId: string, subject: InvestigationSubject) => {
+    const value = investigationSubjectSchema.parse(subject);
+    return request(`${applicationPath(organizationId, applicationId)}/investigations`, investigationActionSchema, { method: 'POST', ...jsonBody({ subject: value }) }, 202);
+  },
+  cancelInvestigation: (organizationId: string, applicationId: string, jobId: string) => request(`${applicationPath(organizationId, applicationId)}/investigations/${encodeURIComponent(z.uuid().parse(jobId))}/cancel`, investigationActionSchema, { method: 'POST', ...jsonBody({}) }),
+  resumeInvestigation: (organizationId: string, applicationId: string, jobId: string) => request(`${applicationPath(organizationId, applicationId)}/investigations/${encodeURIComponent(z.uuid().parse(jobId))}/resume`, investigationActionSchema, { method: 'POST', ...jsonBody({}) }),
   targets: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/targets`, targetListSchema),
   enrollTarget: (input: { organizationId: string; applicationId: string; origin: string; authorized: true; scanProfile?: CustomerScanProfile }) => {
     const { organizationId, applicationId, origin, authorized, scanProfile } = input;

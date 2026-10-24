@@ -11,6 +11,7 @@ import {
 } from '@gotchu/contracts';
 import { CustomerApiError } from './customer-client';
 import { DecisionRecordHistory } from './decision-record-history';
+import { InvestigationActionButton } from './investigations-panel';
 import { operationsApi, type MonitorSettings, type OperationsScope, type PlanKind, type PlanStepKey } from './operations-client';
 
 type Props = OperationsScope & {
@@ -353,6 +354,7 @@ function AlertCard({ userId, organizationId, alert, canManage, busy, resolution,
       <p>Verificación: observación confiable. Esta etiqueta valida la procedencia registrada, no una corrección ni un impacto explotado.</p>
     </details>
     {alert.resolution && <p className="customer-ops-resolution"><strong>Nota del equipo:</strong> {alert.resolution}</p>}
+    {alert.state !== 'resolved' && <InvestigationActionButton organizationId={organizationId} applicationId={observation.applicationId} subject={{ kind: 'alert', subjectId: alert.id }} canManage={canManage && observation.fresh && ['medium', 'high', 'critical'].includes(observation.severity)} />}
     {alert.state !== 'resolved' && <div className="customer-ops-alert-actions">
       {alert.state === 'open' && <button className="customer-button" type="button" disabled={!canManage || busy} onClick={onAcknowledge}>Marcar revisada</button>}
       <label htmlFor={`resolution-${alert.id}`}>Nota para resolver <span>(seguimiento del equipo, no corrección verificada)</span></label>
