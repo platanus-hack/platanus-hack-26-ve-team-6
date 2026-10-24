@@ -6,6 +6,9 @@ import { createCustomerApi, type CustomerServices } from '../src/server/customer
 import { contextClient } from '../src/components/context-client.js';
 import type { AuthService } from '../src/server/auth.js';
 import { decisionRecordPageSchema, operationPlanSchema } from '@gotchu/contracts';
+import type { LicensePolicy } from '@gotchu/contracts';
+import { customerAssessmentReportSchema } from '@gotchu/contracts';
+import { buildCycloneDx } from '@gotchu/customer-assessment';
 const origin = 'http://localhost:3000';
 const organizationId = randomUUID();
 const applicationId = randomUUID();
@@ -27,6 +30,52 @@ function operationPorts() {
   return { ...result, operations };
 }
 describe('authenticated customer HTTP adapter (injected services)', () => {
+  it('downloads CycloneDX only through the authenticated report scope', async () => {
+    const { services, auth } = ports();
+    const reportId = randomUUID();
+    const timestamp = new Date().toISOString();
+    const targetId = randomUUID();
+    const report = customerAssessmentReportSchema.parse({ version: 2, id: reportId, organizationId, applicationId, jobId: randomUUID(), applicationName: 'App', mode: 'external', startedAt: timestamp, finishedAt: timestamp, internal: null, external: { origin: 'external', status: 'completed', startedAt: timestamp, finishedAt: timestamp, snapshotRef: 'target:snapshot:1', tool: { name: 'synthetic-test', version: '1' }, findings: [], evidence: [], coverage: [], limitations: [] }, comparison: [], limitations: [], responseMode: 'observation', actionsPerformed: [], subject: { sourceSnapshotId: null, sourceDigest: null, targetId, targetVersion: 1, origin: 'https://app.example.com' } });
+    const bom = buildCycloneDx(report);
+    const exportSbom = vi.fn(async () => bom);
+    services.exportSbom = exportSbom;
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `workspaces/${organizationId}/applications/${applicationId}/reports/${reportId}/sbom.cyclonedx.json`;
+    const response = await handle(new Request(`${origin}/api/customer/${path}`));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('application/vnd.cyclonedx+json');
+    expect(response.headers.get('content-disposition')).toContain(`${reportId}.cdx.json`);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(await response.json()).toEqual(bom);
+    expect(exportSbom).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, reportId });
+    auth.identity = async () => null;
+    expect((await handle(new Request(`${origin}/api/customer/${path}`))).status).toBe(401);
+    expect(exportSbom).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads and updates workspace license policy through the authenticated path scope', async () => {
+    const { services, auth } = ports();
+    const policy: LicensePolicy = { allow: ['MIT'], deny: [], review: ['UNKNOWN'] };
+    const getPolicy = vi.fn(async () => ({ organizationId, policy, updatedAt: null, configured: false }));
+    const updatePolicy = vi.fn(async (_identity: { userId: string }, input: { organizationId: string; policy: LicensePolicy }) => ({ organizationId: input.organizationId, policy: input.policy, updatedAt: new Date().toISOString(), configured: true }));
+    services.getLicensePolicy = getPolicy;
+    services.updateLicensePolicy = updatePolicy;
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `/api/customer/workspaces/${organizationId}/license-policy`;
+    const fetched = await handle(new Request(`${origin}${path}`));
+    expect(fetched.status).toBe(200);
+    expect(await fetched.json()).toMatchObject({ organizationId, policy, configured: false });
+    expect(getPolicy).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId });
+
+    const invalid = await handle(new Request(`${origin}${path}`, { method: 'PUT', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ allow: ['MIT'], deny: ['MIT'], review: [] }) }));
+    expect(invalid.status).toBe(400);
+    expect(updatePolicy).not.toHaveBeenCalled();
+    const updated = await handle(new Request(`${origin}${path}`, { method: 'PUT', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(policy) }));
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({ organizationId, policy, configured: true });
+    expect(updatePolicy).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, policy });
+  });
+
   it('fails closed when step-up routes are unavailable', async () => {
     const { services, auth } = ports();
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
