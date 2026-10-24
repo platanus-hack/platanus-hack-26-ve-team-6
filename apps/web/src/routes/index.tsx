@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { Landing } from '../landing/landing';
-import { THEME_SCRIPT } from '../landing/theme';
+import { THEME_SCRIPT } from '../components/theme-switch';
 
 export const Route = createFileRoute('/')({
   head: () => ({
