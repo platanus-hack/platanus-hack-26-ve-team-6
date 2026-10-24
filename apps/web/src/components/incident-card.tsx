@@ -1,9 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { TriageRevision } from '@gotchu/contracts';
 import { triageApi } from './triage-client';
 
 const statusLabel = { open:'Abierto', monitoring:'En seguimiento', closed:'Cerrado por el equipo' } as const;
 const impactLabel = { none_observed_at_checked_points:'No se observó impacto en los puntos comprobados', degraded:'Impacto degradado observado', unavailable:'Punto comprobado no disponible', unknown:'Impacto desconocido' } as const;
 const kindLabel = { application_regression:'Regresión de aplicación', abuse:'Abuso', provider_dependency:'Dependencia o proveedor', legitimate_load:'Aumento de carga', unknown:'Sin explicación confirmada' } as const;
+function revisionChange(current:TriageRevision, previous:TriageRevision|undefined) {
+  if(!previous)return 'Primera revisión';
+  const changes:string[]=[];
+  if(current.impact.observed!==previous.impact.observed)changes.push(`impacto: ${impactLabel[previous.impact.observed]} → ${impactLabel[current.impact.observed]}`);
+  const oldStatus=new Map(previous.hypotheses.map(item=>[item.kind,item.status]));
+  for(const hypothesis of current.hypotheses){const before=oldStatus.get(hypothesis.kind);if(before!==hypothesis.status)changes.push(`${kindLabel[hypothesis.kind]}: ${before??'nueva'} → ${hypothesis.status}`);}
+  if(changes.length===0)changes.push('Impacto e hipótesis sin cambio; cambió la evidencia o la ventana evaluada.');
+  return changes.join('; ');
+}
 export function IncidentCard({ organizationId, applicationId, incidentId, canManage }: { organizationId:string; applicationId:string; incidentId:string; canManage:boolean }) {
   const scope={organizationId,applicationId}; const queryClient=useQueryClient();
   const query=useQuery({queryKey:['triage-incident',organizationId,applicationId,incidentId],queryFn:()=>triageApi.get(scope,incidentId)});
@@ -20,7 +30,7 @@ export function IncidentCard({ organizationId, applicationId, incidentId, canMan
     <section><h3>Qué observamos</h3><p>{impactLabel[latest.impact.observed]}</p>{latest.impact.affectedServices.length>0&&<p>Servicios afectados: {latest.impact.affectedServices.join(', ')}</p>}<ul>{latest.impact.checkedPoints.map(item=><li key={item.ref}>{item.detail}</li>)}</ul></section>
     <section><h3>Qué puede explicarlo</h3>{latest.hypotheses.map((hypothesis,index)=><details key={`${hypothesis.kind}-${index}`}><summary>{kindLabel[hypothesis.kind]} · {hypothesis.status} · confianza {hypothesis.confidence}</summary><p>Evidencia a favor</p><ul>{hypothesis.evidenceFor.map(item=><li key={item.ref}>{item.detail}</li>)}</ul><p>Evidencia en contra</p><ul>{hypothesis.evidenceAgainst.map(item=><li key={item.ref}>{item.detail}</li>)}</ul><p>Reglas: {hypothesis.ruleIds.join(', ')||'ninguna'}</p>{hypothesis.missingData.length>0&&<p>Falta: {hypothesis.missingData.join(' ')}</p>}</details>)}</section>
     <section><h3>Qué no comprobamos</h3><ul>{[...latest.impact.missingData,...latest.unknownInvestigable].length===0?<li>No hay datos faltantes declarados para esta ventana; la cobertura sigue limitada a los puntos comprobados.</li>:[...latest.impact.missingData,...latest.unknownInvestigable].map((item,index)=><li key={`${index}-${item}`}>{item}</li>)}</ul></section>
-    <section><h3>Historial</h3><ol>{detail.revisions.map(({revision,createdAt},index)=><li key={revision.id}>Revisión {revision.revision} · {new Date(createdAt).toLocaleString('es')} · {index===0?'actual':`impacto: ${impactLabel[revision.impact.observed]}`}</li>)}</ol></section>
+    <section><h3>Historial</h3><ol>{detail.revisions.map(({revision,createdAt},index)=><li key={revision.id}>Revisión {revision.revision} · {new Date(createdAt).toLocaleString('es')} · {revisionChange(revision,detail.revisions[index+1]?.revision)}</li>)}</ol></section>
     {detail.revisions.some(({revision})=>revision.hypotheses.some(h=>h.kind==='provider_dependency'&&h.evidenceFor.some(item=>item.detail.includes('(fixture)'))))&&<p role="note">Feed de proveedor simulado (fixture).</p>}
     <button className="customer-button customer-button-secondary" disabled={!canManage||!requestable||evidence.isPending} title={!requestable?'No hay evidencia faltante solicitada mediante una comprobación ya configurada.':undefined} onClick={()=>evidence.mutate()}>Obtener evidencia faltante</button>{!requestable&&<p>No hay comprobaciones consentidas disponibles para solicitar.</p>}{evidence.data&&<p role="status">{evidence.data.message}</p>}{evidence.error&&<p role="alert">No se pudo solicitar la evidencia.</p>}{status.error&&<p role="alert">No se pudo actualizar el estado del triage.</p>}
   </article>;

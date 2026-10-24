@@ -24,7 +24,9 @@ export function createTriageService(deps: BaseDependencies) {
         const incident = await tx.query<{ id: string; environment: string; status: string; window_started_at: Date; window_ended_at: Date; created_at: Date; updated_at: Date }>('SELECT id,environment,status,window_started_at,window_ended_at,created_at,updated_at FROM gotchu.triage_incidents WHERE organization_id=$1 AND application_id=$2 AND id=$3', [value.organizationId,value.applicationId,value.incidentId]);
         const row = incident.rows[0]; if (!row) throw new BackendError('not_found','Incident not found',404);
         const history = await tx.query<{ body: unknown; created_at: Date }>('SELECT body,created_at FROM gotchu.triage_revisions WHERE organization_id=$1 AND application_id=$2 AND incident_id=$3 ORDER BY revision DESC LIMIT 200', [value.organizationId,value.applicationId,value.incidentId]);
-        const monitor = await tx.query<{ target_id: string | null; providers: unknown }>('SELECT target_id,providers FROM gotchu.operation_monitors WHERE organization_id=$1 AND application_id=$2 AND enabled',[value.organizationId,value.applicationId]);
+        const monitor = await tx.query<{ target_id: string | null; providers: unknown }>(`SELECT target_id,providers FROM gotchu.operation_monitors m WHERE organization_id=$1 AND application_id=$2 AND enabled
+          AND (source_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_sources s WHERE s.organization_id=m.organization_id AND s.application_id=m.application_id AND s.id=m.source_id AND s.deleted_at IS NULL))
+          AND (target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='verified' AND t.expires_at>clock_timestamp()))`,[value.organizationId,value.applicationId]);
         const configured = monitor.rows[0];
         const requestableEvidence = configured ? [...(configured.target_id ? ['https_health' as const] : []), ...(Array.isArray(configured.providers) && configured.providers.length ? ['provider_status' as const] : [])] : [];
         const revisions = history.rows.map(item => ({ revision: triageRevisionSchema.parse(item.body), createdAt: item.created_at.toISOString() }));
@@ -48,8 +50,10 @@ export function createTriageService(deps: BaseDependencies) {
         await authorize(tx,value.organizationId,identity,['owner','operator']);
         const found = await tx.query<{ id: string }>('SELECT id FROM gotchu.triage_incidents WHERE organization_id=$1 AND application_id=$2 AND id=$3',[value.organizationId,value.applicationId,value.incidentId]);
         if (!found.rowCount) throw new BackendError('not_found','Incident not found',404);
-        const config = await tx.query<{ target_id: string | null; providers: unknown }>(`UPDATE gotchu.operation_monitors SET next_due_at=clock_timestamp()
+        const config = await tx.query<{ target_id: string | null; providers: unknown }>(`UPDATE gotchu.operation_monitors m SET next_due_at=clock_timestamp()
           WHERE organization_id=$1 AND application_id=$2 AND enabled AND next_due_at>clock_timestamp()-interval '5 minutes'
+          AND (source_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_sources s WHERE s.organization_id=m.organization_id AND s.application_id=m.application_id AND s.id=m.source_id AND s.deleted_at IS NULL))
+          AND (target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='verified' AND t.expires_at>clock_timestamp()))
           RETURNING target_id,providers`,[value.organizationId,value.applicationId]);
         const row = config.rows[0]; const requested = row ? [...(row.target_id ? ['https_health' as const] : []), ...(Array.isArray(row.providers) && row.providers.length ? ['provider_status' as const] : [])] : [];
         await audit(tx,value.organizationId,identity.userId,'triage.evidence_requested',value.incidentId,{requested,scope:'existing_monitor_configuration_only'});
