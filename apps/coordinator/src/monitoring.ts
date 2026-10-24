@@ -1,14 +1,17 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { BackendError, type Backend } from '@gotchu/backend';
+import { providerStatusInputSchema, httpsProbeSchema } from '@gotchu/triage';
 import { customerSourceSnapshotSchema, customerAssessmentReportSchema, recordOperationObservationSchema, type MonitorWork, type MonitorClaim, type CustomerSourceSnapshot } from '@gotchu/contracts';
-import type { Database } from '@gotchu/database';
-import type { MonitoringCandidate, RepositorySnapshotObservation, ProviderStatusObservation, DependencyObservation } from '@gotchu/monitoring';
+import type { Database, Transaction } from '@gotchu/database';
+import type { MonitoringCandidate, RepositorySnapshotObservation, ProviderStatusObservation, DependencyObservation, TrustedCustomerTarget } from '@gotchu/monitoring';
+import type { AuthorizedHttpsHealthObservation } from '@gotchu/monitoring';
 
 export interface MonitoringAdapters {
   repository(input: MonitorClaim & { repositoryKey: string; previousRevision: string | null; signal: AbortSignal }): Promise<RepositorySnapshotObservation>;
   dependencies(repository: RepositorySnapshotObservation, signal: AbortSignal): Promise<DependencyObservation>;
   provider(name: 'cloudflare' | 'railway', signal: AbortSignal): Promise<ProviderStatusObservation>;
+  httpsHealth(target: TrustedCustomerTarget, route: string, signal: AbortSignal): Promise<AuthorizedHttpsHealthObservation>;
 }
 export interface MonitoringDependencies { backend: Backend; database: Database; adapters: MonitoringAdapters }
 
@@ -89,6 +92,7 @@ export async function runMonitoringWork(deps: MonitoringDependencies, initial: M
         try {
           await deps.backend.operations.getWatch(claim); signal.throwIfAborted();
           const status = await deps.adapters.provider(provider, AbortSignal.any([signal, AbortSignal.timeout(10_000)]));
+          await persistProviderTriageInputs(deps.database, claim, status);
           if (!status.fresh) { degraded = true; continue; }
           if (status.candidate) await record(status.candidate);
           else await healthy(`Read ${provider} public status; customer impact is not independently verified.`, [status.evidence], status.collectedAt);
@@ -97,6 +101,33 @@ export async function runMonitoringWork(deps: MonitoringDependencies, initial: M
             severity: 'info', confidence: 'high', evidence: [status.evidence], observedAt: status.collectedAt,
             expiresAt: new Date(Date.parse(status.collectedAt) + 3_600_000).toISOString(), metrics: null, incidentId: null, upstreamImpact: 'not_applicable',
           });
+        } catch { degraded = true; }
+      }
+      if (watch.config.targetId) {
+        try {
+          await deps.backend.operations.getWatch(claim); signal.throwIfAborted();
+          const probeContext = await deps.database.tenant(claim.organizationId, async tx => {
+            const target = await tx.query<{id:string;origin:string;version:number;verified_at:Date;expires_at:Date;scan_profile:'root'|'public_surface'}>(`SELECT id,origin,version,verified_at,expires_at,scan_profile FROM gotchu.customer_targets
+              WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND status='verified' AND expires_at>clock_timestamp()`,[claim.organizationId,claim.applicationId,watch.config.targetId]);
+            const routes = await tx.query<{route:string;service:string;provider:string|null;role:'application'|'control'}>(`SELECT r.route,s.name AS service,d.provider,r.role FROM gotchu.triage_probe_routes r
+              JOIN gotchu.application_services s ON s.organization_id=r.organization_id AND s.application_id=r.application_id AND s.id=r.service_id
+              LEFT JOIN gotchu.application_dependencies d ON d.organization_id=r.organization_id AND d.application_id=r.application_id AND d.id=r.dependency_id
+              WHERE r.organization_id=$1 AND r.application_id=$2 ORDER BY r.route`,[claim.organizationId,claim.applicationId]);
+            return {target:target.rows[0],routes:routes.rows};
+          });
+          if (!probeContext.target) throw new Error('verified_monitor_target_missing');
+          const target:TrustedCustomerTarget={id:probeContext.target.id,origin:probeContext.target.origin,version:probeContext.target.version,scanProfile:probeContext.target.scan_profile,
+            verifiedAt:probeContext.target.verified_at.toISOString(),expiresAt:probeContext.target.expires_at.toISOString()};
+          const routes=probeContext.routes.length?probeContext.routes:[{route:'/',service:'application',provider:null,role:'application' as const}];
+          for(const configured of routes){
+            const result = await deps.adapters.httpsHealth(target,configured.route,AbortSignal.any([signal,AbortSignal.timeout(10_000)]));
+            if(probeContext.routes.length){
+              const probe = httpsProbeSchema.parse({route:result.route,service:configured.service,dependsOnProvider:configured.provider,
+                role:configured.role,outcome:result.incomplete?'unknown':result.status>=500?'unavailable':result.status>=400?'degraded':'healthy',at:result.observedAt});
+              await persistHttpsProbeInput(deps.database,claim,probe);
+            }
+            if (result.candidate) await record(result.candidate);
+          }
         } catch { degraded = true; }
       }
       // Never silently replace an unavailable selected repository with older uploaded source.
@@ -127,4 +158,37 @@ export async function runMonitoringWork(deps: MonitoringDependencies, initial: M
     stop.abort(); await heartbeat;
     if (heartbeatFailure) throw heartbeatFailure;
   }
+}
+
+export async function persistProviderTriageInputs(database: Database, claim: MonitorClaim, status: ProviderStatusObservation) {
+  const observedAt = status.publishedAt ?? status.collectedAt;
+  if (Date.now() - Date.parse(observedAt) > 7 * 24 * 60 * 60 * 1000) return;
+  const state = (value: string): 'operational' | 'degraded' | 'partial_outage' | 'major_outage' | 'unknown' => {
+    if (value === 'operational' || value === 'degraded' || value === 'partial_outage' || value === 'major_outage') return value;
+    if (value === 'degraded_performance') return 'degraded';
+    if (value === 'major') return 'major_outage';
+    if (value === 'minor') return 'degraded';
+    return 'unknown';
+  };
+  const inputs = [
+    { provider: status.provider, component: null, region: null, state: status.fresh ? status.globalStatus : 'unknown', observedAt, scope: 'global', fixture: status.fixture },
+    ...status.components.map(component => ({ provider: status.provider, component: component.name, region: null, state: status.fresh ? state(component.status) : 'unknown', observedAt, scope: 'component', fixture: status.fixture })),
+  ];
+  await database.tenant(claim.organizationId, async tx => {
+    for (const value of inputs) {
+      const input = providerStatusInputSchema.parse(value);
+      await recordTriageInput(tx,claim,'provider_status',input.observedAt,input);
+    }
+  });
+}
+
+export async function persistHttpsProbeInput(database:Database,claim:MonitorClaim,input:unknown) {
+  const probe=httpsProbeSchema.parse(input);
+  await database.tenant(claim.organizationId,tx=>recordTriageInput(tx,claim,'https_probe',probe.at,probe));
+}
+
+async function recordTriageInput(tx:Transaction,claim:MonitorClaim,kind:'provider_status'|'https_probe',observedAt:string,payload:unknown) {
+  await tx.query('SELECT gotchu.triage_record_input($1,$2,$3,$4,$5,$6,$7,$8::jsonb)',[
+    claim.organizationId,claim.applicationId,claim.runId,claim.leaseToken,randomUUID(),kind,observedAt,JSON.stringify(payload),
+  ]);
 }

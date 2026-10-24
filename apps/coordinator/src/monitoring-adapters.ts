@@ -1,11 +1,12 @@
 import {
   loadMonitoringRepositoryCatalog, createLocalGitRepositoryReader, createGitHubRepositoryReader,
-  createOsvDependencyAdapter, createCloudflareStatusAdapter, createRailwayStatusAdapter,
+  createOsvDependencyAdapter, createCloudflareStatusAdapter, createRailwayStatusAdapter, createAuthorizedHttpsHealthAdapter,
 } from '@gotchu/monitoring';
 import type { MonitoringAdapters } from './monitoring.js';
 
 export function createConfiguredMonitoringAdapters(options: { configFile?: string; advisories: boolean }): MonitoringAdapters {
   const cloudflare = createCloudflareStatusAdapter(); const railway = createRailwayStatusAdapter();
+  const httpsHealth = createAuthorizedHttpsHealthAdapter();
   const osv = options.advisories ? createOsvDependencyAdapter() : null;
   return {
     async repository(input) {
@@ -21,5 +22,6 @@ export function createConfiguredMonitoringAdapters(options: { configFile?: strin
       return osv.read({ repositoryKey: repository.repositoryKey, commitSha: repository.commit.sha, repositoryReference: reference, snapshot: repository.snapshot, signal });
     },
     provider: (name, signal) => (name === 'cloudflare' ? cloudflare : railway).read(signal),
+    httpsHealth: (target, route, signal) => httpsHealth.read(target, signal, route),
   };
 }
