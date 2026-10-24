@@ -106,6 +106,10 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:?run scripts/infra-local-setup.sh first}
       AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
       AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET:-}
+      GOTCHU_GITHUB_READER_APP_FILE: ${GOTCHU_GITHUB_READER_APP_FILE:-}
+      GOTCHU_GITHUB_READER_APP_CREDENTIALS_FILE: ${GOTCHU_GITHUB_READER_APP_CREDENTIALS_FILE:-}
+      GOTCHU_GITHUB_READER_INSTALLATION_ID: ${GOTCHU_GITHUB_READER_INSTALLATION_ID:-}
+      GOTCHU_GITHUB_APP_SLUG: ${GOTCHU_GITHUB_APP_SLUG:-}
       AUTH_OIDC_ISSUER: ${AUTH_OIDC_ISSUER:-}
       AUTH_OIDC_CLIENT_ID: ${AUTH_OIDC_CLIENT_ID:-}
       AUTH_OIDC_CLIENT_SECRET: ${AUTH_OIDC_CLIENT_SECRET:-}
@@ -140,6 +144,8 @@ services:
         published: ${WEB_HOST_PORT:-3000}
         host_ip: 127.0.0.1
         protocol: tcp
+    volumes:
+      - ${GOTCHU_STATE_DIR:-../.gotchu}/github:/run/secrets/github:ro
     networks:
       control-plane: {}
       data: {}

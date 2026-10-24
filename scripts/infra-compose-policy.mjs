@@ -63,6 +63,9 @@ requireValue(!Object.keys(services.agent.environment ?? {}).some((key) => /DATAB
 requireValue(Object.keys(services.web.environment ?? {}).includes('GOTCHU_API_DATABASE_URL'), 'web must use the gotchu_api runtime login.');
 requireValue(Object.keys(services.web.environment ?? {}).includes('GOTCHU_INGEST_DATABASE_URL'), 'event ingestion must use the distinct gotchu_ingest runtime login.');
 requireValue(Object.keys(services.web.environment ?? {}).includes('GOTCHU_EVENT_SIGNING_KEYS_JSON'), 'web must accept the optional local event-signing credential map.');
+requireValue(Object.keys(services.web.environment ?? {}).includes('GOTCHU_GITHUB_READER_APP_FILE'), 'web must accept the optional GitHub reader app file path.');
+const githubCredentialsMount = (services.web.volumes ?? []).find((volume) => volume.target === '/run/secrets/github');
+requireValue(githubCredentialsMount?.type === 'bind' && githubCredentialsMount.read_only === true && githubCredentialsMount.source.endsWith('/github'), 'web may mount only the private GitHub credential directory, read-only.');
 requireValue(Object.keys(services.coordinator.environment ?? {}).includes('GOTCHU_COORDINATOR_DATABASE_URL'), 'coordinator must use the gotchu_coordinator runtime login.');
 requireValue(Object.keys(services.coordinator.environment ?? {}).includes('GOTCHU_REDIS_URL'), 'only the trusted coordinator may receive Redis access.');
 requireValue(Object.keys(services.gateway.environment ?? {}).includes('GOTCHU_GATEWAY_DATABASE_URL'), 'gateway must use its own gotchu_coordinator runtime login.');

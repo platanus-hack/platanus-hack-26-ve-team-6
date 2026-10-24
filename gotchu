@@ -49,7 +49,8 @@ ensure_state() {
     [[ -z "$(find "$state_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]] || fail 'No se adoptará un directorio de estado preexistente sin el marcador de Gotchu.' 2
     (umask 077; printf '%s\n' 'gotchu-self-host-state-v1' >"$state_marker")
   fi
-  chmod 700 "$state_dir"; chmod 600 "$state_marker"
+  mkdir -p -- "$state_dir/github"
+  chmod 700 "$state_dir" "$state_dir/github"; chmod 600 "$state_marker"
 }
 check_docker() {
   command -v docker >/dev/null 2>&1 || fail 'Docker no está instalado. Instala Docker Engine/Desktop y vuelve a ejecutar ./gotchu up.' 2
@@ -283,7 +284,14 @@ doctor() {
   [[ -d "$state_dir" ]] && df -h "$state_dir" || true; return "$failed"
 }
 github_setup() {
-  printf 'GitHub App opcional: permisos de repositorio Contents: Read-only y Metadata: Read-only; sin permisos de escritura.\nGuarda App ID, Installation ID y clave privada en %s/github/ con modo 0600. Variables del adaptador: GOTCHU_GITHUB_APP_ID, GOTCHU_GITHUB_INSTALLATION_ID, GOTCHU_GITHUB_PRIVATE_KEY_FILE.\n' "$state_dir"
+  ensure_state
+  local public_url="${GOTCHU_PUBLIC_URL:-http://localhost:${GOTCHU_WEB_PORT:-3000}}"
+  if [[ -f "$env_file" ]]; then public_url="$(sed -n 's/^PUBLIC_APP_URL=//p' "$env_file" | head -n1)"; fi
+  printf 'GitHub App de sólo lectura: concede Contents: Read-only y Metadata: Read-only. Configura su callback de instalación como %s/api/customer/github/callback.\n' "$public_url"
+  printf 'Copia el JSON de credenciales en %s/github/reader-app.json y limita el archivo a modo 0600.\n' "$state_dir"
+  printf '%s\n' 'En .env configura GOTCHU_GITHUB_READER_APP_FILE=/run/secrets/github/reader-app.json y GOTCHU_GITHUB_APP_SLUG=<slug>; la carpeta se monta como sólo lectura.'
+  printf '%s\n' 'Para Auth.js GitHub sign-in configura AUTH_GITHUB_ID y AUTH_GITHUB_SECRET y agrega <PUBLIC_APP_URL>/api/auth/callback/github junto al callback de instalación. Las GitHub Apps admiten varias URLs de callback; si no puedes editar la App, usa otra OAuth App o el inicio local/OIDC.'
+  printf '%s\n' 'Vuelve a ejecutar ./gotchu up tras cambiar credenciales o .env. La App sólo lee los repositorios autorizados en la instalación; Gotchu no escribe en GitHub.'
 }
 
 case "$command_name" in

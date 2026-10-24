@@ -37,6 +37,11 @@ for (const name of ['AUTH_GITHUB_ID', 'AUTH_GITHUB_SECRET', 'AUTH_OIDC_ISSUER', 
   requireValue(Object.hasOwn(webEnvironment, name), `web must accept optional ${name}.`);
   requireValue(!composeText.includes(`${name}: \${${name}:?`), `${name} must not be mandatory for local Compose.`);
 }
+for (const name of ['GOTCHU_GITHUB_READER_APP_FILE', 'GOTCHU_GITHUB_READER_APP_CREDENTIALS_FILE', 'GOTCHU_GITHUB_READER_INSTALLATION_ID', 'GOTCHU_GITHUB_APP_SLUG']) {
+  requireValue(Object.hasOwn(webEnvironment, name), `web must accept optional ${name}.`);
+  requireValue(!composeText.includes(`${name}: \${${name}:?`), `${name} must not be mandatory for local Compose.`);
+}
+requireValue((services.web.volumes ?? []).some(({ source, target, read_only }) => target === '/run/secrets/github' && read_only === true && source.endsWith('/github')), 'web must mount the operator-managed GitHub credential directory read-only.');
 
 const coordinatorEnvironment = environment('coordinator');
 requireValue(
