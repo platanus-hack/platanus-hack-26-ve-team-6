@@ -19,7 +19,9 @@ export function finding(a: AssessmentAnalysis, data: Omit<AssessmentFinding, 'id
 }
 export function finish(a: AssessmentAnalysis) {
   a.finishedAt = new Date().toISOString();
-  a.status = a.coverage.some(c => c.state === 'inspected') ? a.coverage.some(c => c.state === 'unavailable') ? 'partial' : 'completed' : 'unavailable';
+  const inspected = a.coverage.some(c => c.state === 'inspected');
+  const partialEvidence = a.evidence.length > 0 || a.findings.length > 0;
+  a.status = !inspected && !partialEvidence ? 'unavailable' : !inspected || a.coverage.some(c => c.state === 'unavailable') ? 'partial' : 'completed';
   return a;
 }
 export function compare(internal: AssessmentAnalysis | null, external: AssessmentAnalysis | null): AssessmentComparison[] {

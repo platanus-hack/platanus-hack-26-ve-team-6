@@ -7,6 +7,14 @@ describe('customer report boundaries',()=>{
     const runner=createCustomerAssessmentRunner({scanners:absentScanners});const report=await runner.run(input());
     expect(report.version).toBe(2);expect(report.internal?.status).toBe('unavailable');expect(report.internal?.findings).toEqual([]);expect((await runner.readiness()).ready).toBe(false);expect(customerAssessmentReportSchema.safeParse(report).success).toBe(true);
   });
+  it('retains partial scanner evidence when every capability is incomplete',async()=>{
+    const scanners={...absentScanners,async run(name:string){
+      if(name!=='semgrep')throw new Error('fixture-unavailable');
+      return {image:'fixture-semgrep-image',version:'1.90.0',profileChecksum:'0'.repeat(64),output:{version:'1.90.0',results:[{check_id:'fixture.partial-eval',path:'/source/app.ts',start:{line:1}}],errors:[{type:'PartialParsing'}],paths:{scanned:['/source/app.ts']}}};
+    }};
+    const report=await createCustomerAssessmentRunner({scanners}).run(input([{path:'app.ts',content:'eval(value);'}]));
+    expect(report.internal?.status).toBe('partial');expect(report.internal?.findings).toHaveLength(1);expect(customerAssessmentReportSchema.safeParse(report).success).toBe(true);
+  });
   it('validates source digest, traversal, source size and no caller URL fields',async()=>{
     const runner=createCustomerAssessmentRunner({scanners:absentScanners});
     const original=input();if(!original.source)throw new Error();original.source.files[0]!.content+='x';await expect(runner.run(original)).rejects.toThrow('digest');
