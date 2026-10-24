@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { createBackend } from '@gotchu/backend';
 import { createCoordinatorTransport, dispatchOutbox, runMonitoringWork, type MonitoringAdapters } from '@gotchu/coordinator';
 import { createCustomerAssessmentRunner, profiles, type ScannerAdapter } from '@gotchu/customer-assessment';
-import { createMonitoringRepositoryCatalog, createLocalGitRepositoryReader, createOsvDependencyAdapter, createCloudflareStatusAdapter } from '@gotchu/monitoring';
+import { createMonitoringRepositoryCatalog, createLocalGitRepositoryReader, createOsvDependencyAdapter, createCloudflareStatusAdapter, createRailwayStatusAdapter } from '@gotchu/monitoring';
 import type { MonitorWork } from '@gotchu/contracts';
 import { fixture, liveUrl, present } from '../../packages/database/test/support.js';
 
@@ -126,6 +126,15 @@ live('scheduled customer monitoring with real Git, PostgreSQL and BullMQ', () =>
     expect(alert.observation.upstreamImpact).toBe('unverified');
     const plan = await api.operations.createPlan(identity(), { ...scope(), kind: 'migration_readiness', observationIds: [alert.observation.id] });
     expect(plan.execution).toBe('disabled'); expect(plan.steps.some(s => s.key === 'data')).toBe(true);
+    await api.operations.configure(identity(), { ...scope(), enabled: true, intervalSeconds: 21600, sourceSnapshotId: null, targetId: null, repositoryKey: null, providers: ['railway'] });
+    const railway = createRailwayStatusAdapter({ fetchImplementation: async () => Response.json({ generatedAt: new Date().toISOString(),
+      entries: [{ type: 'component', data: { id: 'fixture-component', name: 'Unknown component', months: [] } }],
+      activeIncidents: [{ id: 'fixture-incident', title: 'Known upstream issue', status: 'INVESTIGATING' }], maintenances: [],
+    }) });
+    await execute(await next(), { ...adapters, provider: (_name, signal) => railway.read(signal) });
+    const mixed = (await api.operations.listAlerts(identity(), scope())).filter(a => a.observation.evidence.some(e => e.reference === 'https://status.railway.com/api/status'));
+    expect(mixed.map(a => a.observation.kind).sort()).toEqual(['coverage_gap', 'upstream_outage']);
+    expect((await api.operations.getCoverage(identity(), scope())).status).toBe('degraded');
   });
   it('refuses a disabled or no-longer-authorized run before any adapter read', async () => {
     const work = await next();

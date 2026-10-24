@@ -134,6 +134,7 @@ export function createCloudflareStatusAdapter(options: ProviderStatusReaderOptio
         collectedAt,
         publishedAt,
         fresh,
+        coverageComplete: fresh,
         components,
         activeItems,
         evidence,
@@ -175,10 +176,10 @@ export function createRailwayStatusAdapter(options: ProviderStatusReaderOptions 
         || parsed.activeIncidents.some(item => isOpenStatus(item.status));
       const candidate = !fresh
         ? coverageCandidate(evidence, collectedAt, 'The Railway status response was collected, but generatedAt is outside the freshness window.', 'coverage_gap', options.ttlMs)
-        : unknownComponents
-          ? coverageCandidate(evidence, collectedAt, 'The fresh Railway status feed did not include a current-day status for every component; coverage is incomplete.', 'coverage_gap', options.ttlMs)
-          : issue
-            ? statusCandidate('Railway', 'Public status feed generated at ' + (publishedAt ?? 'unknown publication time'), components, activeItems, evidence, collectedAt, options.ttlMs)
+        : issue
+          ? statusCandidate('Railway', 'Public status feed generated at ' + (publishedAt ?? 'unknown publication time'), components, activeItems, evidence, collectedAt, options.ttlMs)
+          : unknownComponents
+            ? coverageCandidate(evidence, collectedAt, 'The fresh Railway status feed did not include a current-day status for every component; coverage is incomplete.', 'coverage_gap', options.ttlMs)
             : coverageCandidate(evidence, collectedAt, 'The fresh Railway status feed reported no current provider outage. This is upstream feed coverage only; it does not establish this application is healthy.', 'coverage_check', options.ttlMs);
       const limitations = ['A public provider status page is upstream context only; it does not verify impact on this application.'];
       if (!fresh) limitations.push('The status feed publication timestamp is outside the configured freshness window; a coverage gap was recorded and no provider outage was inferred.');
@@ -189,6 +190,7 @@ export function createRailwayStatusAdapter(options: ProviderStatusReaderOptions 
         collectedAt,
         publishedAt,
         fresh,
+        coverageComplete: fresh && !unknownComponents,
         components: components.slice(0, 100),
         activeItems,
         evidence,

@@ -92,6 +92,11 @@ export async function runMonitoringWork(deps: MonitoringDependencies, initial: M
           if (!status.fresh) { degraded = true; continue; }
           if (status.candidate) await record(status.candidate);
           else await healthy(`Read ${provider} public status; customer impact is not independently verified.`, [status.evidence], status.collectedAt);
+          if (!status.coverageComplete && status.candidate?.kind !== 'coverage_gap') await record({
+            kind: 'coverage_gap', summary: `${provider} reported a known issue while some component coverage remained unknown. Review both the upstream observation and missing coverage.`,
+            severity: 'info', confidence: 'high', evidence: [status.evidence], observedAt: status.collectedAt,
+            expiresAt: new Date(Date.parse(status.collectedAt) + 3_600_000).toISOString(), metrics: null, incidentId: null, upstreamImpact: 'not_applicable',
+          });
         } catch { degraded = true; }
       }
       // Never silently replace an unavailable selected repository with older uploaded source.

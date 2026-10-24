@@ -83,6 +83,7 @@ export interface ProviderStatusObservation {
   collectedAt: string;
   publishedAt: string | null;
   fresh: boolean;
+  coverageComplete: boolean;
   components: ProviderStatusComponent[];
   activeItems: Array<{ id: string | null; title: string; status: string }>;
   evidence: MonitoringEvidence;
