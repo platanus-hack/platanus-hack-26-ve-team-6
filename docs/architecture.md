@@ -26,7 +26,9 @@ flowchart LR
   coordinator -->|exact durable request| scanner --> engine
   engine -->|uploaded source only| tools
   engine -->|independent root GET| target
-  engine -->|evidence, coverage, comparison| pg
+  engine -->|validated report| scanner
+  scanner -->|bounded result| coordinator
+  coordinator -->|atomic report and job completion| backend
   pg --> backend --> web --> customer
 ```
 
@@ -70,7 +72,9 @@ Reports bind organization, application, job, source ID/digest, and target ID/ver
 
 Assessments are observation-only. The report records no performed actions. Severity never expands permissions. Exact approval, bounded preauthorized automation, provider writes, recovery, and automatic response are separate capabilities and are not enabled by this customer assessment flow.
 
-Admission is bounded in the current backend: at most three unfinished assessments and 20 assessments per application per day; source storage is capped at ten active snapshots per application and 100 new snapshots per workspace per day. These are admission controls, not throughput, latency, or production-capacity guarantees.
+Admission is bounded in the current backend: at most three unfinished assessments per application and 20 assessments per workspace per day; source storage is capped at ten active snapshots per application and 100 new snapshots per workspace per day. These are admission controls, not throughput, latency, or production-capacity guarantees.
+
+Renewal and revocation return `409 target_assessment_in_progress` while the target has queued/running work. Authorization remains active on that response. Unknown scanner outcomes and reclaimed customer deliveries require operator reconciliation and also block those mutations; a timeout is not proof that the scanner stopped. No customer endpoint clears that quarantine. Successful revocation is acknowledged only after outstanding work has settled or an operator has established quiescence and reconciled it.
 
 ## Local runtime
 

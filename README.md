@@ -19,7 +19,8 @@ Reports retain evidence provenance and checksums, scanner coverage, severity, co
 Use Node 24, pnpm 11, and Docker. After preparing the local dependencies, start the customer application:
 
 ```sh
-pnpm dev:prepare
+pnpm install --frozen-lockfile
+pnpm dev:prepare # only when pinned images are missing
 pnpm dev:start
 ```
 
