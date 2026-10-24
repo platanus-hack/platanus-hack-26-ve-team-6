@@ -1,0 +1,26 @@
+rules:
+  - id: gotchu.javascript.eval
+    languages: [javascript, typescript]
+    message: Dynamic evaluation requires review of the argument trust boundary.
+    severity: WARNING
+    pattern: eval($X)
+  - id: gotchu.javascript.shell-exec
+    languages: [javascript, typescript]
+    message: Shell execution requires review of the command trust boundary.
+    severity: WARNING
+    patterns:
+      - pattern-either:
+          - pattern: require('child_process').exec($CMD, ...)
+          - pattern: |
+              import { exec as $EXEC } from 'child_process';
+              ...
+              $EXEC($CMD, ...)
+          - pattern: |
+              import { exec as $EXEC } from 'node:child_process';
+              ...
+              $EXEC($CMD, ...)
+  - id: gotchu.javascript.tls-disabled
+    languages: [javascript, typescript]
+    message: TLS certificate verification is disabled in this object.
+    severity: ERROR
+    pattern: '({..., rejectUnauthorized: false, ...})'

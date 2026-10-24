@@ -1,0 +1,14 @@
+title = "Gotchu controlled secret indicators v1"
+[[rules]]
+id = "gotchu-private-key"
+description = "Private key material indicator"
+regex = '''-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'''
+[[rules]]
+id = "gotchu-aws-access-key"
+description = "AWS access key identifier indicator"
+regex = '''(?:AKIA|ASIA)[A-Z0-9]{16}'''
+[[rules]]
+id = "gotchu-assigned-secret"
+description = "Literal secret assignment indicator"
+regex = '''(?i)(?:api[_-]?key|secret|password|token)\s*[:=]\s*["']([a-zA-Z0-9_./+\-=]{16,128})["']'''
+secretGroup = 1
