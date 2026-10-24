@@ -5,6 +5,7 @@ import { BackendError } from '@gotchu/backend';
 import { createCustomerApi, type CustomerServices } from '../src/server/customer-api.js';
 import { contextClient } from '../src/components/context-client.js';
 import type { AuthService } from '../src/server/auth.js';
+import type { LocalAccounts } from '../src/server/local-accounts.js';
 import { decisionRecordPageSchema, operationPlanSchema } from '@gotchu/contracts';
 import type { LicensePolicy } from '@gotchu/contracts';
 import { customerAssessmentReportSchema } from '@gotchu/contracts';
@@ -89,6 +90,29 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(workspace);
     expect(services.updateWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let an authenticated identity create the first self-host Owner outside /setup', async () => {
+    const { services, auth } = ports();
+    const bootstrapComplete = vi.fn(async () => false);
+    const localAccounts: LocalAccounts = {
+      register: async () => ({ id: 'account-id' }),
+      bootstrap: async () => ({ id: 'account-id' }),
+      authenticate: async () => null,
+      emailExists: async () => false,
+      bootstrapComplete,
+      accountEmail: async () => null,
+      reauthenticate: async () => null,
+      epoch: async () => null,
+    };
+    const createWorkspace = vi.fn(async () => ({ id: organizationId, name: 'Unapproved', role: 'owner' as const }));
+    services.createWorkspace = createWorkspace;
+    const handle = createCustomerApi({ auth, origin, services, localAccounts, selfHostSetup: true, registrationEnabled: false, providers: [] });
+    const response = await handle(request('workspaces', { name: 'Unapproved' }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: 'self_host_setup_required' } });
+    expect(bootstrapComplete).toHaveBeenCalledExactlyOnceWith();
+    expect(createWorkspace).not.toHaveBeenCalled();
   });
 
   it('fails closed when step-up routes are unavailable', async () => {

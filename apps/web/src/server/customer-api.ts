@@ -134,6 +134,10 @@ export function createCustomerApi(options: {
       }
       const session = await options.auth.identity(request);
       if (!session) throw new HttpError(401, 'unauthenticated', 'Inicia sesión para acceder al espacio de trabajo.');
+      if (request.method === 'POST' && url.pathname === '/api/customer/workspaces' && options.selfHostSetup
+        && (!options.localAccounts || !await options.localAccounts.bootstrapComplete())) {
+        throw new HttpError(403, 'self_host_setup_required', 'Completa primero la configuración inicial de /setup para crear el primer Owner.');
+      }
       const identity = { userId: session.userId };
       const services = options.services;
       if (!services) throw new HttpError(503, 'database_not_configured', 'La base de datos del servicio no está configurada.');

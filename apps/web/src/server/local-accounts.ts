@@ -25,6 +25,8 @@ export interface LocalAccounts {
   register(input: unknown): Promise<{ id: string }>;
   bootstrap(input: unknown): Promise<{ id: string }>;
   authenticate(input: unknown): Promise<{ id: string; email: string; credentialEpoch: number } | null>;
+  emailExists(email: string): Promise<boolean>;
+  bootstrapComplete(): Promise<boolean>;
   accountEmail(userId: string): Promise<string | null>;
   reauthenticate(userId: string, password: string): Promise<boolean | null>;
   epoch(id: string): Promise<number | null>;
@@ -98,6 +100,17 @@ export function createLocalAccounts(database: Database): LocalAccounts {
         return valid && record ? { id: record.id, email: value.email, credentialEpoch: record.epoch } : null;
       });
     },
+    emailExists: async email => {
+      const normalizedEmail = z.email().max(254).parse(email).toLowerCase();
+      return database.tenant(systemScope, async tx => {
+        const result = await tx.query<{ exists: boolean }>('SELECT EXISTS (SELECT 1 FROM gotchu.auth_lookup($1)) AS exists', [normalizedEmail]);
+        return result.rows[0]?.exists === true;
+      });
+    },
+    bootstrapComplete: async () => database.tenant(systemScope, async tx => {
+      const result = await tx.query<{ complete: boolean }>('SELECT gotchu.self_host_bootstrap_complete() AS complete');
+      return result.rows[0]?.complete === true;
+    }),
     accountEmail: async userId => {
       const subject = /^credentials:([0-9a-f-]{36})$/.exec(userId)?.[1];
       if (!subject || !z.uuid().safeParse(subject).success) return null;

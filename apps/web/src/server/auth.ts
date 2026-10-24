@@ -2,6 +2,7 @@ import { Auth, type AuthConfig } from '@auth/core';
 import { createHash } from 'node:crypto';
 import type { JWT } from '@auth/core/jwt';
 import GitHub from '@auth/core/providers/github';
+import Google from '@auth/core/providers/google';
 import Credentials from '@auth/core/providers/credentials';
 import type { LocalAccounts } from './local-accounts.js';
 import { z } from 'zod';
@@ -10,7 +11,7 @@ import { HttpError, json, readBoundedBody } from './http.js';
 interface AuthBase {
   origin: string;
   secret: string;
-  localAccounts?: LocalAccounts;
+  selfHostSetup?: boolean;
   invalidateStepUpSession?: (userId: string) => Promise<void>;
 }
 const oidcSettingsSchema = z.object({
@@ -18,11 +19,28 @@ const oidcSettingsSchema = z.object({
   clientId: z.string().min(1).max(256), clientSecret: z.string().min(1).max(4_096), name: z.string().min(1).max(80),
 }).strict();
 type OidcSettings = z.infer<typeof oidcSettingsSchema>;
-export type AuthSettings = AuthBase & (
-  { githubClientId: string; githubClientSecret: string; oidc?: OidcSettings }
-  | { oidc: OidcSettings; githubClientId?: never; githubClientSecret?: never }
-  | { localAccounts: LocalAccounts; oidc?: OidcSettings; githubClientId?: never; githubClientSecret?: never }
+type AuthProviderOptions = {
+  googleClientId?: string;
+  googleClientSecret?: string;
+  githubClientId?: string;
+  githubClientSecret?: string;
+  oidc?: OidcSettings;
+  localAccounts?: LocalAccounts;
+};
+export type AuthSettings = AuthBase & AuthProviderOptions & (
+  | { googleClientId: string; googleClientSecret: string }
+  | { githubClientId: string; githubClientSecret: string }
+  | { oidc: OidcSettings }
+  | { localAccounts: LocalAccounts }
 );
+
+const googleProfileSchema = z.object({
+  sub: z.string().min(1).max(255),
+  name: z.string().max(200).nullable().optional(),
+  email: z.email().max(254).nullable().optional(),
+  email_verified: z.boolean().optional(),
+  picture: z.url().max(2_048).nullable().optional(),
+});
 
 export interface SessionIdentity { userId: string; cookies: string[]; displayName?: string }
 export interface AuthService {
@@ -36,17 +54,30 @@ export function authSettings(env: NodeJS.ProcessEnv = process.env, localAccounts
   const oidc = env.AUTH_OIDC_ISSUER || env.AUTH_OIDC_CLIENT_ID || env.AUTH_OIDC_CLIENT_SECRET
     ? oidcSettingsSchema.parse({ issuer: env.AUTH_OIDC_ISSUER, clientId: env.AUTH_OIDC_CLIENT_ID, clientSecret: env.AUTH_OIDC_CLIENT_SECRET, name: env.AUTH_OIDC_NAME?.trim() || 'Workspace sign-in' }) : undefined;
   const github = env.AUTH_GITHUB_ID && env.AUTH_GITHUB_SECRET ? { githubClientId: env.AUTH_GITHUB_ID, githubClientSecret: env.AUTH_GITHUB_SECRET } : undefined;
-  if (!env.AUTH_SECRET || !github && !oidc && !localAccounts) return null;
+  const google = env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET ? { googleClientId: env.AUTH_GOOGLE_ID, googleClientSecret: env.AUTH_GOOGLE_SECRET } : undefined;
+  if (!env.AUTH_SECRET || !github && !google && !oidc && !localAccounts) return null;
   const secret = z.string().min(32).parse(env.AUTH_SECRET);
   const url = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000');
   if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('PUBLIC_APP_URL must be an origin');
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) {
     throw new Error('PUBLIC_APP_URL must use HTTPS outside local development');
   }
-  const base = { origin: url.origin, secret, ...(localAccounts ? { localAccounts } : {}), ...(invalidateStepUpSession ? { invalidateStepUpSession } : {}) };
-  if (github) return { ...base, ...github, ...(oidc ? { oidc } : {}) };
-  if (oidc) return { ...base, oidc };
-  if (localAccounts) return { ...base, localAccounts };
+  const base = {
+    origin: url.origin,
+    secret,
+    ...(env.GOTCHU_AUTH_MODE === 'self_host' ? { selfHostSetup: true } : {}),
+    ...(invalidateStepUpSession ? { invalidateStepUpSession } : {}),
+  };
+  const providerOptions = {
+    ...(google ?? {}),
+    ...(github ?? {}),
+    ...(oidc ? { oidc } : {}),
+    ...(localAccounts ? { localAccounts } : {}),
+  };
+  if (google) return { ...base, ...providerOptions, googleClientId: google.googleClientId, googleClientSecret: google.googleClientSecret };
+  if (github) return { ...base, ...providerOptions, githubClientId: github.githubClientId, githubClientSecret: github.githubClientSecret };
+  if (oidc) return { ...base, ...providerOptions, oidc };
+  if (localAccounts) return { ...base, ...providerOptions, localAccounts };
   return null;
 }
 
@@ -56,6 +87,18 @@ export function createAuthConfig(settings: AuthSettings): AuthConfig {
   if (settings.githubClientId && settings.githubClientSecret) {
     providers.push(GitHub({ clientId: settings.githubClientId, clientSecret: settings.githubClientSecret, authorization: { params: { scope: 'read:user user:email' } } }));
     providerIds.push('github');
+  }
+  if (settings.googleClientId && settings.googleClientSecret) {
+    providers.push(Google({
+      clientId: settings.googleClientId,
+      clientSecret: settings.googleClientSecret,
+      authorization: { params: { scope: 'openid email profile' } },
+      profile: profile => {
+        const parsed = googleProfileSchema.parse(profile);
+        return { id: parsed.sub, name: parsed.name ?? null, email: parsed.email ?? null, image: parsed.picture ?? null };
+      },
+    }));
+    providerIds.push('google');
   }
   if (settings.oidc) {
     const oidc = oidcSettingsSchema.parse(settings.oidc);
@@ -81,6 +124,21 @@ export function createAuthConfig(settings: AuthSettings): AuthConfig {
     session: { strategy: 'jwt', maxAge: 900 },
     providers,
     callbacks: {
+      signIn: async ({ account, profile }) => {
+        if (settings.selfHostSetup && (!settings.localAccounts || !await settings.localAccounts.bootstrapComplete())) {
+          return new URL('/dashboard?authError=BootstrapRequired', settings.origin).href;
+        }
+        if (account?.provider !== 'google') return true;
+        const parsedProfile = googleProfileSchema.safeParse(profile);
+        if (!parsedProfile.success || parsedProfile.data.email_verified !== true || !parsedProfile.data.email) {
+          return new URL('/dashboard?authError=GoogleEmailUnverified', settings.origin).href;
+        }
+        const email = parsedProfile.data.email.toLowerCase();
+        if (settings.localAccounts && await settings.localAccounts.emailExists(email)) {
+          return new URL('/dashboard?authError=GoogleAccountRequiresPassword', settings.origin).href;
+        }
+        return true;
+      },
       jwt: async ({ token, account, user }) => {
         if (account) {
           // OIDC subjects can be 255 characters. Keep the internal principal bounded
