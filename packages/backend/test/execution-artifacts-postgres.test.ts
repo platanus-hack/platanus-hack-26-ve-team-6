@@ -33,7 +33,7 @@ live('execution artifact storage on real PostgreSQL', () => {
     const artifact = await executorArtifacts.readForExecutor({ organizationId: f.a.organizationId, applicationId: f.a.applicationId, proposalId });
     expect(artifact).toMatchObject({ baseCommit: snapshot.revision, treeSha: 'd'.repeat(40), treeComplete: true, snapshotSha256: snapshotDigest, patchSha256: 'e'.repeat(64) });
     expect(Buffer.from(artifact.files[0]!.contentBase64, 'base64').toString('utf8')).toBe(snapshot.files[0]!.content);
-    expect(await executorArtifacts.verifyCandidateDigest({ organizationId: f.a.organizationId, applicationId: f.a.applicationId, candidateSourceId: candidateId, snapshotSha256: snapshotDigest, patchSha256: 'e'.repeat(64) })).toEqual({ valid: true, unsupportedReason: null });
+    expect(await executorArtifacts.verifyCandidateDigest({ organizationId: f.a.organizationId, applicationId: f.a.applicationId, candidateSourceId: candidateId, snapshotSha256: snapshotDigest, patchSha256: 'e'.repeat(64) })).toEqual({ valid: true, treeSha: 'd'.repeat(40), unsupportedReason: null });
     expect(await executorArtifacts.verifyCandidateDigest({ organizationId: f.a.organizationId, applicationId: f.a.applicationId, candidateSourceId: candidateId, snapshotSha256: snapshotDigest, patchSha256: 'f'.repeat(64) })).toEqual({ valid: false, unsupportedReason: 'execution_artifact_digest_mismatch' });
 
     const hidden = await f.databases.gotchu_executor.tenant(f.b.organizationId, tx => tx.query('SELECT proposal_id FROM gotchu.execution_artifacts WHERE proposal_id=$1', [proposalId]));

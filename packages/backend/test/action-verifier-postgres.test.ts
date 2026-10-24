@@ -15,6 +15,7 @@ import { insertValidationAttestations, passingValidationEvidence } from './actio
 
 const live = liveUrl ? describe : describe.skip;
 const temporaryRepositories: string[] = [];
+const executorInstanceId = randomUUID();
 
 function git(cwd: string, ...args: string[]): string {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -42,10 +43,12 @@ live('action verifier on real PostgreSQL', () => {
   beforeAll(async () => {
     f = await fixture({ max: 3 });
     await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=true WHERE kind='source_patch_pull_request'");
+    await f.admin.query("INSERT INTO gotchu.action_executor_instances(instance_id,capability_id) VALUES($1,'repository.source_patch_pr')", [executorInstanceId]);
   }, 30_000);
   afterEach(async () => { await Promise.all(temporaryRepositories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
   afterAll(async () => {
     await f?.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=false WHERE kind='source_patch_pull_request'");
+    await f?.admin.query('DELETE FROM gotchu.action_executor_instances WHERE instance_id=$1', [executorInstanceId]);
     await f?.close();
   });
 
@@ -69,8 +72,8 @@ live('action verifier on real PostgreSQL', () => {
     const sourceDigest = sha256(canonicalJson(original)); const candidateDigest = sha256(canonicalJson(candidate));
     await f.admin.query(`INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor)
       VALUES($1,$2,$3,$4,$5::jsonb,$6),($1,$2,$7,$8,$9::jsonb,$6)`, [f.a.organizationId, f.a.applicationId, originalSourceId, sourceDigest, JSON.stringify(original), f.a.userId, candidateSourceId, candidateDigest, JSON.stringify(candidate)]);
-    await f.admin.query(`INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access,write_access,state,source)
-      VALUES($1,$2,$3,$4,'main','granted','granted','verified','operator')`, [f.a.organizationId, f.a.applicationId, repositoryLinkId, `catalog:${randomUUID()}`]);
+    await f.admin.query(`INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access,write_access,state,source,writer_installation_id,writer_verified_at,writer_verified_commit)
+      VALUES($1,$2,$3,$4,'main','granted','granted','verified','operator','174788477',clock_timestamp(),$5)`, [f.a.organizationId, f.a.applicationId, repositoryLinkId, `catalog:${randomUUID()}`,'a'.repeat(40)]);
     const repositoryKey = (await f.admin.query<{ repository_key: string }>('SELECT repository_key FROM gotchu.application_repository_links WHERE id=$1', [repositoryLinkId])).rows[0]?.repository_key;
     const sourceDetail = { applicationId: f.a.applicationId, originalSourceId, sourceDigest, candidateSourceDigest: candidateDigest, patchHash, recipeId: 'tls-certificate-verification', recipeVersion: '1.0.0', findingId: 'finding-1', path: 'src/config.ts' };
     await f.admin.query('INSERT INTO gotchu.audit_records(organization_id,id,actor_id,action,subject_id,detail) VALUES($1,$2,$3,$4,$5,$6::jsonb)', [f.a.organizationId, randomUUID(), f.a.userId, 'correction.prepared', candidateSourceId, JSON.stringify(sourceDetail)]);

@@ -35,7 +35,7 @@ try {
   }
   if (!ready) throw new Error('Isolated Postgres did not become ready');
   process.stdout.write(`Testing against isolated PostgreSQL 17.11 on loopback port ${port}. No existing volumes are used.\n`);
-  const result = spawnSync('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/database', '--filter', '@gotchu/backend', 'test'], {
+  const result = spawnSync('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/database', '--filter', '@gotchu/backend', 'test', '--no-file-parallelism'], {
     cwd: root, stdio: 'inherit', env: { ...process.env, GOTCHU_TEST_DATABASE_URL: `postgres://postgres:${password}@127.0.0.1:${port}/gotchu_test_backend` },
   });
   process.exitCode = result.status ?? 1;

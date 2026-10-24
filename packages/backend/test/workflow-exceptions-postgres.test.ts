@@ -12,7 +12,7 @@ live('workflow policy exception registry on real PostgreSQL', () => {
   async function repositoryLink(organizationId: string, applicationId: string) {
     const id = randomUUID();
     await f.admin.query(`INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access,write_access,state,source)
-      VALUES($1,$2,$3,$4,'main','granted','granted','verified','operator')`, [organizationId, applicationId, id, `catalog:${randomUUID()}`]);
+      VALUES($1,$2,$3,$4,'main','granted','not_granted','verified','operator')`, [organizationId, applicationId, id, `catalog:${randomUUID()}`]);
     return id;
   }
 

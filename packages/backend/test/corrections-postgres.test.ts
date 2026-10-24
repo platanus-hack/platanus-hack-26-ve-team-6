@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { customerAssessmentReportSchema, defaultLicensePolicy, type CustomerRunInput } from '@gotchu/contracts';
+import { customerAssessmentReportSchema, type CustomerRunInput } from '@gotchu/contracts';
 import { prepareCandidatePatch } from '@gotchu/scenarios/server';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
 import { canonicalJson, createBackend, DEMO_ASSESSMENT_SCOPE, sha256 } from '../src/index.js';
@@ -22,14 +22,15 @@ function reportFor(input: CustomerRunInput, ruleId = 'gotchu.javascript.tls-disa
   const analysis = { origin, status: 'completed', startedAt: timestamp, finishedAt: timestamp, snapshotRef, tool: { name: 'synthetic-test', version: '1' }, findings: [finding],
     evidence: [{ id: evidenceId, origin, kind: external ? 'http_response' : 'configuration', locator: location, collectedAt: timestamp, snapshotRef,
       tool: { name: 'synthetic-test', version: '1' }, checksum: sha256(originalBytes), excerpt: '[redacted]' }],
-    coverage: [{ capability: external ? 'root_headers' : 'semgrep', state: 'inspected', detail: 'Synthetic coverage' }], limitations: ['Synthetic evidence'],
-    ...(external ? {} : { dependencyInventory: { components: [], lockfiles: [], policy: input.licensePolicy ?? defaultLicensePolicy, complete: false, graphComplete: false, unknownCount: 0 } }) };
+    coverage: [{ capability: external ? 'root_headers' : 'semgrep', state: 'inspected', detail: 'Synthetic coverage' }], limitations: ['Synthetic evidence'] };
   return customerAssessmentReportSchema.parse({ version: 2, id: randomUUID(), organizationId: input.organizationId, applicationId: input.applicationId, jobId: input.jobId,
     applicationName: input.applicationName, mode: input.mode, startedAt: timestamp, finishedAt: timestamp, internal: external ? null : analysis, external: external ? analysis : null,
     comparison: [{ key: 'test-finding', classification: 'unverified', internalFindingIds: external ? [] : [findingId], externalFindingIds: external ? [findingId] : [], explanation: 'Single profile' }],
     limitations: ['Synthetic report'], responseMode: 'observation', actionsPerformed: [],
     subject: { sourceSnapshotId: input.source?.id ?? null, sourceDigest: input.source?.digest ?? null, targetId: input.target?.id ?? null, targetVersion: input.target?.version ?? null, origin: input.target?.origin ?? null,
-      containerImageId: null, containerImageDigest: null, containerImageReference: null } });
+      containerImageId: input.containerImage?.kind === 'archive' ? input.containerImage.id : null,
+      containerImageDigest: input.containerImage?.digest ?? null,
+      containerImageReference: input.containerImage?.kind === 'registry' ? input.containerImage.reference : null } });
 }
 
 live('private corrections on real PostgreSQL with synthetic scanner evidence', () => {
@@ -200,7 +201,7 @@ live('private corrections on real PostgreSQL with synthetic scanner evidence', (
   });
 
   it('blocks integration-required and mismatched findings without writing', async () => {
-    const c = await customer('generic-api-key');
+    const c = await customer('gotchu-assigned-secret');
     const before = await counts(c.scope.organizationId);
     await expect(api.corrections.prepare(c.identity, { ...c.selection, recipeId: 'credential-exposure' })).rejects.toMatchObject({ code: 'recipe_requires_integration', status: 409 });
     await expect(api.corrections.prepare(c.identity, { ...c.selection, findingId: randomUUID() })).rejects.toMatchObject({ code: 'finding_not_found', status: 409 });
