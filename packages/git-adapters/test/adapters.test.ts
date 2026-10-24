@@ -49,6 +49,20 @@ describe('git adapters', () => {
     expect(() => assertAutomationSafe(workflow('branches: ["gotchu/**", "!gotchu/**"]'))).toThrow(GitAdapterError);
   });
 
+  it('rejects unsupported question-mark branch patterns in exact and namespace modes', () => {
+    const branch = 'gotchu/aaaaaaaaaaaaaaaa';
+    const workflow = (filter: string) => [{path:'.github/workflows/ci.yml',content:`on:\n  push:\n    ${filter}\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo safe`}];
+    for (const filter of [
+      'branches: ["gotchu/**", "!gotchu/aaaaaaaaaaaaaaa?"]',
+      'branches: [main, "!gotchu/aaaaaaaaaaaaaaa?"]',
+      'branches: ["main?"]',
+      'branches-ignore: ["gotchu/aaaaaaaaaaaaaaa?"]',
+    ]) {
+      expect(() => assertAutomationSafe(workflow(filter), false, branch)).toThrow(GitAdapterError);
+      expect(() => assertAutomationSafe(workflow(filter))).toThrow(GitAdapterError);
+    }
+  });
+
   it('checks secret expressions throughout pull request workflows', () => {
     const workflow=(extra:string)=>[{path:'.github/workflows/ci.yml',content:`on: pull_request\n${extra}\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo safe`}];
     for (const value of [

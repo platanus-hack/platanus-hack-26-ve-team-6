@@ -84,7 +84,7 @@ function stringList(value: unknown): string[] {
   return [];
 }
 
-type BranchGlobToken = { readonly kind: 'literal'; readonly value: string } | { readonly kind: 'star'|'doubleStar'|'question' };
+type BranchGlobToken = { readonly kind: 'literal'; readonly value: string } | { readonly kind: 'star'|'doubleStar' };
 interface BranchPattern { readonly source: string; readonly negative: boolean; readonly tokens: readonly BranchGlobToken[]; readonly matches: (branch: string) => boolean }
 
 function parseBranchPatterns(value: unknown, allowNegation: boolean): BranchPattern[] {
@@ -105,11 +105,10 @@ function parseBranchPatterns(value: unknown, allowNegation: boolean): BranchPatt
         if (double) index++;
         if (glob[index + 1] === '*') throw new GitAdapterError('repository_automation_unsafe');
         tokens.push({ kind: double ? 'doubleStar' : 'star' });
-      } else if (character === '?') tokens.push({ kind: 'question' });
-      else if (character && /^[A-Za-z0-9._/-]$/.test(character)) tokens.push({ kind: 'literal', value: character });
+      } else if (character && /^[A-Za-z0-9._/-]$/.test(character)) tokens.push({ kind: 'literal', value: character });
       else throw new GitAdapterError('repository_automation_unsafe');
     }
-    const regex = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*|\*|\?/g, token => token === '**' ? '.*' : token === '*' ? '[^/]*' : '[^/]');
+    const regex = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*|\*/g, token => token === '**' ? '.*' : '[^/]*');
     return { source: glob, negative, tokens, matches: branch => new RegExp(`^${regex}$`).test(branch) };
   });
 }
@@ -139,7 +138,6 @@ function couldMatchOwnedBranch(tokens: readonly BranchGlobToken[]): boolean {
     for (const state of states) {
       const token = tokens[state];
       if (token?.kind === 'literal' && token.value === character) next.add(state + 1);
-      else if (token?.kind === 'question' && character !== '/') next.add(state + 1);
       else if (token?.kind === 'star' && character !== '/') next.add(state);
       else if (token?.kind === 'doubleStar') next.add(state);
     }
