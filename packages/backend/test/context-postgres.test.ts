@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { fixture, liveUrl } from '../../database/test/support.js';
-import { createBackend } from '../src/index.js';
+import { createBackend, type VerifiedStepUp } from '../src/index.js';
 import { compareAnalyzedToDeployed } from '@gotchu/contracts';
 
 const live = liveUrl ? describe : describe.skip;
@@ -85,6 +85,81 @@ live('tenant application context on real PostgreSQL', () => {
     await expect(db.tenant(f.a.organizationId, tx => tx.query('SELECT gotchu.context_create_repository($1,$2,$3,$4,$5,$6,$7,$8)', [f.a.organizationId,f.a.applicationId,f.a.userId,crypto.randomUUID(),'repo','src','main','revoked']))).rejects.toThrow('context_self_assertion');
     await expect(db.tenant(f.a.organizationId, tx => tx.query('SELECT gotchu.context_create_deployment($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)', [f.a.organizationId,f.a.applicationId,f.a.userId,environment.id,service.id,crypto.randomUUID(),'r',null,null,null,new Date(),'verified','operator']))).rejects.toThrow('context_self_assertion');
     await expect(db.tenant(f.a.organizationId, tx => tx.query('SELECT gotchu.context_create_origin($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)', [f.a.organizationId,f.a.applicationId,f.a.userId,environment.id,crypto.randomUUID(),'https://example.com','customer_inventory','verified',null,'declared','customer_declared',null]))).rejects.toThrow('context_self_assertion');
+  });
+  it('requires an Owner WebAuthn grant verified by the Writer App and revokes pending approvals', async () => {
+    const link = await backend.context.createRepositoryLink(identity(), { ...scope(), repositoryKey: 'gh-owner-writer-repo', defaultBranch: 'main' });
+    if (!link) throw new Error('Repository fixture was not created');
+    const repositoryLinkId=link.id;
+    const readerInstallationId = crypto.randomUUID().replaceAll(/\D/g, '').slice(0, 20);
+    await f.admin.query(`INSERT INTO gotchu.github_installations(organization_id,installation_id,account_login,connected_by,state)
+      VALUES($1,$2,'owner-writer-test',$3,'active')`, [f.a.organizationId,readerInstallationId,f.a.userId]);
+    await f.admin.query(`UPDATE gotchu.application_repository_links SET state='verified',installation_id=$4
+      WHERE organization_id=$1 AND application_id=$2 AND id=$3`, [f.a.organizationId,f.a.applicationId,repositoryLinkId,readerInstallationId]);
+
+    const proofs = new Map<string, VerifiedStepUp>();
+    const verifiedWrites: string[] = [];
+    const writeBackend = createBackend({
+      database:f.databases.gotchu_api,
+      repositoryWriteAccessVerifier:async input => {
+        verifiedWrites.push(input.repositoryKey);
+        return { installationId:'174788477',baseCommit:'a'.repeat(40) };
+      },
+      stepUpVerifier:{ verify:async input => {
+        const proof=proofs.get(input.proof);
+        if (!proof) throw new Error('unissued test step-up');
+        return proof;
+      } },
+    });
+    const viewer=`writer-viewer:${crypto.randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'operator')", [f.a.organizationId,viewer]);
+    await expect(writeBackend.context.getRepositoryWriteAccessChallenge({userId:viewer},{...scope(),repositoryLinkId,grant:true}))
+      .rejects.toMatchObject({code:'forbidden',status:403});
+
+    const totpChallenge=await writeBackend.context.getRepositoryWriteAccessChallenge(identity(),{...scope(),repositoryLinkId,grant:true});
+    const totpProofId=crypto.randomUUID();
+    const totpAuthenticatedAt=new Date();
+    const totpOpaque=crypto.randomUUID();
+    proofs.set(totpOpaque,{proofId:totpProofId,userId:f.a.userId,organizationId:f.a.organizationId,actionHash:totpChallenge.actionHash,
+      authenticatedAt:totpAuthenticatedAt,expiresAt:new Date(totpAuthenticatedAt.getTime()+300_000),method:'totp'});
+    await expect(writeBackend.context.setRepositoryWriteAccess(identity(),{...scope(),repositoryLinkId,grant:true,
+      actionHash:totpChallenge.actionHash,stepUpProof:totpOpaque})).rejects.toMatchObject({code:'step_up_required',status:403});
+
+    async function issue(grant:boolean) {
+      const challenge=await writeBackend.context.getRepositoryWriteAccessChallenge(identity(),{...scope(),repositoryLinkId,grant});
+      const proofId=crypto.randomUUID();
+      const authenticatedAt=new Date();
+      const proof:VerifiedStepUp={proofId,userId:f.a.userId,organizationId:f.a.organizationId,actionHash:challenge.actionHash,
+        authenticatedAt,expiresAt:new Date(authenticatedAt.getTime()+300_000),method:'webauthn'};
+      const opaque=crypto.randomUUID(); proofs.set(opaque,proof);
+      return writeBackend.context.setRepositoryWriteAccess(identity(),{...scope(),repositoryLinkId,grant,actionHash:challenge.actionHash,stepUpProof:opaque});
+    }
+    await expect(issue(true)).resolves.toMatchObject({writeAccess:'granted'});
+    expect(verifiedWrites).toEqual(['gh-owner-writer-repo','gh-owner-writer-repo','gh-owner-writer-repo','gh-owner-writer-repo']);
+    await f.admin.query(`INSERT INTO gotchu.proposals(organization_id,application_id,id,action_hash,body,recovery_epoch,version,kind,capability_id,state,blocking_reasons)
+      VALUES($1,$2,$3,$4,$5::jsonb,1,2,'dependency_pull_request','repository.dependency_pr','approved','[]'::jsonb)`, [
+      f.a.organizationId,f.a.applicationId,crypto.randomUUID(),'b'.repeat(64),JSON.stringify({target:{repositoryLinkId}}),
+    ]);
+    const proposal=await f.admin.query<{id:string}>('SELECT id FROM gotchu.proposals WHERE organization_id=$1 AND application_id=$2 AND body->\'target\'->>\'repositoryLinkId\'=$3',[f.a.organizationId,f.a.applicationId,repositoryLinkId]);
+    const proposalId=proposal.rows[0]?.id;
+    if (!proposalId) throw new Error('Pending proposal fixture was not stored');
+    const state=await f.admin.query<{recovery_epoch:string}>('SELECT recovery_epoch FROM gotchu.platform_state WHERE singleton');
+    const recoveryEpoch=String(state.rows[0]?.recovery_epoch);
+    await f.admin.query(`UPDATE gotchu.proposals SET recovery_epoch=$3 WHERE organization_id=$1 AND id=$2`,[f.a.organizationId,proposalId,recoveryEpoch]);
+    await f.admin.query(`INSERT INTO gotchu.approvals(organization_id,id,proposal_id,action_hash,user_id,proof_id,recovery_epoch,expires_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,clock_timestamp()+interval '5 minutes')`,[f.a.organizationId,crypto.randomUUID(),proposalId,'b'.repeat(64),f.a.userId,crypto.randomUUID(),recoveryEpoch]);
+
+    await expect(issue(false)).resolves.toMatchObject({writeAccess:'revoked'});
+    await expect(f.admin.query(`SELECT state,invalidation_reason FROM gotchu.proposals WHERE organization_id=$1 AND id=$2`,[f.a.organizationId,proposalId]))
+      .resolves.toMatchObject({rows:[{state:'invalidated',invalidation_reason:'repository_write_access_revoked'}]});
+    await expect(f.admin.query('SELECT consumed_at FROM gotchu.approvals WHERE organization_id=$1 AND proposal_id=$2',[f.a.organizationId,proposalId]))
+      .resolves.toMatchObject({rows:[{consumed_at:expect.any(Date)}]});
+    const audit=await f.admin.query<{action:string;detail:{method?:string;writerInstallationId?:string}}> (`SELECT action,detail FROM gotchu.audit_records WHERE organization_id=$1 AND subject_id=$2 AND action LIKE 'context.repository_write_access_%' ORDER BY created_at`,[f.a.organizationId,repositoryLinkId]);
+    expect(audit.rows.map(row=>row.action)).toEqual(['context.repository_write_access_granted','context.repository_write_access_revoked']);
+    expect(audit.rows.map(row=>row.detail.method)).toEqual(['webauthn','webauthn']);
+    expect(audit.rows[0]?.detail.writerInstallationId).toBe('174788477');
+    const decisions=await writeBackend.decisionRecords.list(identity(),{organizationId:f.a.organizationId,subjectId:repositoryLinkId,limit:20});
+    expect(decisions.records.map(row=>row.action)).toEqual(expect.arrayContaining(['context.repository_write_access_granted','context.repository_write_access_revoked']));
+    expect(decisions.records.find(row=>row.action==='context.repository_write_access_granted')?.summary).toContain('Owner verificó');
   });
   it('enforces environment, repository and target relationships and derives current ownership', async () => {
     const { environment, service } = await base();
