@@ -179,14 +179,18 @@ Esto adopta la exigencia práctica de un CRS: encontrar y corregir manteniendo c
 
 Trabajo:
 
-- [ ] Implementar candidato de dependencia patch/minor: verificar versión afectada y corregida, registro e integridad; resolver manifiesto y lockfile compatibles en D04; rechazar majors, versiones ambiguas y cambios ajenos.
-- [ ] Empezar con un formato de lockfile npm explícito. Añadir otros formatos mediante adaptadores y corpus; no anunciar soporte genérico de pnpm/yarn por detectar `package.json`.
-- [ ] Vincular el candidato al repositorio/commit de D01. Una subida parcial se puede corregir privadamente; no autoriza sustituir todo el árbol del repositorio. Rechazar vínculos no demostrados.
+- [x] Implementar candidato de dependencia patch/minor: usar metadata OSV persistida y metadata acotada del registro npm; comprobar SHA-512 del tarball actual y del candidato; resolver manifiesto y lockfile sin instalar ni ejecutar código en el host; rechazar majors, rangos ambiguos, prereleases y cambios fuera del paquete.
+- [x] Empezar con lockfiles npm v2/v3 del proyecto raíz. Añadir otros formatos mediante adaptadores y corpus; no anunciar soporte genérico de pnpm/yarn por detectar `package.json`.
+- [x] Vincular el candidato al repositorio/commit de D01 sólo con una instantánea enlazada a una GitHub App activa, un link de repositorio verificado y el mismo commit/digest. Una subida parcial se corrige privadamente; no autoriza sustituir todo el árbol del repositorio. Las transitivas quedan como orientación hasta demostrar un override seguro.
 - [x] Versionar una unión estricta de acciones con payload y capability id por capacidad. La lectura/hash/ejecución de filas v1 conserva su esquema y fórmula originales; las acciones v2 tienen hash separado con epoch de recuperación. Esto no habilita todavía los adaptadores de D08/D09.
 - [ ] Añadir acciones de patch de fuente/IaC para TLS/Kubernetes sólo tras definir sus precondiciones, suites, artefactos y política. Es una extensión explícita del primer alcance npm.
-- [x] Reutilizar la atomicidad de `corrections.prepare`: el candidato privado, la admisión de su reanálisis y el outbox permanecen en una transacción; la propuesta v2 referencia ese candidato persistido. Preparar no consume aprobación ni escribe en Git.
+- [x] Guardar candidato, corrida de validación D05 y metadata inmutable en una transacción; sólo admitir candidatos cuando existe una suite versionada para ese repositorio. Al pasar la validación, la acción v2 y su artifact privado de `execution-artifacts` se persisten juntos. Preparar no consume aprobación ni escribe en Git.
+- [x] Extender D05 para que vuelva a consultar OSV en el reanálisis independiente y emita hechos firmados que exigen cobertura completa, desaparición de cada aviso del alcance y suite funcional aprobada.
+- [x] Mostrar recomendaciones npm, razones de orientación, estado de validación y la propuesta exacta en la vista existente de acciones; no se publica un PR hasta integrar el executor.
 
-**Aceptación:** lockfile y manifiesto consistentes; transitivas; ausencia de versión corregida; scripts no autorizados; digest/base stale; snapshot incompleto; conflicto de idempotencia; rollback de transacción; compatibilidad v1/v2; borrado del source que no resucita con un retry.
+**Límites comprobados:** sólo se admite una dependencia directa del `package.json` raíz con lockfile npm v2/v3. Se rechazan árboles de paquete que requieran cambios de otras entradas, repositorios sin GitHub App activa o cualquier manifest/lockfile fuera del alcance exacto. La resolución consulta un packument abreviado con timeout, redirects deshabilitados y límite de 1 MiB; el runner conserva la red denegada y verifica el tarball por SHA-512 antes de ejecutarlo dentro de la VM. No se ejecuta `npm install` ni código del cliente en el control plane. Los parches transitivos, workspaces y versiones major permanecen como orientación.
+
+**Aceptación:** manifiesto y lockfile consistentes; varias advisories fijadas a la vez; ausencia de versión patch/minor; scripts del cliente no autorizados; digest/base stale; snapshot incompleto; conflicto de idempotencia; rollback de transacción; compatibilidad v1/v2; borrado del source que no resucita con un retry. La persistencia de propuestas/artifacts se prueba con PostgreSQL; la integración opt-in de lodash usa npm/OSV reales y requiere PostgreSQL desechable y la gate Firecracker abierta. La publicación de PR sigue dependiendo del executor D08/D09 y no se cuenta como evidencia de D06.
 
 ### D07 — MFA real y aprobación comprensible de la acción exacta
 
