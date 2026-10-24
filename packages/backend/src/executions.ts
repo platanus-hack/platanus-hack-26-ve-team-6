@@ -2,21 +2,22 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { audit, authorize, BackendError, parse, systemClock } from './core.js';
 import { authorizationState, checkedStoredAction, hashStoredAction, storedActionSchema, verifyStoredProposal, type ApprovalDependencies, type StoredAction } from './proposals.js';
-export interface ExecutionClaim { executionId: string; claimToken: string; actionHash: string; proposal: StoredAction; recoveryEpoch: string }
+import type { ActionVerifier } from './actions.js';
+export interface ExecutionClaim { organizationId: string; applicationId: string; approvalId: string; executionId: string; claimToken: string; actionHash: string; proposal: StoredAction; recoveryEpoch: string }
 const uuid = z.uuid().toLowerCase();
 const claimSchema = z.object({ organizationId: uuid, approvalId: uuid }).strict();
 const executionTokenSchema = z.object({ organizationId: uuid, executionId: uuid, claimToken: uuid }).strict();
 const executionStateSchema = z.enum(['claimed', 'succeeded', 'failed', 'uncertain']);
 const providerReferenceSchema = z.string().min(1).max(1000).refine(value => value.trim() === value, 'Provider references must not have surrounding whitespace');
-const attemptStateSchema = z.enum(['claimed','branch_published','pr_opened','verified','uncertain','reconciliation_required']);
+const attemptStateSchema = z.enum(['claimed','branch_published','pr_opened','verified','failed','uncertain','reconciliation_required']);
 const attemptStepSchema = z.enum(['claim','publish_branch','open_pr','verify']);
 const attemptDetailSchema = z.object({ reasonCode: z.string().max(100).optional(), branch: z.string().max(300).optional(), pullRequestNumber: z.number().int().positive().optional() }).strict();
 const attemptTransition: Record<z.infer<typeof attemptStateSchema>, readonly z.infer<typeof attemptStateSchema>[]> = {
-  claimed: ['claimed','branch_published','uncertain','reconciliation_required'],
-  branch_published: ['branch_published','pr_opened','uncertain','reconciliation_required'],
-  pr_opened: ['pr_opened','verified','uncertain','reconciliation_required'],
-  verified: ['verified'], uncertain: ['uncertain','reconciliation_required','verified'],
-  reconciliation_required: ['reconciliation_required','verified','uncertain'],
+  claimed: ['claimed','branch_published','pr_opened','failed','uncertain','reconciliation_required'],
+  branch_published: ['branch_published','pr_opened','failed','uncertain','reconciliation_required'],
+  pr_opened: ['pr_opened','verified','failed','uncertain','reconciliation_required'],
+  verified: ['verified'], failed: ['failed'], uncertain: ['uncertain','reconciliation_required','branch_published','pr_opened','verified','failed'],
+  reconciliation_required: ['reconciliation_required','branch_published','pr_opened','verified','failed','uncertain'],
 };
 const storedExecutionSchema = z.object({
   organizationId: uuid, applicationId: uuid, approvalId: uuid, executionId: uuid, claimToken: uuid,
@@ -24,7 +25,22 @@ const storedExecutionSchema = z.object({
   proposal: storedActionSchema, state: executionStateSchema, providerReference: providerReferenceSchema.nullable(),
 }).strict();
 export type StoredExecution = Omit<z.infer<typeof storedExecutionSchema>, 'providerReference'> & { providerReference?: string };
-export function createExecutionService(deps: ApprovalDependencies) {
+type ExecutionDependencies = ApprovalDependencies & { actionVerifier?: ActionVerifier };
+async function verifyStoredExecutionAction(tx: import('@gotchu/database').Transaction, deps: ExecutionDependencies, action: StoredAction, proposalId: string): Promise<BackendError | null> {
+  if (action.version === 1) return verifyStoredProposal(tx, deps, action, proposalId, 'execution');
+  if (!deps.actionVerifier) throw new BackendError('verification_unavailable', 'No independent action verifier is configured', 503);
+  const verification = await deps.actionVerifier.verify(action, { phase: 'execution' });
+  if (verification.baseChanged || verification.policyCurrent === false) {
+    const reason = verification.baseChanged ? 'base_changed' : 'policy_changed';
+    await tx.query("UPDATE gotchu.proposals SET state='invalidated',invalidated_at=clock_timestamp(),invalidation_reason=$3 WHERE organization_id=$1 AND id=$2", [action.organizationId,proposalId,reason]);
+    await audit(tx, action.organizationId, 'independent-verifier', 'proposal.invalidated', proposalId, { reason });
+    return new BackendError(verification.baseChanged ? 'stale_state' : 'stale_policy', 'Proposal became stale and requires fresh validation and approval', 409);
+  }
+  if (!verification.eligible || verification.blockingReasons.length > 0) return new BackendError('proposal_ineligible', 'The exact action no longer passes independent validation', 409);
+  return null;
+}
+
+export function createExecutionService(deps: ExecutionDependencies) {
   const clock = deps.clock ?? systemClock;
   function requireExecutor() {
     // createDatabase binds this trusted capability to a checked, isolated runtime login.
@@ -47,18 +63,21 @@ export function createExecutionService(deps: ApprovalDependencies) {
         await authorize(tx, value.organizationId, { userId: approval.user_id }, ['owner']);
         const stored = await checkedStoredAction(tx, value.organizationId, approval.proposal_id);
         if (stored.actionHash !== approval.action_hash || stored.recoveryEpoch !== state.recoveryEpoch) throw new BackendError('hash_mismatch', 'Approval no longer matches the exact proposal', 409);
-        if (stored.action.version === 2) throw new BackendError('no_adapter', 'No executor adapter is available for version 2 actions', 409);
-        const rejected = await verifyStoredProposal(tx, deps, stored.action, approval.proposal_id, 'execution');
+        const rejected = await verifyStoredExecutionAction(tx, deps, stored.action, approval.proposal_id);
         if (rejected) return rejected;
         // Verifier work can take time; expiry must hold at the durable claim, too.
         if (approval.expires_at.getTime() <= clock.now().getTime()) throw new BackendError('approval_expired', 'Approval expired during independent verification', 409);
         const executionId = randomUUID(); const claimToken = randomUUID();
         const inserted = await tx.query("INSERT INTO gotchu.executions(organization_id,id,approval_id,proposal_id,action_hash,recovery_epoch,claim_token,state) VALUES ($1,$2,$3,$4,$5,$6,$7,'claimed') ON CONFLICT DO NOTHING RETURNING id", [value.organizationId, executionId, value.approvalId, approval.proposal_id, stored.actionHash, state.recoveryEpoch, claimToken]);
         if (!inserted.rowCount) throw new BackendError('already_claimed', 'This proposal already has a durable execution identity; reconcile instead of retrying', 409);
+        if (stored.action.version === 2 && stored.action.kind === 'source_patch_pull_request') {
+          const locked = await tx.query('INSERT INTO gotchu.executor_repository_locks(repository_key,organization_id,application_id,repository_link_id,execution_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING repository_key', [stored.action.target.repositoryKey,value.organizationId,stored.action.applicationId,stored.action.target.repositoryLinkId,executionId]);
+          if (!locked.rowCount) throw new BackendError('repository_busy', 'Another approved execution holds this repository lock', 409);
+        }
         await tx.query('UPDATE gotchu.approvals SET consumed_at=$1 WHERE organization_id=$2 AND id=$3', [clock.now(), value.organizationId, value.approvalId]);
         await audit(tx, value.organizationId, 'executor', 'execution.claimed', executionId, { approvalId: value.approvalId, actionHash: stored.actionHash });
         await tx.query("UPDATE gotchu.proposals SET state='executing' WHERE organization_id=$1 AND id=$2", [value.organizationId,approval.proposal_id]);
-        return { executionId, claimToken, actionHash: stored.actionHash, proposal: stored.action, recoveryEpoch: state.recoveryEpoch };
+        return { organizationId:value.organizationId,applicationId:stored.action.applicationId,approvalId:value.approvalId,executionId,claimToken,actionHash:stored.actionHash,proposal:stored.action,recoveryEpoch:state.recoveryEpoch };
       });
       if (outcome instanceof BackendError) throw outcome;
       return outcome;
@@ -80,6 +99,8 @@ export function createExecutionService(deps: ApprovalDependencies) {
           if (value.state !== 'claimed' || value.step !== 'claim') throw new BackendError('invalid_attempt_transition', 'An attempt must begin at the claimed state', 409);
           await tx.query('INSERT INTO gotchu.executor_attempts(organization_id,execution_id,attempt,state,step,provider_reference,detail) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)', [value.organizationId,value.executionId,value.attempt,value.state,value.step,value.providerReference ?? null,JSON.stringify(value.detail)]);
         }
+        await tx.query(`INSERT INTO gotchu.executor_attempt_events(organization_id,execution_id,attempt,step,state,provider_reference,detail)
+          VALUES($1,$2,$3,$4,$5,$6,$7::jsonb) ON CONFLICT DO NOTHING`, [value.organizationId,value.executionId,value.attempt,value.step,value.state,value.providerReference ?? null,JSON.stringify(value.detail)]);
       });
     },
     async listAttempts(input: { organizationId: string; executionId: string }) {
@@ -93,7 +114,7 @@ export function createExecutionService(deps: ApprovalDependencies) {
     /** Restricted read for reconciliation, including expired/invalidated proposals and frozen recovery. */
     async findByApproval(input: { organizationId: string; approvalId: string }): Promise<StoredExecution | undefined> {
       requireExecutor();
-      const value = parse(claimSchema, input);
+      const value = parse(z.object({ organizationId: z.uuid(), approvalId: z.uuid() }).strict(), input);
       return deps.database.tenant(value.organizationId, async tx => {
         const result = await tx.query(`SELECT e.organization_id AS "organizationId", p.application_id AS "applicationId",
           e.approval_id AS "approvalId", e.id AS "executionId", e.claim_token AS "claimToken", e.action_hash AS "actionHash",
@@ -116,7 +137,7 @@ export function createExecutionService(deps: ApprovalDependencies) {
         return { ...execution, ...(providerReference === null ? {} : { providerReference }) };
       });
     },
-    /** Call immediately before adapter I/O. This cannot make a remote provider write atomic with Postgres. */
+    /** Rechecks the exact approval immediately before each write, including after read-only recovery from uncertainty. */
     async assertWritable(input: { organizationId: string; executionId: string; claimToken: string }): Promise<void> {
       requireExecutor();
       const value = parse(executionTokenSchema, input);
@@ -124,13 +145,12 @@ export function createExecutionService(deps: ApprovalDependencies) {
         const state = await authorizationState(tx);
         const result = await tx.query<{ proposal_id: string; recovery_epoch: string; user_id: string; expires_at: Date }>(`SELECT e.proposal_id,e.recovery_epoch,a.user_id,a.expires_at
           FROM gotchu.executions e JOIN gotchu.approvals a ON a.organization_id=e.organization_id AND a.id=e.approval_id
-          WHERE e.organization_id=$1 AND e.id=$2 AND e.claim_token=$3 AND e.state='claimed' FOR SHARE OF a,e`, [value.organizationId, value.executionId, value.claimToken]);
+          WHERE e.organization_id=$1 AND e.id=$2 AND e.claim_token=$3 AND e.state IN ('claimed','uncertain') FOR SHARE OF a,e`, [value.organizationId, value.executionId, value.claimToken]);
         const row = result.rows[0];
         if (!row || String(row.recovery_epoch) !== state.recoveryEpoch) throw new BackendError('stale_execution', 'Execution is no longer authorized for provider I/O', 409);
         await authorize(tx, value.organizationId, { userId: row.user_id }, ['owner']);
         const stored = await checkedStoredAction(tx, value.organizationId, row.proposal_id);
-        if (stored.action.version === 2) throw new BackendError('no_adapter', 'No executor adapter is available for version 2 actions', 409);
-        const rejected = await verifyStoredProposal(tx, deps, stored.action, row.proposal_id, 'execution');
+        const rejected = await verifyStoredExecutionAction(tx, deps, stored.action, row.proposal_id);
         if (rejected) return rejected;
         if (row.expires_at.getTime() <= clock.now().getTime()) throw new BackendError('approval_expired', 'Approval expired before provider I/O', 409);
         return null;
@@ -145,7 +165,8 @@ export function createExecutionService(deps: ApprovalDependencies) {
         // Record outcomes even if recovery froze new writes while the request was in flight.
         const result = await tx.query("UPDATE gotchu.executions SET state=$4,provider_reference=$5,finished_at=$6 WHERE organization_id=$1 AND id=$2 AND claim_token=$3 AND state='claimed'", [value.organizationId, value.executionId, value.claimToken, value.outcome, value.providerReference ?? null, clock.now()]);
         if (result.rowCount !== 1) throw new BackendError('stale_execution', 'Execution is not owned by this claim or has already finished', 409);
-        await tx.query('UPDATE gotchu.proposals SET state=$3 WHERE organization_id=$1 AND id=(SELECT proposal_id FROM gotchu.executions WHERE organization_id=$1 AND id=$2)', [value.organizationId,value.executionId,value.outcome]);
+        await tx.query("UPDATE gotchu.proposals SET state=CASE WHEN state='invalidated' THEN state ELSE $3 END WHERE organization_id=$1 AND id=(SELECT proposal_id FROM gotchu.executions WHERE organization_id=$1 AND id=$2)", [value.organizationId,value.executionId,value.outcome]);
+        if (value.outcome !== 'uncertain') await tx.query('DELETE FROM gotchu.executor_repository_locks WHERE organization_id=$1 AND execution_id=$2', [value.organizationId,value.executionId]);
         await audit(tx, value.organizationId, 'executor', `execution.${value.outcome}`, value.executionId);
       });
     },
@@ -167,8 +188,21 @@ export function createExecutionService(deps: ApprovalDependencies) {
           WHERE organization_id=$1 AND id=$2 AND claim_token=$3 AND state='uncertain'`,
         [value.organizationId, value.executionId, value.claimToken, value.outcome, value.providerReference ?? null, clock.now()]);
         if (updated.rowCount !== 1) throw new BackendError('stale_execution', 'Execution is no longer uncertain', 409);
-        await tx.query('UPDATE gotchu.proposals SET state=$3 WHERE organization_id=$1 AND id=(SELECT proposal_id FROM gotchu.executions WHERE organization_id=$1 AND id=$2)', [value.organizationId,value.executionId,value.outcome]);
+        await tx.query("UPDATE gotchu.proposals SET state=CASE WHEN state='invalidated' THEN state ELSE $3 END WHERE organization_id=$1 AND id=(SELECT proposal_id FROM gotchu.executions WHERE organization_id=$1 AND id=$2)", [value.organizationId,value.executionId,value.outcome]);
+        await tx.query('DELETE FROM gotchu.executor_repository_locks WHERE organization_id=$1 AND execution_id=$2', [value.organizationId,value.executionId]);
         await audit(tx, value.organizationId, 'executor', 'execution.reconciled', value.executionId, { outcome: value.outcome, providerReference: value.providerReference ?? null });
+      });
+    },
+    async markStale(input: { organizationId: string; executionId: string; claimToken: string; reason: 'base_changed' | 'policy_changed'; providerReference?: string }): Promise<void> {
+      requireExecutor();
+      const value = parse(executionTokenSchema.extend({ reason: z.enum(['base_changed','policy_changed']), providerReference: providerReferenceSchema.optional() }), input);
+      await deps.database.tenant(value.organizationId, async tx => {
+        const row = await tx.query<{ state: string; proposal_id: string }>('SELECT state,proposal_id FROM gotchu.executions WHERE organization_id=$1 AND id=$2 AND claim_token=$3 FOR UPDATE', [value.organizationId,value.executionId,value.claimToken]);
+        if (!row.rows[0] || !['claimed','uncertain'].includes(row.rows[0].state)) throw new BackendError('stale_execution', 'Only an active execution can be marked stale', 409);
+        await tx.query("UPDATE gotchu.executions SET state='failed',provider_reference=$4,finished_at=$5 WHERE organization_id=$1 AND id=$2 AND claim_token=$3", [value.organizationId,value.executionId,value.claimToken,value.providerReference ?? null,clock.now()]);
+        await tx.query("UPDATE gotchu.proposals SET state='invalidated',invalidated_at=clock_timestamp(),invalidation_reason=$3,blocking_reasons=$4::jsonb WHERE organization_id=$1 AND id=$2", [value.organizationId,row.rows[0].proposal_id,value.reason,JSON.stringify([value.reason === 'base_changed' ? 'La base del repositorio cambió; prepara y valida una propuesta nueva.' : 'La política de esta acción cambió; prepara y valida una propuesta nueva.'])]);
+        await tx.query('DELETE FROM gotchu.executor_repository_locks WHERE organization_id=$1 AND execution_id=$2', [value.organizationId,value.executionId]);
+        await audit(tx,value.organizationId,'executor','execution.stale',value.executionId,{ reason:value.reason,providerReference:value.providerReference ?? null });
       });
     },
   };
