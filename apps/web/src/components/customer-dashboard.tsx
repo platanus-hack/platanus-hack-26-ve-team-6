@@ -886,7 +886,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
 }
 
 function ReportList({ reports, selectedId, select }: { reports: CustomerReportSummary[]; selectedId: string | null; select: (id: string) => void }) {
-  return <ul className="customer-report-list">{reports.map(report => <li key={report.id}><button className={selectedId === report.id ? 'is-selected' : ''} onClick={() => select(report.id)}><span className="customer-report-icon" aria-hidden="true"><FileTextIcon /></span><span className="customer-report-row-title"><strong>{report.subject.containerImageDigest ? 'Imagen de contenedor' : modeLabels[report.mode]}</strong><small>{date(report.finishedAt)} · {report.findingCount} observaciones</small></span><span className="customer-report-app">{report.applicationName}</span><ChevronRightIcon aria-hidden="true" /></button></li>)}</ul>;
+  return <ul className="customer-report-list">{reports.map(report => <li key={report.id}><button className={selectedId === report.id ? 'is-selected' : ''} onClick={() => select(report.id)}><span className="customer-report-icon" aria-hidden="true" /><span className="customer-report-row-title"><strong>{report.subject.containerImageDigest ? 'Imagen de contenedor' : modeLabels[report.mode]}</strong><small>{date(report.finishedAt)} · {report.findingCount} observaciones</small></span><span className="customer-report-app">{report.applicationName}</span><ChevronRightIcon aria-hidden="true" /></button></li>)}</ul>;
 }
 
 function JobStatusBanner({ purpose, job, error, retry }: { purpose: 'assessment' | 'correction'; job: CustomerJob | undefined; error: string | null; retry: () => void }) {
