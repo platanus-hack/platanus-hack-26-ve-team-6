@@ -16,17 +16,21 @@ npx skills add emilkowalski/skill --yes
 Read the installed Impeccable skill before using its CLI. Run context for the exact surface from repository root:
 
 ```sh
-.hermes/skills/impeccable/scripts/impeccable context --target apps/web/src/components/landing.tsx
+.hermes/skills/impeccable/scripts/impeccable context --target apps/web/src/landing/landing.tsx
 ```
 
 Before adding motion, load Emil's `find-animation-opportunities`, then `animate` and the relevant recipes. Use `apple-design` for physical continuity and `animation-performance` for the compositor/React cost model. `review-animations` is user-invoked only; ask for it before delivery. Do not animate functional text, add a loader, or hide content pending an entrance.
 
-Objects may follow the pointer across the page: subscribe through `pointer-field.ts` (one shared listener), write transforms on Motion's render frame, never set React state per frame, pause off screen and freeze under reduced motion. Primary actions carry `data-catch` so the ASCII mark's brackets close on the finding while they are hovered. Keep visuals non-realistic and square-led with a small, smooth radius (buttons 8px, chips 6px, panels 10-14px, cards 16px), translucent offset hovers, ASCII, dot-matrix and straight-line grid art, gradients only within the brand colours. No photos, metal, glass, camera-like objects or solid 3D renders. The user overrides Impeccable's eyebrow/section-number bans for the hero scope line and numbered nav taken from their prototype; do not extend them to section kickers. The pinned convergence stage runs only on screens at least 761x560 with motion allowed; every other case keeps the stacked layout with the same content.
+The landing lives in `src/landing/` (route `/`); the previous graphite landing stays at `/variantes/anterior` for comparison only. Dot fields (`src/components/dot-field/`) follow the pointer on their own canvas loop: never set React state per frame, sleep off screen, in hidden tabs, when paused and under reduced motion. Primary actions carry `data-catch` so the fields gather on their finding while hovered. Keep visuals non-realistic and square-led with a small, smooth radius (buttons 8px, chips 6px, panels 10-14px, cards 16px), hard magenta offset hovers, ASCII, dot-matrix and straight-line grid art, gradients only within the brand colours. No photos, metal, glass, camera-like objects or solid 3D renders. Do not bring back the index rail, section kickers or section numerals.
+
+## Components and themes
+
+Controls are shadcn/ui (style `base-nova` on Base UI, see `components.json`; the shadcn skill is in `.agents/skills/shadcn`). Add components with `npx shadcn@latest add <name>` from `apps/web`, then restyle them in `src/components/ui/` to DESIGN.md instead of overriding them from page CSS. Navigation styled as a button is a real `<a>` with `buttonVariants`, because Base UI's Button announces anchors as buttons. Theme tokens are the shadcn slots in `src/styles/landing-ui.css`, scoped to `.gl` so they cannot restyle `/dashboard` or `/demo`; Tailwind loads without preflight for the same reason. Page CSS sits in `@layer components` so utility classes win. Light is pure `#ffffff`, dark is pure `#000000`, and system follows the OS; `THEME_SCRIPT` applies the stored choice before paint.
 
 After the finished surface, run the detector and triage real findings rather than suppressing them broadly:
 
 ```sh
-.hermes/skills/impeccable/scripts/impeccable detect --json apps/web/src/components/{landing,hero,convergence,ascii-mark,dot-matrix,blueprint-grid,product-flow}.{tsx,css}
+.hermes/skills/impeccable/scripts/impeccable detect --json apps/web/src/landing/*.{tsx,css} apps/web/src/components/ui/*.tsx apps/web/src/styles/landing-ui.css
 ```
 
 The shared `.impeccable/config.json` enables supported design hooks. Automatic invocation depends on the current agent host; when context requests a manual detector pass, run it explicitly. Do not claim hooks fired when they did not.
@@ -42,10 +46,10 @@ pnpm --filter @gotchu/web test:design
 pnpm --filter @gotchu/web build
 ```
 
-Playwright starts/reuses a loopback-only preview on port 3085. Its tests exercise the actual landing and its native controls, not mocked security assessments. Review rendered desktop and mobile images, pointer following and iris focus, the pinned convergence frames, each scroll chapter, each scope tab, keyboard tabs/FAQ/menu, 320px layout, reduced motion and no-JavaScript content. Full-page screenshots flatten the sticky stage into an empty band; capture viewport by viewport instead. Automated axe checks do not constitute an accessibility certification or a hardware performance benchmark.
+Playwright starts/reuses a loopback-only preview on port 3085 (set `GOTCHU_DESIGN_URL` to test an already running server). Its tests exercise the actual landing and its shadcn controls, not mocked security assessments. Review rendered desktop and mobile images in both themes, pointer following and the pause control, the theme switch, keyboard FAQ and menu, 320px layout, reduced motion and no-JavaScript content. Automated axe checks do not constitute an accessibility certification or a hardware performance benchmark.
 
 ## Editorial and asset rules
 
 Write direct Spanish about implemented features. Never insert artwork explanation, meta/helper copy or mock-analysis instructions. Do not invent scanner output, scores, testimonials, uptime or results: abstract original product assets remove the need for such disclaimers. Genuine scope limits belong in a normal product answer, not captions attached to art.
 
-The landing ships no raster or SVG artwork files: the mark, ASCII render, pictograms and grid are authored in components (`gotchu-mark.tsx` holds the shared geometry). Do not reuse reference-site assets or unlicensed AIRNT. Respect the OFL files alongside the self-hosted Saira and Oxanium fonts. Small text never sits on `#e7147d`; use the action shade, ink or silver. Controls are 34px minimum (`--g-control`; desktop primary buttons 48px) and the header is 52px (48px on mobile); the browser gate enforces 34px, which replaces the earlier 44px rule at the user's request. Keep installed skill engines, local credentials and test traces out of Git.
+The landing ships no raster or SVG artwork files: the mark, ASCII plates and dot fields are authored in components (`gotchu-mark.tsx` holds the shared geometry). Do not reuse reference-site assets or unlicensed AIRNT. Respect the OFL files alongside the self-hosted Saira and Oxanium fonts. Small text never sits on `#e7147d`; use the action shade, ink or silver. Controls are 34px minimum (desktop primary buttons 48px) and the header is 52px (48px on mobile); the browser gate enforces 34px, which replaces the earlier 44px rule at the user's request. Keep installed skill engines, local credentials and test traces out of Git.
