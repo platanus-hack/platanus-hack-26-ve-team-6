@@ -12,7 +12,7 @@ describe('configuration coverage',()=>{
     const malformed=path.endsWith('.json')?'{"apiVersion":"v1","kind":"Pod","spec":[}':malformedManifest;
     const report=await createCustomerAssessmentRunner({scanners}).run(input([{path:'valid.yaml',content:validManifest},{path,content:malformed}]));
     expect(report.internal?.findings).toHaveLength(1);
-    expect(report.internal?.coverage.find(c=>c.capability==='trivy')).toMatchObject({state:'unavailable',detail:expect.stringContaining('1 Kubernetes candidate')});
+    expect(report.internal?.coverage.find(c=>c.capability==='trivy_kubernetes')).toMatchObject({state:'unavailable',detail:expect.stringContaining('desconocida')});
     expect(report.internal?.status).toBe('partial');
   });
   it('reports inspected only when each candidate is represented, allowing normalized absolute paths',async()=>{
@@ -33,7 +33,7 @@ describe('configuration coverage',()=>{
   });
   it('keeps malformed Kubernetes YAML unknown even when Trivy emitted a target result',async()=>{
     const report=await createCustomerAssessmentRunner({scanners:{...scanners,async run(){return {...result,output:{SchemaVersion:2,Results:[{Target:'broken.yaml'}]}};}}}).run(input([{path:'broken.yaml',content:malformedManifest}]));
-    expect(report.internal?.coverage.find(c=>c.capability==='trivy')).toMatchObject({state:'unavailable',detail:expect.stringContaining('malformed')});
+    expect(report.internal?.coverage.find(c=>c.capability==='trivy_kubernetes')).toMatchObject({state:'unavailable',detail:expect.stringContaining('malformado')});
   });
   it('does not count duplicate or unknown result targets as coverage of an omitted candidate',async()=>{
     for(const target of ['valid.yaml','unknown.yaml']){
