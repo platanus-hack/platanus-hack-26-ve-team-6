@@ -10,23 +10,7 @@ flock -w 600 8 || { echo 'Another maintenance operation is still active.' >&2; e
 base=/var/lib/gotchu-deploy
 helpers=/usr/local/lib/gotchu-deploy
 install -d -m 700 "$base" "$base/transactions"
-decision=$(python3 - "$base/state.json" "$release" "$checksum" <<'PY'
-import json,sys
-from pathlib import Path
-path,release,checksum=sys.argv[1:]
-if not Path(path).exists():
-    print('install');sys.exit()
-state=json.loads(Path(path).read_text())
-if state['status'] in ['installing','recovery_required']:
-    raise SystemExit('An unfinished deployment requires operator reconciliation')
-if state['release']==release and state['checksum']==checksum and state['status']=='succeeded':
-    print('current');sys.exit()
-generation=lambda value: tuple(map(int,value.split('-')[1:]))
-if generation(release)<=generation(state['release']):
-    raise SystemExit('Stale or repeated deployment rejected; rerun with a new attempt')
-print('install')
-PY
-)
+decision=$(python3 "$helpers/release-state.py" "$base/state.json" "$release" "$checksum")
 if [[ $decision == current ]]; then
   [[ $(readlink -f /opt/gotchu/app) == "/opt/gotchu/releases/$release" ]] || exit 1
   node "$helpers/release-health.mjs"
@@ -112,4 +96,15 @@ printf '%s\n' "${release%%-*}" >/etc/gotchu/release.txt
 systemctl start caddy
 curl --fail --silent --show-error --max-time 20 https://gotchu.kevinbravo.com/api/ready >/dev/null
 record succeeded
+# Keep the adopted original and three recent releases, including the rollback target.
+python3 - "$target" "$previous" "$transaction/release.tar.gz" <<'PY'
+from pathlib import Path
+import shutil,sys
+target,previous,archive=sys.argv[1:]
+Path(archive).unlink()
+releases=Path('/opt/gotchu/releases')
+candidates=sorted((p for p in releases.iterdir() if p.is_dir() and not p.is_symlink() and not p.name.startswith('initial-')),key=lambda p:p.stat().st_mtime,reverse=True)
+for path in candidates[3:]:
+    if str(path) not in [target,previous]: shutil.rmtree(path)
+PY
 echo "Release $release installed and healthy."
