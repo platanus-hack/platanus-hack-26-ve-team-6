@@ -20,7 +20,7 @@ export function errorResponse(error: unknown): Response {
   return json({ error: { code: 'internal_error', message: 'The request could not be completed' } }, 500);
 }
 
-export async function readBoundedBody(request: Request, maxBytes = 1_048_576): Promise<Buffer> {
+export async function readBoundedBody(request: Request, maxBytes = 1_048_576, timeoutMs = 5000): Promise<Buffer> {
   const declared = request.headers.get('Content-Length');
   if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) {
     throw new HttpError(413, 'body_too_large', 'Request body exceeds the allowed size');
@@ -29,9 +29,13 @@ export async function readBoundedBody(request: Request, maxBytes = 1_048_576): P
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new HttpError(408, 'body_timeout', 'Request body did not arrive before its deadline')), timeoutMs);
+  });
   try {
     while (true) {
-      const next = await reader.read();
+      const next = await Promise.race([reader.read(), deadline]);
       if (next.done) break;
       size += next.value.byteLength;
       if (size > maxBytes) {
@@ -40,7 +44,10 @@ export async function readBoundedBody(request: Request, maxBytes = 1_048_576): P
       }
       chunks.push(next.value);
     }
-  } finally { reader.releaseLock(); }
+  } catch (error) {
+    await reader.cancel();
+    throw error;
+  } finally { clearTimeout(timer); reader.releaseLock(); }
   return Buffer.concat(chunks, size);
 }
 

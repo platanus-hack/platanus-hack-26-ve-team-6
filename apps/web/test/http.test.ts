@@ -8,8 +8,17 @@ describe('HTTP input boundary', () => {
       start(controller) { controller.enqueue(new Uint8Array(12)); controller.enqueue(new Uint8Array(12)); },
       cancel() { cancelled = true; },
     });
-    const request = new Request('http://localhost/events', { method: 'POST', body, duplex: 'half' } as RequestInit);
+    const init = { method: 'POST', body, duplex: 'half' } satisfies RequestInit & { duplex: 'half' };
+    const request = new Request('http://localhost/events', init);
     await expect(readBoundedBody(request, 20)).rejects.toMatchObject({ status: 413 });
+    expect(cancelled).toBe(true);
+  });
+
+  it('cancels a stalled event body instead of retaining the request indefinitely', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({ cancel() { cancelled = true; } });
+    const init = { method: 'POST', body, duplex: 'half' } satisfies RequestInit & { duplex: 'half' };
+    await expect(readBoundedBody(new Request('http://localhost/events', init), 1024, 10)).rejects.toMatchObject({ status: 408 });
     expect(cancelled).toBe(true);
   });
 
