@@ -218,7 +218,9 @@ describe('authenticated context inventory HTTP adapter', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(inventory);
     const repoRequest = (repositoryKey: string) => new Request(`${origin}/api/customer/${prefix}/repositories`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ repositoryKey, defaultBranch: 'main' }) });
-    expect((await handle(repoRequest('outside-catalog'))).status).toBe(400);
+    const outsideCatalog = await handle(repoRequest('outside-catalog'));
+    expect(outsideCatalog.status).toBe(404);
+    expect(await outsideCatalog.json()).toMatchObject({ error: { code: 'repository_not_in_catalog' } });
     expect(createRepositoryLink).not.toHaveBeenCalled();
     expect((await handle(repoRequest('repo-main'))).status).toBe(500);
     expect(services.repositoryCatalog).toHaveBeenCalledWith({ userId }, { organizationId, applicationId });
@@ -226,5 +228,13 @@ describe('authenticated context inventory HTTP adapter', () => {
     expect((await handle(deployment)).status).toBe(400);
     const originCandidate = new Request(`${origin}/api/customer/${prefix}/origins`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ environmentId: randomUUID(), origin: 'https://example.com', discoverySource: 'customer_inventory', ownership: 'verified' }) });
     expect((await handle(originCandidate)).status).toBe(400);
+    const trustRequests = [
+      new Request(`${origin}/api/customer/${prefix}/environments`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'production', kind: 'production', state: 'verified' }) }),
+      new Request(`${origin}/api/customer/${prefix}/environments`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'staging', kind: 'staging', source: 'signed_telemetry' }) }),
+      repoRequest('repo-main').clone(),
+    ];
+    const repoWithTrust = new Request(`${origin}/api/customer/${prefix}/repositories`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ repositoryKey: 'repo-main', defaultBranch: 'main', readAccess: 'granted' }) });
+    trustRequests[2] = repoWithTrust;
+    for (const invalid of trustRequests) expect((await handle(invalid)).status).toBe(400);
   });
 });

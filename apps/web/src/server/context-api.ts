@@ -30,8 +30,8 @@ export async function handleContextApi(request: Request, identity: Identity, ser
     const resource = parts[7];
     if (!resource && request.method === 'GET') return json(contextInventorySchema.parse(await service.list(identity, scope)));
     if (resource === 'environments' && parts.length === 8 && request.method === 'POST') {
-      const input = parse(createEnvironmentSchema.omit({ organizationId: true, applicationId: true, source: true, observedAt: true }), await readBody(request));
-      return json(environmentSchema.parse(await service.createEnvironment(identity, { ...scope, ...input, source: 'customer_declared', observedAt: new Date().toISOString() })), 201);
+      const input = parse(createEnvironmentSchema.omit({ organizationId: true, applicationId: true, observedAt: true }), await readBody(request));
+      return json(environmentSchema.parse(await service.createEnvironment(identity, { ...scope, ...input, observedAt: new Date().toISOString() })), 201);
     }
     if (resource === 'environments' && parts.length === 10) {
       const environmentId = parse(uuid, parts[8]);
@@ -45,8 +45,8 @@ export async function handleContextApi(request: Request, identity: Identity, ser
       }
     }
     if (resource === 'services' && parts.length === 8 && request.method === 'POST') {
-      const input = parse(createServiceSchema.omit({ organizationId: true, applicationId: true, source: true, observedAt: true }), await readBody(request));
-      return json(serviceSchema.parse(await service.createService(identity, { ...scope, ...input, source: 'customer_declared', observedAt: new Date().toISOString() })), 201);
+      const input = parse(createServiceSchema.omit({ organizationId: true, applicationId: true, observedAt: true }), await readBody(request));
+      return json(serviceSchema.parse(await service.createService(identity, { ...scope, ...input, observedAt: new Date().toISOString() })), 201);
     }
     if (resource === 'services' && parts.length === 9 && request.method === 'PATCH') {
       const serviceId = parse(uuid, parts[8]);
@@ -56,7 +56,7 @@ export async function handleContextApi(request: Request, identity: Identity, ser
     if (resource === 'repositories' && parts.length === 8 && request.method === 'POST') {
       const input = parse(createRepositoryLinkSchema.omit({ organizationId: true, applicationId: true }), await readBody(request));
       const allowedRepositories = await repositoryCatalog?.(identity, scope) ?? [];
-      if (!allowedRepositories.some(repository => repository.key === input.repositoryKey)) throw new HttpError(400, 'repository_not_available', 'Selecciona un repositorio del catálogo autorizado.');
+      if (!allowedRepositories.some(repository => repository.key === input.repositoryKey)) throw new HttpError(404, 'repository_not_in_catalog', 'El repositorio no está en el catálogo autorizado.');
       return json(repositoryLinkSchema.parse(await service.createRepositoryLink(identity, { ...scope, ...input })), 201);
     }
     if (resource === 'repositories' && parts.length === 10 && parts[9] === 'revoke' && request.method === 'POST') {
@@ -64,16 +64,16 @@ export async function handleContextApi(request: Request, identity: Identity, ser
       return json(repositoryLinkSchema.parse(await service.revokeRepositoryLink(identity, { ...scope, repositoryLinkId: parse(uuid, parts[8]) })));
     }
     if (resource === 'deployments' && parts.length === 8 && request.method === 'POST') {
-      const input = parse(createDeploymentSchema.omit({ organizationId: true, applicationId: true, state: true, source: true }), await readBody(request));
-      return json(deploymentSchema.parse(await service.createDeployment(identity, { ...scope, ...input, state: 'declared', source: 'customer_declared' })), 201);
+      const input = parse(createDeploymentSchema.omit({ organizationId: true, applicationId: true }), await readBody(request));
+      return json(deploymentSchema.parse(await service.createDeployment(identity, { ...scope, ...input })), 201);
     }
     if (resource === 'dependencies' && parts.length === 8 && request.method === 'POST') {
-      const input = parse(createDependencyRelationSchema.omit({ organizationId: true, applicationId: true, state: true, source: true, observedAt: true }), await readBody(request));
-      return json(dependencyRelationSchema.parse(await service.createDependency(identity, { ...scope, ...input, state: 'declared', source: 'customer_declared', observedAt: new Date().toISOString() })), 201);
+      const input = parse(createDependencyRelationSchema.omit({ organizationId: true, applicationId: true, observedAt: true }), await readBody(request));
+      return json(dependencyRelationSchema.parse(await service.createDependency(identity, { ...scope, ...input, observedAt: new Date().toISOString() })), 201);
     }
     if (resource === 'origins' && parts.length === 8 && request.method === 'POST') {
-      const input = parse(createOriginCandidateSchema.omit({ organizationId: true, applicationId: true, state: true, source: true, observedAt: true }), await readBody(request));
-      return json(originCandidateSchema.parse(await service.createOriginCandidate(identity, { ...scope, ...input, state: 'declared', source: 'customer_declared', observedAt: new Date().toISOString() })), 201);
+      const input = parse(createOriginCandidateSchema.omit({ organizationId: true, applicationId: true, observedAt: true }), await readBody(request));
+      return json(originCandidateSchema.parse(await service.createOriginCandidate(identity, { ...scope, ...input, observedAt: new Date().toISOString() })), 201);
     }
     throw new HttpError(404, 'not_found', 'Ruta de contexto no encontrada.');
   } catch (error) { return errorResponse(error); }
