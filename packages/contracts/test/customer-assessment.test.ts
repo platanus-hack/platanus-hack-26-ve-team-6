@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { CUSTOMER_MAX_SOURCE_BYTES, CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES, customerOriginSchema, customerSourceSnapshotSchema, customerQueueSchema, customerRunInputSchema, customerAssessmentIntentSchema, customerAssessmentReportSchema } from '../src/index.js';
+import { CUSTOMER_MAX_SOURCE_BYTES, CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES, customerOriginSchema, customerSourceSnapshotSchema, customerQueueSchema, customerRunInputSchema, customerAssessmentIntentSchema, customerAssessmentReportSchema, customerEnrollTargetSchema } from '../src/index.js';
 
 const snapshot = () => ({ revision: 'real-revision', files: [{ path: 'src/index.ts', content: 'export const value = 1;' }] });
 describe('customer assessment input boundaries', () => {
+  it('requires an explicit supported profile without expanding legacy root consent', () => {
+    const scope = { organizationId: randomUUID(), applicationId: randomUUID() };
+    const enrollment = { ...scope, origin: 'https://acme.com', authorized: true };
+    expect(customerEnrollTargetSchema.parse(enrollment)).not.toHaveProperty('scanProfile');
+    expect(customerEnrollTargetSchema.parse({ ...enrollment, scanProfile: 'public_surface' }).scanProfile).toBe('public_surface');
+    expect(customerEnrollTargetSchema.safeParse({ ...enrollment, scanProfile: 'all_internet' }).success).toBe(false);
+  });
   it('normalizes public DNS HTTPS origins and rejects URL ambiguity', () => {
     expect(customerOriginSchema.parse('https://APP.acme.com:443/')).toBe('https://app.acme.com');
     for (const origin of ['http://acme.com', 'https://127.0.0.1', 'https://[::1]', 'https://2130706433', 'https://user@acme.com', 'https://acme.com:444', 'https://acme.com/a', 'https://acme.com/../', 'https://acme.com?', 'https://acme.com#', 'https://acme.com.', 'https://localhost', 'https://app.local', 'https://a_b.acme.com', 'https://acme.com\\@127.0.0.1']) expect(customerOriginSchema.safeParse(origin).success, origin).toBe(false);
