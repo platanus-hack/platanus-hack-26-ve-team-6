@@ -287,7 +287,7 @@ github_setup() {
   ensure_state
   local public_url="${GOTCHU_PUBLIC_URL:-http://localhost:${GOTCHU_WEB_PORT:-3000}}"
   if [[ -f "$env_file" ]]; then public_url="$(sed -n 's/^PUBLIC_APP_URL=//p' "$env_file" | head -n1)"; fi
-  printf 'GitHub App de sólo lectura: concede Contents: Read-only y Metadata: Read-only. Configura su callback de instalación como %s/api/customer/github/callback.\n' "$public_url"
+  printf 'GitHub App de sólo lectura: concede Contents: Read-only y Metadata: Read-only. Configura el callback de autorización que usa Conectar GitHub como %s/api/customer/github/callback.\n' "$public_url"
   printf 'Copia el JSON de credenciales en %s/github/reader-app.json y limita el archivo a modo 0600.\n' "$state_dir"
   printf '%s\n' 'En .env configura GOTCHU_GITHUB_READER_APP_FILE=/run/secrets/github/reader-app.json y GOTCHU_GITHUB_APP_SLUG=<slug>; la carpeta se monta como sólo lectura.'
   printf '%s\n' 'Para Auth.js GitHub sign-in configura AUTH_GITHUB_ID y AUTH_GITHUB_SECRET y agrega <PUBLIC_APP_URL>/api/auth/callback/github junto al callback de instalación. Las GitHub Apps admiten varias URLs de callback; si no puedes editar la App, usa otra OAuth App o el inicio local/OIDC.'
