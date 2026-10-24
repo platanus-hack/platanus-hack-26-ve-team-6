@@ -43,7 +43,7 @@ Jenn's supplied `prototipo.html` and its reviewed second iteration establish vis
 
 ## Accessibility & Inclusion
 
-Spanish interface with visible keyboard focus, semantic landmarks, native disclosure, readable contrast, touch-sized controls and reduced-motion support. Automated accessibility checks are evidence for tested states, not whole-product certification.
+Spanish interface with visible keyboard focus, semantic landmarks, native disclosure, readable contrast, controls at least 34px tall (above WCAG 2.2 AA's 24px target size) and reduced-motion support. Automated accessibility checks are evidence for tested states, not whole-product certification.
 
 ## Open Decisions
 

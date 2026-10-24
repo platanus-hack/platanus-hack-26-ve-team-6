@@ -120,8 +120,8 @@ components:
     backgroundColor: "{colors.porcelain}"
     textColor: "{colors.graphite}"
     rounded: "{rounded.control}"
-    padding: "8px 16px"
-    height: "44px"
+    padding: "6px 14px"
+    height: "34px"
   button-small-hover:
     backgroundColor: "{colors.silver}"
   header:
@@ -281,14 +281,14 @@ Near-square and straight. Corners take a small, very smooth radius from a fixed 
 ## Components
 
 ### Buttons
-- **Shape:** gently softened (8px), 54px tall; 44px for the small header button.
+- **Shape:** gently softened (8px), 48px tall on desktop and 34px on mobile; 34px for the small header button.
 - **Paper:** porcelain with graphite display label, the hero's primary path; hover turns silver over the magenta offset.
 - **Primary:** action magenta with porcelain label, 14px 26px, trailing SVG arrow with a 26px gap; hover deepens to action-hover over the porcelain offset.
 - **Ink:** graphite with porcelain label, used on magenta fields; hover raises to raised over the magenta offset.
 - **Small:** porcelain with graphite 12px label, 8px 16px, in the header; hover silver with the magenta offset.
 - **Hover / Press:** fine pointers shift −2px/−2px, cast the offset and push the arrow 4px over 160ms `cubic-bezier(0.23, 1, 0.32, 1)`; press scales to 0.97. Reduced motion keeps colour changes only.
 - **Catch:** every primary path into `/dashboard` carries `data-catch`; hovering it snaps the ASCII mark's brackets shut (spring 0.35s, bounce 0.35).
-- **Text link:** porcelain 14px semibold over a 1px silver underline at 33% that turns magenta on hover, 44px tall. **Secondary link:** display 13px uppercase with a trailing SVG arrow, no fill.
+- **Text link:** porcelain 14px semibold over a 1px silver underline at 33% that turns magenta on hover, 34px tall. **Secondary link:** display 13px uppercase with a trailing SVG arrow, no fill.
 
 ### Chips and Tags
 - **Bracket tag:** mono 11px uppercase in `[ brackets ]`, naming a real thing (a perspective, a file, the export). Pinned to the corner of the panel it names, muted on ink.
@@ -301,10 +301,10 @@ Near-square and straight. Corners take a small, very smooth radius from a fixed 
 - **Internal Padding:** 32px for workflow cards (24px mobile), clamp(32px, 5vw, 72px) for full-width panels.
 
 ### Navigation
-A fixed, solid graphite bar, 64px tall at every width, closed by a silver hairline at 21%. Mark-and-wordmark lockup in display 22px uppercase (18px on mobile); mono 12px silver links, each led by a 10px pink-ink number (`01 /`, aria-hidden) that hides below 1180px, turning porcelain on hover; the 44px small porcelain button at the end. Below 960px an outlined 8px "Menú" toggle opens a 12px-radius surface panel and Escape closes it.
+A fixed, solid graphite bar, 52px tall (48px on mobile), closed by a silver hairline at 21%. Mark-and-wordmark lockup in display 19px uppercase (18px on mobile); mono 12px silver links, each led by a 10px pink-ink number (`01 /`, aria-hidden) that hides below 1180px, turning porcelain on hover; the 34px small porcelain button at the end. Below 960px an outlined 8px "Menú" toggle opens a 12px-radius surface panel and Escape closes it.
 
 ### Signature: hero field
-No frame: the hero is the field. The blueprint grid fills it under a radial mask centred on the mark, with the pointer-following magenta cell; a faint radial magenta glow (14%) sits behind the mark. The ASCII mark stands large on the right, labelled only by two muted mono tags, [ Código ] and [ HTTPS ], low on either side. A 1px magenta scan line (55% opacity, fading at both ends) sweeps the whole hero top to bottom every 7s on `cubic-bezier(.77, 0, .175, 1)`. The hero foot carries the scope list (14px silver SVG icons, mono 10px muted) and a quiet text control, "Pausar" / "Reanudar" with a 12px glyph-free SVG play/pause, 44px tall, that holds both the scan and the mark's spin. Reduced motion keeps the scan still.
+No frame: the hero is the field. The blueprint grid fills it under a radial mask centred on the mark, with the pointer-following magenta cell; a faint radial magenta glow (14%) sits behind the mark. The ASCII mark stands large on the right with no labels; the copy column carries only the headline, one lead sentence and the two actions. A 1px magenta scan line (55% opacity, fading at both ends) sweeps the whole hero top to bottom every 7s on `cubic-bezier(.77, 0, .175, 1)`. The hero foot carries the scope list (14px silver SVG icons, mono 10px muted) and a quiet text control, "Pausar" / "Reanudar" with a 12px glyph-free SVG play/pause, 44px tall, that holds both the scan and the mark's spin. Reduced motion keeps the scan still.
 
 ### Signature: flow band
 A full-bleed band of four flow links (Subir, Autorizar, Evaluar, Exportar) on a magenta → action gradient, 64px tall, divided by graphite hairlines at 25%. Labels are display graphite, left-aligned, with the arrow pushed to the right edge; hover draws a 3px graphite bar from the left along the bottom edge and nudges the arrow up-right 3px.
@@ -329,6 +329,7 @@ A full-width 16px-radius panel on a 125° gradient (magenta to 38%, action at 68
 ## Do's and Don'ts
 
 ### Do:
+- **Do** size every control at 34px minimum (`--g-control`): header button, mobile buttons, links, tabs, menu toggle and pause. Desktop primary buttons are 48px. 34px stays above WCAG 2.2 AA's 24px target size; keep 8px or more between adjacent controls.
 - **Do** take every radius from the scale: 2px pixels and bars, 6px chips, 8px controls, 10–14px panels, 16px section cards.
 - **Do** answer button hover with the hard-edged 4px offset, porcelain at 25% on action magenta and magenta at 80% on light or ink buttons.
 - **Do** put small text on action magenta, graphite, ink or silver, never on signal magenta.
