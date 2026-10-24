@@ -28,15 +28,16 @@ export interface PullRequestAdapter {
   closePullRequest(number: number): Promise<void>;
   deleteBranch(branch: string): Promise<void>;
   listRequiredChecks(commitSha: string): Promise<readonly { name: string; state: string }[]>;
-  verifyAutomation(baseSha: string, policyAllowsUnsafe?: boolean): Promise<void>;
+  verifyAutomation(baseSha: string, policyAllowsUnsafe?: boolean, proposedBranch?: string): Promise<void>;
 }
 export const deterministicBranch = (actionHash: string) => `gotchu/${z.string().regex(/^[a-f0-9]{64}$/).parse(actionHash).slice(0,16)}`;
 export function assertWorkflowPatchSafe(files: readonly PatchFile[]): void {
   const checked=z.array(patchFileSchema).max(1000).parse(files);
   if (checked.some(file => file.path === '.github/workflows' || file.path.startsWith('.github/workflows/'))) throw new GitAdapterError('repository_automation_unsafe');
 }
-export function assertAutomationSafe(workflows: readonly { path: string; content: string }[], policyAllowsUnsafe = false): void {
+export function assertAutomationSafe(workflows: readonly { path: string; content: string }[], policyAllowsUnsafe = false, proposedBranch?: string): void {
   const parsed = z.array(workflowSchema).parse(workflows);
+  if (proposedBranch !== undefined && !/^gotchu\/[a-f0-9]{16}$/.test(proposedBranch)) throw new GitAdapterError('repository_automation_unsafe');
   for (const workflow of parsed) {
     if (!workflow.path.startsWith('.github/workflows/')) continue;
     let document: unknown;
@@ -52,18 +53,27 @@ export function assertAutomationSafe(workflows: readonly { path: string; content
     if (events.has('push')) {
       const pushOptions = typeof push === 'object' && push !== null && !Array.isArray(push)
         ? push as Record<string, unknown> : {};
-      const branchFilters = [...stringList(pushOptions.branches), ...stringList(pushOptions['branches-ignore'])];
-      if (branchFilters.length === 0 || branchFilters.some(pattern => matchesBranchPattern(pattern, 'gotchu/sample')))
+      const hasBranches = Object.hasOwn(pushOptions, 'branches');
+      const hasBranchesIgnore = Object.hasOwn(pushOptions, 'branches-ignore');
+      if (hasBranches && hasBranchesIgnore) throw new GitAdapterError('repository_automation_unsafe');
+      const branchPatterns = hasBranches ? parseBranchPatterns(pushOptions.branches, true) : undefined;
+      const ignoredPatterns = hasBranchesIgnore ? parseBranchPatterns(pushOptions['branches-ignore'], false) : undefined;
+      if (!branchPatterns && !ignoredPatterns) throw new GitAdapterError('repository_automation_unsafe');
+      const triggersOwnedBranch = proposedBranch
+        ? branchPatterns ? matchesBranchPatterns(branchPatterns, proposedBranch) : !ignoredPatterns?.some(pattern => pattern.matches(proposedBranch))
+        : branchPatterns ? branchPatterns.some(pattern => !pattern.negative && couldMatchOwnedBranch(pattern.tokens))
+          : !ignoredPatterns?.some(pattern => pattern.source === 'gotchu/*' || pattern.source === 'gotchu/**');
+      if (triggersOwnedBranch)
         throw new GitAdapterError('repository_automation_unsafe');
     }
-    if (events.has('pull_request') && containsForbiddenSecret(root.data.jobs))
+    if (events.has('pull_request') && containsForbiddenSecret(root.data))
       throw new GitAdapterError('repository_automation_unsafe');
   }
 }
 
 function triggerMap(value: unknown): Map<string, unknown> {
   if (typeof value === 'string') return new Map([[value, {}]]);
-  if (Array.isArray(value)) return new Map(value.filter((item): item is string => typeof item === 'string').map(event => [event, {}]));
+  if (Array.isArray(value) && value.every((item): item is string => typeof item === 'string')) return new Map(value.map(event => [event, {}]));
   if (typeof value === 'object' && value !== null) return new Map(Object.entries(value));
   throw new GitAdapterError('repository_automation_unsafe');
 }
@@ -74,15 +84,115 @@ function stringList(value: unknown): string[] {
   return [];
 }
 
-function matchesBranchPattern(pattern: string, branch: string): boolean {
-  const glob = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*|\*|\?/g, token => token === '**' ? '.*' : token === '*' ? '[^/]*' : '.');
-  return new RegExp(`^${glob}$`).test(branch);
+type BranchGlobToken = { readonly kind: 'literal'; readonly value: string } | { readonly kind: 'star'|'doubleStar'|'question' };
+interface BranchPattern { readonly source: string; readonly negative: boolean; readonly tokens: readonly BranchGlobToken[]; readonly matches: (branch: string) => boolean }
+
+function parseBranchPatterns(value: unknown, allowNegation: boolean): BranchPattern[] {
+  const sources = stringList(value);
+  if (sources.length === 0 || sources.length > 100) throw new GitAdapterError('repository_automation_unsafe');
+  let sawPositive = false;
+  return sources.map(source => {
+    const negative = source.startsWith('!');
+    const glob = negative ? source.slice(1) : source;
+    if (!glob || glob.length > 256 || (negative && !allowNegation) || (negative && !sawPositive))
+      throw new GitAdapterError('repository_automation_unsafe');
+    if (!negative) sawPositive = true;
+    const tokens: BranchGlobToken[] = [];
+    for (let index = 0; index < glob.length; index++) {
+      const character = glob[index];
+      if (character === '*') {
+        const double = glob[index + 1] === '*';
+        if (double) index++;
+        if (glob[index + 1] === '*') throw new GitAdapterError('repository_automation_unsafe');
+        tokens.push({ kind: double ? 'doubleStar' : 'star' });
+      } else if (character === '?') tokens.push({ kind: 'question' });
+      else if (character && /^[A-Za-z0-9._/-]$/.test(character)) tokens.push({ kind: 'literal', value: character });
+      else throw new GitAdapterError('repository_automation_unsafe');
+    }
+    const regex = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*|\*|\?/g, token => token === '**' ? '.*' : token === '*' ? '[^/]*' : '[^/]');
+    return { source: glob, negative, tokens, matches: branch => new RegExp(`^${regex}$`).test(branch) };
+  });
 }
 
-function containsForbiddenSecret(value: unknown): boolean {
-  if (typeof value === 'string') return [...value.matchAll(/\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)/g)].some(match => match[1] !== 'GITHUB_TOKEN');
-  if (Array.isArray(value)) return value.some(containsForbiddenSecret);
-  if (typeof value === 'object' && value !== null) return Object.values(value).some(containsForbiddenSecret);
+function matchesBranchPatterns(patterns: readonly BranchPattern[], branch: string): boolean {
+  let included = false;
+  for (const pattern of patterns) if (pattern.matches(branch)) included = !pattern.negative;
+  return included;
+}
+
+function couldMatchOwnedBranch(tokens: readonly BranchGlobToken[]): boolean {
+  const close = (states: Set<number>) => {
+    const result = new Set(states);
+    const pending = [...states];
+    while (pending.length) {
+      const state = pending.pop();
+      if (state !== undefined && (tokens[state]?.kind === 'star' || tokens[state]?.kind === 'doubleStar') && !result.has(state + 1)) {
+        result.add(state + 1);
+        pending.push(state + 1);
+      }
+    }
+    return result;
+  };
+  let states = close(new Set([0]));
+  for (const character of 'gotchu/') {
+    const next = new Set<number>();
+    for (const state of states) {
+      const token = tokens[state];
+      if (token?.kind === 'literal' && token.value === character) next.add(state + 1);
+      else if (token?.kind === 'question' && character !== '/') next.add(state + 1);
+      else if (token?.kind === 'star' && character !== '/') next.add(state);
+      else if (token?.kind === 'doubleStar') next.add(state);
+    }
+    states = close(next);
+  }
+  return [...states].some(state => state < tokens.length);
+}
+
+function hasForbiddenSecretReference(expression: string): boolean {
+  const references = /\bsecrets\b/gi;
+  for (const reference of expression.matchAll(references)) {
+    const before = expression.slice(0, reference.index).trimEnd();
+    if (before.endsWith('.')) continue;
+    let index = (reference.index ?? 0) + reference[0].length;
+    while (/\s/.test(expression[index] ?? '')) index++;
+    let name: string | undefined;
+    if (expression[index] === '.') {
+      index++;
+      while (/\s/.test(expression[index] ?? '')) index++;
+      const property = /^[A-Za-z_][A-Za-z0-9_]*/.exec(expression.slice(index));
+      if (!property) return true;
+      name = property[0];
+      index += name.length;
+    } else if (expression[index] === '[') {
+      const property = /^\[\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\1\s*\]/.exec(expression.slice(index));
+      if (!property) return true;
+      if (!property[2]) return true;
+      name = property[2];
+      index += property[0].length;
+    } else return true;
+    if (name.toUpperCase() !== 'GITHUB_TOKEN') return true;
+    while (/\s/.test(expression[index] ?? '')) index++;
+    if (expression[index] === '.' || expression[index] === '[') return true;
+  }
+  return false;
+}
+
+function containsForbiddenSecret(value: unknown, active = new WeakSet<object>()): boolean {
+  if (typeof value === 'string') {
+    const expressions = [...value.matchAll(/\$\{\{([\s\S]*?)\}\}/g)];
+    if (expressions.some(match => hasForbiddenSecretReference(match[1] ?? ''))) return true;
+    const remainder = value.replace(/\$\{\{[\s\S]*?\}\}/g, '');
+    return remainder.includes('${{') && /\bsecrets\b/i.test(remainder.slice(remainder.indexOf('${{')));
+  }
+  if (typeof value === 'object' && value !== null) {
+    if (active.has(value)) return true;
+    active.add(value);
+    const contains = Array.isArray(value)
+      ? value.some(item => containsForbiddenSecret(item,active))
+      : Object.entries(value).some(([key,item]) => containsForbiddenSecret(key,active) || containsForbiddenSecret(item,active));
+    active.delete(value);
+    return contains;
+  }
   return false;
 }
 
@@ -199,17 +309,17 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
   return {
     async resolveTarget(repositoryKey) { if(repositoryKey!==`${options.owner}/${options.repository}`) throw new GitAdapterError('not_found'); const repo=await checked('GET',`?`,undefined,z.object({default_branch:z.string().min(1)}).passthrough()); return {repositoryKey,baseBranch:repo.default_branch}; },
     async readHead(branch) { const ref=await checked('GET',`/git/ref/heads/${encodeURIComponent(branch)}`,undefined,z.object({object:z.object({sha}).passthrough()}).passthrough()); return ref.object.sha; },
-    async verifyAutomation(baseSha,policyAllowsUnsafe=options.policyAllowsUnsafeAutomation??false) {
+    async verifyAutomation(baseSha,policyAllowsUnsafe=options.policyAllowsUnsafeAutomation??false,proposedBranch) {
       const tree=await checked('GET',`/git/trees/${baseSha}?recursive=1`,undefined,z.object({tree:z.array(z.object({path:z.string(),type:z.string(),sha}).passthrough()).max(100_000),truncated:z.boolean()}).passthrough());
       if(tree.truncated) throw new GitAdapterError('repository_automation_unsafe');
       const paths=tree.tree.filter(entry=>entry.type==='blob'&&entry.path.startsWith('.github/workflows/'));
       const files=await Promise.all(paths.map(async entry=>{const blob=await checked('GET',`/git/blobs/${entry.sha}`,undefined,z.object({content:z.string(),encoding:z.literal('base64')}).passthrough());return {path:entry.path,content:Buffer.from(blob.content,'base64').toString('utf8')};}));
-      assertAutomationSafe(files,policyAllowsUnsafe);
+      assertAutomationSafe(files,policyAllowsUnsafe,proposedBranch);
     },
     async publishCommit(input) {
       assertWorkflowPatchSafe(input.files);
       const branch=deterministicBranch(input.actionHash); const base=await this.readHead(input.baseBranch); if(base!==input.baseSha) throw new GitAdapterError('conflict');
-      await this.verifyAutomation(input.baseSha);
+      await this.verifyAutomation(input.baseSha,undefined,branch);
       const blobs = await Promise.all(input.files.map(async file => {
         const blob = await checked('POST', '/git/blobs', { content: file.content, encoding: 'utf-8' }, z.object({ sha }).passthrough());
         return { path: pathSchema.parse(file.path), mode: file.mode ?? '100644', type: 'blob', sha: blob.sha };
