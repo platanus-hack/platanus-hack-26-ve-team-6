@@ -94,6 +94,9 @@ export function LandingPage() {
       <section id="preguntas" className="g-faq g-container" aria-labelledby="faq-title"><h2 id="faq-title">Antes de<br />dar el paso.</h2><div>{questions.map(([question, answer]) => <details key={question}><summary>{question}<span aria-hidden="true"><UiIcon name="plus" /></span></summary><p>{answer}</p></details>)}</div></section>
       <section className="g-closing" aria-labelledby="closing-title"><div className="g-container"><h2 id="closing-title">La próxima decisión.<br /><span>Con la evidencia a mano.</span></h2><a className="g-button" href="/dashboard" data-lens-focus>Empezar mi revisión <UiIcon name="arrow" /></a></div></section>
     </main>
-    <footer className="g-footer g-container"><a href="#contenido" aria-label="Gotchu, volver al inicio" className="g-footer-wordmark">gotchu<span>.</span></a><div><p>Código. HTTPS. Evidencia.</p><a href="/dashboard">Abrir Gotchu <UiIcon name="arrow" /></a></div></footer>
+    <footer className="g-footer g-container">
+      <a href="#contenido" aria-label="Gotchu, volver al inicio" className="g-footer-wordmark">g<LensEye className="g-lens-mini" />tchu<span>.</span></a>
+      <div><p>Código. HTTPS. Evidencia.</p><a href="/dashboard">Abrir Gotchu <UiIcon name="arrow" /></a></div>
+    </footer>
   </div>;
 }

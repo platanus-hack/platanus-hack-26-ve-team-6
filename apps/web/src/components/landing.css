@@ -40,6 +40,7 @@
 
 .g-perspectives { padding-block: 112px 120px; background: var(--gc-paper); color: var(--gc-canvas); --gc-contact: #8b7f8a; }
 .g-perspectives-heading { display: flex; align-items: end; justify-content: space-between; gap: 40px; margin-bottom: 44px; }
+.g-perspectives h2, .g-faq h2, .g-workflow h2 { font-size: clamp(2.5rem, 4.4vw, 4rem); line-height: 1.06; letter-spacing: -.04em; }
 .g-perspectives p { color: #55505a; }
 .g-perspectives-heading > p { max-width: 300px; font-size: 18px; }
 .g-perspective-controls { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); width: min(560px, 100%); padding: 6px; border-radius: 12px; background: #eee8ec; }
@@ -88,30 +89,30 @@
 .g-export b { font-weight: 500; color: var(--gc-accent-ink); }
 .g-export i { font-style: normal; color: var(--gc-paper); }
 
-
-
-
-.g-perspectives h2, .g-faq h2 { font-size: clamp(2.25rem, 3.8vw, 3.5rem); line-height: 1.12; letter-spacing: -.035em; }
-.g-faq { display: grid; grid-template-columns: .8fr 1.2fr; gap: 70px; padding-block: 100px; }
+.g-faq { display: grid; grid-template-columns: .8fr 1.2fr; gap: 70px; padding-block: 120px; }
 .g-faq details { border-top: 1px solid var(--gc-line); }
 .g-faq details:last-child { border-bottom: 1px solid var(--gc-line); }
-.g-faq summary { min-height: 82px; display: flex; align-items: center; justify-content: space-between; gap: 24px; list-style: none; cursor: pointer; font-size: 16px; }
+.g-faq summary { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; list-style: none; cursor: pointer; font: 500 19px/1.35 var(--gc-font-display); transition: color 160ms ease; }
 .g-faq summary::-webkit-details-marker { display: none; }
-.g-faq summary > span { color: var(--gc-accent-ink); transition: transform 200ms var(--gc-ease); }
-.g-faq details[open] summary > span { transform: rotate(45deg); }
-.g-faq details p { padding: 0 35px 24px 0; font-size: 14px; line-height: 1.75; }
-.g-faq details::details-content { interpolate-size: allow-keywords; height: 0; overflow: clip; transition: height 200ms var(--gc-ease), content-visibility 200ms allow-discrete; }
+.g-faq summary > span { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border: 1px solid var(--gc-line); border-radius: 50%; color: var(--gc-accent-ink); transition: transform 240ms var(--gc-ease), background-color 200ms ease, border-color 200ms ease; }
+.g-faq details[open] summary > span { transform: rotate(45deg); background: var(--gc-accent-soft); border-color: var(--gc-accent); }
+.g-faq details p { padding: 0 60px 26px 0; font-size: 16px; line-height: 1.75; }
+.g-faq details::details-content { interpolate-size: allow-keywords; height: 0; overflow: clip; transition: height 240ms var(--gc-ease), content-visibility 240ms allow-discrete; }
 .g-faq details[open]::details-content { height: auto; }
-.g-closing { padding-block: 64px 90px; text-align: center; }
-.g-closing h2 { font-size: clamp(2.25rem, 4.2vw, 4rem); line-height: 1.15; letter-spacing: -.035em; }
+
+.g-closing { padding-block: 80px 110px; text-align: center; }
+.g-closing h2 { font-size: clamp(2.5rem, 5vw, 4.5rem); line-height: 1.08; letter-spacing: -.04em; }
 .g-closing h2 > span { color: var(--gc-accent-ink); }
-.g-closing .g-button { margin-top: 34px; }
-.g-footer { padding-top: 32px; padding-bottom: 30px; border-top: 1px solid var(--gc-line-soft); }
-.g-footer-wordmark { display: block; font: 550 clamp(6rem, 17.5vw, 16rem)/1.1 var(--gc-font-display); letter-spacing: -.04em; width: fit-content; }
+.g-closing .g-button { margin-top: 40px; }
+
+.g-footer { padding-top: 36px; padding-bottom: 30px; border-top: 1px solid var(--gc-line-soft); }
+.g-footer-wordmark { display: flex; align-items: baseline; font: 550 clamp(6rem, 17.5vw, 16rem)/1.1 var(--gc-font-display); letter-spacing: -.04em; width: fit-content; }
+.g-footer-wordmark .g-lens-mini { --lens: .56em; align-self: baseline; margin: 0 .03em 0 .05em; transform: translateY(.02em); }
 .g-footer-wordmark > span { color: var(--gc-accent); }
 .g-footer > div { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 24px; }
-.g-footer > div > p { font-size: 12px; }
+.g-footer > div > p { font-size: 13px; }
 .g-footer > div > a { min-height: 44px; display: flex; align-items: center; gap: 20px; font-size: 14px; }
+
 @keyframes g-arrive { from { opacity: .35; transform: translateY(14px); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
 @media (prefers-reduced-motion: no-preference) {
   .g-stage .g-hero-grid > :is(.g-hero-lead, .g-hero-actions), .g-hero-title > .g-word { animation: g-arrive 700ms var(--gc-ease) backwards; }
@@ -128,6 +129,7 @@
   .g-nav > a:not(.g-button):hover { color: var(--gc-paper); }
   .g-nav > a:not(.g-button):hover::after { transform: scaleX(1); }
   .g-perspective-controls button:not([aria-selected=true]):hover { color: var(--gc-canvas); }
+  .g-faq summary:hover { color: var(--gc-accent-ink); }
 }
 @media (max-width: 1050px) {
   .g-container { width: calc(100% - 64px); }
@@ -135,9 +137,9 @@
   .g-journey { gap: 32px; }
   .g-chapters h2 { font-size: 36px; }
   .g-chapters p { font-size: 16px; }
+  .g-faq { gap: 40px; }
   .g-workflow { grid-template-columns: 1fr; gap: 56px; }
   .g-perspective-layout { gap: 32px; }
-  .g-perspective-layout, .g-faq { gap: 40px; }
 }
 @media (max-width: 760px) {
   .g-container { width: calc(100% - 40px); }
@@ -158,6 +160,7 @@
   .g-perspectives { padding-block: 64px; }
   .g-perspectives-heading { display: block; margin-bottom: 28px; }
   .g-perspectives-heading > p { margin-top: 18px; font-size: 16px; }
+  .g-perspectives h2, .g-faq h2, .g-workflow h2 { font-size: 38px; }
   .g-perspective-controls button { min-height: 48px; font-size: 16px; padding: 8px; gap: 6px; }
   .g-perspective-controls button svg { width: 18px; height: 18px; }
   .g-perspective-layout { grid-template-columns: 1fr; gap: 8px; }
@@ -172,12 +175,11 @@
   .g-export { padding: 24px 18px; transform: none; }
   .g-export::before { inset: 10px -10px -10px 10px; }
   .g-export pre { font-size: 12px; }
-  .g-perspectives h2, .g-faq h2 { font-size: 36px; }
-  .g-faq { grid-template-columns: 1fr; gap: 30px; padding-block: 56px; }
-  .g-faq summary { font-size: 16px; min-height: 76px; }
-  .g-closing { padding-block: 22px 56px; }
-  .g-closing h2 { font-size: clamp(1.75rem, 6.4vw, 2.75rem); }
-  .g-footer { padding-top: 24px; }
+  .g-faq { grid-template-columns: 1fr; gap: 30px; padding-block: 72px; }
+  .g-faq summary { font-size: 17px; min-height: 76px; }
+  .g-faq details p { padding-right: 0; }
+  .g-closing { padding-block: 40px 72px; }
+  .g-closing h2 { font-size: clamp(1.9rem, 8vw, 2.75rem); }
   .g-footer > div { gap: 16px; flex-wrap: wrap; margin-top: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
