@@ -42,6 +42,7 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
   let actionProvider: ReturnType<typeof createGitHubActionProvider>;
   const publications: { branch:string; pullRequestNumber?:number }[] = [];
   const proofs = new Map<string, VerifiedStepUp>();
+  let sandboxRepositoryLinkId: string | undefined;
   const now = new Date();
 
   beforeAll(async () => {
@@ -211,6 +212,7 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
     const sourceId = randomUUID();
     const baseSourceId = randomUUID();
     const repositoryLinkId = randomUUID();
+    sandboxRepositoryLinkId = repositoryLinkId;
     const proposalId = randomUUID();
     const runId = randomUUID();
     const suiteId = randomUUID();
@@ -320,16 +322,10 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
       throw new Error(`Sandbox must provide an npm test script for candidate validation; available scripts: ${scripts.join(',') || '(none)'}`);
     }
 
-    const repositoryLinkId=randomUUID();
-    const readerInstallationId=randomUUID().replaceAll(/\D/g,'').slice(0,20);
-    await f.admin.query(`INSERT INTO gotchu.github_installations(organization_id,installation_id,account_login,connected_by,state)
-      VALUES($1,$2,'live-sandbox-reader',$3,'active')`,[f.a.organizationId,readerInstallationId,f.a.userId]);
+    const repositoryLinkId=present(sandboxRepositoryLinkId);
     const uploaded=await api.customers.uploadSource({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,snapshot,authorized:true});
-    await f.admin.query(`INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access,write_access,state,source,installation_id)
-      VALUES($1,$2,$3,'gh-0bkevin-gotchu-pr-sandbox',$4,'granted','not_granted','verified','operator',$5)`,[f.a.organizationId,f.a.applicationId,repositoryLinkId,resolved.baseBranch,readerInstallationId]);
     await f.admin.query(`INSERT INTO gotchu.customer_source_repository_bindings(organization_id,application_id,source_id,repository_link_id,commit_sha,source_digest)
       VALUES($1,$2,$3,$4,$5,$6)`,[f.a.organizationId,f.a.applicationId,uploaded.id,repositoryLinkId,baseCommit,uploaded.digest]);
-    await grantWriterAccess(repositoryLinkId);
     await api.validations.configureSuite({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,
       repositoryLinkId,scriptName:'test',suiteName:'Authorized sandbox npm smoke test',requiredCount:1});
 
