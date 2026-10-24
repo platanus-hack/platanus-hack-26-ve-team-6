@@ -29,7 +29,7 @@ const modeLabels: Record<AssessmentMode, string> = {
   both: 'Código + HTTPS',
 };
 const sourceLabels = { internal: 'Código', external: 'HTTPS', both: 'Ambos', internal_only: 'Sólo código', external_only: 'Sólo HTTPS', unverified: 'Sin contraste' };
-const severityLabels = { critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja', informational: 'Información' };
+const severityLabels = { unknown: 'Sin evaluar', critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja', informational: 'Información' };
 const confidenceLabels = { observed: 'Observado', inferred: 'Indicado', uncertain: 'Sin comprobar' };
 const coverageLabels = { inspected: 'Evaluado', not_requested: 'No solicitado', unsupported: 'No disponible en este perfil', unavailable: 'No disponible' };
 const analysisLabels = { completed: 'Completado', partial: 'Parcial', unavailable: 'No disponible' };

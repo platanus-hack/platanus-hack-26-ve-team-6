@@ -17,7 +17,7 @@ function normalize(name: ScannerName, result: ToolResult): {indicators:Indicator
   }
   if (name === 'gitleaks') return {indicators:leaksSchema.parse(result.output).map(r=>({rule:r.RuleID,path:r.File,line:r.StartLine,severity:'high'})),incomplete:false,scanned:0};
   const parsed = trivySchema.parse(result.output);
-  const severities={UNKNOWN:'informational',LOW:'low',MEDIUM:'medium',HIGH:'high',CRITICAL:'critical'} as const;
+  const severities={UNKNOWN:'unknown',LOW:'low',MEDIUM:'medium',HIGH:'high',CRITICAL:'critical'} as const;
   return {indicators:(parsed.Results??[]).flatMap(r=>(r.Misconfigurations??[]).map(m=>({rule:m.AVDID,path:r.Target,line:m.CauseMetadata?.StartLine??0,severity:severities[m.Severity],title:m.Title,description:m.Description,recommendation:m.Resolution}))),incomplete:false,scanned:parsed.Results?.length??0,scannedPaths:(parsed.Results??[]).map(r=>r.Target)};
 }
 function addTool(a: AssessmentAnalysis, name: ScannerName, result: ToolResult, source: NonNullable<CustomerRunInput['source']>) {
@@ -77,7 +77,7 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
         for (const id of match.ids) {
           if(a.findings.length>=100 || a.evidence.length>=200){incomplete=true;break;}
           const evidenceId = evidence(a,'advisory',`osv:${id}`,{id,package:pkg,sourceDigest:source.digest,queriedAt:new Date().toISOString()},{name:'OSV-querybatch',version:'v1'});
-          finding(a,{ruleId:`osv.${id}`.slice(0,128),correlationKey:`npm:${pkg.name}:${id}`,title:`Advisory match: ${pkg.name}@${pkg.version}`.slice(0,256),location:pkg.location,description:`The exact ${pkg.relationship} lockfile version matched ${id} in the configured OSV-compatible adapter. Advisory severity was not fetched.`,severity:'informational',confidence:'observed',impact:'An advisory applies to the recorded version; installed state, reachability and exploitability remain unknown.',recommendation:'Review the advisory and dependency path, choose a supported fix and validate the application.',limitations:['Severity is unassessed; informational is not a low-risk determination.', 'No package installation, package source upload or exploit attempt.'],evidenceIds:[evidenceId]});
+          finding(a,{ruleId:`osv.${id}`.slice(0,128),correlationKey:`npm:${pkg.name}:${id}`,title:`Advisory match: ${pkg.name}@${pkg.version}`.slice(0,256),location:pkg.location,description:`The exact ${pkg.relationship} lockfile version matched ${id} in the configured OSV-compatible adapter. Advisory severity was not fetched.`,severity:'unknown',confidence:'observed',impact:'An advisory applies to the recorded version; installed state, reachability and exploitability remain unknown.',recommendation:'Review the advisory and dependency path, choose a supported fix and validate the application.',limitations:['Severity is unassessed; do not interpret this as a low-risk determination.', 'No package installation, package source upload or exploit attempt.'],evidenceIds:[evidenceId]});
         }
       }
       a.coverage.push({capability:'npm_advisories',state:incomplete?'unavailable':'inspected',detail:incomplete?'Advisory results were paginated or capped; remaining matches are unknown.':'Bounded exact-version advisory queries completed at the evidence collection time.'});

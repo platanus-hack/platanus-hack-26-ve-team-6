@@ -4,7 +4,7 @@ export const assessmentModeSchema = z.enum(['internal', 'external', 'both']);
 export const demoRevisionSchema = z.enum(['vulnerable', 'corrected']);
 export const responseModeSchema = z.enum(['observation', 'approval', 'automatic_limited']);
 export const assessmentOriginSchema = z.enum(['internal', 'external']);
-export const findingSeveritySchema = z.enum(['informational', 'low', 'medium', 'high', 'critical']);
+export const findingSeveritySchema = z.enum(['unknown', 'informational', 'low', 'medium', 'high', 'critical']);
 export const findingConfidenceSchema = z.enum(['observed', 'inferred', 'uncertain']);
 const timestamp = z.iso.datetime().refine((value) => !value.startsWith('0000-'), 'Year zero is unsupported');
 const checksum = z.string().regex(/^[a-f0-9]{64}$/);

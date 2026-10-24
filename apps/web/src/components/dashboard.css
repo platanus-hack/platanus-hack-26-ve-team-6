@@ -158,3 +158,5 @@ body { margin: 0; }
   .gc-dialog { padding: 21px; }.gc-dialog h2 { font-size: 20px; }.gc-detail-grid { grid-template-columns: 1fr; }.gc-preview-badge { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { .gc-spinner { animation: none; } }
+
+.gc-severity-unknown { background: #f0edf7; color: #665780; }

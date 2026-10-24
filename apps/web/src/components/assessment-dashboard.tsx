@@ -26,7 +26,7 @@ type View = typeof navigation[number]['id'];
 const modeLabels: Record<AssessmentMode, string> = { internal: 'Interno', external: 'Externo', both: 'Interno + externo' };
 const revisionLabels: Record<DemoRevision, string> = { vulnerable: 'Con fallos conocidos', corrected: 'Versión corregida' };
 const sourceLabels = { internal: 'Código', external: 'HTTP', both: 'Ambos', internal_only: 'Sólo interno', external_only: 'Sólo externo', unverified: 'Sin contraste' };
-const severityLabels = { critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja', informational: 'Información' };
+const severityLabels = { unknown: 'Sin evaluar', critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja', informational: 'Información' };
 const confidenceLabels = { observed: 'Observado', inferred: 'Inferido', uncertain: 'Sin comprobar' };
 const coverageLabels = { inspected: 'Evaluado', not_requested: 'No solicitado', unsupported: 'Fuera de alcance', unavailable: 'No disponible' };
 function date(value: string) { return new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)); }

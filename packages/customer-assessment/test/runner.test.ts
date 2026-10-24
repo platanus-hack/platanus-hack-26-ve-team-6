@@ -75,6 +75,6 @@ describe('lockfile inventory and advisory adapter',()=>{
     const query=vi.fn(async(_packages: ReadonlyArray<{name:string;version:string}>)=>[{ids:['TEST-1'],complete:true},{ids:[],complete:true}]);
     const report=await createCustomerAssessmentRunner({scanners:absentScanners,advisory:{query}}).run(input([{path:'package-lock.json',content:JSON.stringify(lock)}]));
     expect(query.mock.calls[0]?.[0]).toEqual([{name:'alpha',version:'1.2.3'},{name:'beta',version:'2.0.0'}]);
-    expect(report.internal?.findings[0]?.exploitability).toBe('unknown');expect(report.internal?.findings[0]?.severity).toBe('informational');expect(report.comparison[0]?.classification).toBe('unverified');
+    expect(report.internal?.findings[0]?.exploitability).toBe('unknown');expect(report.internal?.findings[0]?.severity).toBe('unknown');expect(report.comparison[0]?.classification).toBe('unverified');
   });
 });
