@@ -542,7 +542,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
         {invitationMessage && <div className="customer-success" role="status">{invitationMessage}</div>}
         {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}>×</button></div>}
         {operationError && <ErrorNotice message={operationError} retry={() => { setPageError(null); refreshApplicationData(); workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} />}
-        {page === 'members' && organizationId && workspace ? <MembersPanel organizationId={organizationId} userId={userId} role={workspace.role} />
+        {page === 'members' && organizationId && workspace ? <MembersPanel key={`${userId}:${organizationId}`} organizationId={organizationId} userId={userId} role={workspace.role} />
         : !organizationId ? <section className="customer-empty-state"><span className="customer-empty-mark">+</span><span className="customer-eyebrow">TU CUENTA</span><h1>Crea un espacio de trabajo</h1><p>Organiza tus aplicaciones y sus evaluaciones en un mismo espacio.</p><WorkspaceCreate disabled={false} onCreated={created => { setSelectedWorkspaceId(created.id); queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); }} /></section>
         : applications.isPending ? <Loading label="Cargando aplicaciones…" />
         : applications.error ? <ErrorNotice message={readableError(applications.error)} retry={() => { applications.refetch().catch(caught => setPageError(readableError(caught))); }} />
