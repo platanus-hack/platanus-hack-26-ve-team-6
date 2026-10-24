@@ -147,7 +147,7 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
       if (tempDirectory) await rm(tempDirectory,{recursive:true,force:true});
       await f?.close();
     }
-    if (cleanupErrors.length) throw new AggregateError(cleanupErrors,'Live GitHub PR cleanup did not complete');
+    if (cleanupErrors.length) throw new AggregateError(cleanupErrors,`Live GitHub PR cleanup did not complete: ${cleanupErrors.map(error=>error instanceof Error?error.message:String(error)).join('; ')}`);
   });
 
   async function grantWriterAccess(repositoryLinkId:string) {
@@ -179,7 +179,8 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
     await Promise.all([queue.waitUntilReady(),events.waitUntilReady(),worker.waitUntilReady()]);
     try {
       const first=await queue.add('execution',envelope,{jobId:durableJob.id});
-      expect(await first.waitUntilFinished(events,180_000)).toMatchObject({status:'verified'});
+      const executionResult=await first.waitUntilFinished(events,180_000);
+      expect(executionResult,JSON.stringify(executionResult)).toMatchObject({status:'verified'});
       const pullRequest=present(await adapter.findPullRequestByBranch(input.branch));
       const publication=publications.find(item=>item.branch===input.branch);
       if (!publication) throw new Error('live_publication_cleanup_registration_missing');
