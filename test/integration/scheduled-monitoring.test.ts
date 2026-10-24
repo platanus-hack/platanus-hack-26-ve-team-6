@@ -84,6 +84,7 @@ live('scheduled customer monitoring with real Git, PostgreSQL and BullMQ', () =>
       repository: input => reader.read(input),
       dependencies: (repository, signal) => osv.read({ repositoryKey: repository.repositoryKey, commitSha: repository.commit.sha, repositoryReference: present(repository.evidence[0]).reference, snapshot: repository.snapshot, signal }),
       async provider() { throw new Error('provider_not_selected'); },
+      async httpsHealth() { throw new Error('https_not_selected'); },
     };
     await api.operations.configure(identity(), { ...scope(), enabled: true, intervalSeconds: 21600, sourceSnapshotId: null, targetId: null, repositoryKey: 'company-app', providers: [] });
     await execute(await next(), adapters);
@@ -116,7 +117,7 @@ live('scheduled customer monitoring with real Git, PostgreSQL and BullMQ', () =>
       page: { updated_at: new Date().toISOString() }, status: { indicator: outage ? 'major' : 'none', description: outage ? 'Fixture outage' : 'Operational' },
       components: [{ name: 'Fixture edge', status: outage ? 'major_outage' : 'operational' }], incidents: [],
     }) });
-    const adapters: MonitoringAdapters = { async repository() { throw new Error('not_selected'); }, async dependencies() { throw new Error('not_selected'); }, provider: (_name, signal) => provider.read(signal) };
+    const adapters: MonitoringAdapters = { async repository() { throw new Error('not_selected'); }, async dependencies() { throw new Error('not_selected'); }, provider: (_name, signal) => provider.read(signal), async httpsHealth() { throw new Error('https_not_selected'); } };
     const before = await api.operations.listAlerts(identity(), scope());
     await execute(await next(), adapters);
     expect(await api.operations.listAlerts(identity(), scope())).toHaveLength(before.length);
@@ -143,7 +144,7 @@ live('scheduled customer monitoring with real Git, PostgreSQL and BullMQ', () =>
     await f.admin.query('UPDATE gotchu.operation_runs SET lease_until=clock_timestamp()-interval \'1 second\' WHERE organization_id=$1 AND id=$2', [work.organizationId, work.runId]);
     await api.operations.configure(identity(), { ...scope(), enabled: false, intervalSeconds: 21600, sourceSnapshotId: null, targetId: null, repositoryKey: null, providers: ['cloudflare'] });
     let reads = 0;
-    const adapters: MonitoringAdapters = { async repository() { reads++; throw new Error('unexpected_read'); }, async dependencies() { reads++; throw new Error('unexpected_read'); }, async provider() { reads++; throw new Error('unexpected_read'); } };
+    const adapters: MonitoringAdapters = { async repository() { reads++; throw new Error('unexpected_read'); }, async dependencies() { reads++; throw new Error('unexpected_read'); }, async provider() { reads++; throw new Error('unexpected_read'); }, async httpsHealth() { reads++; throw new Error('unexpected_read'); } };
     await expect(runMonitoringWork({ database: f.databases.gotchu_coordinator, backend: coordinator, adapters }, work)).rejects.toThrow();
     expect(reads).toBe(0); expect(await coordinator.operations.claimDue()).toEqual([]);
   });
@@ -167,7 +168,7 @@ live('scheduled customer monitoring with real Git, PostgreSQL and BullMQ', () =>
     const recovered = present((await coordinator.operations.claimDue({ limit: 1 }))[0]);
     expect(recovered.runId).toBe(work.runId);
     let reads = 0;
-    const adapters: MonitoringAdapters = { async repository() { reads++; throw new Error('unexpected_read'); }, async dependencies() { reads++; throw new Error('unexpected_read'); }, async provider() { reads++; throw new Error('unexpected_read'); } };
+    const adapters: MonitoringAdapters = { async repository() { reads++; throw new Error('unexpected_read'); }, async dependencies() { reads++; throw new Error('unexpected_read'); }, async provider() { reads++; throw new Error('unexpected_read'); }, async httpsHealth() { reads++; throw new Error('unexpected_read'); } };
     await runMonitoringWork({ database: f.databases.gotchu_coordinator, backend: coordinator, adapters }, recovered);
     expect(reads).toBe(0);
     expect(await api.operations.getCoverage(identity(), scope())).toMatchObject({ status: 'degraded', lastRun: { runId: recovered.runId, status: 'degraded', reason: expect.stringContaining('unknown adapter completion') } });

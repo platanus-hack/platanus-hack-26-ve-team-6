@@ -84,6 +84,8 @@ export interface ProviderStatusObservation {
   publishedAt: string | null;
   fresh: boolean;
   coverageComplete: boolean;
+  globalStatus: 'operational' | 'degraded' | 'partial_outage' | 'major_outage' | 'unknown';
+  fixture: boolean;
   components: ProviderStatusComponent[];
   activeItems: Array<{ id: string | null; title: string; status: string }>;
   evidence: MonitoringEvidence;

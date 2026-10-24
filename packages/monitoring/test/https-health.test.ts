@@ -129,4 +129,16 @@ describe('authorized HTTPS health read', () => {
       await fixture.close();
     }
   });
+
+  it('probes only the fixed public-surface paths when that consent profile is active',async()=>{
+    const seen:string[]=[];const fixture=await tlsFixture((request,response)=>{seen.push(request.url??'');response.writeHead(204).end();});
+    const target={id:randomUUID(),origin:'https://customer.org',version:1,verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+60_000).toISOString(),scanProfile:'public_surface' as const};
+    try {
+      const adapter=createAuthorizedHttpsHealthAdapter({https:{lookup:async()=>[{address:'127.0.0.1',family:4}],testFixture:{hostname:'customer.org',port:fixture.port,ca:cert}}});
+      const result=await adapter.read(target,AbortSignal.timeout(2000),'/robots.txt');
+      expect(result.route).toBe('/robots.txt');expect(result.evidence.reference).toBe('https://customer.org/robots.txt');expect(seen).toEqual(['/robots.txt']);
+      await expect(adapter.read({...target,scanProfile:'root'},AbortSignal.timeout(1000),'/robots.txt')).rejects.toThrow('health_route_not_consented');
+      expect(seen).toEqual(['/robots.txt']);
+    } finally { await fixture.close(); }
+  });
 });

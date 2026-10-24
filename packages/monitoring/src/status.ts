@@ -79,6 +79,8 @@ export interface ProviderStatusReaderOptions {
   ttlMs?: number;
   cloudflareMaxPublishedAgeMs?: number;
   railwayMaxAgeMs?: number;
+  /** Set only by explicitly identified fixture adapters used in controlled demos. */
+  fixture?: boolean;
 }
 
 export const providerStatusSelectionSchema = z.array(z.enum(['cloudflare', 'railway']))
@@ -135,6 +137,8 @@ export function createCloudflareStatusAdapter(options: ProviderStatusReaderOptio
         publishedAt,
         fresh,
         coverageComplete: fresh,
+        globalStatus: cloudflareGlobalState(parsed.status.indicator),
+        fixture: options.fixture ?? false,
         components,
         activeItems,
         evidence,
@@ -191,6 +195,8 @@ export function createRailwayStatusAdapter(options: ProviderStatusReaderOptions 
         publishedAt,
         fresh,
         coverageComplete: fresh && !unknownComponents,
+        globalStatus: 'unknown',
+        fixture: options.fixture ?? false,
         components: components.slice(0, 100),
         activeItems,
         evidence,
@@ -294,6 +300,16 @@ function cloudflareSeverity(indicator: z.infer<typeof cloudflareIndicator>): Mon
     case 'minor': return 'medium';
     case 'maintenance': return 'low';
     case 'none': return 'info';
+  }
+}
+
+function cloudflareGlobalState(indicator: z.infer<typeof cloudflareIndicator>): ProviderStatusObservation['globalStatus'] {
+  switch (indicator) {
+    case 'none': return 'operational';
+    case 'minor': return 'degraded';
+    case 'major': return 'partial_outage';
+    case 'critical': return 'major_outage';
+    case 'maintenance': return 'unknown';
   }
 }
 
