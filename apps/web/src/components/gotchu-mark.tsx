@@ -2,9 +2,9 @@
  * The Gotchu mark: two scope brackets closing on a finding.
  * Units are a 24×24 box centred on the origin; the ASCII renderer extrudes the same boxes.
  */
-export type MarkBox = { x: number; y: number; w: number; h: number };
+type MarkBox = { x: number; y: number; w: number; h: number };
 
-export const BAR = 1.7;
+const BAR = 1.7;
 const bracket = (side: -1 | 1): MarkBox[] => [
   { x: side * 9.3, y: 0, w: BAR, h: 9.6 },
   { x: side * 6.6, y: -7.9, w: 4.4, h: BAR },
