@@ -62,13 +62,15 @@ for (const stage of ['web', 'coordinator']) {
   const contentStart = markerIndex + marker.length;
   const nextStage = dockerfileText.indexOf('\nFROM ', contentStart);
   const runtimeStage = dockerfileText.slice(contentStart, nextStage < 0 ? undefined : nextStage);
-  for (const [sourceStage, path, description] of [
-    [`${stage}-build`, 'package.json', 'manifest'],
-    [`${stage}-build`, 'dist', 'built files'],
-    [`${stage}-production-dependencies`, 'node_modules', 'production dependencies'],
-  ]) {
-    const copy = `COPY --from=${sourceStage} --chown=node:node /workspace/packages/triage/${path} /workspace/packages/triage/${path}`;
-    requireValue(runtimeStage.includes(copy), `${stage} runtime image must include @gotchu/triage ${description}.`);
+  for (const packageName of ['triage', 'git-adapters']) {
+    for (const [sourceStage, path, description] of [
+      [`${stage}-build`, 'package.json', 'manifest'],
+      [`${stage}-build`, 'dist', 'built files'],
+      [`${stage}-production-dependencies`, 'node_modules', 'production dependencies'],
+    ]) {
+      const copy = `COPY --from=${sourceStage} --chown=node:node /workspace/packages/${packageName}/${path} /workspace/packages/${packageName}/${path}`;
+      requireValue(runtimeStage.includes(copy), `${stage} runtime image must include @gotchu/${packageName} ${description}.`);
+    }
   }
 }
 
@@ -83,10 +85,12 @@ if (!image) {
 const imageCheck = `
 import assert from 'node:assert/strict';
 import { createControlledAssessmentRunner, controlledTargetKey } from '@gotchu/assessment';
+import { createBackend } from '@gotchu/backend';
 import { startDemoTargetServer } from '@gotchu/demo-target';
 import { triageRevisionSchema } from '@gotchu/triage';
 
 assert.equal(process.getuid?.(), 1000, 'coordinator image must run this check as the nonroot Node user');
+assert.equal(typeof createBackend, 'function', 'coordinator image must bundle the backend and its transitive Git adapter runtime dependency');
 const triageRevision = triageRevisionSchema.parse({
   id: 'runtime-package-smoke',
   revision: 1,
