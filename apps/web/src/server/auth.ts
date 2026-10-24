@@ -2,12 +2,15 @@ import { Auth, type AuthConfig } from '@auth/core';
 import { createHash } from 'node:crypto';
 import type { JWT } from '@auth/core/jwt';
 import GitHub from '@auth/core/providers/github';
+import Credentials from '@auth/core/providers/credentials';
+import type { LocalAccounts } from './local-accounts.js';
 import { z } from 'zod';
 import { HttpError, json, readBoundedBody } from './http.js';
 
 interface AuthBase {
   origin: string;
   secret: string;
+  localAccounts?: LocalAccounts;
 }
 const oidcSettingsSchema = z.object({
   issuer: z.url().refine((value) => { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash; }, 'OIDC issuer must use HTTPS without credentials or query parameters'),
@@ -17,6 +20,7 @@ type OidcSettings = z.infer<typeof oidcSettingsSchema>;
 export type AuthSettings = AuthBase & (
   { githubClientId: string; githubClientSecret: string; oidc?: OidcSettings }
   | { oidc: OidcSettings; githubClientId?: never; githubClientSecret?: never }
+  | { localAccounts: LocalAccounts; oidc?: OidcSettings; githubClientId?: never; githubClientSecret?: never }
 );
 
 export interface SessionIdentity { userId: string; cookies: string[] }
@@ -26,20 +30,21 @@ export interface AuthService {
   identity(request: Request): Promise<SessionIdentity | null>;
 }
 
-export function authSettings(env: NodeJS.ProcessEnv = process.env): AuthSettings | null {
+export function authSettings(env: NodeJS.ProcessEnv = process.env, localAccounts?: LocalAccounts): AuthSettings | null {
   const oidc = env.AUTH_OIDC_ISSUER || env.AUTH_OIDC_CLIENT_ID || env.AUTH_OIDC_CLIENT_SECRET
     ? oidcSettingsSchema.parse({ issuer: env.AUTH_OIDC_ISSUER, clientId: env.AUTH_OIDC_CLIENT_ID, clientSecret: env.AUTH_OIDC_CLIENT_SECRET, name: env.AUTH_OIDC_NAME?.trim() || 'Workspace sign-in' }) : undefined;
   const github = env.AUTH_GITHUB_ID && env.AUTH_GITHUB_SECRET ? { githubClientId: env.AUTH_GITHUB_ID, githubClientSecret: env.AUTH_GITHUB_SECRET } : undefined;
-  if (!env.AUTH_SECRET || !github && !oidc) return null;
+  if (!env.AUTH_SECRET || !github && !oidc && !localAccounts) return null;
   const secret = z.string().min(32).parse(env.AUTH_SECRET);
   const url = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000');
   if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('PUBLIC_APP_URL must be an origin');
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) {
     throw new Error('PUBLIC_APP_URL must use HTTPS outside local development');
   }
-  const base = { origin: url.origin, secret };
+  const base = { origin: url.origin, secret, ...(localAccounts ? { localAccounts } : {}) };
   if (github) return { ...base, ...github, ...(oidc ? { oidc } : {}) };
   if (oidc) return { ...base, oidc };
+  if (localAccounts) return { ...base, localAccounts };
   return null;
 }
 
@@ -58,6 +63,13 @@ export function createAuthConfig(settings: AuthSettings): AuthConfig {
       authorization: { params: { scope: 'openid profile email' } }, checks: ['pkce', 'state', 'nonce'] });
     providerIds.push(id);
   }
+  if (settings.localAccounts) {
+    const accounts = settings.localAccounts;
+    providers.push(Credentials({ id: 'credentials', name: 'Email y contraseña', credentials: { email: { type: 'email' }, password: { type: 'password' } },
+      authorize: async credentials => accounts.authenticate({ email: credentials.email, password: credentials.password }),
+    }));
+    providerIds.push('credentials');
+  }
   return {
     basePath: '/api/auth',
     secret: settings.secret,
@@ -67,21 +79,27 @@ export function createAuthConfig(settings: AuthSettings): AuthConfig {
     session: { strategy: 'jwt', maxAge: 900 },
     providers,
     callbacks: {
-      jwt: async ({ token, account }) => {
+      jwt: async ({ token, account, user }) => {
         if (account) {
           // OIDC subjects can be 255 characters. Keep the internal principal bounded
           // without truncating or widening every persisted membership key.
           const subject = account.provider.startsWith('oidc-')
             ? createHash('sha256').update(account.providerAccountId).digest('hex') : account.providerAccountId;
           token.sub = `${account.provider}:${subject}`;
+          if (account.provider === 'credentials' && user && 'credentialEpoch' in user) token.credentialEpoch = user.credentialEpoch;
         }
         if (!providerIds.some((id) => token.sub?.startsWith(`${id}:`))) return {};
+        if (token.sub?.startsWith('credentials:')) {
+          const epoch = await settings.localAccounts?.epoch(token.sub.slice('credentials:'.length));
+          if (epoch === null || epoch === undefined || epoch !== token.credentialEpoch) return {};
+        }
         // OAuth access and refresh tokens are never copied into the session JWT.
         const claims: JWT = {};
         if (token.sub !== undefined) claims.sub = token.sub;
         if (token.name !== undefined) claims.name = token.name;
         if (token.email !== undefined) claims.email = token.email;
         if (token.picture !== undefined) claims.picture = token.picture;
+        if (typeof token.credentialEpoch === 'number') claims.credentialEpoch = token.credentialEpoch;
         return claims;
       },
       session: async ({ session, token }) => {
@@ -139,4 +157,11 @@ export function createAuthService(settings: AuthSettings | null): AuthService {
       return { userId: session.data.user.id, cookies: response.headers.getSetCookie() };
     },
   };
+}
+
+export function publicAuthProviders(settings: AuthSettings | null) {
+  return settings ? createAuthConfig(settings).providers.map(provider => {
+    const configured = typeof provider === 'function' ? provider() : provider;
+    return { id: configured.id, name: configured.name, type: configured.type };
+  }) : [];
 }
