@@ -613,7 +613,15 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
     },
     async getPullRequest(number){return toPr(await checked('GET',`/pulls/${number}`,undefined,prSchema));},
     async closePullRequest(number){await checked('PATCH',`/pulls/${number}`,{state:'closed'},prSchema);},
-    async deleteBranch(branch){const response=await request('DELETE',`/git/refs/heads/${encodeURIComponent(branch)}`);if(response.status!==204&&response.status!==404)throw new GitAdapterError('unknown_outcome');},
+    async deleteBranch(branch){
+      const response=await request('DELETE',`/git/refs/heads/${encodeURIComponent(branch)}`);
+      if(response.status===204||response.status===404)return;
+      if(response.status===422){
+        // GitHub can return 422 when the reference is already absent; verify before treating it as idempotent.
+        try{await this.readHead(branch);}catch(error){if(error instanceof GitAdapterError&&error.code==='not_found')return;throw error;}
+      }
+      throw new GitAdapterError('unknown_outcome');
+    },
     async listRequiredChecks(commitSha){const data=await checked('GET',`/commits/${sha.parse(commitSha)}/check-runs`,undefined,z.object({check_runs:z.array(z.object({name:z.string(),status:z.string(),conclusion:z.string().nullable()}).passthrough()).max(1000)}).passthrough());return data.check_runs.map(item=>({name:item.name,state:item.status==='completed'?(item.conclusion??'unknown'):'pending'}));},
   };
 }

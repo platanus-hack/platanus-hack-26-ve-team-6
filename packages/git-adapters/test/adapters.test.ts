@@ -199,6 +199,27 @@ describe('git adapters', () => {
     const adapter=createGitHubAppAdapter({appId:'1234',installationId:'5',privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),owner:'owner',repository:'repo',fetchImplementation:async()=>new Response(JSON.stringify({unexpected:true}),{status:200})});
     await expect(adapter.resolveTarget('owner/repo')).rejects.toMatchObject({code:'malformed_response'});
   });
+
+  it('treats GitHub 422 as an already-deleted branch only when the ref is absent', async () => {
+    const {privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+    const privateKeyPem=privateKey.export({type:'pkcs8',format:'pem'}).toString();
+    const tokenResponse=()=>new Response(JSON.stringify({token:'fixture-token',expires_at:new Date(Date.now()+3_600_000).toISOString()}),{status:201});
+    const absent=createGitHubAppAdapter({appId:'1234',installationId:'5',privateKeyPem,owner:'owner',repository:'repo',fetchImplementation:async(input,init)=>{
+      if(String(input).includes('/access_tokens'))return tokenResponse();
+      if(init?.method==='DELETE')return new Response(JSON.stringify({message:'reference missing'}),{status:422});
+      if(String(input).includes('/git/ref/heads/gotchu%2Fmissing'))return new Response(JSON.stringify({message:'not found'}),{status:404});
+      throw new Error('unexpected_github_request');
+    }});
+    await expect(absent.deleteBranch('gotchu/missing')).resolves.toBeUndefined();
+
+    const present=createGitHubAppAdapter({appId:'1234',installationId:'5',privateKeyPem,owner:'owner',repository:'repo',fetchImplementation:async(input,init)=>{
+      if(String(input).includes('/access_tokens'))return tokenResponse();
+      if(init?.method==='DELETE')return new Response(JSON.stringify({message:'reference cannot be deleted'}),{status:422});
+      if(String(input).includes('/git/ref/heads/gotchu%2Fpresent'))return new Response(JSON.stringify({object:{sha:'a'.repeat(40)}}),{status:200});
+      throw new Error('unexpected_github_request');
+    }});
+    await expect(present.deleteBranch('gotchu/present')).rejects.toMatchObject({code:'unknown_outcome'});
+  });
 });
 
 const live = process.env.GOTCHU_TEST_GITHUB === '1' ? describe : describe.skip;
