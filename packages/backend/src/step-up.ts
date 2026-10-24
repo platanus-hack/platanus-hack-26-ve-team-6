@@ -125,7 +125,9 @@ export function createWebAuthnStepUpService(deps: BaseDependencies & { webAuthn:
     async finishEnrollment(identity: Identity, input: { organizationId: string; challengeId: string; response: unknown; label: string }) {
       const value = parse(z.object({ organizationId: idSchema, challengeId: idSchema, response: registrationResponseSchema, label: labelSchema }).strict(), input);
       const challenge = await consumeChallenge(value.organizationId, value.challengeId, identity.userId, 'enroll');
-      const checked = await verifyRegistrationResponse({ response: value.response as unknown as RegistrationResponseJSON, expectedChallenge: challenge.challenge, expectedOrigin: config.origin, expectedRPID: config.rpID, requireUserVerification: true });
+      let checked: Awaited<ReturnType<typeof verifyRegistrationResponse>>;
+      try { checked = await verifyRegistrationResponse({ response: value.response as unknown as RegistrationResponseJSON, expectedChallenge: challenge.challenge, expectedOrigin: config.origin, expectedRPID: config.rpID, requireUserVerification: true }); }
+      catch { throw new BackendError('step_up_attestation_invalid', 'No se pudo verificar el nuevo factor.', 403); }
       if (!checked.verified || !checked.registrationInfo.userVerified) throw new BackendError('step_up_attestation_invalid', 'No se pudo verificar el nuevo factor.', 403);
       const info = checked.registrationInfo;
       const factorId = randomUUID();
@@ -170,7 +172,9 @@ export function createWebAuthnStepUpService(deps: BaseDependencies & { webAuthn:
         return factor;
       });
       const credential: WebAuthnCredential = { id: value.response.id, publicKey: new Uint8Array(factorResult.public_key), counter: Number(factorResult.sign_count), transports: factorResult.transports as never[] };
-      const verified = await verifyAuthenticationResponse({ response: value.response as unknown as AuthenticationResponseJSON, expectedChallenge: challenge.challenge, expectedOrigin: config.origin, expectedRPID: config.rpID, credential, requireUserVerification: true });
+      let verified: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;
+      try { verified = await verifyAuthenticationResponse({ response: value.response as unknown as AuthenticationResponseJSON, expectedChallenge: challenge.challenge, expectedOrigin: config.origin, expectedRPID: config.rpID, credential, requireUserVerification: true }); }
+      catch { throw new BackendError('step_up_assertion_invalid', 'La respuesta WebAuthn no es válida o el contador retrocedió.', 403); }
       if (!verified.verified || !verified.authenticationInfo.userVerified || (credential.counter > 0 && verified.authenticationInfo.newCounter <= credential.counter)) throw new BackendError('step_up_assertion_invalid', 'La respuesta WebAuthn no es válida o el contador retrocedió.', 403);
       const proof = opaque(); const proofId = randomUUID(); const now = clock.now(); const expiresAt = new Date(now.getTime() + Math.min(STEP_UP_MAX_AGE_MS, STEP_UP_SIGNOUT_FALLBACK_MS));
       await deps.database.tenant(value.organizationId, async tx => {
