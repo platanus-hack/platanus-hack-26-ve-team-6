@@ -20,6 +20,13 @@ live('real Postgres tenant and role isolation (GOTCHU_TEST_DATABASE_URL)', () =>
     await expect(unsafe.tenant(f.a.organizationId, async tx => tx.query('SELECT 1'))).rejects.toThrow('non-owner');
     await unsafe.close();
   });
+  it('rejects accidental runtime object ownership and checks health without a tenant', async () => {
+    await f.databases.gotchu_api.checkHealth();
+    await f.admin.query('CREATE TABLE gotchu.unsafe_test_ownership(id integer)');
+    await f.admin.query('ALTER TABLE gotchu.unsafe_test_ownership OWNER TO gotchu_api');
+    try { await expect(f.databases.gotchu_api.checkHealth()).rejects.toThrow('non-owner'); }
+    finally { await f.admin.query('DROP TABLE gotchu.unsafe_test_ownership'); }
+  });
   it('isolates reads, writes, and tenant-aware foreign keys', async () => {
     const db = f.databases.gotchu_api;
     const rows = await db.tenant(f.a.organizationId, tx => tx.query('SELECT id FROM gotchu.applications'));

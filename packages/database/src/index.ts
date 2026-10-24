@@ -65,6 +65,11 @@ async function assertSafeLogin(client: PoolClient, role: RuntimeRole): Promise<v
     SELECT EXISTS (
       SELECT 1 FROM pg_roles r WHERE (r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolname = 'gotchu_owner')
         AND (r.rolname = session_user OR pg_has_role(session_user, r.oid, 'MEMBER'))
+    ) OR EXISTS (
+      SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='gotchu' AND pg_has_role(session_user, c.relowner, 'MEMBER')
+    ) OR EXISTS (
+      SELECT 1 FROM pg_namespace n WHERE n.nspname='gotchu' AND pg_has_role(session_user, n.nspowner, 'MEMBER')
     ) AS unsafe, pg_has_role(session_user, $1, 'MEMBER') AS authorized`, [role]);
   if (result.rows[0]?.unsafe || !result.rows[0]?.authorized) throw new Error('Runtime login must be a non-owner, non-privileged member of its service role');
   const others = await client.query<{ allowed: boolean }>(`SELECT NOT EXISTS (
