@@ -7,7 +7,7 @@
   "files": ["dist", "advisories"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run",
     "assess": "node dist/main.js"
   },

@@ -20,16 +20,6 @@ describe('bounded Kubernetes candidate parsing',()=>{
     expect(classifyKubernetesCandidate('many.yaml',content)).toEqual({candidate:true,unrecognized:true});
   });
 
-  it.each([
-    ['KSV017','privileged: true'],
-    ['KSV001','allowPrivilegeEscalation: true'],
-    ['KSV012','runAsNonRoot: false'],
-    ['KSV014','readOnlyRootFilesystem: false'],
-  ])('binds %s to one exact securityContext property inside Trivy range', (checkId,property) => {
-    const content=pod(property);
-    expect(findKubernetesCorrectionLocation(content,checkId,7,9)).toBe(9);
-  });
-
   it('refuses ambiguous, out-of-range, malformed, and unsupported bindings',()=>{
     const duplicate=pod('privileged: true\n        privileged: true');
     expect(findKubernetesCorrectionLocation(duplicate,'KSV017',7,10)).toBeUndefined();

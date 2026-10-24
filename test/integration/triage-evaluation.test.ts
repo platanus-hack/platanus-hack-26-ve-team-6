@@ -11,7 +11,8 @@ import { loadTriageMatrix } from '../evaluation/triage-matrix.js';
 import { runTriageCase } from '../evaluation/run-triage-case.js';
 import { buildEvaluationReport, writeEvaluationArtifacts } from '../evaluation/triage-report.js';
 
-const live = liveUrl && process.env.GOTCHU_TEST_REDIS_URL ? describe : describe.skip;
+// An evaluation of the labelled corpus, not a regression gate: run it with `pnpm eval:triage`.
+const live = liveUrl && process.env.GOTCHU_TEST_REDIS_URL && process.env.GOTCHU_TRIAGE_EVAL === '1' ? describe : describe.skip;
 
 live('real-app triage evaluation on disposable PostgreSQL, Redis, web intake and coordinator', () => {
   let stack: Awaited<ReturnType<typeof createLiveTriageStack>>;
