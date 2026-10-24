@@ -41,6 +41,19 @@ function suiteCounts(result: RunnerResult) {
 
 function testPassed(result: RunnerResult): boolean { return result.status === 'completed' && result.exitCode === 0 && result.isolation.cleanupVerified; }
 
+async function waitForReconciliationOrShutdown(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return;
+  await new Promise<void>(resolve => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, 5_000);
+    signal?.addEventListener('abort', finish, { once: true });
+  });
+}
+
 export interface ValidationWorkerOptions {
   readonly database: Database;
   readonly key: ValidatorKey;
@@ -138,19 +151,33 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
       return inputRegistry.withInput(run.organizationId, objectId, bytes, () => runValidatedRunnerJob(runJob, job, runnerOptions));
     };
     const results: RunnerResult[] = [];
+    let cleanupUncertainObserved = false;
+    const quarantineAndWait = async (result: RunnerResult): Promise<boolean> => {
+      if (result.status !== 'cleanup_uncertain') return false;
+      cleanupUncertainObserved = true;
+      const owned = await options.database.tenant(run.organizationId, async tx => tx.query<{ state: string; lease_token: string }>(`UPDATE gotchu.validation_runs
+        SET state='quarantined',reason='cleanup_uncertain',finished_at=NULL
+        WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND lease_token=$4 AND state IN ('running','quarantined')
+        RETURNING state,lease_token`, [run.organizationId, run.applicationId, run.id, claim.leaseToken]));
+      const stillOwned = owned.rows[0]?.state === 'quarantined' && owned.rows[0].lease_token === claim.leaseToken;
+      if (stillOwned) {
+        while (!options.shutdownSignal?.aborted) {
+          await waitForReconciliationOrShutdown(options.shutdownSignal);
+          if (options.shutdownSignal?.aborted) break;
+          const current = await options.database.tenant(run.organizationId, async tx => tx.query<{ state: string; lease_token: string | null }>(`SELECT state,lease_token
+            FROM gotchu.validation_runs WHERE organization_id=$1 AND application_id=$2 AND id=$3`, [run.organizationId, run.applicationId, run.id]));
+          if (current.rows[0]?.state !== 'quarantined' || current.rows[0].lease_token !== claim.leaseToken) break;
+        }
+      }
+      return true;
+    };
     try {
       const baseResult = await runVm(beforeArchive.bytes); results.push(baseResult);
+      if (await quarantineAndWait(baseResult)) return;
       const candidateRegression = await runVm(candidateArchive.bytes); results.push(candidateRegression);
+      if (await quarantineAndWait(candidateRegression)) return;
       const candidateSuite = await runVm(candidateArchive.bytes); results.push(candidateSuite);
-      if ([baseResult, candidateRegression, candidateSuite].some(result => result.status === 'cleanup_uncertain')) {
-        await options.database.tenant(run.organizationId, async tx => { await tx.query(`UPDATE gotchu.validation_runs SET state='quarantined',reason='cleanup_uncertain',finished_at=NULL WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND lease_token=$4`, [run.organizationId, run.applicationId, run.id, claim.leaseToken]); });
-        while (!options.shutdownSignal?.aborted) {
-          await new Promise(resolve => setTimeout(resolve, 5_000));
-          const current = await options.database.tenant(run.organizationId, async tx => tx.query<{ state: string }>('SELECT state FROM gotchu.validation_runs WHERE organization_id=$1 AND application_id=$2 AND id=$3', [run.organizationId, run.applicationId, run.id]));
-          if (current.rows[0]?.state !== 'quarantined') break;
-        }
-        return;
-      }
+      if (await quarantineAndWait(candidateSuite)) return;
       const reportInput = customerRunInputSchema.parse({ version: 2, organizationId: run.organizationId, applicationId: run.applicationId, jobId: randomUUID(), applicationName: 'Validation candidate', mode: 'internal', source: { ...candidate, id: run.candidateSourceId, digest: run.candidateTreeDigest }, target: null });
       const baseInput = customerRunInputSchema.parse({ ...reportInput, jobId: randomUUID(), source: { ...base, id: run.baseSourceId, digest: run.baseSnapshotDigest } });
       const [beforeReport, afterReport] = await Promise.all([(options.scanner ?? scanner).run(baseInput), (options.scanner ?? scanner).run(reportInput)]);
@@ -174,6 +201,7 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
       const score = scoreValidation(evidence);
       await finish(run, claim.leaseToken, evidence, score.state, score.reason, results);
     } catch (error) {
+      if (cleanupUncertainObserved) throw error;
       const why = error instanceof Error && error.message === 'validation_lease_lost' ? 'lease_lost' : 'validation_execution_failed';
       await inconclusive(why);
     }
