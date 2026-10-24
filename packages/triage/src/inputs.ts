@@ -2,15 +2,16 @@ import { z } from 'zod';
 
 const timestamp = z.iso.datetime();
 const boundedName = z.string().min(1).max(128);
+const contextIdentifier = z.string().min(1).max(200);
 export const serviceContextSchema = z.object({
   environment: boundedName.optional(),
   service: boundedName.optional(),
   deployments: z.array(z.object({
-    service: boundedName, releaseId: boundedName.nullable(), commit: z.string().max(128).nullable(),
+    service: boundedName, releaseId: contextIdentifier.nullable(), commit: z.string().max(128).nullable(),
     deployedAt: timestamp, state: z.enum(['declared', 'verified', 'unknown']),
   }).strict()).max(100).default([]),
   dependencies: z.array(z.object({
-    service: boundedName, provider: boundedName, component: boundedName.nullable(), region: boundedName.nullable(),
+    service: boundedName, provider: boundedName, component: contextIdentifier.nullable(), region: boundedName.nullable(),
     state: z.enum(['declared', 'verified', 'unknown']),
   }).strict()).max(200).default([]),
 }).strict();
