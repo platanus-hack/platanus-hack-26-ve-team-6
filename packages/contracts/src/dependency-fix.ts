@@ -15,6 +15,7 @@ export const osvAdvisoryMetadataSchema = z.object({
   affected: z.array(z.object({
     package: z.object({ ecosystem: z.string().max(100), name: packageName }).strict(),
     versions: z.array(version).max(200).optional(),
+    symbols: z.array(z.string().min(1).max(256)).max(50).optional(),
     ranges: z.array(z.object({ type: z.string().max(40), events: z.array(event).max(100) }).strict()).max(20).optional(),
   }).strict()).max(50),
 }).strict();

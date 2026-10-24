@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { dependencyInventorySchema } from './supply-chain.js';
+import { dependencyInventorySchema, dependencyReachabilitySchema } from './supply-chain.js';
 
 export const assessmentModeSchema = z.enum(['internal', 'external', 'both']);
 export const demoRevisionSchema = z.enum(['vulnerable', 'corrected']);
@@ -39,6 +39,13 @@ export const assessmentFindingSchema = z.object({
   recommendation: explanation,
   limitations: z.array(explanation).max(20),
   evidenceIds: z.array(z.uuid()).min(1).max(20),
+  dependencyAssessment: z.object({
+    name: z.string().min(1).max(214),
+    version: z.string().min(1).max(100),
+    purl: z.string().min(1).max(512),
+    reachability: dependencyReachabilitySchema,
+    artifactStatus: z.enum(['not_requested', 'verified', 'checksum_mismatch', 'unavailable', 'unsafe_archive', 'scan_incomplete']),
+  }).strict().optional(),
 }).strict();
 
 export const assessmentAnalysisSchema = z.object({
@@ -63,6 +70,13 @@ export const assessmentAnalysisSchema = z.object({
   for (const finding of analysis.findings) {
     if (finding.origin !== analysis.origin || finding.evidenceIds.some((id) => !evidenceIds.has(id))) {
       context.addIssue({ code: 'custom', message: 'Findings require evidence from the same analysis' });
+    }
+  }
+  for (const component of analysis.dependencyInventory?.components ?? []) {
+    for (const finding of component.artifactAnalysis?.findings ?? []) {
+      if (finding.evidenceIds.some(id => !evidenceIds.has(id))) {
+        context.addIssue({ code: 'custom', message: 'Dependency artifact findings must reference persisted report evidence' });
+      }
     }
   }
   if (analysis.evidence.some((item) => item.origin !== analysis.origin)) context.addIssue({ code: 'custom', message: 'Evidence origin must match its analysis' });

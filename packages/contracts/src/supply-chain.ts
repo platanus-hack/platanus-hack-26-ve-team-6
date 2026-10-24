@@ -38,6 +38,53 @@ export const dependencyLockfileSchema = z.object({
   packageCount: z.number().int().min(0).max(2_000),
 }).strict();
 
+export const dependencyReachabilitySchema = z.object({
+  state: z.enum(['reachable', 'imported', 'not_found_static', 'unknown']),
+  symbolCoverage: z.enum(['available', 'not_found_static', 'unknown']),
+  symbols: z.array(z.string().min(1).max(256)).max(50),
+  importEvidence: z.array(z.object({
+    file: z.string().min(1).max(512),
+    line: z.number().int().positive().max(1_000_000),
+    specifier: z.string().min(1).max(512),
+    kind: z.enum(['import', 'require', 'dynamic_import', 're_export']),
+  }).strict()).max(20),
+  symbolEvidence: z.array(z.object({
+    file: z.string().min(1).max(512),
+    line: z.number().int().positive().max(1_000_000),
+    symbol: z.string().min(1).max(256),
+  }).strict()).max(20),
+  dependencyPath: z.array(z.string().min(1).max(512)).max(20).nullable(),
+  limitation: z.array(z.string().min(1).max(500)).max(10),
+}).strict();
+
+export const dependencyArtifactFindingSchema = z.object({
+  tool: z.enum(['semgrep', 'gitleaks']),
+  ruleId: z.string().min(1).max(128),
+  title: z.string().min(1).max(256),
+  location: z.string().min(1).max(1_024),
+  severity: z.enum(['unknown', 'informational', 'low', 'medium', 'high', 'critical']),
+  confidence: z.enum(['observed', 'inferred', 'uncertain']),
+  exploitability: z.enum(['unknown', 'not_demonstrated', 'demonstrated_in_fixture']),
+  description: z.string().min(1).max(2_000),
+  evidenceIds: z.array(z.uuid()).min(1).max(20),
+}).strict();
+
+export const dependencyArtifactAnalysisSchema = z.object({
+  status: z.enum(['not_requested', 'verified', 'checksum_mismatch', 'unavailable', 'unsafe_archive', 'scan_incomplete']),
+  integrity: z.enum(['verified', 'mismatch', 'missing', 'invalid']),
+  artifactSha256: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  extractedFileCount: z.number().int().min(0).max(5_000),
+  scannedFileCount: z.number().int().min(0).max(1_000),
+  tools: z.array(z.object({
+    name: z.enum(['semgrep', 'gitleaks']),
+    version: z.string().min(1).max(100),
+    image: z.string().min(1).max(300),
+    profileChecksum: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict()).max(2),
+  findings: z.array(dependencyArtifactFindingSchema).max(40),
+  limitation: z.array(z.string().min(1).max(500)).max(10),
+}).strict();
+
 export const dependencyComponentSchema = z.object({
   name: z.string().min(1).max(214),
   version: z.string().min(1).max(100),
@@ -46,6 +93,9 @@ export const dependencyComponentSchema = z.object({
   location: z.string().min(1).max(1_024),
   relationship: z.enum(['direct', 'transitive', 'unknown']),
   dependencies: z.array(z.string().min(1).max(512)).max(100),
+  integrity: z.string().max(1_024).nullable().optional(),
+  reachability: dependencyReachabilitySchema.optional(),
+  artifactAnalysis: dependencyArtifactAnalysisSchema.optional(),
   declaredLicense: z.string().max(200).nullable(),
   licenseExpression: z.string().max(200).nullable(),
   licenseSource: z.enum(['lockfile', 'registry', 'unknown']),
@@ -69,3 +119,6 @@ export type LicensePolicy = z.infer<typeof licensePolicySchema>;
 export type WorkspaceLicensePolicy = z.infer<typeof workspaceLicensePolicySchema>;
 export type DependencyComponent = z.infer<typeof dependencyComponentSchema>;
 export type DependencyInventory = z.infer<typeof dependencyInventorySchema>;
+export type DependencyReachability = z.infer<typeof dependencyReachabilitySchema>;
+export type DependencyArtifactAnalysis = z.infer<typeof dependencyArtifactAnalysisSchema>;
+export type DependencyArtifactFinding = z.infer<typeof dependencyArtifactFindingSchema>;
