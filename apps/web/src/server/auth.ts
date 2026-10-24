@@ -19,15 +19,14 @@ export interface AuthService {
 }
 
 export function authSettings(env: NodeJS.ProcessEnv = process.env): AuthSettings | null {
-  const fields = [env.AUTH_SECRET, env.AUTH_GITHUB_ID, env.AUTH_GITHUB_SECRET];
-  if (fields.some((value) => !value)) return null;
+  if (!env.AUTH_SECRET || !env.AUTH_GITHUB_ID || !env.AUTH_GITHUB_SECRET) return null;
   const secret = z.string().min(32).parse(env.AUTH_SECRET);
   const url = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000');
   if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('PUBLIC_APP_URL must be an origin');
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) {
     throw new Error('PUBLIC_APP_URL must use HTTPS outside local development');
   }
-  return { origin: url.origin, secret, githubClientId: env.AUTH_GITHUB_ID!, githubClientSecret: env.AUTH_GITHUB_SECRET! };
+  return { origin: url.origin, secret, githubClientId: env.AUTH_GITHUB_ID, githubClientSecret: env.AUTH_GITHUB_SECRET };
 }
 
 export function createAuthConfig(settings: AuthSettings): AuthConfig {
