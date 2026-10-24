@@ -1,0 +1,2 @@
+.g-dot-plate { position: relative; width: 100%; height: 100%; }
+.g-dot-plate canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }

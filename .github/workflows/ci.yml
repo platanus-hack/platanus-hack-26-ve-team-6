@@ -29,6 +29,10 @@ jobs:
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Install Chromium for landing regression tests
+        run: pnpm --filter @gotchu/web exec playwright install --with-deps chromium
+      - name: Verify desktop and mobile landing behavior
+        run: pnpm --filter @gotchu/web test:design --workers=2
       - run: scripts/infra-local-setup.sh
       - run: scripts/infra-compose-validate.sh
 

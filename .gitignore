@@ -19,3 +19,12 @@ Pulumi.*.yaml
 *.log
 .DS_Store
 .local/
+
+# Locally installed skill bundles, engines and private hook state
+.agents/skills/
+.hermes/skills/
+.claude/skills/
+.codex/hooks.json
+.impeccable/config.local.json
+.impeccable/cache/
+.firecrawl/
