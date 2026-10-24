@@ -22,9 +22,9 @@ CREATE TABLE gotchu.github_installations (
   state text NOT NULL CHECK (state IN ('active','revoked')),
   connected_at timestamptz NOT NULL DEFAULT now(),
   revoked_at timestamptz,
-  PRIMARY KEY (organization_id, installation_id),
-  UNIQUE (installation_id)
+  PRIMARY KEY (organization_id, installation_id)
 );
+CREATE UNIQUE INDEX github_installations_single_active_binding ON gotchu.github_installations(installation_id) WHERE state='active';
 ALTER TABLE gotchu.github_installations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gotchu.github_installations FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_scope ON gotchu.github_installations
@@ -71,18 +71,28 @@ BEGIN
 END $$;
 CREATE OR REPLACE FUNCTION gotchu.github_bind_installation(p_org uuid,p_user text,p_installation text,p_login text) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE existing_org uuid;
+DECLARE existing_org uuid; previous_org uuid; existing_role text;
 BEGIN
-  IF p_org IS DISTINCT FROM gotchu.tenant_id() OR coalesce(gotchu.lock_membership(p_org,p_user),'') NOT IN ('owner','operator') THEN RETURN 'forbidden'; END IF;
+  IF p_org IS DISTINCT FROM gotchu.tenant_id() THEN RETURN 'forbidden'; END IF;
+  existing_role:=gotchu.lock_membership(p_org,p_user);
+  IF coalesce(existing_role,'') NOT IN ('owner','operator') THEN RETURN 'forbidden'; END IF;
   IF NOT gotchu.lock_customer_organization(p_org) THEN RETURN 'not_found'; END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('github-installation:'||p_installation,0));
   PERFORM set_config('gotchu.github_installation_lookup','enabled',true);
-  SELECT organization_id INTO existing_org FROM gotchu.github_installations WHERE installation_id=p_installation FOR UPDATE;
+  SELECT organization_id INTO existing_org FROM gotchu.github_installations WHERE installation_id=p_installation AND state='active' FOR UPDATE;
+  IF existing_org IS NULL THEN
+    SELECT organization_id INTO previous_org FROM gotchu.github_installations WHERE installation_id=p_installation AND state='revoked' ORDER BY revoked_at DESC LIMIT 1;
+  END IF;
   PERFORM set_config('gotchu.github_installation_lookup','',true);
   IF existing_org IS NOT NULL AND existing_org<>p_org THEN RETURN 'already_bound'; END IF;
-  INSERT INTO gotchu.github_installations(organization_id,installation_id,account_login,connected_by,state,revoked_at)
-    VALUES(p_org,p_installation,p_login,p_user,'active',NULL)
-    ON CONFLICT (organization_id,installation_id) DO UPDATE SET account_login=EXCLUDED.account_login,connected_by=EXCLUDED.connected_by,state='active',revoked_at=NULL;
+  IF previous_org IS NOT NULL AND previous_org<>p_org AND existing_role<>'owner' THEN RETURN 'owner_required_to_move'; END IF;
+  BEGIN
+    INSERT INTO gotchu.github_installations(organization_id,installation_id,account_login,connected_by,state,revoked_at)
+      VALUES(p_org,p_installation,p_login,p_user,'active',NULL)
+      ON CONFLICT (organization_id,installation_id) DO UPDATE SET account_login=EXCLUDED.account_login,connected_by=EXCLUDED.connected_by,state='active',revoked_at=NULL;
+  EXCEPTION WHEN unique_violation THEN
+    RETURN 'already_bound';
+  END;
   RETURN 'bound';
 END $$;
 CREATE OR REPLACE FUNCTION gotchu.github_revoke_installation(p_org uuid,p_user text,p_installation text) RETURNS boolean
@@ -92,7 +102,7 @@ BEGIN
   IF NOT gotchu.lock_customer_organization(p_org) THEN RETURN false; END IF;
   UPDATE gotchu.github_installations SET state='revoked',revoked_at=clock_timestamp() WHERE organization_id=p_org AND installation_id=p_installation AND state='active';
   IF NOT FOUND THEN RETURN false; END IF;
-  UPDATE gotchu.application_repository_links SET revoked=true,read_access='revoked',state='unknown'
+  UPDATE gotchu.application_repository_links SET revoked=true,read_access='revoked',state='unknown',installation_id=NULL
     WHERE organization_id=p_org AND installation_id=p_installation AND NOT revoked;
   RETURN true;
 END $$;

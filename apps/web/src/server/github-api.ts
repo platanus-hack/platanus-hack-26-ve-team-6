@@ -75,6 +75,16 @@ export async function listGitHubInstallationRepositories(token: string, fetcher:
   return repositories;
 }
 
+async function findUserInstallation(token: string, installationId: string, fetcher: typeof fetch) {
+  for (let page = 1; page <= 10; page += 1) {
+    const result = await githubJson(`/user/installations?per_page=100&page=${page}`, token, installationListSchema, fetcher);
+    const installation = result.installations.find(item => String(item.id) === installationId);
+    if (installation) return installation;
+    if (result.installations.length < 100) return null;
+  }
+  throw new HttpError(413, 'github_user_installation_limit', 'La cuenta tiene más de 1000 instalaciones visibles; no se pudo comprobar esta conexión de forma acotada.');
+}
+
 export async function mintGitHubInstallationToken(installationId: string, appFile: string): Promise<string> {
   return installationToken(installationId, await readApp(appFile));
 }
@@ -123,8 +133,7 @@ export function createGitHubApi(options: { origin: string; appFile?: string; app
         try { exchangePayload = await exchangeResponse.json(); } catch { throw new HttpError(502, 'github_oauth_failed', 'GitHub devolvió una respuesta de autorización inválida.'); }
         const exchange = oauthTokenSchema.safeParse(exchangePayload);
         if (!exchange.success) throw new HttpError(400, 'github_oauth_failed', 'GitHub no autorizó la conexión. Vuelve a intentarlo.');
-        const installations = await githubJson('/user/installations?per_page=100', exchange.data.access_token, installationListSchema, fetcher);
-        const authorized = installations.installations.find(item => String(item.id) === installationId);
+        const authorized = await findUserInstallation(exchange.data.access_token, installationId, fetcher);
         if (!authorized) throw new HttpError(403, 'github_installation_not_accessible', 'La cuenta de GitHub con la que iniciaste sesión no puede acceder a esta instalación.');
         await services.github.bind(identity, { organizationId, userId: identity.userId, state, installationId, accountLogin: authorized.account.login });
         headers.set('location', '/dashboard?github=connected');

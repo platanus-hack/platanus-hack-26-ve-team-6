@@ -49,5 +49,11 @@ live('GitHub installation authorization on real Postgres', () => {
     await f.databases.gotchu_api.tenant(f.a.organizationId, tx => tx.query('SELECT gotchu.github_revoke_installation($1,$2,$3)', [f.a.organizationId, f.a.userId, installationId]));
     const revoked = await f.databases.gotchu_api.tenant(f.a.organizationId, tx => tx.query('SELECT revoked,read_access,state FROM gotchu.application_repository_links WHERE organization_id=$1 AND repository_key=$2', [f.a.organizationId, 'gh-991']));
     expect(revoked.rows).toEqual([{ revoked: true, read_access: 'revoked', state: 'unknown' }]);
+    const operatorId = `github-operator:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'operator')", [f.b.organizationId, operatorId]);
+    const operatorMove = await f.databases.gotchu_api.tenant(f.b.organizationId, tx => tx.query('SELECT gotchu.github_bind_installation($1,$2,$3,$4) AS result', [f.b.organizationId, operatorId, installationId, 'acme']));
+    expect(operatorMove.rows).toEqual([{ result: 'owner_required_to_move' }]);
+    const movedAfterOwnerDisconnect = await f.databases.gotchu_api.tenant(f.b.organizationId, tx => tx.query('SELECT gotchu.github_bind_installation($1,$2,$3,$4) AS result', [f.b.organizationId, f.b.userId, installationId, 'acme']));
+    expect(movedAfterOwnerDisconnect.rows).toEqual([{ result: 'bound' }]);
   });
 });

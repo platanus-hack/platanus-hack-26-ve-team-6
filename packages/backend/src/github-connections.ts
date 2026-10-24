@@ -31,6 +31,7 @@ export function createGitHubConnectionService(deps: BaseDependencies) {
         const result = await tx.query<{ result: string }>('SELECT gotchu.github_bind_installation($1,$2,$3,$4) AS result', [value.organizationId, identity.userId, value.installationId, value.accountLogin]);
         const status = result.rows[0]?.result;
         if (status === 'already_bound') throw new BackendError('github_installation_bound', 'Esta instalación ya está vinculada a otro espacio de trabajo.', 409);
+        if (status === 'owner_required_to_move') throw new BackendError('github_move_owner_required', 'Un Owner debe autorizar el traslado de una instalación desconectada desde otro espacio de trabajo.', 403);
         if (status !== 'bound') throw new BackendError('forbidden', 'No se pudo autorizar esta instalación para el espacio de trabajo.', 403);
         await audit(tx, value.organizationId, identity.userId, 'github.installation_connected', null, { installationId: value.installationId, accountLogin: value.accountLogin });
         return parse(githubConnectionSchema, { installationId: value.installationId, accountLogin: value.accountLogin, state: 'active', connectedAt: new Date().toISOString() });
