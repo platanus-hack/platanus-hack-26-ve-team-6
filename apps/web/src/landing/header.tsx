@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
-import { MenuIcon } from 'lucide-react';
+import { MenuIcon, XIcon } from 'lucide-react';
 import { GotchuMark } from '../components/gotchu-mark';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Separator } from '@/components/ui/separator';
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeSwitch } from './theme';
 
 const LINKS = [
@@ -48,15 +47,29 @@ export function Header() {
           <SheetTrigger render={<Button variant="outline" size="sm" className="min-[900px]:hidden" />}>
             <MenuIcon aria-hidden="true" />Menú
           </SheetTrigger>
-          <SheetContent side="top" className="gl gl-sheet">
+          <SheetContent
+            side="top"
+            overlayClassName="gl-sheet-backdrop !fixed !inset-x-0 !top-12 min-[760px]:!top-[52px] !bottom-0 !z-[49] !bg-black/40 !backdrop-blur-none !duration-[180ms]"
+            className="gl gl-sheet !fixed !inset-x-0 !top-0 !z-[51] !h-auto !max-h-svh !w-full !max-w-none !translate-y-0 !gap-0 !rounded-none !border-0 !bg-transparent !p-0 !shadow-none !opacity-100 !transition-[clip-path] !duration-240 !ease-[cubic-bezier(.23,1,.32,1)]"
+            showCloseButton={false}
+          >
+            <div className="gl-sheet-header">
+              <div className="gl-header-in">
+                <div className="gl-brand" aria-hidden="true"><GotchuMark size={26} /><span>Gotchu</span></div>
+                <SheetClose render={<Button variant="outline" size="sm" aria-expanded={open} />}>
+                  <XIcon aria-hidden="true" />Cerrar
+                </SheetClose>
+              </div>
+            </div>
             <SheetTitle className="gl-sr">Menú</SheetTitle>
-            <nav aria-label="Navegación principal" className="gl-sheet-nav">
-              {LINKS.map(link => <a key={link.href} href={link.href} onClick={() => setOpen(false)}>{link.label}</a>)}
-            </nav>
-            <Separator />
-            <div className="gl-sheet-foot">
-              <ThemeSwitch />
-              <a href="/dashboard" data-catch="" className={buttonVariants()}>Abrir Gotchu</a>
+            <div className="gl-sheet-panel">
+              <nav aria-label="Navegación principal" className="gl-sheet-nav">
+                {LINKS.map(link => <a key={link.href} href={link.href} onClick={() => setOpen(false)}>{link.label}</a>)}
+              </nav>
+              <div className="gl-sheet-foot">
+                <ThemeSwitch />
+                <a href="/dashboard" data-catch="" className={buttonVariants()}>Abrir Gotchu</a>
+              </div>
             </div>
           </SheetContent>
         </Sheet>

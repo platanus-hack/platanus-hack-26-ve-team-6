@@ -273,7 +273,7 @@ Four brand colours (magenta, graphite, porcelain, silver) over two absolute grou
 
 ## Layout
 
-One centred column, max 1400px, with clamp(20px, 4vw, 48px) gutters. The header is fixed, 52px (48px under 760px), and tucks up while scrolling down past 160px, returning on any scroll up or when it holds focus.
+One centred column, max 1400px, with clamp(20px, 4vw, 48px) gutters. The header is fixed, 52px (48px under 760px), and tucks up while scrolling down past 160px, returning on any scroll up or when it holds focus. It stays visible while the modal mobile menu is open.
 
 The hero is copy beside the dot-field mark from 1000px (1.25fr / 1fr, min-height min(860px, 100svh − header)); the field bleeds into the right gutter at a 520px minimum. Below 1000px the field stacks under the copy at clamp(280px, 70vw, 420px) and bleeds into both gutters. The hero pause control sits on the field's bottom-right at the gutter.
 
@@ -283,7 +283,7 @@ Breakpoints that change layout: 520px (theme switch leaves the header for the me
 
 ## Elevation & Depth
 
-Flat. Nothing at rest casts a shadow; depth is hairlines, rules and type scale on a single ground. The header is a solid ground-coloured bar with a 1px border, never translucent or blurred. The mobile menu sheet drops from the top over a black/40 backdrop with no blur. The only drop shadow in the system is the hover answer on filled buttons.
+Flat. Nothing at rest casts a shadow; depth is hairlines, rules and type scale on a single ground. The header is a solid ground-coloured bar with a 1px border, never translucent or blurred. The attached mobile menu panel opens directly below it over a black/40 backdrop that starts below the header, with no blur or shadow. The only drop shadow in the system is the hover answer on filled buttons.
 
 ### Shadow Vocabulary
 - **Hard magenta offset** (`box-shadow: 4px 4px 0 #e7147d` with `translate(-2px, -2px)`, 160ms `cubic-bezier(.23, 1, .32, 1)`): hover on primary and secondary buttons, both themes.
@@ -323,7 +323,7 @@ A 34px outline toggle on the ground with a 12px play/pause icon, bottom-right of
 Rows between 1px foreground rules, 22px vertical padding, display uppercase questions that turn action/pink ink on hover. A 34px 8px-radius outlined control holds a plus; when open it rotates 45° into the diamond, fills with action (pink ink in dark) and the plus counter-rotates into a cross, 300ms. Answers are body text at 17.5px, max 60ch.
 
 ### Navigation
-A fixed, solid header in the ground colour with a 1px bottom border; brand lockup (26px mark plus "GOTCHU" in display 18px at 0.08em). From 900px: three text links (500 15px) whose 2px magenta underline grows from the left on hover, then the theme switch and a small primary button. Below 900px a 34px outline "Menú" button opens a Sheet from the top: square, popover-coloured, links as 48px rows between hairlines, a Separator, then the theme switch and a primary button. Escape and the backdrop close it.
+A fixed, solid header in the ground colour with a 1px bottom border; brand lockup (26px mark plus "GOTCHU" in display 18px at 0.08em). From 900px: three text links (500 15px) whose 2px magenta underline grows from the left on hover, then the theme switch and a small primary button. Below 900px a 34px outline "Menú" button opens a modal disclosure attached below the header: its fixed-height header replica holds the "Cerrar" control, followed by square, ground-coloured 48px link rows between hairlines and a footer row with the theme switch and primary button. A black/40 backdrop begins below the header. Escape, backdrop and link clicks close it; focus stays inside and returns to the trigger.
 
 ### Highlighter
 - **Body:** pink-ink band (action in dark) at 0.82em height behind running text, which takes the band's foreground colour; sweeps in left to right over 700ms `cubic-bezier(.65, 0, .35, 1)` when it scrolls into view, staggered within a block.

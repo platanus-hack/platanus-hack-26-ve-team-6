@@ -45,11 +45,25 @@
     .gl .gl-header-tools { margin-left: auto; }
   }
 
-  /* Mobile menu: a sheet from the top, portalled outside the page, so it carries the .gl class itself. */
-  .gl.gl-sheet { padding: 12px var(--gutter) 20px; }
-  .gl .gl-sheet-nav { display: flex; flex-direction: column; padding-top: 44px; }
-  .gl .gl-sheet-nav a { display: flex; align-items: center; min-height: 48px; border-top: 1px solid var(--border); font-size: 17px; font-weight: 500; text-decoration: none; }
-  .gl .gl-sheet-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  /* The dialog includes a header replica so its close control stays interactive while the page is inert. */
+  .gl.gl-sheet { --header-h: 52px; display: flex; flex-direction: column; gap: 0; overflow: hidden; color: var(--foreground); }
+  @media (max-width: 759px) { .gl.gl-sheet { --header-h: 48px; } }
+  .gl .gl-sheet-header { flex: 0 0 var(--header-h); width: 100%; height: var(--header-h); background: var(--background); border-bottom: 1px solid var(--border); }
+  .gl .gl-sheet-header .gl-header-in { gap: 24px; }
+  .gl .gl-sheet-header .gl-brand { min-height: 34px; }
+  .gl .gl-sheet-header button { margin-left: auto; min-height: 34px; }
+  .gl .gl-sheet-panel { width: 100%; max-height: calc(100svh - var(--header-h)); overflow-y: auto; border-bottom: 1px solid var(--border); background: var(--background); clip-path: inset(0); transition: clip-path 240ms cubic-bezier(.23, 1, .32, 1); }
+  .gl.gl-sheet[data-starting-style] .gl-sheet-panel { clip-path: inset(0 0 100% 0); }
+  .gl.gl-sheet[data-ending-style] .gl-sheet-panel { clip-path: inset(0 0 100% 0); transition-duration: 180ms; }
+  .gl .gl-sheet-nav { display: flex; flex-direction: column; width: 100%; max-width: 1400px; margin: 0 auto; padding: 0 var(--gutter); }
+  .gl .gl-sheet-nav a { display: flex; align-items: center; min-height: 48px; border-bottom: 1px solid var(--border); font-size: 17px; font-weight: 500; text-decoration: none; }
+  .gl .gl-sheet-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; max-width: 1400px; min-height: 64px; margin: 0 auto; padding: 12px var(--gutter); }
+  .gl .gl-sheet-foot > * { flex-shrink: 0; }
+  .gl-sheet-backdrop { backdrop-filter: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .gl.gl-sheet .gl-sheet-panel, .gl.gl-sheet[data-starting-style] .gl-sheet-panel, .gl.gl-sheet[data-ending-style] .gl-sheet-panel { clip-path: none; transition: none; }
+    .gl-sheet-backdrop { transition: none !important; }
+  }
 
   /* ── Type ─────────────────────────────────────────────────────────────────── */
   .gl .gl-main { max-width: 1400px; margin: 0 auto; padding: var(--header-h) var(--gutter) 0; outline: none; }

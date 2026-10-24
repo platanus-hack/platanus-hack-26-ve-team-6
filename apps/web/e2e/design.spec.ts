@@ -96,23 +96,53 @@ test('the theme switch moves between pure white, pure black and the system prefe
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 });
 
-test('the mobile menu fits its links, keeps focus inside, and closes on the backdrop', async ({ page, isMobile }) => {
+test('the mobile menu stays attached to the header and remains modal across themes', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'The sheet is only shown below 900px.');
+  await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: 'Menú', exact: true }).click();
+  const trigger = page.getByRole('button', { name: 'Menú', exact: true });
+  await trigger.click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  const sheetHeight = await dialog.evaluate(element => element.getBoundingClientRect().height);
-  expect(sheetHeight).toBeLessThan(await page.evaluate(() => innerHeight));
+  const close = dialog.getByRole('button', { name: 'Cerrar', exact: true });
+  await expect(close).toBeVisible();
+  await expect(close).toHaveAttribute('aria-expanded', 'true');
 
-  const menuLink = dialog.getByRole('link', { name: 'Cómo funciona', exact: true });
-  expect(await menuLink.evaluate(element => getComputedStyle(element).fontFamily)).toContain('Gotchu Text');
-  await dialog.getByRole('button', { name: 'Cerrar' }).focus();
+  const panel = dialog.locator('.gl-sheet-panel');
+  const panelTop = await panel.evaluate(element => element.getBoundingClientRect().top);
+  const headerBottom = await page.locator('.gl-header').evaluate(element => element.getBoundingClientRect().bottom);
+  expect(Math.abs(panelTop - headerBottom)).toBeLessThanOrEqual(1);
+  expect(await panel.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(await page.evaluate(() => innerHeight));
+  await checkA11y(page);
+
+  const theme = dialog.getByRole('group', { name: 'Tema' });
+  await theme.getByRole('button', { name: 'Tema oscuro' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await checkA11y(page);
+
+  await close.focus();
+  await page.keyboard.press('Shift+Tab');
+  const cta = dialog.getByRole('link', { name: 'Abrir Gotchu', exact: true });
+  await expect(cta).toBeFocused();
   await page.keyboard.press('Tab');
-  await expect(menuLink).toBeFocused();
+  await expect(close).toBeFocused();
 
-  await page.mouse.click(12, 830);
+  await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await expect(dialog).toBeVisible();
+  await page.mouse.click(12, (await page.evaluate(() => innerHeight)) - 12);
+  await expect(dialog).toBeHidden();
+
+  await trigger.click();
+  await dialog.getByRole('link', { name: 'Preguntas', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page).toHaveURL(/#gl-preguntas$/);
+  const headingTop = await page.locator('#gl-preguntas .gl-section-title').evaluate(element => element.getBoundingClientRect().top);
+  const closedHeaderBottom = await page.locator('.gl-header').evaluate(element => element.getBoundingClientRect().bottom);
+  expect(headingTop).toBeGreaterThanOrEqual(closedHeaderBottom - 1);
 });
 
 test('the light theme passes the accessibility audit after every reveal', async ({ page }) => {
