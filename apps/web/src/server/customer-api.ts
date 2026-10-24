@@ -18,6 +18,7 @@ import { handleStepUpApi } from './step-up-api.js';
 import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } from './http.js';
 import { handleContextApi } from './context-api.js';
 import { handleTriageApi } from './triage-api.js';
+import { handleMembersApi } from './members-api.js';
 
 export interface CustomerServices {
   stepUp?: NonNullable<Backend['stepUp']>;
@@ -27,6 +28,7 @@ export interface CustomerServices {
   };
   telemetry?: Backend['telemetry'];
   context?: Backend['context'];
+  members?: Backend['members'];
   operations?: Backend['operations'];
   triage?: Backend['triage'];
   repositoryCatalog?: (identity: Identity, scope: { organizationId: string; applicationId: string }) => Promise<Array<{ key: string; label: string }>>;
@@ -90,6 +92,17 @@ export function createCustomerApi(options: {
       const headers = new Headers();
       for (const cookie of session.cookies) headers.append('set-cookie', cookie);
       const send = (value: unknown, status = 200) => json(value, status, headers);
+      const memberPath = url.pathname === '/api/customer/invitations/accept'
+        || /^\/api\/customer\/workspaces\/[^/]+\/(members|invitations)(\/|$)/.test(url.pathname);
+      if (memberPath) {
+        if (!services.members) throw new HttpError(503, 'members_not_configured', 'La gestión de miembros no está configurada.');
+        const email = 'email' in session && typeof session.email === 'string' ? session.email : null;
+        const response = await handleMembersApi(request, identity, email, services.members, options.origin);
+        if (response) {
+          for (const cookie of session.cookies) response.headers.append('set-cookie', cookie);
+          return response;
+        }
+      }
       if (url.pathname.startsWith('/api/customer/step-up/')) {
         const stepUp = services.stepUp;
         if (!stepUp) throw new HttpError(503, 'step_up_not_configured', 'La verificación en dos pasos no está configurada.');
