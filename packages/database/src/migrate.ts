@@ -4,6 +4,13 @@ import pg from 'pg';
 import { z } from 'zod';
 
 const roles = ['gotchu_owner', 'gotchu_api', 'gotchu_ingest', 'gotchu_coordinator', 'gotchu_executor', 'gotchu_validator'] as const;
+// Retain old checksums so a renamed migration is not replayed on an existing local database.
+const legacyMigrationNames = new Map([
+  ['046_self_host_bootstrap_status.sql', '038_self_host_bootstrap_status.sql'],
+  ['047_monitoring_quota_retention.sql', '041_monitoring_quota_retention.sql'],
+  ['048_investigation_provider_presets.sql', '043_investigation_provider_presets.sql'],
+  ['049_investigation_model_probes.sql', '044_investigation_model_probes.sql'],
+]);
 const ident = (value: string) => '"' + value.replaceAll('"', '""') + '"';
 const literal = (value: string) => "'" + value.replaceAll("'", "''") + "'";
 
@@ -35,6 +42,14 @@ export async function migrate(options: { connectionString: string }): Promise<vo
       if (existing.rowCount) {
         if (existing.rows[0]?.checksum !== checksum) throw new Error(`Migration checksum mismatch: ${name}`);
         continue;
+      }
+      const legacyName = legacyMigrationNames.get(name);
+      if (legacyName) {
+        const legacy = await client.query<{ checksum: string }>('SELECT checksum FROM gotchu.schema_migrations WHERE name = $1', [legacyName]);
+        if (legacy.rowCount) {
+          if (legacy.rows[0]?.checksum !== checksum) throw new Error(`Migration checksum mismatch: ${legacyName}`);
+          continue;
+        }
       }
       await client.query(sql);
       await client.query('INSERT INTO gotchu.schema_migrations(name, checksum) VALUES ($1, $2)', [name, checksum]);
