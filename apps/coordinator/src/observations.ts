@@ -29,36 +29,40 @@ export async function observeRuntime(database: Database, tx: Transaction, claim:
     const requests = events.filter(event => event.type === 'http.request'
       && Number.isInteger(event.attributes.statusCode) && Number(event.attributes.statusCode) >= 100);
     if (requests.length >= 20) {
-      const durations = requests.flatMap(event => {
-        const value = event.attributes.durationMs;
-        return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 3_600_000 ? [value] : [];
-      }).sort((a, b) => a - b);
-      const capacities = requests.flatMap(event => {
-        const value = event.attributes.capacityUtilization;
-        return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? [value] : [];
-      }).sort((a, b) => a - b);
-      const first = requests[0];
-      const windowStartedAt = new Date(bucket).toISOString();
-      const windowEndedAt = new Date(bucket + windowMs).toISOString();
-      if (!first) throw new Error('metric_window_without_requests');
-      try {
-        await backend.operations.recordObservation({ organizationId, applicationId, idempotencyKey: `signal:metrics:${bucket}`,
-        basis: { kind: 'events', eventIds: requests.slice(0, 100).map(event => event.id) }, kind: 'coverage_check',
-        summary: `Recorded bounded metrics for ${requests.length} signed HTTP requests; this is a checked sample, not an alert.`,
-        severity: 'info', confidence: 'medium', observedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(),
-        evidence: requests.slice(0, 20).map(event => {
-          const row = rows.rows.find(item => item.id === event.id);
-          if (!row) throw new Error('metric_evidence_missing');
-          return { source: 'signed_event' as const, reference: event.id, checksum: row.payload_hash, collectedAt: now.toISOString(), adapter: 'runtime.metrics.v1', adapterVersion: '1' };
-        }),
-        metrics: { windowStartedAt, windowEndedAt, requestCount: requests.length,
-          errorCount: requests.filter(event => Number(event.attributes.statusCode) >= 500).length,
-          latencyP95Ms: durations.length >= 20 ? durations[Math.max(0, Math.ceil(durations.length * .95) - 1)] ?? null : null,
-          capacityUtilization: capacities.length >= 20 ? capacities[Math.max(0, Math.ceil(capacities.length * .95) - 1)] ?? null : null },
-          incidentId: null, upstreamImpact: 'not_applicable' });
-      } catch (error) {
-        if (!(error instanceof BackendError) || error.code !== 'observation_capacity_exceeded') throw error;
-        limited = true;
+      const metricsKey = `signal:metrics:${bucket}`;
+      const priorMetrics = await tx.query('SELECT 1 FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2 AND idempotency_key=$3', [organizationId, applicationId, metricsKey]);
+      if (!priorMetrics.rowCount) {
+        const durations = requests.flatMap(event => {
+          const value = event.attributes.durationMs;
+          return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 3_600_000 ? [value] : [];
+        }).sort((a, b) => a - b);
+        const capacities = requests.flatMap(event => {
+          const value = event.attributes.capacityUtilization;
+          return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? [value] : [];
+        }).sort((a, b) => a - b);
+        const first = requests[0];
+        const windowStartedAt = new Date(bucket).toISOString();
+        const windowEndedAt = new Date(bucket + windowMs).toISOString();
+        if (!first) throw new Error('metric_window_without_requests');
+        try {
+          await backend.operations.recordObservation({ organizationId, applicationId, idempotencyKey: metricsKey,
+          basis: { kind: 'events', eventIds: requests.slice(0, 100).map(event => event.id) }, kind: 'coverage_check',
+          summary: `Recorded bounded metrics for ${requests.length} signed HTTP requests; this is a checked sample, not an alert.`,
+          severity: 'info', confidence: 'medium', observedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 86_400_000).toISOString(),
+          evidence: requests.slice(0, 20).map(event => {
+            const row = rows.rows.find(item => item.id === event.id);
+            if (!row) throw new Error('metric_evidence_missing');
+            return { source: 'signed_event' as const, reference: event.id, checksum: row.payload_hash, collectedAt: now.toISOString(), adapter: 'runtime.metrics.v1', adapterVersion: '1' };
+          }),
+          metrics: { windowStartedAt, windowEndedAt, requestCount: requests.length,
+            errorCount: requests.filter(event => Number(event.attributes.statusCode) >= 500).length,
+            latencyP95Ms: durations.length >= 20 ? durations[Math.max(0, Math.ceil(durations.length * .95) - 1)] ?? null : null,
+            capacityUtilization: capacities.length >= 20 ? capacities[Math.max(0, Math.ceil(capacities.length * .95) - 1)] ?? null : null },
+            incidentId: null, upstreamImpact: 'not_applicable' });
+        } catch (error) {
+          if (!(error instanceof BackendError) || error.code !== 'observation_capacity_exceeded') throw error;
+          limited = true;
+        }
       }
     }
     for (const signal of detectOperationalSignals(events, start, end)) {
