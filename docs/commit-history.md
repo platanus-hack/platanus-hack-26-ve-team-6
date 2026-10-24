@@ -1,5 +1,7 @@
 # Commit history inventory
 
+This is a fixed historical inventory through the endpoints listed below. It excludes later branch commits and commits merged in from `origin/main`.
+
 ## Fixed baseline and continuation
 
 The original ledger remains fixed at `8c03aca79c9d60aa750f72818611131f86d55bfe` and contains **332 commits**. Its rows are unchanged in [part 1](commit-history-001.md), [part 2](commit-history-002.md), and [part 3](commit-history-003.md). The first continuation through `7cbf3ed6cf977c55a17517f92c8d2ddecefa1816` adds **41 commits**, bringing the measured history to **373 commits**. This continuation adds every commit reachable after that endpoint through current integration HEAD `8b940a853d2c94af08447ce4ec69eadd437cb577`: **302 commits**, bringing the measured history to **675 commits**. Continuation parts use the root ancestry’s cherry-picked SHAs.
