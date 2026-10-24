@@ -1,0 +1,1 @@
+`bom-1.5.schema.json` is the official CycloneDX 1.5 JSON schema from the [CycloneDX specification repository](https://github.com/CycloneDX/specification/blob/master/schema/bom-1.5.schema.json). The schema is published under Apache License 2.0, as stated in its `$comment` field. It is vendored so SBOM tests validate without network access.
