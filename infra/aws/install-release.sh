@@ -23,6 +23,7 @@ target="/opt/gotchu/releases/$release"
 [[ ! -e $target ]] || { echo 'Release directory already exists; reconcile it first.' >&2; exit 1; }
 transaction="$base/transactions/$release"
 install -d -m 700 "$transaction" "$target"
+cp /etc/gotchu/release.txt "$transaction/previous-release.txt"
 stopped=false
 record() {
   python3 - "$base/state.json" "$1" "$release" "$checksum" "$previous" <<'PY'
@@ -55,6 +56,7 @@ finish() {
           cmp -s "$transaction/before.json" "$transaction/after-failure.json"; then
         switch_to "$previous"
         if start_runtime && systemctl start caddy; then
+          cp "$transaction/previous-release.txt" /etc/gotchu/release.txt
           record failed
           echo 'Deployment failed; previous release resumed with unchanged database migrations.' >&2
         else
@@ -96,8 +98,9 @@ printf '%s\n' "${release%%-*}" >/etc/gotchu/release.txt
 systemctl start caddy
 curl --fail --silent --show-error --max-time 20 https://gotchu.kevinbravo.com/api/ready >/dev/null
 record succeeded
+trap - EXIT
 # Keep the adopted original and three recent releases, including the rollback target.
-python3 - "$target" "$previous" "$transaction/release.tar.gz" <<'PY'
+python3 - "$target" "$previous" "$transaction/release.tar.gz" <<'PY' || echo 'Release cleanup failed; inspect host storage.' >&2
 from pathlib import Path
 import shutil,sys
 target,previous,archive=sys.argv[1:]
