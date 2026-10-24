@@ -17,6 +17,7 @@ import { localRegistrationSchema, type LocalAccounts } from './local-accounts.js
 import { handleStepUpApi } from './step-up-api.js';
 import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } from './http.js';
 import { handleContextApi } from './context-api.js';
+import { handleTriageApi } from './triage-api.js';
 
 export interface CustomerServices {
   stepUp?: NonNullable<Backend['stepUp']>;
@@ -27,6 +28,7 @@ export interface CustomerServices {
   telemetry?: Backend['telemetry'];
   context?: Backend['context'];
   operations?: Backend['operations'];
+  triage?: Backend['triage'];
   repositoryCatalog?: (identity: Identity, scope: { organizationId: string; applicationId: string }) => Promise<Array<{ key: string; label: string }>>;
   listWorkspaces(identity: Identity): Promise<CustomerWorkspace[]>;
   createWorkspace(identity: Identity, value: z.infer<typeof customerCreateWorkspaceSchema>): Promise<CustomerWorkspace>;
@@ -127,6 +129,11 @@ export function createCustomerApi(options: {
         }
       }
       const scope = parse(scopeSchema, { organizationId, applicationId: parts[5] });
+      if (parts[6] === 'incidents') {
+        if (!services.triage) throw new HttpError(503,'triage_not_configured','La clasificación de incidentes no está configurada.');
+        const response = await handleTriageApi(request,identity,services.triage,scope,parts);
+        if (response !== null) return send(response);
+      }
       if (['monitoring', 'alerts', 'plans', 'repositories'].includes(parts[6] ?? '')) {
         const operations = services.operations;
         if (!operations) throw new HttpError(503, 'monitoring_not_configured', 'La vigilancia operativa no está configurada.');

@@ -79,7 +79,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
-  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, operations: web.operations, corrections: web.corrections, context: web.context,
+  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, operations: web.operations, corrections: web.corrections, context: web.context, triage: web.triage,
     repositoryCatalog: async (identity, scope) => {
       await web.operations.getConfig(identity, scope);
       if (!env.GOTCHU_MONITORING_CONFIG_FILE) return [];
