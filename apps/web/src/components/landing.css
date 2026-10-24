@@ -36,7 +36,6 @@
 .g-chapter-marker > span:is(.is-current,.is-done) > span::after { transform: scaleX(1); }
 .g-chapter-marker > span.is-current { color: var(--gc-paper); }
 .g-chapters article { min-height: 72svh; display: flex; flex-direction: column; justify-content: center; gap: 22px; padding: 64px 0; }
-.g-chapters .g-tag { color: var(--gc-accent-ink); }
 .g-chapters h2 { font-size: clamp(2.1rem, 3.6vw, 3.4rem); line-height: 1; letter-spacing: -.02em; text-transform: uppercase; color: var(--gc-muted); transition: color 300ms ease; }
 .g-chapters article.is-current h2 { color: var(--gc-paper); }
 .g-chapters article > p:not(.g-tag) { font-size: 18px; max-width: 460px; line-height: 1.7; }
@@ -88,7 +87,7 @@
 .g-faq { display: grid; grid-template-columns: .8fr 1.2fr; gap: 70px; padding-block: 120px; }
 .g-faq details { border-top: 1px solid var(--gc-line); }
 .g-faq details:last-child { border-bottom: 1px solid var(--gc-line); }
-.g-faq summary { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; list-style: none; cursor: pointer; font: 700 17px/1.35 var(--gc-font-display); transition: color 160ms ease; }
+.g-faq summary { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; list-style: none; cursor: pointer; font: 600 18px/1.4 var(--gc-font-body); transition: color 160ms ease; }
 .g-faq summary::-webkit-details-marker { display: none; }
 .g-faq summary > span { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; background: var(--gc-raised); color: var(--gc-paper); transition: transform 240ms var(--gc-ease), background-color 200ms ease, color 200ms ease; }
 .g-faq details[open] summary > span { transform: rotate(45deg); background: var(--gc-accent); color: var(--gc-canvas); }

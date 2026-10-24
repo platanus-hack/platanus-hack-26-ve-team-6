@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { DotMatrix, type PictogramName } from './dot-matrix';
 import './product-flow.css';
 
-const sheets: { key: string; tag: string; title: string; pictogram: PictogramName }[] = [
-  { key: 'source', tag: '[ Instantánea ]', title: 'Instantánea de código', pictogram: 'code' },
-  { key: 'target', tag: '[ Autorización DNS ]', title: 'Origen HTTPS', pictogram: 'globe' },
-  { key: 'report', tag: '[ Cobertura y contraste ]', title: 'Informe de evaluación', pictogram: 'json' },
+const sheets: { key: string; title: string; pictogram: PictogramName }[] = [
+  { key: 'source', title: 'Instantánea de código', pictogram: 'code' },
+  { key: 'target', title: 'Origen HTTPS', pictogram: 'globe' },
+  { key: 'report', title: 'Informe de evaluación', pictogram: 'json' },
 ];
 
 /** Product structure only: no invented customer records, findings or verification results. */
@@ -13,7 +13,7 @@ export function ProductFlow({ step, className = '' }: { step: number; className?
   const sheet = sheets[step] ?? sheets[0]!;
   return <div className={`g-product-flow ${className}`} data-step={step}>
     <div className="g-flow-sheet" key={sheet.key}>
-      <header><span className="g-tag">{sheet.tag}</span><DotMatrix name={sheet.pictogram} className="g-flow-dots" /></header>
+      <DotMatrix name={sheet.pictogram} className="g-flow-dots" />
       <h3>{sheet.title}</h3>
       {step === 0 ? <>
         <div className="g-file-formats" aria-label="Formatos admitidos"><code>JS / TS</code><code>JSON</code><code>YAML</code><code>TOML</code></div>

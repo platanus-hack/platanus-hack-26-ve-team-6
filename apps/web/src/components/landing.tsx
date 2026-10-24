@@ -71,7 +71,7 @@ export function LandingPage() {
         <BlueprintGrid />
         <div className="g-journey-inner g-container">
           <div className="g-journey-visual"><ProductFlow step={active} /><div className="g-chapter-marker" aria-hidden="true">{chapters.map((chapter, index) => <span key={chapter.id} className={active === index ? 'is-current' : active > index ? 'is-done' : ''}><span />{chapter.detail}</span>)}</div></div>
-          <div className="g-chapters">{chapters.map((chapter, index) => <article key={chapter.id} id={chapter.id} data-chapter={index} className={active === index ? 'is-current' : ''}><p className="g-tag">[ 0{index + 1} / 03 ]</p><h2>{chapter.title}</h2><p>{chapter.text}</p><ProductFlow step={index} className="g-mobile-flow" /></article>)}</div>
+          <div className="g-chapters">{chapters.map((chapter, index) => <article key={chapter.id} id={chapter.id} data-chapter={index} className={active === index ? 'is-current' : ''}><h2>{chapter.title}</h2><p>{chapter.text}</p><ProductFlow step={index} className="g-mobile-flow" /></article>)}</div>
         </div>
       </section>
       <section id="perspectivas" className="g-perspectives g-card g-card-silver" aria-labelledby="perspectives-title">
