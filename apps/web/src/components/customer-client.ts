@@ -54,6 +54,9 @@ const reportListSchema = z.array(customerReportSummarySchema);
 const csrfSchema = z.object({ csrfToken: z.string().min(1) }).passthrough();
 const registeredAccountSchema = z.object({ id: z.string().min(1).max(256) }).strict();
 const deletedSourceSchema = z.union([z.undefined(), z.object({ deleted: z.literal(true) }).strict()]);
+const actionProposalSchema = z.object({ id: z.uuid(), actionHash: z.string().regex(/^[0-9a-f]{64}$/), kind: z.string(), state: z.enum(['proposed','eligible','ineligible','approved','expired','invalidated','executing','succeeded','failed','uncertain','reconciliation_required']), effect: z.string(), scope: z.string(), target: z.unknown(), cost: z.object({ state: z.literal('unknown'), amount: z.null() }).strict(), diff: z.object({ path: z.string(), summary: z.string() }).strict().nullable(), validations: z.array(z.object({ label: z.string(), state: z.enum(['pending','passed','failed','unknown']) }).strict()), limits: z.array(z.string()), blockingReasons: z.array(z.string()), createdAt: z.iso.datetime() }).strict();
+const actionListSchema = z.array(actionProposalSchema).max(100);
+const actionEligibilitySchema = z.object({ status: z.enum(['eligible','ineligible']), blockingReasons: z.array(z.string()) }).strict();
 
 export type CustomerSession = z.infer<typeof customerSessionSchema>;
 export type CustomerJob = z.infer<typeof customerJobSchema>;
@@ -229,6 +232,22 @@ export const customerApi = {
       { method: 'POST', ...jsonBody(body) },
       201,
     );
+  },
+  actionProposals(organizationId: string, applicationId: string) {
+    return request(`${applicationPath(organizationId, applicationId)}/actions`, actionListSchema);
+  },
+  proposeCorrectionAction(input: { organizationId: string; applicationId: string; candidateId: string }) {
+    return request(`${applicationPath(input.organizationId, input.applicationId)}/actions`, z.object({ proposalId: z.uuid(), actionHash: z.string().regex(/^[0-9a-f]{64}$/) }).strict(), { method: 'POST', ...jsonBody({ kind: 'source_patch_pull_request', sourceRef: { type: 'correction_candidate', candidateId: input.candidateId } }) }, 201);
+  },
+  getActionEligibility(organizationId: string, applicationId: string, proposalId: string) {
+    return request(`${applicationPath(organizationId, applicationId)}/actions/${encodeURIComponent(proposalId)}/eligibility`, actionEligibilitySchema, { method: 'POST', ...jsonBody({}) });
+  },
+  approveAction(input: { organizationId: string; applicationId: string; proposalId: string; actionHash: string; stepUpProof: string }) {
+    return request(`${applicationPath(input.organizationId, input.applicationId)}/actions/${encodeURIComponent(input.proposalId)}/approve`, z.object({ approvalId: z.uuid(), expiresAt: z.iso.datetime() }).strict(), { method: 'POST', ...jsonBody({ proposalId: input.proposalId, actionHash: input.actionHash, stepUpProof: input.stepUpProof }) });
+  },
+  cancelAction(input: { organizationId: string; applicationId: string; proposalId: string; reject?: boolean }) {
+    const suffix = input.reject ? 'reject' : 'cancel';
+    return request(`${applicationPath(input.organizationId, input.applicationId)}/actions/${encodeURIComponent(input.proposalId)}/${suffix}`, z.object({ accepted: z.literal(true) }).strict(), { method: 'POST', ...jsonBody({}) }, 202);
   },
   queue: (input: { organizationId: string; applicationId: string; mode: AssessmentMode; sourceSnapshotId: string | null; targetId: string | null }) => {
     const { organizationId, applicationId, ...selection } = input;

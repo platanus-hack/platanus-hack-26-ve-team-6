@@ -63,6 +63,25 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect(response.status).toBe(201); expect(await response.json()).toEqual(result);
     expect(prepare).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, reportId, ...selection });
   });
+  it('dispatches versioned action references with strict request fields and refreshed session cookies', async () => {
+    const { services, auth } = ports();
+    const proposalId = randomUUID();
+    const propose = vi.fn(async (_identity: { userId: string }, _input: { organizationId: string; applicationId: string; kind: string; sourceRef: unknown }) => ({ proposalId, actionHash: 'a'.repeat(64) }));
+    const projection = { id: proposalId, actionHash: 'a'.repeat(64), kind: 'source_patch_pull_request' as const, state: 'ineligible' as const, effect: 'Abrir una solicitud de cambio', scope: 'Aplicación', target: { kind: 'repository' as const, repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, cost: { state: 'unknown' as const, amount: null }, diff: null, validations: [], limits: [], blockingReasons: [], createdAt: new Date().toISOString() };
+    services.actions = {
+      list: async () => [], get: async () => projection, propose, getEligibility: async () => ({ status: 'ineligible' as const, blockingReasons: ['sin adaptador de escritura'] }),
+      approve: async () => ({ approvalId: randomUUID(), expiresAt: new Date() }), cancel: async () => undefined,
+    };
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const prefix = `workspaces/${organizationId}/applications/${applicationId}/actions`;
+    const ref = { kind: 'source_patch_pull_request', sourceRef: { type: 'correction_candidate', candidateId: randomUUID() } };
+    expect((await handle(request(prefix, { ...ref, payload: { target: 'attacker/repo' } }))).status).toBe(400);
+    const response = await handle(request(prefix, ref));
+    expect(response.status).toBe(201);
+    expect(response.headers.getSetCookie()).toContain('authjs.session-token=refreshed; Path=/; HttpOnly');
+    expect(await response.json()).toEqual({ proposalId, actionHash: 'a'.repeat(64) });
+    expect(propose).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, ...ref });
+  });
   it('exposes no customer data to anonymous sessions or identity headers', async () => {
     const { services, auth } = ports(); auth.identity = async () => null;
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });

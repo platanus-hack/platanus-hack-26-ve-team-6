@@ -19,6 +19,7 @@ import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } fr
 import { handleContextApi } from './context-api.js';
 import { handleTriageApi } from './triage-api.js';
 import { handleMembersApi } from './members-api.js';
+import { handleActionsApi } from './actions-api.js';
 
 export interface CustomerServices {
   stepUp?: NonNullable<Backend['stepUp']>;
@@ -31,6 +32,7 @@ export interface CustomerServices {
   members?: Backend['members'];
   operations?: Backend['operations'];
   triage?: Backend['triage'];
+  actions?: Backend['actions'];
   repositoryCatalog?: (identity: Identity, scope: { organizationId: string; applicationId: string }) => Promise<Array<{ key: string; label: string }>>;
   listWorkspaces(identity: Identity): Promise<CustomerWorkspace[]>;
   createWorkspace(identity: Identity, value: z.infer<typeof customerCreateWorkspaceSchema>): Promise<CustomerWorkspace>;
@@ -120,6 +122,15 @@ export function createCustomerApi(options: {
         if (contextResponse) {
           for (const cookie of session.cookies) contextResponse.headers.append('set-cookie', cookie);
           return contextResponse;
+        }
+      }
+      if (pathParts.length >= 7 && pathParts[0] === 'api' && pathParts[1] === 'customer'
+        && pathParts[2] === 'workspaces' && pathParts[4] === 'applications' && pathParts[6] === 'actions') {
+        if (!services.actions) throw new HttpError(503, 'actions_not_configured', 'Las propuestas de acciones no están configuradas.');
+        const actionResponse = await handleActionsApi(request, identity, services.actions, pathParts);
+        if (actionResponse) {
+          for (const cookie of session.cookies) actionResponse.headers.append('set-cookie', cookie);
+          return actionResponse;
         }
       }
       if (url.pathname === '/api/customer/workspaces') {

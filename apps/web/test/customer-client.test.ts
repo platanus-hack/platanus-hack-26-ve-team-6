@@ -257,6 +257,16 @@ describe('customer API client', () => {
     })).rejects.toMatchObject({ status: 409, code: 'source_unavailable', message: 'La instantánea ya no está disponible.' });
   });
 
+  it('sends only the private candidate reference when preparing a v2 correction proposal', async () => {
+    const proposalId = '45fc7599-c67c-4a64-939b-437e0279f85e';
+    fetchMock.mockResolvedValueOnce(json({ proposalId, actionHash: 'c'.repeat(64) }, 201));
+    await expect(customerApi.proposeCorrectionAction({ organizationId, applicationId, candidateId: sourceId })).resolves.toEqual({ proposalId, actionHash: 'c'.repeat(64) });
+    const [path, init] = fetchMock.mock.calls[0] ?? [];
+    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/actions`);
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({ kind: 'source_patch_pull_request', sourceRef: { type: 'correction_candidate', candidateId: sourceId } });
+  });
+
   it('deletes a source snapshot with the tenant-scoped DELETE endpoint', async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
