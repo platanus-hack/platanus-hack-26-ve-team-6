@@ -37,7 +37,7 @@ function SetupPage() {
       <span>GOTCHU · PRIMER ARRANQUE</span>
       <h1>Crea tu espacio de trabajo</h1>
       <p>La primera cuenta tendrá el rol Owner. El enlace de configuración se usa una sola vez y caduca en una hora.</p>
-      <p>El perfil Semgrep incluido (1.90.0) es sólo para desarrollo/pruebas; los informes muestran la cobertura disponible y sus límites.</p>
+      <p>Semgrep está fijado en 1.182.0; los informes muestran cobertura parcial y límites, por lo que un resultado sin hallazgos no demuestra que la aplicación sea segura.</p>
       <p>Validador VM no disponible: requiere Linux, /dev/kvm, bwrap y una sesión systemd de usuario. Executor y escrituras a proveedores no disponibles.</p>
       <form onSubmit={submit}>
         <label htmlFor="setup-email">Correo electrónico</label><input id="setup-email" name="email" type="email" autoComplete="email" maxLength={254} required />
