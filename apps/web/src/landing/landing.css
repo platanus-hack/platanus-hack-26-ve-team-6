@@ -8,7 +8,7 @@
 .gl ::selection { background: var(--band); color: var(--band-foreground); }
 .gl a { text-underline-offset: .28em; }
 .gl :where(a, button, summary, [tabindex]):focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }
-.gl .gl-footer :where(a):focus-visible { outline-color: #ffabd0; }
+.gl .gl-footer :where(a):focus-visible { outline-color: var(--footer-accent); }
 
 /* Everything else sits in the components layer, so shadcn's utility classes always win over it. */
 @layer components {
@@ -26,6 +26,7 @@
     --on-brand: #fffefa;
     --footer-bg: #191923;
     --footer-fg: #fffefa;
+  --footer-accent: #ff8fbe;
     position: relative;
     min-height: 100vh;
     overflow-x: clip;
@@ -129,7 +130,7 @@
   .gl .gl-hero { position: relative; display: grid; gap: 24px; padding: clamp(28px, 4vw, 56px) 0 clamp(56px, 8vw, 112px); }
   .gl .gl-hero-copy { display: flex; flex-direction: column; gap: clamp(24px, 3vw, 36px); min-width: 0; }
   .gl .gl-hero .gl-block { grid-template-columns: minmax(0, 1fr); }
-  .gl .gl-lead { font-size: clamp(19px, 1.7vw, 22px) !important; line-height: 1.5 !important; max-width: 36ch !important; }
+  .gl .gl-block-main > .gl-lead { font-size: clamp(19px, 1.7vw, 22px); line-height: 1.5; max-width: 36ch; }
   .gl .gl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; margin-top: 24px; }
   .gl .gl-hero-field { position: relative; height: clamp(280px, 70vw, 420px); margin: 0 calc(-1 * var(--gutter)); }
   .gl .gl-pause { position: absolute; right: var(--gutter); bottom: 0; }

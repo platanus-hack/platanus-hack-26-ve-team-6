@@ -4,7 +4,7 @@ import { useReveal } from './editorial';
 
 /**
  * Plates are authored from geometry: a character grid, a few shape helpers, one palette.
- * The finding diamond is the only coloured glyph (#c80c68 on the porcelain ground).
+ * The finding diamond is the only coloured glyph (the brand-ink token, so it follows the theme).
  */
 const FINDING = '◆';
 const GLYPHS = '.:-=+*#';
@@ -59,41 +59,6 @@ function folderArt() {
     if (((r + wobble) % 1) < 0.52) grid.put(x, y, ringGlyph(dx, dy));
   }
   grid.text(cx - 3, 16, 'SHA-256');
-  return grid.lines();
-}
-
-// ─── 03 · Globe ──────────────────────────────────────────────────────────────
-
-const GLOBE = { cols: 45, rows: 23, markerLatitude: 0.35, restLongitude: 0.45 };
-
-/** Wireframe sphere seen from `longitude` (radians); the domain marker rides on it. */
-function globeArt(longitude: number) {
-  const { cols, rows } = GLOBE;
-  const grid = createGrid(cols, rows);
-  const cx = (cols - 1) / 2, cy = (rows - 1) / 2, ry = rows / 2 - 0.5, rx = ry * 2;
-  const step = Math.PI / 6;
-  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-    const u = (x - cx) / rx, v = (y - cy) / ry;
-    const d = u * u + v * v;
-    if (d > 1) continue;
-    const r = Math.sqrt(d);
-    if (r > 0.9) { grid.put(x, y, ringGlyph((x - cx) / 2, y - cy)); continue; }
-    const z = Math.sqrt(1 - d);
-    const latitude = Math.asin(-v);
-    const lon = Math.atan2(u, z) + longitude;
-    const phase = ((lon % step) + step) % step;
-    const meridian = Math.min(phase, step - phase) * Math.max(z, 0.25) * rx < 0.62;
-    const nearest = Math.round(latitude / step) * step;
-    const parallel = Math.abs(latitude - nearest) * Math.cos(latitude) * ry < 0.55;
-    if (meridian && parallel) grid.put(x, y, '+');
-    else if (parallel) grid.put(x, y, nearest === 0 ? '=' : '-');
-    else if (meridian) grid.put(x, y, u < -0.4 ? '(' : u > 0.4 ? ')' : '|');
-  }
-  const view = -longitude;
-  if (Math.cos(view) > 0.05) {
-    const mx = cx + rx * Math.cos(GLOBE.markerLatitude) * Math.sin(view), my = cy - ry * Math.sin(GLOBE.markerLatitude);
-    grid.text(Math.round(mx) - 1, Math.round(my), `[${FINDING}]`);
-  }
   return grid.lines();
 }
 
@@ -178,40 +143,6 @@ export function FolderPlate() {
   const ref = useRef<HTMLPreElement>(null);
   const text = useDevelop(folder, ref);
   return <pre ref={ref} className="gl-plate" aria-hidden="true"><Art text={text} /></pre>;
-}
-
-const GLOBE_SECONDS = 6;
-const globeRest = globeArt(-GLOBE.restLongitude).join('\n');
-
-/** Globe that turns while in view for a few seconds, decelerates, and settles with the domain facing us. */
-export function GlobePlate() {
-  const ref = useRef<HTMLPreElement>(null);
-  const reduced = useReducedMotion();
-  const [text, setText] = useState(globeRest);
-  useEffect(() => {
-    const element = ref.current;
-    if (reduced) { setText(globeRest); return; }
-    if (!element) return;
-    const rest = -GLOBE.restLongitude;
-    const lonAt = (progress: number) => rest + Math.PI * Math.pow(1 - progress, 3);
-    setText(globeArt(lonAt(0)).join('\n'));
-    let frame = 0, start = 0, last = 0;
-    const run = (now: number) => {
-      start ||= now;
-      const progress = Math.min(1, (now - start) / (GLOBE_SECONDS * 1000));
-      if (progress >= 1) { setText(globeRest); return; }
-      if (now - last > 40) { last = now; setText(globeArt(lonAt(progress)).join('\n')); }
-      frame = requestAnimationFrame(run);
-    };
-    const observer = new IntersectionObserver(([entry]) => {
-      if (!entry?.isIntersecting) return;
-      observer.disconnect();
-      frame = requestAnimationFrame(run);
-    }, { rootMargin: '0px 0px -20% 0px' });
-    observer.observe(element);
-    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
-  }, [reduced]);
-  return <pre ref={ref} className="gl-plate gl-plate--globe" aria-hidden="true" suppressHydrationWarning><Art text={text} /></pre>;
 }
 
 const venn = vennArt();

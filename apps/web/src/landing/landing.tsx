@@ -198,7 +198,7 @@ function Footer() {
     <div className="gl-footer-in">
       <a className="gl-brand" href="#gl-mirada" aria-label="Gotchu, inicio"><GotchuMark size={32} /><span>Gotchu</span></a>
       <p>Tu app merece otra mirada.</p>
-      <TextLink href="/dashboard" className="text-[#fffefa] decoration-[#fffefa] hover:text-[#ff8fbe]">Abrir Gotchu</TextLink>
+      <TextLink href="/dashboard" className="text-(--footer-fg) decoration-(--footer-fg) hover:text-(--footer-accent) hover:decoration-brand">Abrir Gotchu</TextLink>
     </div>
   </footer>;
 }
