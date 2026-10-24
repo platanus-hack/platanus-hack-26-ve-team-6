@@ -6,10 +6,10 @@ export function analysis(origin: AssessmentAnalysis['origin'], snapshotRef: stri
   const now = new Date().toISOString();
   return { origin, snapshotRef, startedAt: now, finishedAt: now, status: 'unavailable', tool: { name: 'gotchu-customer', version: '2.0.0' }, findings: [], evidence: [], coverage: [], limitations: [] };
 }
-export function evidence(a: AssessmentAnalysis, kind: AssessmentEvidence['kind'], locator: string, data: unknown, tool = a.tool) {
+export function evidence(a: AssessmentAnalysis, kind: AssessmentEvidence['kind'], locator: string, data: unknown, tool = a.tool, collectedAt = new Date().toISOString()) {
   const excerpt = JSON.stringify(data);
   if (excerpt.length > 4096 || a.evidence.length >= 200) throw new Error('evidence_limit');
-  const item: AssessmentEvidence = { id: randomUUID(), origin: a.origin, kind, locator, collectedAt: new Date().toISOString(), snapshotRef: a.snapshotRef, tool, checksum: sha256(excerpt), excerpt };
+  const item: AssessmentEvidence = { id: randomUUID(), origin: a.origin, kind, locator, collectedAt, snapshotRef: a.snapshotRef, tool, checksum: sha256(excerpt), excerpt };
   a.evidence.push(item);
   return item.id;
 }

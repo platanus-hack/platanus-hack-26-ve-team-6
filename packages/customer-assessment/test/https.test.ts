@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { createServer } from 'node:https';
 import type { RequestListener as HttpListener } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createHttpsProbe, isPublicAddress } from '../src/https.js';
-import { createCustomerAssessmentRunner } from '../src/index.js';
+import { createHttpsPageProbe, createHttpsProbe, isPublicAddress } from '../src/https.js';
+import { assertReportBinding, createCustomerAssessmentRunner, createPublicSurfaceProbe } from '../src/index.js';
 import { input, absentScanners } from './fixtures.js';
 let directory:string;let cert:string;let key:string;
 beforeAll(async()=>{
@@ -70,6 +70,111 @@ describe('actual HTTPS sockets with scoped test CA and port',()=>{
   it('does not follow redirects or retain response bodies/cookies',async()=>{
     const target=await fixture((_,res)=>res.writeHead(302,{location:'http://169.254.169.254/private','set-cookie':'secret=never-store'}).end('sensitive body'));
     try{const result=await createHttpsProbe({lookup:async()=>[{address:'127.0.0.1',family:4}],testFixture:{hostname:'customer.org',port:target.port,ca:cert}})('https://customer.org',AbortSignal.timeout(1000));expect(result.incomplete).toBe('redirect_refused');expect(JSON.stringify(result)).not.toContain('secret');}finally{await target.close();}
+  });
+  it('rejects unsafe request paths before DNS or socket creation',async()=>{
+    const lookup=vi.fn(async()=>[{address:'127.0.0.1',family:4}]);
+    const probe=createHttpsPageProbe({lookup,testFixture:{hostname:'customer.org',port:8443,ca:cert}});
+    for(const path of ['//attacker.example/x','/../admin','/%2e%2e/admin','/private?token=1','/private#section','/%2f%2fattacker.example']) {
+      await expect(probe('https://customer.org',path,AbortSignal.timeout(1000),new Date(Date.now()+10000).toISOString())).rejects.toThrow('invalid_https_path');
+    }
+    expect(lookup).not.toHaveBeenCalled();
+  });
+  it('discovers bounded same-origin entrypoints and excludes hostile, query, fragment and traversal links',async()=>{
+    const seen:string[]=[];
+    const target=await fixture((req,res)=>{
+      seen.push(`${req.method} ${req.url}`);
+      expect(req.headers.host).toBe('customer.org');
+      expect(req.headers.cookie).toBeUndefined();
+      expect(req.headers.authorization).toBeUndefined();
+      if(req.url==='/') {
+        res.writeHead(200,{'content-type':'text/html'}).end([
+          '<a href="/about">About</a>', '<a href="/docs">Docs</a>', '<a href="/contact">Contact</a>',
+          '<a href="/status">Status</a>', '<a href="/faq">FAQ</a>', '<a href="/search?key=secret">Search</a>',
+          '<a href="/section#part">Fragment</a>', '<a href="/%2e%2e/admin">Traversal</a>',
+          '<a href="https://other.example/private">Other host</a>', '<a href="//other.example/external">Protocol relative</a>',
+        ].join(''));
+      } else if(req.url==='/.well-known/security.txt') {
+        res.writeHead(302,{location:'https://other.example/private'}).end();
+      } else if(req.url==='/robots.txt') {
+        res.writeHead(200,{'content-type':'text/plain'}).end('Sitemap: /robots-index.xml\nSitemap: https://other.example/external.xml');
+      } else if(req.url==='/sitemap.xml') {
+        res.writeHead(200,{'content-type':'application/xml'}).end('<urlset><url><loc>https://customer.org/from-sitemap</loc></url><url><loc>https://customer.org/query?key=secret</loc></url><url><loc>https://other.example/remote</loc></url></urlset>');
+      } else res.writeHead(404,{'content-type':'text/plain'}).end('not found');
+    });
+    const lookup=vi.fn(async(host:string)=>{expect(host).toBe('customer.org');return [{address:'127.0.0.1',family:4}];});
+    try {
+      const inventory=await createPublicSurfaceProbe({lookup,testFixture:{hostname:'customer.org',port:target.port,ca:cert}})({
+        id:'f46ecf37-613d-4bfd-9296-c521503f0bcc',origin:'https://customer.org',version:4,
+        verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+30000).toISOString(),scanProfile:'public_surface',
+      },AbortSignal.timeout(10000));
+      expect(inventory.asset).toEqual({type:'verified_https_origin',targetId:'f46ecf37-613d-4bfd-9296-c521503f0bcc',targetVersion:4,origin:'https://customer.org'});
+      expect(inventory.requestAttempts).toBe(10);
+      expect(inventory.maxRequests).toBe(10);
+      expect(inventory.stoppedBecause).toBe('request_cap');
+      expect(inventory.unrequestedEntrypoints).toBeGreaterThan(0);
+      expect(seen).toHaveLength(10);
+      expect(seen).toContain('GET /about');
+      expect(inventory.entrypoints.find(item=>item.path==='/.well-known/security.txt')).toMatchObject({status:302,incomplete:'redirect_refused'});
+      expect(seen).not.toContain('GET /search?key=secret');
+      expect(seen).not.toContain('GET /section#part');
+      expect(seen).not.toContain('GET /admin');
+      expect(seen).not.toContain('GET /private');
+      expect(seen).not.toContain('GET /external');
+      expect(seen).not.toContain('GET /query?key=secret');
+      expect(JSON.stringify(inventory)).not.toContain('other.example');
+      expect(lookup).toHaveBeenCalledTimes(10);
+    } finally {await target.close();}
+  });
+  it('stops at the aggregate response-byte cap and leaves later paths unknown',async()=>{
+    const seen:string[]=[];
+    const target=await fixture((req,res)=>{seen.push(`${req.method} ${req.url}`);res.writeHead(200,{'content-type':'text/plain'}).end('x'.repeat(20_000));});
+    const lookup=vi.fn(async()=>[{address:'127.0.0.1',family:4}]);
+    try {
+      const inventory=await createPublicSurfaceProbe({lookup,testFixture:{hostname:'customer.org',port:target.port,ca:cert}})({
+        id:'e096af4a-a4a6-449d-a43d-467ce07e0a2a',origin:'https://customer.org',version:1,
+        verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+15000).toISOString(),scanProfile:'public_surface',
+      },AbortSignal.timeout(10000));
+      expect(inventory.responseBytes).toBe(65_536);
+      expect(inventory.requestAttempts).toBe(4);
+      expect(inventory.stoppedBecause).toBe('response_byte_cap');
+      expect(inventory.unrequestedKnownPaths).toContain('/sitemap.xml');
+      expect(seen).toHaveLength(4);
+      expect(lookup).toHaveBeenCalledTimes(4);
+    } finally {await target.close();}
+  });
+  it('does not open another socket after authorization expires between profile requests',async()=>{
+    const seen:string[]=[];
+    const target=await fixture((req,res)=>{seen.push(`${req.method} ${req.url}`);res.writeHead(200,{'content-type':'text/html'}).end('<p>bounded</p>');});
+    const lookup=vi.fn(async()=>[{address:'127.0.0.1',family:4}]);
+    try {
+      const inventory=await createPublicSurfaceProbe({lookup,testFixture:{hostname:'customer.org',port:target.port,ca:cert}})({
+        id:'a4b0319b-ce1b-4003-8fd2-4a5b326b8ce8',origin:'https://customer.org',version:1,
+        verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+180).toISOString(),scanProfile:'public_surface',
+      },AbortSignal.timeout(5000));
+      expect(seen).toEqual(['GET /']);
+      expect(target.connections()).toBe(1);
+      expect(lookup).toHaveBeenCalledTimes(1);
+      expect(inventory.stoppedBecause).toBe('authorization_expired');
+      expect(inventory.entrypoints[1]).toMatchObject({path:'/.well-known/security.txt',requestAttempted:false,incomplete:'authorization_expired'});
+    } finally {await target.close();}
+  });
+  it('routes explicit public_surface input through the bounded profile and preserves report shape',async()=>{
+    const seen:string[]=[];
+    const target=await fixture((req,res)=>{seen.push(`${req.method} ${req.url}`);res.writeHead(req.url==='/'?200:404,{'content-type':req.url==='/'?'text/html':'text/plain'}).end(req.url==='/'?'<p>hello</p>':'not found');});
+    try {
+      const request=input();request.mode='external';request.source=null;
+      const authorizedTarget={id:request.jobId,origin:'https://customer.org',version:2,verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+30000).toISOString(),scanProfile:'public_surface' as const};
+      request.target=authorizedTarget;
+      const report=await createCustomerAssessmentRunner({scanners:absentScanners,https:{lookup:async()=>[{address:'127.0.0.1',family:4}],testFixture:{hostname:'customer.org',port:target.port,ca:cert}}}).run(request);
+      expect(seen).toEqual(['GET /','GET /.well-known/security.txt','GET /security.txt','GET /robots.txt','GET /sitemap.xml']);
+      expect(report.external?.coverage.find(item=>item.capability==='public_surface_known_paths')?.state).toBe('inspected');
+      expect(report.external?.coverage.find(item=>item.capability==='authenticated_routes')?.state).toBe('unsupported');
+      expect(report.external?.evidence).toHaveLength(5);
+      expect(report.limitations[0]).toContain('public-surface HTTPS observations');
+      expect(report.mode).toBe('external');
+      expect(JSON.stringify(report)).not.toContain('hello');
+      expect(()=>assertReportBinding({...request,target:{...authorizedTarget,scanProfile:'root'}},report)).toThrow('report_subject_mismatch');
+    } finally {await target.close();}
   });
   it.each(['body','headers','timeout'])('bounds %s',async kind=>{
     const target=await fixture((_,res)=>{if(kind==='headers')res.writeHead(200,{'x-large':'x'.repeat(10000)}).end();else if(kind==='body')res.end('x'.repeat(20000));});
