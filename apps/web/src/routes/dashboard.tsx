@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { AssessmentDashboard } from '../components/assessment-dashboard';
+import { CustomerDashboard } from '../components/customer-dashboard';
 
 export const Route = createFileRoute('/dashboard')({
-  head: () => ({ meta: [{ title: 'Evaluaciones · Gotchu' }] }),
-  component: AssessmentDashboard,
+  head: () => ({ meta: [{ title: 'Espacio de trabajo · Gotchu' }] }),
+  component: CustomerDashboard,
 });
