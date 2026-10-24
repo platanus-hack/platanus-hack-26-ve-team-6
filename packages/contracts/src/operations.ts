@@ -70,6 +70,11 @@ export const operationCoverageSchema = z.object({
   liveness: monitoringLivenessSchema,
   lastRun: z.object({ runId: z.uuid(), jobId: z.uuid().nullable(), status: z.enum(['running', 'completed', 'degraded', 'cancelled']), reason: z.string().nullable(), startedAt: timestamp, finishedAt: timestamp.nullable() }).nullable(),
   observations: z.object({ fresh: z.number().int().nonnegative(), stale: z.number().int().nonnegative() }), limitations: z.array(z.string()),
+  quotas: z.object({
+    runs: z.object({ used: z.number().int().nonnegative(), limit: z.literal(1000) }).strict(),
+    observations: z.object({ used: z.number().int().nonnegative(), limit: z.literal(2000), lastDayUsed: z.number().int().nonnegative(), lastDayLimit: z.literal(100) }).strict(),
+    plans: z.object({ used: z.number().int().nonnegative(), limit: z.literal(100) }).strict(),
+  }).strict(),
 });
 export type OperationCoverage = z.infer<typeof operationCoverageSchema>;
 export type MonitoringLiveness = z.infer<typeof monitoringLivenessSchema>;
