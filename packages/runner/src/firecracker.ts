@@ -81,6 +81,7 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
   let timeout: NodeJS.Timeout | undefined;
   let onAbort: (() => void) | undefined;
   let cleanupVerified = false;
+  const unit = `gotchu-runner-${job.jobId}.scope`;
   let outcome: RunnerResult;
 
   try {
@@ -93,7 +94,21 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
       timedOut = true;
       throw new Error('Job wall-clock deadline elapsed before the VM booted');
     }
-    child = spawn(bootFiles.executable, [...bootFiles.args], {
+    const bwrapArgs = [
+      '--unshare-all', '--die-with-parent', '--new-session', '--clearenv', '--cap-drop', 'ALL',
+      '--ro-bind', '/usr', '/usr', '--ro-bind', '/lib', '/lib', '--ro-bind', '/lib64', '/lib64', '--ro-bind', '/etc', '/etc',
+      '--proc', '/proc', '--dev', '/dev', '--dev-bind', '/dev/kvm', '/dev/kvm', '--tmpfs', '/tmp',
+      '--dir', '/runner', '--ro-bind', bootFiles.executable, '/runner/firecracker',
+      '--ro-bind', bootFiles.kernel, '/runner/kernel', '--ro-bind', bootFiles.baseRootfs, '/runner/rootfs-base',
+      '--bind', tempDir, '/job', '--chdir', '/job',
+      '/runner/firecracker', ...bootFiles.args,
+    ];
+    const scopeArgs = [
+      '--user', '--scope', '--quiet', `--unit=${unit}`,
+      '-p', `MemoryMax=${bootFiles.memoryMiB + 512}M`, '-p', `TasksMax=${job.limits.pids + 16}`,
+      '-p', `CPUQuota=${bootFiles.vcpu * 100}%`, '--', '/usr/bin/bwrap', ...bwrapArgs,
+    ];
+    child = spawn('/usr/bin/systemd-run', scopeArgs, {
       cwd: tempDir,
       stdio: ['ignore', 'pipe', 'ignore'],
       detached: true,
@@ -175,6 +190,16 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
           cleanupVerified = error instanceof Error && 'code' in error && error.code === 'ESRCH';
         }
       }
+      try {
+        const scopeState = await new Promise<string>((resolve, reject) => {
+          const check = spawn('/usr/bin/systemctl', ['--user', 'show', '--property=ActiveState', '--value', unit], { stdio: ['ignore', 'pipe', 'ignore'] });
+          let value = '';
+          check.stdout?.on('data', (chunk: Buffer) => { value += chunk.toString('utf8'); });
+          check.once('error', reject);
+          check.once('close', (code) => code === 0 ? resolve(value.trim()) : reject(new Error('Could not verify runner scope cleanup')));
+        });
+        cleanupVerified &&= scopeState === 'inactive' || scopeState === 'failed' || scopeState === 'not-found';
+      } catch { cleanupVerified = false; }
     } catch {
       cleanupVerified = false;
     }

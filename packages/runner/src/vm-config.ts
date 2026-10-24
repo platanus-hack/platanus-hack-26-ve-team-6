@@ -8,6 +8,10 @@ import { sha256, type RunnerImageLock } from './images.js';
 export interface VmBootFiles {
   readonly executable: string;
   readonly args: readonly string[];
+  readonly kernel: string;
+  readonly baseRootfs: string;
+  readonly memoryMiB: number;
+  readonly vcpu: number;
 }
 
 async function runBuildCommand(command: string, args: string[]): Promise<void> {
@@ -53,16 +57,18 @@ export async function prepareVmBootFiles(
   await runBuildCommand('truncate', ['-s', `${job.limits.diskMiB - 1024 - 16}M`, scratch]);
   await runBuildCommand('mkfs.ext4', ['-q', '-F', scratch]);
 
+  const jobKernel = join(tempDir, 'kernel');
+  await copyFile(kernel, jobKernel);
   const config = {
-    'boot-source': { kernel_image_path: kernel, boot_args: 'console=ttyS0 panic=1 reboot=k pci=off init=/sbin/init' },
+    'boot-source': { kernel_image_path: '/job/kernel', boot_args: 'console=ttyS0 panic=1 reboot=k pci=off init=/sbin/init' },
     drives: [
-      { drive_id: 'rootfs', path_on_host: rootfs, is_root_device: true, is_read_only: false },
-      { drive_id: 'input', path_on_host: inputImage, is_root_device: false, is_read_only: true },
-      { drive_id: 'scratch', path_on_host: scratch, is_root_device: false, is_read_only: false },
+      { drive_id: 'rootfs', path_on_host: '/job/rootfs.ext4', is_root_device: true, is_read_only: false },
+      { drive_id: 'input', path_on_host: '/job/input.ext4', is_root_device: false, is_read_only: true },
+      { drive_id: 'scratch', path_on_host: '/job/scratch.ext4', is_root_device: false, is_read_only: false },
     ],
     'machine-config': { vcpu_count: job.limits.vcpu, mem_size_mib: job.limits.memMiB, smt: false },
   };
   const configPath = join(tempDir, 'firecracker.json');
   await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
-  return { executable: firecracker, args: ['--no-api', '--config-file', configPath] };
+  return { executable: firecracker, args: ['--no-api', '--config-file', '/job/firecracker.json'], kernel, baseRootfs, memoryMiB: job.limits.memMiB, vcpu: job.limits.vcpu };
 }
