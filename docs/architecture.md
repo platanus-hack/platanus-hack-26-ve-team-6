@@ -1,108 +1,113 @@
-# Gotchu architecture overview
+# Gotchu architecture: foundation status
 
-Gotchu uses a dashboard and API to coordinate deterministic audits and detection, an optional bounded AI investigator, and an independently authorized PR executor. Teams receive evidence and supported corrections; they retain incident response, merge, and deployment responsibility. Nontechnical owners can review explanations and approve PR creation.
+Gotchu currently has a backend and infrastructure foundation. The code includes a TanStack Start HTTP adapter, an Auth.js Core integration, a separate backend domain package, Postgres persistence with a transactional outbox, a BullMQ coordinator, an isolated LangGraph HTTP worker, a run-capability gateway, and an independent executor ledger.
 
-This is the proposed service layout for the accepted pilot direction. VM hosting, provider race handling, total cost, and recovery performance must be validated before release.
+These components do not make Gotchu a completed or production-ready security product. Hosted model calls return `503` until a provider adapter exists; provider writes are frozen. Production MFA and trusted approval verifiers, cloud connectors, scanner services, customer-code execution, a production TLS deployment, restore evidence, and capacity evidence are not available.
 
-## Services and responsibilities
+## Service boundaries and request flow
 
-### Dashboard and API
+```mermaid
+flowchart LR
+  subgraph clients[Clients]
+    owner[Owner browser]
+    sdk[Node event SDK]
+  end
 
-The web application combines the dashboard with Auth.js sign-in and sessions. TanStack Start is the preferred candidate for the dashboard workflow if its Auth.js integration is validated; Next.js remains the alternative with a direct documented Auth.js setup. The user has selected Auth.js and is comparing the web frameworks. The public REST API covers applications, integrations, coverage, findings, incidents, proposals, approvals, and job status. Long operations return job IDs; authorized status projections stream updates.
+  subgraph web[Web process · TanStack Start]
+    routes[HTTP routes and API adapter]
+    auth[Auth.js Core HTTP bridge]
+  end
 
-For the pilot, host versioned public HTTP endpoints in the web server using TanStack Start server routes or Next.js Route Handlers, according to the selected framework. The original reference used a separate Fastify service; a separate public API deployment is optional at this stage. Route files stay thin: runtime validation, tenant authorization, and use cases live in independent backend modules. OpenAPI and job contracts remain stable if the HTTP host changes. Scanners, LangGraph runs, and execution never run as long-lived work inside a route handler.
+  subgraph domain[Framework-independent domain]
+    backend[@gotchu/backend]
+    contracts[@gotchu/contracts]
+    database[@gotchu/database]
+  end
 
-The API validates input, authenticates integrations independently of user sessions, derives tenant identity, and enforces membership and application permissions. Auth.js supplies authentication; organization roles, approval policy, and fresh second-factor verification remain explicit application responsibilities. A normal signed-in session does not satisfy the approval step-up requirement.
+  subgraph durable[Durable job path]
+    pg[(Postgres · source of truth)]
+    coordinator[@gotchu/coordinator]
+    queue[BullMQ on Redis · delivery transport]
+  end
 
-### HTTP framework options
+  subgraph investigation[Bounded investigation]
+    worker[LangGraph HTTP worker<br/>no DB, Redis, provider key, or signing private key]
+    gateway[Run-capability gateway<br/>TLS-capable · scoped reads · sanitized checkpoints]
+    model[Hosted model provider adapter<br/>not configured]
+  end
 
-Fastify provides schema-based request validation and response serialization, request lifecycle hooks, and an available structured logger. A separate API service also allows UI and HTTP ingestion to be deployed and scaled independently. These are useful operational features, rather than prerequisites for the pilot's authorization model. Retaining that separation would also require a trusted way for the API to verify Auth.js identity and session state; caller-supplied identity headers are insufficient.
+  subgraph execution[Independent execution boundary]
+    executor[@gotchu/executor ledger]
+    github[GitHub provider writes<br/>disabled]
+  end
 
-Next.js Route Handlers can receive HTTP requests, including webhooks, validate them through shared schemas, commit Postgres transactions, and enqueue durable work through the outbox. Consolidating UI and public HTTP endpoints removes one service to deploy, while coupling their deployment and resource consumption. Runtime validation, rate limits, logging, stable REST contracts, and the outbox must still be implemented explicitly.
+  owner -->|session request| routes
+  routes --> auth
+  routes --> backend
+  sdk -->|HMAC-signed raw event batch| routes
+  backend --> database
+  database --> pg
+  pg -->|committed job and outbox| coordinator
+  coordinator -->|job ID| queue
+  queue -->|at-least-once delivery| coordinator
+  coordinator -->|claim and aggregate via domain| backend
+  coordinator -->|short-lived signed run capability| worker
+  worker -->|run-scoped HTTPS requests<br/>loopback HTTP only in dev/test| gateway
+  gateway -->|authorized evidence reads and checkpoint writes| pg
+  gateway -.->|503 · no call and no spend| model
+  routes -.->|approval returns 503<br/>trusted step-up verifier absent| backend
+  executor -->|separate runtime role and ledger| pg
+  executor -.->|writes frozen| github
+```
 
-TanStack Start provides typed routing, search-parameter handling, server routes, and server functions. Combined with TanStack Query, its navigation and cache model fits the dashboard's filtering, incident navigation, background refreshes, and invalidation after approvals. This is a product-fit judgment; Next.js can also use TanStack Query. Choosing Start replaces the web and HTTP adapter while preserving the independent backend modules and workers.
+The diagram shows code boundaries and disabled edges. It does not imply that every adapter is configured or deployed. The coordinator’s durable work path currently handles event aggregation and investigation jobs; scan and notification adapters are not wired.
 
-Auth.js's official integration list does not currently include TanStack Start. A supported community integration or a maintained adapter around Auth.js Core must be validated before committing to that combination. Verify sign-in callbacks, session behavior, CSRF protection, logout, and the separate fresh second-factor approval flow. Next.js has the direct documented integration and is the simpler alternative if minimizing auth integration work takes priority.
+## Components
 
-Framework references: [Auth.js installation](https://authjs.dev/getting-started/installation), [Auth.js integrations](https://authjs.dev/getting-started/integrations), [Auth.js roles](https://authjs.dev/guides/role-based-access-control), [Next.js HTTP endpoints](https://nextjs.org/docs/app/guides/backend-for-frontend), [TanStack Start overview](https://tanstack.com/start/latest/docs/framework/react/overview), [TanStack Query integration](https://tanstack.com/start/latest/docs/framework/react/guide/tanstack-query), [TanStack Start server routes](https://tanstack.com/start/latest/docs/framework/react/guide/server-routes), [Fastify validation](https://fastify.dev/docs/latest/Reference/Validation-and-Serialization/), [Fastify hooks](https://fastify.dev/docs/latest/Reference/Hooks/), and [Fastify logging](https://fastify.dev/docs/latest/Reference/Logging/).
+### TanStack Start and Auth.js Core
 
-### Durable state and job coordination
+The web application hosts user and integration HTTP endpoints in TanStack Start server routes. A small server-side adapter calls Auth.js Core for `/api/auth/*`, validates the configured request origin, and uses JWT sessions. GitHub OAuth can be configured for sign-in. That sign-in is not a GitHub repository integration.
 
-Postgres holds customer state, evidence metadata, findings, incidents, job intent, checkpoints, policies, exact proposals, approvals, execution records, and audit logs. Tenant-aware foreign keys and row security apply through restricted runtime roles. Customer routes do not expose credentials or private checkpoints.
+The route layer delegates to `@gotchu/backend`, keeping domain decisions out of route files. The backend derives organization access from stored membership and application relationships rather than trusting a client-supplied user or tenant header. Fresh second-factor approval is not implemented. The approval endpoint returns unavailable until a trusted step-up verifier is supplied.
 
-The API commits accepted events and an outbox entry in one transaction before acknowledgment. An outbox dispatcher places job IDs in BullMQ backed by persistent Redis. Consumers claim durable work and tolerate duplicate delivery. Postgres remains the authority for job intent and execution state.
+### Domain and durable state
 
-A background service schedules onboarding, debounced-change, and periodic scans. It also normalizes evidence, aggregates events, evaluates versioned rules, maintains integration freshness, and dispatches notifications. These functions continue when model investigations are disabled, delayed, or over budget.
+`@gotchu/contracts` owns runtime input schemas. `@gotchu/backend` owns event intake, authorization, job, proposal, approval, run, budget, and execution-ledger operations. `@gotchu/database` owns connection setup, runtime-role provisioning, migrations, and tenant-scoped transactions.
 
-### Investigation worker and gateways
+Postgres is authoritative for accepted events, job intent, outbox delivery state, incidents, proposals, run budgets and checkpoints, and executor ledger records. Runtime roles are separated for the web API, event intake, coordinator/gateway, and executor. A valid event batch and its outbox job are committed together before the API acknowledges the event.
 
-A persistent LangGraph JS worker investigates material findings or incidents after the required deterministic checks. Initial limits are four model calls, eight additional read-tool calls, and five minutes of active investigation, plus token and spending limits.
+The coordinator polls and leases committed outbox entries, enqueues job IDs in BullMQ, and reconciles missing, failed, or completed Redis deliveries against Postgres. Redis is transport, not the record of accepted work. Consumers claim durable jobs in Postgres and check the queue envelope against stored tenant and application scope before processing.
 
-The worker accesses evidence, repository excerpts, inventory, cloud snapshots, and saved progress through a gateway authorized for the current run. It receives no general customer database connection or integration credentials. Scoped persistence access saves checkpoints without exposing other tenants, approvals, or credential tables.
+The event contract rejects year-zero timestamps before persistence. If legacy rows contain timestamps that PostgreSQL cannot parse, aggregation quarantines those rows from detector windows, retains the original events, and marks detection coverage degraded. This keeps malformed stored data from poisoning later valid event aggregation.
 
-The proposed gateway also brokers model calls, keeping provider keys outside the investigation process and enforcing budget reservations. External model processing requires organization opt-in. A worker compromise must not enable approval issuance, credential retrieval, or provider writes. Its permitted evidence exposure, capabilities, and revocation semantics require explicit implementation tests.
+### Investigation worker and run gateway
 
-### Scanner host and disposable job VMs
+The coordinator gives the worker a short-lived EdDSA run capability scoped to one organization, application, run, allowed read tools, and evidence IDs. The LangGraph worker exposes an HTTP endpoint and has no database connection, Redis connection, provider credential, or capability-signing private key. It receives only the public key needed to validate the capability and reaches input, reads, model calls, and checkpoint persistence through the gateway.
 
-A separate runner host accepts fixed scanner profiles and scoped input artifacts. It runs Semgrep CE, OSV-Scanner, Gitleaks, and Trivy configuration checks under resource and output limits. Scanner jobs have no control-plane database access, integration credentials, production credentials, privileged host mounts, or Docker socket.
+If a worker saved a validated terminal checkpoint and the coordinator stopped before finalizing the job, the next consumer can finalize that checkpoint using its current job lease. Recovery checks run and evidence scope and can settle the saved result even after the investigation deadline; it does not repeat the worker call.
 
-Executing dependency installation scripts or customer tests requires a disposable VM-class boundary per job. A controlled preparation service requests an allowed dependency update, receives the candidate patch, and validates its permitted files and contents. Validation runs an independent targeted rescan and the configured relevant test suite against the proposed commit. Only scoped input and bounded result-upload grants enter the job. Network destinations and resource usage are constrained.
+The run gateway validates the capability and rechecks scope and budgets against Postgres. It stores bounded, sanitized checkpoints with optimistic versioning. It can serve HTTPS directly and fails closed on non-loopback plaintext outside development or test. Local HTTP/TLS fixtures exercise the transport, but there is no production certificate provisioning or deployed TLS path.
 
-The two reference VPSs do not establish that this VM boundary is available. A compatible runner deployment or additional disposable compute must be selected and costed. Until isolation and relevant validation pass, the platform withholds the tested-PR path and can provide an explicitly unverified patch.
+Investigation limits in the code cap a run at four model calls, eight additional read-tool calls, and five active minutes. The model operation is intentionally unavailable: without a configured provider adapter, requests return `503`; the live pipeline test expects the run to finish as unavailable with no model calls or spend. Deterministic event processing remains separate from model investigation.
 
-### Approvals and restricted executor
+### Proposals and executor ledger
 
-The server creates an immutable typed proposal binding the organization, application, adapter, target, exact parameters and patch, evidence, base commit, policy version, test results, and verification plan. It computes the action hash. Model output is a draft input to this process, not authorization.
+The backend has typed proposal and approval contracts and persists exact action identity. Approval requires a trusted verifier for fresh second-factor proof; that production adapter is absent, so approval is unavailable. `@gotchu/executor` uses a separate narrow ledger role and can record/claim execution state. It has no enabled GitHub write adapter or provider credential. PR creation, merge, deployment, and other provider writes remain disabled.
 
-An authorized Owner, including a nontechnical Owner, approves that exact hash using fresh second-factor authentication. The approval is short-lived and usable once. Merge and deployment remain separately authorized.
+### Local and cloud infrastructure
 
-The executor runs as a separate restricted service with its own runtime identity, narrow database permissions, and custody of the write capability. It independently validates approval, role, policy, expiry, expected state, and artifact identity. It locks and claims execution durably, rechecks the target, and publishes the exact tested commit and PR. Any observed base-head change requires regeneration or rebasing, validation, and fresh approval. Repositories must also meet supported automation-safety conditions before PR writes are enabled.
+Docker Compose starts local Postgres and Redis. Web, coordinator, gateway, worker, executor, and scanner profiles are placeholders that fail closed until runnable container entrypoints and images are wired. The default Compose stack is not an application deployment.
 
-After an uncertain provider timeout, the executor reconciles provider state before retrying. A separate verification step checks the resulting PR and commit against the authorized artifact. API success alone does not establish verification. The initial adapter supports security patch and minor npm dependency upgrades with reproducible lockfiles. Other findings remain reportable.
+The Pulumi TypeScript program defines a DigitalOcean VPC, firewalls, droplets, and a private Space. Its resource-policy tests use mocks. No DigitalOcean deployment has been made, and the program does not install the application services or provide a VM sandbox.
 
-## Customer workflows
+## Not available in this foundation
 
-### Repository audit
+- Production MFA, trusted approval verification, and production integration-secret custody.
+- GitHub repository access and write adapters, AWS coverage, Cloudflare telemetry, or other customer provider integrations.
+- A model-provider adapter, model spend, or externally hosted investigation.
+- Runnable scanner services for Semgrep, OSV-Scanner, Gitleaks, or Trivy.
+- Customer dependency installation, customer tests, or any customer-code execution. The VM-class isolation gate is closed; containers are not a substitute.
+- Production TLS termination/certificate management for the worker and run gateway.
+- Cloud deployment, tested backup restoration, measured capacity, verified recovery objectives, or measured operating cost.
 
-1. The customer connects selected GitHub repositories. Repository-only onboarding can provide value before runtime telemetry or cloud access is configured.
-2. The API records audit intent, and the outbox dispatches a scan job.
-3. The runner receives a fixed profile and scoped snapshot, then uploads bounded results to private object storage.
-4. The control plane validates and normalizes results into evidence and findings. Evidence records commit or snapshot identity, collection time, tool version, checksum, and retention deadline.
-5. An eligible material finding can start a bounded investigation. The dashboard shows coverage and investigation state alongside the finding.
-
-### Live monitoring
-
-1. A Node application sends signed batches with stable event IDs. Optional Cloudflare telemetry and scoped AWS snapshots supply additional inputs when configured and supported.
-2. The API authenticates, validates, deduplicates, and durably accepts events with outbox intent. Quota or capacity rejection is explicit; client buffering and retries are bounded.
-3. Deterministic rules evaluate aggregates before invoking a model. Blocked attempts, suspicious activity, and confirmed compromise remain distinct.
-4. Material incidents can start investigations and notify the named responder. Delivery, acknowledgment, investigation, and resolution have separate states.
-5. Telemetry gaps, sampling, stale connectors, and failed notification routes remain visible. Existing customer WAF enforcement continues independently; the pilot does not perform automatic containment.
-
-### Approved correction
-
-1. Prepare an allowed dependency patch in isolation.
-2. Independently rescan and run relevant validation at the candidate commit.
-3. Store the exact proposal and server-computed hash.
-4. Obtain fresh human approval for that hash.
-5. Independently recheck and claim execution, publish once despite retries, and verify the resulting PR.
-6. The customer's technical team reviews, merges, and deploys through its own controls.
-
-## Proposed deployment
-
-VPS A hosts the selected web framework with Auth.js, the public HTTP API, trusted job coordination and detection services, gateways, LangGraph process, restricted executor, Postgres, and Redis. The recommended pilot layout hosts the public API in the web application through Start server routes or Next.js Route Handlers; the original separate Fastify service remains an alternative. Workers, gateways, and the executor retain separate service identities and permissions even when processes share a host. This layout does not claim isolation against a complete VPS A host compromise.
-
-VPS B hosts the trusted runner supervisor and isolated static scanner jobs. Customer-code execution uses the separate disposable VM boundary described above, wherever a compatible deployment can be demonstrated. Trusted runner components orchestrate jobs; untrusted jobs receive neither the runner's control interface nor host privileges.
-
-Private object storage outside both VPSs holds evidence artifacts and encrypted backups. Continuous Postgres recovery data and base backups are the proposed recovery mechanism, subject to a successful restoration drill. Docker Compose deploys the fixed services; Pulumi TypeScript provisions infrastructure. GitHub CI builds and releases the platform.
-
-GitHub, the customer Node deployment, scoped AWS metadata, optional Cloudflare telemetry, one model provider, and transactional email are external dependencies. Provider reads pass through the integration gateway. Authorized GitHub writes pass through the executor.
-
-## Pilot limits and release gates
-
-The workload target is five organizations and ten applications, one active scanner, two active investigations, ten security events per second sustained, and a bounded 100-event-per-second burst. Detection targets thirty seconds after acceptance; upstream delivery delay is measured separately. Events initially retain for seven days and incident evidence for thirty days.
-
-The total operating-spend ceiling is provisionally USD 250 per month, excluding engineering labor and customer-paid provider charges. It is a budget, not a verified infrastructure estimate. Model limits apply even to critical incidents; deterministic detections and alerts continue within their separate resource limits.
-
-Disaster-recovery objectives are at most fifteen minutes of lost customer state and accepted events, and core restoration within four hours. These require measured restoration evidence. A restore invalidates pre-recovery approvals and freezes writes until external executions have been reconciled.
-
-Before implementation commitments, resolve the VM host and cost, supported repository and workflow configurations, adequacy of customer validation, notification channels and escalation, provider concurrency guarantees, exact role permissions, and measurable customer-value criteria. Reconcile the unavailable detailed implementation reference with the accepted decision record before finalizing contracts.
+These are release gates, not capabilities implied by interface types, mocks, local fixtures, or the historical product decisions in the [definition interview](definition-interview.md).

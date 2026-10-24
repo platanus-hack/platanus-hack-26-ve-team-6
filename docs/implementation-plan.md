@@ -1,30 +1,92 @@
-# Platform foundation implementation
+# Implementation status and release gates
 
-The selected web framework is TanStack Start with TanStack Query. Auth.js remains the authentication library; its adapter, sessions, CSRF behavior, and fresh second-factor approval integration require explicit validation. The user authorized implementation, parallel worktrees, focused commits, Astra for harder tasks, and Luna with xhigh reasoning for general tasks.
+## Current stage
 
-## First integrated milestone
+Gotchu is in foundation implementation. The code establishes core package and trust boundaries, durable event/job state, a bounded investigation protocol, and infrastructure definitions. Several flows have local and database-backed tests, but tests do not turn missing external adapters or deployments into available product capabilities.
 
-Deliver a runnable local control-plane foundation with validated signed event ingestion, tenant-isolated Postgres state, a transactional outbox, repeated-delivery-safe jobs, deterministic incident aggregation, a bounded LangGraph investigation, independent proposal and approval validation, and a minimal authenticated HTTP surface. Provide Compose and infrastructure definitions plus checks that actually boot and exercise the data services. Keep UI design minimal.
+Hosted model requests currently return `503` without spending. The executor's provider writes are frozen. There is no production MFA or trusted approval verifier, cloud deployment, scanner service, customer-code execution, production TLS deployment, restore evidence, capacity evidence, or production operating-cost measurement.
 
-This milestone establishes infrastructure and security behavior. It does not claim deployed AWS coverage, live customer WAF ingestion, complete scanner hosting, verified GitHub production execution, proven disaster recovery, or a measured monthly infrastructure cost. Those capabilities stay disabled or explicitly unavailable until their gates pass.
+## Foundation status
 
-## Work streams and ownership
+| Area | Present in code | Current limit |
+| --- | --- | --- |
+| HTTP and sign-in | TanStack Start server routes; Auth.js Core invoked by a custom server-side HTTP adapter; conditional GitHub OAuth sign-in; JWT sessions. | Auth.js sign-in is not repository access. Fresh MFA, a trusted step-up verifier, and production authentication configuration are not complete. |
+| Domain and contracts | `@gotchu/contracts`, framework-independent `@gotchu/backend`, and `@gotchu/database` with migrations and separated runtime roles. | A production secret store and the trusted external identity/verifier adapters are absent. |
+| Event intake and jobs | HMAC verification over exact raw event bytes, tenant derivation, duplicate/replay handling, and event-plus-outbox commit. Coordinator dispatches and reconciles Redis deliveries; Postgres owns durable intent. | Current coordinator jobs process event aggregation and investigation. Scanner scheduling, notification delivery, AWS, Cloudflare, and GitHub repository adapters are not wired. |
+| Investigation | Bounded LangGraph worker over HTTP with run-scoped capabilities. Worker has no database, Redis, provider credentials, or signing private key. | The provider endpoint returns `503`; investigation is stored as unavailable with no model spend. |
+| Run gateway | Run-capability validation, tenant-scoped reads, persistent sanitized checkpoints, budget enforcement, and HTTPS transport support. Loopback HTTP is limited to development/test. | There is no production certificate provisioning, deployed TLS path, or configured provider adapter. |
+| Execution | Separate `@gotchu/executor` process boundary and narrow durable execution ledger. | Trusted production approval verifiers and GitHub write/provider adapters are absent. Provider writes stay disabled. |
+| Local infrastructure | Compose runs Postgres and Redis with persistent local volumes and restricted networking. | Application profiles fail closed until their images and entrypoints are connected; Compose is not an application deployment. |
+| Cloud infrastructure | Pulumi definitions and mock policy tests for DigitalOcean network, firewall, droplets, and private object storage. | No cloud deployment. No application installation, scanner host runtime, VM sandbox, restore drill, or measured capacity/cost evidence. |
+| Scanning and customer code | The customer-code execution gate is explicitly closed. | Scanner services are not runnable; customer dependency installation and customer tests are disabled. Docker is not the required VM-class isolation boundary. |
 
-- Parent: root workspace, shared contracts, TanStack Start and Auth.js integration, end-to-end integration, history, and release documentation.
-- Astra backend worktree: `packages/backend`, `packages/database`, backend migrations and meaningful security/integration tests. Define durable event ingestion, tenant permissions, outbox claiming, and proposal/approval/execution invariants. Export an explicit backend interface for route and worker adapters.
-- Luna orchestration worktree: `apps/worker`, `apps/executor`, `packages/agent`, and their tests. Implement an actual LangGraph graph, bounded read/model interfaces, typed outputs, deterministic rules, explicit unavailable states, and independent executor orchestration. Coordinate with the backend interface; no raw database or integration credentials in the agent.
-- Luna infrastructure worktree: `infra/`, `scripts/infra-*`, deployment documentation, and CI. Provide isolated Compose data/services, a distinct scanner boundary, fail-closed VM execution gate, Pulumi TypeScript resources and validation, and safe local dependency checks. Do not deploy paid infrastructure or change host security settings.
+## Test coverage in the repository
 
-## Shared conventions
+This inventory describes test sources and their boundary; it is not a report that the checks were run for this documentation change.
 
-Use Node 24, pnpm 11, ESM TypeScript, Zod runtime contracts, `@gotchu/` workspace packages, and Vitest. Build library packages before consuming their `dist` exports. Each stream adds dependencies only to its owned package manifests; the parent resolves and commits the final lockfile.
+- `@gotchu/contracts`: event and runtime-schema validation, including rejection of year-zero event timestamps.
+- `@gotchu/database` and `@gotchu/backend`: tenant isolation, Postgres roles, signed intake, replay and duplicate behavior, outbox persistence, budget accounting, and exact proposal/approval/execution invariants.
+- `@gotchu/web`: Auth.js HTTP behavior and authenticated API routes.
+- `@gotchu/agent` and `@gotchu/worker`: run-capability checks, bounded investigation behavior, typed results, and HTTP worker boundaries.
+- `@gotchu/gateway`: capability scope, tenant reads, budgets and idempotency, sanitized durable checkpoints, Postgres access, and HTTP/TLS transport fixtures.
+- `@gotchu/executor`: independent ledger and execution policy, including Postgres-backed ledger behavior.
+- `@gotchu/infra`: Pulumi resource/configuration policy under mocks; this does not contact DigitalOcean.
+- `@gotchu/coordinator` and `test/integration/pipeline.test.ts`: event aggregation quarantines incompatible legacy timestamps and degrades coverage while retaining source events; a later valid batch can still produce an incident. Investigation recovery can atomically finalize a saved terminal checkpoint under the current lease after coordinator interruption and an expired run deadline, without calling the worker again.
+- `test/integration/pipeline.test.ts`: isolated Postgres and Redis with web HTTP intake, coordinator/BullMQ delivery and recovery, aggregation, tenant isolation, and the investigation HTTP path. The model response is expected to be unavailable because no provider adapter is configured.
 
-The public web API uses thin TanStack server routes. Domain logic lives in backend packages. Jobs carry durable IDs, not secrets or arbitrary executable commands. An authenticated server context establishes the organization; no `x-user-id`, client organization, or supplied graph thread ID is authorization.
+The live integration command exercises isolated local services. It does not prove production TLS, provider behavior, cloud deployment, restoration, scanner isolation, customer-code isolation, capacity, or cost.
 
-The event contract starts with `eventBatchSchema` in `@gotchu/contracts`. The HTTP request authenticates integration ID, signed timestamp, and exact raw bytes; the backend derives the organization and checks the application. Scanners and customer-code execution remain separate from the control plane.
+## Commands
 
-## Validation and commits
+Root scripts are defined in `package.json`:
 
-Create small commits around contracts, database isolation, ingestion/outbox, investigation, executor policy, web authentication, deployment definitions, and integration evidence. Do not squash unrelated work into one commit. Keep tests beside the behavior they establish. Report mocked unit checks separately from real Postgres/Redis/Compose tests.
+```sh
+pnpm install --frozen-lockfile
+pnpm build:packages
+pnpm build
+pnpm typecheck
+pnpm test
+pnpm check
+pnpm test:integration
+```
 
-Before handoff, run package builds, typechecks, unit tests, negative security fixtures, live Postgres/Redis integration checks, Compose validation, and a minimal production web build. Record failures honestly and keep unfinished external integrations visibly disabled.
+`pnpm check` runs the workspace build, typecheck, and package tests; it does not include the live integration command. `pnpm test:integration` requires Docker and creates isolated, temporary Postgres and Redis containers for the HTTP pipeline.
+
+The packages with explicit PostgreSQL test scripts expose:
+
+```sh
+pnpm --filter @gotchu/database test:postgres
+pnpm --filter @gotchu/gateway test:postgres
+pnpm --filter @gotchu/executor test:postgres
+```
+
+Each `test:postgres` script launches an isolated temporary PostgreSQL container, sets `GOTCHU_TEST_DATABASE_URL` for its test process, and requires Docker. Infrastructure scripts provide local setup and policy/live checks:
+
+```sh
+scripts/infra-local-setup.sh
+scripts/infra-compose-validate.sh
+scripts/infra-local-up.sh
+scripts/infra-live-check.sh
+scripts/infra-local-down.sh
+pnpm --filter @gotchu/infra test
+pnpm --filter @gotchu/infra typecheck
+```
+
+The Compose validation and live dependency check are separate from `pnpm check`. The Pulumi unit test uses mocks; it is not a cloud preview or deployment.
+
+## Release gates
+
+| Gate | Evidence required before enabling the capability |
+| --- | --- |
+| Production user authorization and approvals | Production Auth.js configuration, organization/membership policy, a trusted fresh-second-factor verifier, replay/expiry protection, and end-to-end negative authorization fixtures. Approval remains unavailable until then. |
+| Integration credential custody | A production secret-store adapter for event signing keys and scoped provider credentials; key rotation and revocation behavior. Environment-provided local keys do not satisfy this gate. |
+| Model investigation | A provider adapter behind the gateway; external-processing opt-in and data minimization; budget reservation, settlement, timeouts, and unknown-outcome reconciliation. Until configured, model requests stay `503` and spend zero. |
+| Run gateway and worker transport | Deployed TLS with certificate/key lifecycle and authenticated coordinator-to-worker transport. Local TLS fixtures and fail-closed configuration are not production TLS evidence. |
+| Provider writes | Trusted approval verification plus a real provider adapter that rechecks the exact approved action, target state, and automation safety; durable uncertain-outcome reconciliation. Until then, provider writes stay frozen. |
+| Cloud coverage | Scoped, least-privilege AWS and any selected Cloudflare adapters, with their authorization, freshness, and coverage behavior verified. No cloud connector or deployment is present now. |
+| Static scanners | Runnable pinned scanner images/profiles, scoped input and result paths, resource/output limits, and evidence provenance. Scanner Compose profile currently exits unavailable. |
+| Customer-code execution | A demonstrated disposable VM-class boundary per job, controlled networking, bounded resources, no credentials, and independent rescanning/relevant validation. Customer tests and dependency installation remain disabled. |
+| Cloud deployment | Reviewable Pulumi plan and operator-controlled deployment followed by service configuration and health checks. Current DigitalOcean definitions and mock tests do not show a deployed environment. |
+| Restore and operations | A clean-environment restore drill, recovery authorization reconciliation, measured capacity/load behavior, provider pricing, and an evidenced operating-cost estimate. Existing recovery, capacity, and budget figures remain planning targets, not guarantees. |
+
+The historical accepted requirements and provisional pilot targets remain in [the definition interview](definition-interview.md). Keep that record intact; update implementation status here only when the corresponding code, adapters, tests, or operational evidence exist.
