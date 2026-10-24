@@ -298,7 +298,7 @@ case "$command_name" in
     [[ -f "$env_file" ]] || fail 'Ejecuta ./gotchu up antes de actualizar el entorno.' 2
     require_managed_state; require_private_env
     printf '%s\n' 'Se reconstruirá desde este checkout, aplicará migraciones y reiniciará los servicios sin cambiar tus volúmenes.'
-    up
+    up true
     ;;
   github) [[ "${1:-}" == setup ]] || fail 'Uso: ./gotchu github setup' 2; github_setup ;;
   *) fail 'Uso: ./gotchu up|status|logs [service]|down|reset|doctor|setup-link|upgrade|github setup' 2 ;;
