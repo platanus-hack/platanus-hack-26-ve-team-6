@@ -150,6 +150,29 @@ chown gotchu-scanner:gotchu-scanner "$app/.local/dev/trivy-db"
 chmod 700 "$app/.local/dev/trivy-db"
 chown -R 65534:65534 "$app/.local/dev/trivy-db/db"
 chmod +x "$app/infra/aws/check-scanner.sh"
+chmod +x "$app/infra/aws/refresh-scanners.sh"
+cat >/etc/systemd/system/gotchu-scanner-refresh.service <<'UNIT'
+[Unit]
+Description=Refresh pinned scanner vulnerability metadata
+After=gotchu-data.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/gotchu/app/infra/aws/refresh-scanners.sh
+TimeoutStartSec=600
+UNIT
+cat >/etc/systemd/system/gotchu-scanner-refresh.timer <<'UNIT'
+[Unit]
+Description=Refresh scanner metadata daily outside Venezuelan daytime
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
+UNIT
 install -m 644 "$app/infra/aws/Caddyfile" /etc/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 install -d /etc/systemd/journald.conf.d
@@ -157,5 +180,6 @@ printf '[Journal]\nSystemMaxUse=100M\nRuntimeMaxUse=32M\n' >/etc/systemd/journal
 systemctl restart systemd-journald
 systemctl daemon-reload
 systemctl enable --now gotchu-data gotchu@scanner gotchu@coordinator gotchu@web
+systemctl enable --now gotchu-scanner-refresh.timer
 systemctl enable caddy
 systemctl restart caddy
