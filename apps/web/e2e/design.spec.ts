@@ -153,3 +153,13 @@ test('the headline and primary CTA remain usable without JavaScript', async ({ b
   await expect(page.getByRole('link', { name: 'Revisar mi aplicación', exact: true })).toHaveAttribute('href', '/dashboard');
   await context.close();
 });
+
+test('the header tucks away while scrolling down and returns when scrolling up', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+  const header = page.locator('.g-header');
+  await page.evaluate(() => scrollBy(0, 1200));
+  await expect(header).toHaveClass(/is-tucked/);
+  await page.evaluate(() => scrollBy(0, -300));
+  await expect(header).not.toHaveClass(/is-tucked/);
+  await expect(page.getByRole('link', { name: 'Gotchu, inicio' })).toBeInViewport();
+});

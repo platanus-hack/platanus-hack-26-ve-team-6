@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { UiIcon } from './ui';
 import { Hero } from './hero';
 import { Convergence } from './convergence';
@@ -35,6 +35,25 @@ const exportShape = [
   ['}', ''],
 ] as const;
 
+/** Tucks the header away while the visitor scrolls down and brings it back as soon as they scroll up. */
+function useHeaderTucking() {
+  const [tucked, setTucked] = useState(false);
+  useEffect(() => {
+    let last = scrollY, pending = 0;
+    const update = () => {
+      pending = 0;
+      const y = scrollY, delta = y - last;
+      if (Math.abs(delta) < 8) return;
+      setTucked(delta > 0 && y > 160);
+      last = y;
+    };
+    const onScroll = () => { if (!pending) pending = requestAnimationFrame(update); };
+    addEventListener('scroll', onScroll, { passive: true });
+    return () => { removeEventListener('scroll', onScroll); cancelAnimationFrame(pending); };
+  }, []);
+  return tucked;
+}
+
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [perspective, setPerspective] = useState(0);
@@ -51,9 +70,10 @@ export function LandingPage() {
     setKeyboardSelection(true); setPerspective(next); tabs.current[next]?.focus();
   }
   function closeMenu() { setMenuOpen(false); }
+  const headerHidden = useHeaderTucking() && !menuOpen;
   return <div className="g-page">
     <a className="g-skip" href="#contenido">Saltar al contenido</a>
-    <header className="g-header">
+    <header className={headerHidden ? 'g-header is-tucked' : 'g-header'}>
       <div className="g-nav-shell">
         <a className="g-brand" href="/" aria-label="Gotchu, inicio"><GotchuMark size={30} /><span>Gotchu</span></a>
         <button ref={menuButton} className="g-menu-button" type="button" aria-expanded={menuOpen} aria-controls="gotchu-nav" onKeyDown={event => { if (event.key === 'Escape') closeMenu(); }} onClick={() => setMenuOpen(!menuOpen)}><UiIcon name={menuOpen ? 'close' : 'grid'} />{menuOpen ? 'Cerrar' : 'Menú'}</button>

@@ -9,7 +9,8 @@
 .g-skip { position: fixed; top: -80px; left: 20px; padding: 12px 20px; z-index: 100; background: var(--gc-paper); color: var(--gc-canvas) !important; }
 .g-skip:focus { top: 16px; }
 
-.g-header { position: fixed; inset: 0 0 auto; z-index: 20; background: var(--gc-canvas); border-bottom: 1px solid #c7bfbd35; }
+.g-header { position: fixed; inset: 0 0 auto; z-index: 20; background: var(--gc-canvas); border-bottom: 1px solid #c7bfbd35; transition: transform 280ms var(--gc-ease); }
+.g-header.is-tucked:not(:focus-within) { transform: translateY(-100%); }
 .g-nav-shell { width: min(1480px, 100%); padding-inline: clamp(20px, 4.2vw, 68px); min-height: var(--g-header); margin: auto; display: flex; align-items: center; justify-content: space-between; gap: 24px; position: relative; }
 .g-brand { display: inline-flex; align-items: center; gap: 10px; min-height: var(--g-control); font: 700 19px/1 var(--gc-font-display); text-transform: uppercase; letter-spacing: .01em; }
 .g-nav { display: flex; align-items: center; gap: 28px; }
@@ -196,5 +197,6 @@
   .g-page .g-button, .g-secondary-link svg, .g-faq summary > span, .g-tab-indicator { transition: opacity 160ms ease, background-color 160ms ease, color 160ms ease; }
   .g-page .g-button:is(:hover,:active), .g-page :is(.g-button, .g-secondary-link):hover svg { transform: none; box-shadow: none; }
   .g-faq details::details-content { transition: none; }
+  .g-header { transition: none; }
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .g-header { background: var(--gc-canvas); backdrop-filter: none; border-bottom-color: var(--gc-line); } }
