@@ -20,6 +20,16 @@ Acordado el 24 de octubre de 2026: no bloquean el cierre del núcleo.
   - Mostrar el nombre en el avatar.
   - Cada afirmación debe estar respaldada por evidencia.
 
+## Errores y verificaciones abiertas
+
+Se encontraron durante la integración del 24 de octubre de 2026 y quedan para resolver después.
+
+- **WebAuthn en vivo.** El circuito "Aprobar PR" se probó con aserciones WebAuthn de fixture. Falta registrar una llave real y aprobar con ella.
+- **Proveedores LLM.** Los presets sólo se verificaron con un servidor HTTPS simulado; falta una ejecución en vivo por proveedor. xAI documenta Chat Completions como legado y la capa OpenAI-compatible de Gemini sigue en beta.
+- **Atestaciones del validator y scanners de la prueba D06.** En la prueba en vivo del PR de dependencia, las atestaciones de validación del parche de código y los scanners que no son npm fueron fixtures.
+- **Readiness del scanner.** La falta de la base de Trivy para imágenes bloqueaba la readiness completa. Ya se refresca en cada `./gotchu up`. Queda por decidir si la falta de un perfil opcional debe degradar la cobertura en lugar de bloquear el arranque.
+- **Integración de streams paralelos.** Al integrar quedaron imports duplicados y fixtures desactualizados; ya están corregidos. Conviene que cada agente compile la rama integrada antes de entregar.
+
 ## 3. Seguridad y operación (D14, resto)
 
 - **Revocación inmediata (D14).** Protege la garantía central: nada se escribe sin una aprobación exacta y vigente. Desconectar GitHub, rotar la firma de eventos, borrar un canal de notificación o quitar una llave WebAuthn (por ejemplo, tras perder el dispositivo) debe cancelar en la misma operación las aprobaciones pendientes y las pruebas de segundo factor, y quedar en el historial de decisiones. Hoy una aprobación previa podría seguir vigente y ejecutarse después.
