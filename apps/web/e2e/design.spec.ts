@@ -157,7 +157,8 @@ test('the headline and primary CTA remain usable without JavaScript', async ({ b
 test('the header tucks away while scrolling down and returns when scrolling up', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
   const header = page.locator('.g-header');
-  await page.evaluate(() => scrollBy(0, 1200));
+  await expect(page.locator('.g-hero-mark .g-ascii')).toHaveAttribute('data-ready', 'true');
+  for (const step of [400, 400, 400]) { await page.evaluate(distance => scrollBy(0, distance), step); await page.waitForTimeout(80); }
   await expect(header).toHaveClass(/is-tucked/);
   await page.evaluate(() => scrollBy(0, -300));
   await expect(header).not.toHaveClass(/is-tucked/);
