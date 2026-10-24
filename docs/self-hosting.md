@@ -36,6 +36,28 @@ Un Owner puede cambiar los plazos desde **Retención** en el dashboard. Los valo
 
 Semgrep está fijado en 1.182.0 por digest. La validación local Linux/amd64 cubre los perfiles acotados que registra [`docs/validation.md`](./validation.md); el gate general de perfil y las garantías de precisión/capacidad siguen cerrados. Los informes muestran cobertura parcial y desconocida; un resultado sin hallazgos no demuestra que el sistema sea seguro.
 
+## Investigación con IA
+
+En un despliegue con el investigador y el gateway D11 habilitados, una persona Owner abre la configuración de investigación del workspace, elige un proveedor, pega su clave API y guarda. El modelo sugerido puede cambiarse o escribirse como texto libre. La clave se almacena sólo en el servidor; Gotchu exige consentimiento explícito por categoría y conserva los límites de gasto y tokens. **Probar conexión** envía una solicitud mínima de hasta 64 tokens por el gateway y muestra un resultado breve.
+
+| Proveedor | Modelo inicial o sugerencias | Documentación oficial |
+| --- | --- | --- |
+| OpenAI | `gpt-5.4` | [API](https://developers.openai.com/api/reference/overview) · [modelo](https://developers.openai.com/api/docs/models/gpt-5.4) |
+| Anthropic | `claude-sonnet-5-5`, `claude-opus-5-5` | [API Messages](https://platform.claude.com/docs/en/api/overview) · [modelos](https://platform.claude.com/docs/en/models/overview) |
+| Google Gemini | `gemini-3.8-flash` | [endpoint compatible](https://ai.google.dev/gemini-api/docs/openai/) · [modelos](https://ai.google.dev/gemini-api/docs/models) |
+| DeepSeek | `deepseek-flash`, `deepseek-v4-pro` | [API](https://api-docs.deepseek.com/api/create-chat-completion/) · [modelos y precios](https://api-docs.deepseek.com/quick_start/pricing/) |
+| Moonshot AI (Kimi) | `kimi-k3.1-pro`, `kimi-k3.1-pro-highspeed` | [API](https://platform.kimi.ai/docs/api/chat) · [modelos](https://platform.kimi.ai/docs/models) |
+| Zhipu GLM (Z.ai) | `glm-5.3`, `glm-5.2`, `glm-5.1` | [chat completions y modelos](https://docs.z.ai/api-reference/llm/chat-completion) |
+| Mistral | `mistral-large-latest`, `mistral-small-latest` | [chat](https://docs.mistral.ai/api/endpoint/chat) · [modelos](https://docs.mistral.ai/api/endpoint/models) |
+| xAI Grok | `grok-4.7` | [API](https://docs.x.ai/developers/rest-api-reference/inference) · [modelo](https://docs.x.ai/developers/models/grok-4.7) |
+| Groq | `openai/gpt-oss-120b`, `openai/gpt-oss-20b` | [API](https://console.groq.com/docs/overview) · [modelos](https://console.groq.com/docs/models) |
+| OpenRouter | Escribe un ID del catálogo de OpenRouter | [API](https://openrouter.ai/docs/api_reference/overview) · [catálogo](https://openrouter.ai/models) |
+| Custom OpenAI-compatible | Escribe el ID y endpoint | [formato de chat](https://developers.openai.com/api/reference/chat/completions/overview) |
+
+Los proveedores alojados usan sus endpoints HTTPS oficiales. Custom OpenAI-compatible requiere HTTPS y DNS público; para permitir un endpoint autohospedado, el operador debe establecer `GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT=true` tanto en Web como en Gateway. En despliegues separados, configura `GOTCHU_GATEWAY_URL` en Web, comparte el mismo secreto aleatorio base64url de al menos 32 bytes mediante `GOTCHU_GATEWAY_MODEL_PROBE_SECRET` entre Web y Gateway, y proporciona al Gateway acceso al almacén de claves de modelo configurado. No pongas claves de proveedor en variables del navegador ni en logs.
+
+El arranque local de esta guía mantiene Agent y Gateway deshabilitados; en esa topología, la prueba de conexión informa que no está disponible. Los proveedores quedan utilizables cuando el operador habilita y configura esos servicios con sus credenciales y transporte privado.
+
 ## Comandos
 
 ```sh
