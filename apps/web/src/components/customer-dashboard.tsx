@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { AppWindowIcon, ArchiveIcon, FileTextIcon, GavelIcon, HouseIcon, LogOutIcon, MenuIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
+import { AppWindowIcon, ArchiveIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, HouseIcon, LogOutIcon, MenuIcon, PlusIcon, ShieldCheckIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -38,6 +38,7 @@ import { DecisionRecordHistory } from './decision-record-history';
 import { InvestigationActionButton, InvestigationModelSettings, InvestigationsTimeline } from './investigations-panel';
 import { DependencyInventoryPanel, LicensePolicyPanel, RetentionPolicyPanel } from './customer-supply-chain';
 import { GotchuMark } from './gotchu-mark';
+import { DotPlate } from './dot-field/dot-plate';
 import { ThemeSwitch } from './theme-switch';
 import './customer-shell.css';
 import './customer-report.css';
@@ -94,6 +95,29 @@ function Loading({ label }: { label: string }) {
 
 function ErrorNotice({ message, retry }: { message: string; retry?: () => void }) {
   return <div className="customer-error" role="alert"><strong>No se pudo completar la operación</strong><p>{message}</p>{retry && <button className="customer-link-button" onClick={retry}>Reintentar</button>}</div>;
+}
+
+/** Sign-in layout: a brand band beside a focused form (the band is dropped below 900px). */
+function AuthShell({ labelledBy, children }: { labelledBy?: string; children: ReactNode }) {
+  return <main className="gl customer-auth-page">
+    <div className="customer-auth-band">
+      <a className="customer-brand" href="/" aria-label="Gotchu, inicio"><GotchuMark size={26} /><span>Gotchu</span></a>
+      <div className="customer-auth-plate" aria-hidden="true"><DotPlate formation="globe" /></div>
+      <div className="customer-auth-pitch">
+        <p className="customer-auth-headline">Mira de cerca.<br /><span>Decide con pruebas.</span></p>
+        <p>Revisa el código de tu app, tu web o ambos, con evidencia para entender cada hallazgo y saber por dónde seguir.</p>
+        <p className="customer-auth-trust"><ShieldCheckIcon aria-hidden="true" />No ejecutamos tu código fuente ni hacemos cambios en tus aplicaciones.</p>
+      </div>
+    </div>
+    <div className="customer-auth-main">
+      <header className="customer-auth-top">
+        <a className="customer-brand customer-auth-mobile-brand" href="/" aria-label="Gotchu, inicio"><GotchuMark size={26} /><span>Gotchu</span></a>
+        <nav className="customer-auth-nav" aria-label="Navegación principal"><a href="/">Inicio</a><a href="/#gl-codigo">Cómo funciona</a></nav>
+        <ThemeSwitch />
+      </header>
+      <section className="customer-auth-card" {...(labelledBy ? { 'aria-labelledby': labelledBy } : {})}>{children}</section>
+    </div>
+  </main>;
 }
 
 function ProviderLogo({ providerId }: { providerId: string }) {
@@ -207,10 +231,8 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
   const ssoProviders = oauthProviders.filter(provider => provider.id !== 'google' && provider.id !== 'github');
   const lastProvider = oauthProviders.find(provider => provider.id === lastMethod);
   const lastMethodLabel = lastMethod === 'credentials' ? 'correo y contraseña' : lastProvider?.name ?? (lastMethod ? 'SSO' : null);
-  return <main className="gl customer-auth-page">
-    <section className="customer-auth-card" aria-labelledby="auth-title">
-      <Brand />
-      <h1 id="auth-title">{registering ? 'Crea tu espacio de trabajo' : 'Inicia sesión en Gotchu'}</h1>
+  return <AuthShell labelledBy="auth-title">
+      <h1 id="auth-title">{registering ? 'Crea tu cuenta' : 'Inicia sesión en Gotchu'}</h1>
       <p className="customer-auth-copy">Accede para revisar tus espacios de trabajo y las aplicaciones que administra tu equipo.</p>
 
       {error && <div className="customer-inline-error" role="alert">{error}</div>}
@@ -226,13 +248,13 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
         <span>{loadingProvider === provider.id ? 'Conectando con SSO…' : 'Continuar con SSO'}</span>
       </button>)}
 
-      {oauthProviders.length > 0 && session.localAuthEnabled && <div className="customer-auth-divider"><span>O</span></div>}
+      {oauthProviders.length > 0 && session.localAuthEnabled && <div className="customer-auth-divider"><span>o con tu correo</span></div>}
       {session.localAuthEnabled && <form className="customer-form customer-auth-form" onSubmit={submit}>
         <label htmlFor="customer-email">Correo electrónico</label>
         <input id="customer-email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} />
         <label htmlFor="customer-password">Contraseña</label>
-        <div className="customer-auth-password"><input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete={registering ? 'new-password' : 'current-password'} required minLength={registering ? 15 : undefined} maxLength={128} value={password} onChange={event => setPassword(event.target.value)} /><button type="button" className="customer-auth-password-toggle" aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'} aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.6"/>{showPassword && <path d="m4 4 16 16"/>}</svg></button></div>
-        {!registering && <label className="customer-auth-remember"><input type="checkbox" checked={rememberAccess} onChange={event => changeRememberAccess(event.target.checked)} /><span>Recordar email y método de acceso en este dispositivo</span></label>}
+        <div className="customer-auth-password"><input id="customer-password" type={showPassword ? 'text' : 'password'} autoComplete={registering ? 'new-password' : 'current-password'} required minLength={registering ? 15 : undefined} maxLength={128} value={password} onChange={event => setPassword(event.target.value)} /><button type="button" className="customer-auth-password-toggle" aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'} aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOffIcon aria-hidden="true" /> : <EyeIcon aria-hidden="true" />}</button></div>
+        {!registering && <label className="customer-checkbox customer-auth-remember"><input type="checkbox" checked={rememberAccess} onChange={event => changeRememberAccess(event.target.checked)} /><span>Recordar email y método de acceso en este dispositivo</span></label>}
         {rememberAccess && lastMethodLabel && <p className="customer-auth-last-method" role="status">Último método: {lastMethodLabel}</p>}
         {registering && <p className="customer-field-note">Usa al menos 15 caracteres. La autenticación local está habilitada para este entorno.</p>}
         <button className="customer-button customer-button-primary customer-button-full" disabled={busy || loadingProvider !== null}>{busy ? <><span className="customer-spinner" />Conectando…</> : registering ? 'Crear cuenta' : 'Iniciar sesión'}</button>
@@ -240,10 +262,8 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
       </form>}
 
       {!session.localAuthEnabled && oauthProviders.length === 0 && <div className="customer-inline-error" role="status">El inicio de sesión todavía no está configurado para este entorno.</div>}
-      <p className="customer-auth-privacy">Tus fuentes e informes pertenecen a tu espacio de trabajo. No ejecutamos código fuente ni hacemos cambios en tus aplicaciones.</p>
-      <nav className="customer-auth-legal" aria-label="Información legal"><a href="/privacy">Privacidad</a><a href="/terms">Términos</a></nav>
-    </section>
-  </main>;
+      <nav className="customer-auth-legal" aria-label="Información legal">Consulta los <a href="/terms">Términos de uso</a> y el <a href="/privacy">Aviso de privacidad</a>.</nav>
+  </AuthShell>;
 }
 
 function WorkspaceCreate({ onCreated, disabled }: { onCreated: (workspace: CustomerWorkspace) => void; disabled: boolean }) {
@@ -920,7 +940,7 @@ export function CustomerDashboard() {
   const invitationBanner = invitationError ? <div role="alert" className="customer-error"><p>No se pudo aceptar la invitación: {invitationError}</p><button type="button" className="customer-link-button" onClick={() => setAcceptAttempt(value => value + 1)}>Volver a intentar</button></div>
     : invitationToken && !session.data?.user ? <p role="status" className="customer-success">Inicia sesión con la cuenta invitada para aceptar esta invitación.</p> : null;
   if (session.isPending) return <main className="gl customer-auth-page"><Loading label="Comprobando tu sesión…" /></main>;
-  if (session.error) return <main className="gl customer-auth-page"><section className="customer-auth-card"><Brand />{invitationBanner}<ErrorNotice message={readableError(session.error)} retry={() => session.refetch()} /></section></main>;
+  if (session.error) return <AuthShell>{invitationBanner}<ErrorNotice message={readableError(session.error)} retry={() => session.refetch()} /></AuthShell>;
   if (!session.data.user) return <>{invitationBanner}<AuthPanel session={session.data} onAuthenticated={value => { queryClient.setQueryData(['customer-session'], value); }} /></>;
   return <><CustomerWorkspace key={session.data.user.id} session={session.data} userId={session.data.user.id} acceptedInvitationId={acceptedInvitation?.organizationId ?? null} invitationMessage={invitationMessage} />{invitationBanner}</>;
 }
