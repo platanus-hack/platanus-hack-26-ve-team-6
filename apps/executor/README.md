@@ -47,7 +47,9 @@ Stale head, policy, artifacts, failed eligibility, and invalidation map to `Exec
 
 ## Provider adapter
 
-`@gotchu/git-adapters` now contains local Git and GitHub App adapters, but the executor process has not been wired to them. If `ProviderAdapter` is omitted, `execute()` returns `disabled` before consuming approval or calling the ledger. The fake adapters in the ledger tests remain test fixtures; the separate opt-in GitHub adapter suite is labeled as a real provider check.
+`@gotchu/git-adapters` contains local Git and GitHub App adapters. Before publishing, the GitHub adapter reads `.github/workflows/*` from the pinned base and parses each workflow with the pinned `js-yaml` dependency. It denies malformed YAML, `pull_request_target`, unfiltered `push`, `push` filters matching `gotchu/**`, and non-`GITHUB_TOKEN` secrets in `pull_request` workflows. The current explicit-exception argument is only an adapter seam; Owner-managed, per-repository, versioned and audited exceptions are not implemented.
+
+The durable executor process has not been wired to these adapters. If `ProviderAdapter` is omitted, `execute()` returns `disabled` before consuming approval or calling the ledger. The opt-in GitHub suite is a real adapter check: it creates one sandbox PR, reconciles duplicate delivery and closes the PR/deletes its branch. It does not run the durable executor or a product approval flow.
 
 ## Writer App credentials for the sandbox check
 

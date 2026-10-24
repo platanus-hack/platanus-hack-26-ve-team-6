@@ -216,9 +216,9 @@ Trabajo:
 Trabajo:
 
 - [x] Implementar `@gotchu/git-adapters` con salida local Git y GitHub App, ramas deterministas, creación condicional de ref y búsqueda de PR por branch tras entregas repetidas.
-- [x] Añadir checks de paths `.github/workflows/**` y triggers `pull_request_target`/`gotchu/**`, además de reconciliar una respuesta perdida después de crear la rama o el PR. La prueba opt-in real confirmó head/base y limpió sus recursos.
+- [x] Rechazar cambios candidatos bajo `.github/workflows/**`; leer los workflows del commit base y parsear YAML con `js-yaml`, en modo deny-by-default, rechazando `pull_request_target`, `push` sin filtro de ramas, `push` hacia `gotchu/**` y secretos distintos de `GITHUB_TOKEN` en `pull_request`. Un YAML inválido también se rechaza. La prueba opt-in real confirmó head/base, inspeccionó el sandbox (sin workflows) y cerró el PR/eliminó la rama.
 - [ ] Integrar el adaptador con el executor, publicar artefactos D05 almacenados y verificar digest exacto del diff/commit desde el proveedor.
-- [ ] Comprobar automatizaciones del repo con una política explícita. El runtime lector actual no puede leer workflows y permanece fail-closed; la prueba GitHub adapter directa no sustituye esa integración.
+- [ ] Conectar la inspección al runtime lector y al registro de excepciones por repositorio, aprobado por Owner, versionado y auditado. La opción de excepción actual sólo es una costura del adaptador y no satisface ese registro. La prueba GitHub adapter directa no sustituye esa integración.
 - [ ] Definir operaciones condicionales reales por proveedor. Un lock de Postgres y leer el head antes de escribir no bloquean un editor remoto. GitHub no ofrece un parámetro universal de expected-old-SHA para todas las operaciones; revisar capacidades concretas y cerrar las que no garanticen la política. Referencia: [Git refs REST](https://docs.github.com/en/rest/git/refs?apiVersion=2022-11-28).
 - [ ] Si cambia la base, invalidar y regenerar aprobación. Si el cambio se descubre después de crear el PR, conservarlo como obsoleto y bloquear merge/deploy hasta validar de nuevo; no describir ese caso como libre de carreras.
 - [ ] Gestionar permiso revocado, PR cerrado, conflicto, branch borrada y reconciliación de resultado incierto sin repetir la publicación.
