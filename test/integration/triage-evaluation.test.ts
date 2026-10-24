@@ -73,7 +73,7 @@ live('real-app triage evaluation on disposable PostgreSQL, Redis, web intake and
     const worktreeDirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim().length > 0;
     const report = buildEvaluationReport({ matrixVersion: matrix.version, matrixSha256, rulesVersion: matrix.rulesVersion,
       gitSha, worktreeDirty, startedAt, finishedAt, durationMs: Date.now() - startTime,
-      repetitions: matrix.repetitions, trials,
+      repetitions: matrix.repetitions, acceptanceTargets: matrix.acceptanceTargets, trials,
       permissionChecks: trials.flatMap(trial => trial.permissionCheck ? [trial.permissionCheck] : []),
     });
     const paths = await writeEvaluationArtifacts(report, requested !== undefined);
@@ -87,7 +87,7 @@ live('real-app triage evaluation on disposable PostgreSQL, Redis, web intake and
     const telemetryCases = trials.filter(trial => trial.scenario === 'stale-telemetry' || trial.scenario === 'missing-telemetry');
     expect(telemetryCases.every(trial => trial.actual.impact === 'unknown' && trial.actual.unknownCoverageVisible && trial.correctness.abstained)).toBe(true);
     if (trials.some(trial => trial.split === 'tuning')) {
-      expect(report.decisionDimensions.alertSeverityAndConfidenceSeparate).toBe(true);
+      expect(report.decisionDimensions.alertSeverityAndConfidence.separateFieldsPresent).toBe(true);
       expect(report.decisionDimensions.providerExecutionPermission).toBe('disabled');
     }
   }, 900_000);
