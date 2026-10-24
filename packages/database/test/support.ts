@@ -15,6 +15,7 @@ export async function fixture(options: { max?: number } = {}) {
   await admin.connect();
   const suffix = randomBytes(6).toString('hex');
   const usernames: string[] = [];
+  const runtimeUrls = new Map<RuntimeRole, string>();
   async function database(role: RuntimeRole) {
     const username = `${role}_${suffix}`;
     usernames.push(username);
@@ -23,6 +24,7 @@ export async function fixture(options: { max?: number } = {}) {
     const url = new URL(connectionString);
     url.username = username;
     url.password = password;
+    runtimeUrls.set(role, url.toString());
     return createDatabase({ connectionString: url.toString(), role, max: options.max ?? 1 });
   }
   const databases: Record<RuntimeRole, Database> = {
@@ -38,10 +40,11 @@ export async function fixture(options: { max?: number } = {}) {
     await admin.query("INSERT INTO gotchu.integrations(organization_id, application_id, id, kind) VALUES ($1, $2, $3, 'signed_events')", [t.organizationId, t.applicationId, t.integrationId]);
     await admin.query('INSERT INTO gotchu.integration_credentials(organization_id, integration_id, credential_ref) VALUES ($1, $2, $3)', [t.organizationId, t.integrationId, `test:${t.integrationId}`]);
   }
-  return { admin, databases, a, b, close: async () => {
+  return { admin, databases, a, b, runtimeConnectionString: (role: RuntimeRole) => present(runtimeUrls.get(role)), close: async () => {
     await Promise.all(Object.values(databases).map((db) => db.close()));
     for (const username of usernames) await admin.query(`DROP ROLE ${username}`);
     await admin.end();
+    runtimeUrls.clear();
   } };
 }
 
