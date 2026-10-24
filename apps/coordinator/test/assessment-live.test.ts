@@ -7,6 +7,7 @@ import { fixture, liveUrl, present } from '../../../packages/database/test/suppo
 import { assessmentReportFixture } from '../../../packages/backend/test/assessment-fixtures.js';
 import { createCustomerAssessmentRunner, createDockerScanners } from '@gotchu/customer-assessment';
 import { createCoordinatorTransport, dispatchOutbox, processDurableJob, reconcileDurableDeliveries, type AssessmentRunner } from '../src/index.js';
+import imageFixture from './container-image-fixture.json' with { type: 'json' };
 
 const redisUrl = process.env.GOTCHU_TEST_REDIS_URL;
 const live = liveUrl && redisUrl ? describe : describe.skip;
@@ -92,21 +93,30 @@ live('live Postgres/Redis assessment delivery', () => {
     const workspace = await customerApi.customers.createWorkspace(identity, { name: 'Container image live test' });
     const application = await customerApi.customers.createApplication(identity, { organizationId: workspace.id, name: 'Pinned image' });
     const customerScope = { organizationId: workspace.id, applicationId: application.applicationId };
-    const reference = 'docker.io/library/alpine@sha256:a15790640a6690aa1730c38cf0a440e2aa44aaca9b0e8931a9f2b0d7cc90fd65';
+    const reference = imageFixture.reference;
     const { jobId } = await customerApi.customers.queue(identity, {
       ...customerScope, mode: 'internal', sourceSnapshotId: null, targetId: null, inputKind: 'container_image',
       containerImage: { kind: 'registry', reference }, idempotencyKey: randomUUID(),
     });
+    const runner = createCustomerAssessmentRunner({ scanners: createDockerScanners() });
+    let scannerFailure: unknown;
     const transport = createCoordinatorTransport({
       redisUrl: present(redisUrl), organizationIds: [workspace.id],
-      dependencies: { ...dependencies(), customerAssessmentRunner: createCustomerAssessmentRunner({ scanners: createDockerScanners() }) },
+      dependencies: { ...dependencies(), customerAssessmentRunner: { run: async input => {
+        try { return await runner.run(input); }
+        catch (error) { scannerFailure = error; throw error; }
+      } } },
       prefix: `container-image-live-${randomUUID()}`,
       report: () => undefined,
     });
     try {
       await transport.waitUntilReady();
       await dispatchOutbox(backend, workspace.id, transport.publish);
-      await eventually(async () => (await customerApi.web.getJob(identity, { organizationId: workspace.id, jobId })).state === 'succeeded', 'container image assessment completion', 120_000);
+      await eventually(async () => {
+        const job = await customerApi.web.getJob(identity, { organizationId: workspace.id, jobId });
+        if (job.state === 'failed') throw new Error(`Container image assessment failed: ${job.reasonCode}`, { cause: scannerFailure });
+        return job.state === 'succeeded';
+      }, 'container image assessment completion', 120_000);
       const job = await customerApi.web.getJob(identity, { organizationId: workspace.id, jobId });
       if (job.state !== 'succeeded' || !job.reportId) throw new Error('container_image_report_not_persisted');
       const report = await customerApi.customers.getReport(identity, { ...customerScope, reportId: job.reportId });
