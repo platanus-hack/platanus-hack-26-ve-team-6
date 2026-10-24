@@ -12,34 +12,18 @@
 
 /* Everything else sits in the components layer, so shadcn's utility classes always win over it. */
 @layer components {
-  @media (prefers-reduced-motion: no-preference) { html:has(.gl) { scroll-behavior: smooth; } }
-  html:has(.gl) { scrollbar-color: var(--gl-scrollbar, #646174) transparent; }
+  @media (prefers-reduced-motion: no-preference) { html:has(.gl-page) { scroll-behavior: smooth; } }
+  html:has(.gl-page) { scrollbar-color: var(--gl-scrollbar, #646174) transparent; }
 
-  .gl {
-    --ease: cubic-bezier(.23, 1, .32, 1);
-    --sweep: cubic-bezier(.65, 0, .35, 1);
+  .gl-page {
     --header-h: 52px;
-    --gutter: clamp(20px, 4vw, 48px);
-    --display: var(--gc-font-display);
-    --mono: var(--gc-font-code);
-    /* Type set inside the magenta band of a large highlight; porcelain in both themes. */
-    --on-brand: #fffefa;
-    --footer-bg: #191923;
-    --footer-fg: #fffefa;
-  --footer-accent: #ff8fbe;
     position: relative;
     min-height: 100vh;
     overflow-x: clip;
     isolation: isolate;
     background: var(--background);
-    color: var(--foreground);
-    font-family: var(--gc-font-body);
-    font-size: 17px;
-    line-height: 1.6;
   }
-  [data-theme='dark'] .gl { --footer-bg: #000000; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme]) .gl { --footer-bg: #000000; } }
-  @media (max-width: 759px) { .gl { --header-h: 48px; } }
+  @media (max-width: 759px) { .gl-page { --header-h: 48px; } }
 
   .gl a { color: inherit; }
   .gl .gl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -62,7 +46,7 @@
   }
 
   /* Mobile menu: a sheet from the top, portalled outside the page, so it carries the .gl class itself. */
-  .gl.gl-sheet { padding: 12px var(--gutter) 20px; font-family: var(--gc-font-body); }
+  .gl.gl-sheet { padding: 12px var(--gutter) 20px; }
   .gl .gl-sheet-nav { display: flex; flex-direction: column; padding-top: 44px; }
   .gl .gl-sheet-nav a { display: flex; align-items: center; min-height: 48px; border-top: 1px solid var(--border); font-size: 17px; font-weight: 500; text-decoration: none; }
   .gl .gl-sheet-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

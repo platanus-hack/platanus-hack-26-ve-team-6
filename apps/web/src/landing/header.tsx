@@ -43,7 +43,7 @@ export function Header() {
       </nav>
       <div className="gl-header-tools">
         <ThemeSwitch className="max-[519px]:hidden" />
-        <a href="/dashboard" className={cn(buttonVariants({ size: 'sm' }), 'max-[899px]:hidden')}>Abrir Gotchu</a>
+        <a href="/dashboard" data-catch="" className={cn(buttonVariants({ size: 'sm' }), 'max-[899px]:hidden')}>Abrir Gotchu</a>
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger render={<Button variant="outline" size="sm" className="min-[900px]:hidden" />}>
             <MenuIcon aria-hidden="true" />Menú
@@ -56,7 +56,7 @@ export function Header() {
             <Separator />
             <div className="gl-sheet-foot">
               <ThemeSwitch />
-              <a href="/dashboard" className={buttonVariants()}>Abrir Gotchu</a>
+              <a href="/dashboard" data-catch="" className={buttonVariants()}>Abrir Gotchu</a>
             </div>
           </SheetContent>
         </Sheet>

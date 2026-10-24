@@ -211,7 +211,7 @@ function Footer() {
 export function Landing() {
   const motionAllowed = useMotionAllowed();
   const [paused, setPaused] = useState(false);
-  return <div className="g-page gl" data-motion={motionAllowed ? 'on' : 'off'}>
+  return <div className="g-page gl gl-page" data-motion={motionAllowed ? 'on' : 'off'}>
     <a className="gl-skip" href="#contenido">Saltar al contenido</a>
     <Header />
     <main id="contenido" tabIndex={-1} className="gl-main">
