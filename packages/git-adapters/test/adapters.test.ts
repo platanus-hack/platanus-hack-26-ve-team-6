@@ -167,6 +167,7 @@ describe('git adapters', () => {
     const ancestorRepo=await localRepo();
     const ancestorSentinel=join(ancestorRepo.root,'outside-ancestor.txt');
     await writeFile(ancestorSentinel,'unchanged');
+    await rm(join(ancestorRepo.seed,'src'),{recursive:true});
     await symlink(ancestorRepo.root,join(ancestorRepo.root,'seed','src'));
     command(join(ancestorRepo.root,'seed'),'add','src');
     command(join(ancestorRepo.root,'seed'),'-c','user.name=Test','-c','user.email=test@localhost','commit','-m','tracked ancestor symlink');
@@ -180,6 +181,7 @@ describe('git adapters', () => {
     const leafRepo=await localRepo();
     const leafSentinel=join(leafRepo.root,'outside-leaf.txt');
     await writeFile(leafSentinel,'unchanged');
+    await rm(join(leafRepo.seed,'src'),{recursive:true});
     await mkdir(join(leafRepo.root,'seed','src'));
     await symlink(leafSentinel,join(leafRepo.root,'seed','src','link.txt'));
     command(join(leafRepo.root,'seed'),'add','src/link.txt');
