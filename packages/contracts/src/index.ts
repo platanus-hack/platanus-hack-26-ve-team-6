@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export * from './assessment.js';
 
 export const idSchema = z.uuid();
 export const eventTypeSchema = z.enum([
