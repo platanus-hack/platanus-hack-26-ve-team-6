@@ -67,3 +67,19 @@ live('customer schema privilege and RLS boundaries on real Postgres', () => {
     expect((await f.databases.gotchu_api.tenant(f.a.organizationId, tx => tx.query('SELECT gotchu.lock_customer_organization($1) AS locked', [f.b.organizationId]))).rows).toEqual([{ locked: false }]);
   });
 });
+
+live('application context RLS', () => {
+  let f: Awaited<ReturnType<typeof fixture>>;
+  beforeAll(async () => { f = await fixture(); }, 30_000);
+  afterAll(async () => { await f?.close(); });
+  it('forces tenant RLS across every context inventory table', async () => {
+    const tables = ['application_environments', 'application_services', 'application_repository_links', 'application_deployments', 'application_dependencies', 'application_origin_candidates'] as const;
+    for (const table of tables) {
+      const rows = await f.databases.gotchu_api.tenant(f.b.organizationId, tx => tx.query(`SELECT * FROM gotchu.${table} WHERE organization_id=$1`, [f.a.organizationId]));
+      expect(rows.rows).toEqual([]);
+    }
+    const policies = await f.admin.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relnamespace='gotchu'::regnamespace AND relname=ANY($1::text[])", [tables]);
+    expect(policies.rows).toHaveLength(tables.length);
+    expect(policies.rows.every(row => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
+  });
+});
