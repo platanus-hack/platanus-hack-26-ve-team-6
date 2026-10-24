@@ -70,10 +70,11 @@ app.use(express.json());
 app.use(guard.middleware()); // after body parsing, before route handlers
 
 app.get('/search', async (request, response) => {
-  const query = String(request.query.sql ?? '');
+  const searchTerm = String(request.query.q ?? '');
+  const sql = 'SELECT id FROM users WHERE name = $1';
   try {
     // Sustituye database por el cliente SQL de tu aplicación.
-    await guard.sql(query, () => database.query(query));
+    await guard.sql(sql, () => database.query(sql, [searchTerm]));
     response.sendStatus(200);
   } catch (error) {
     if (error instanceof GotchuProtectionBlockedError) return response.sendStatus(403);
