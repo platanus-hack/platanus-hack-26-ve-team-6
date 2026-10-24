@@ -10,6 +10,9 @@ import {
   operationPlanSchema,
   operationPlanStepSchema,
   operationReadinessSchema,
+  runtimeProtectionConfigSchema,
+  runtimeProtectionDetectionSchema,
+  runtimeProtectionUpdateSchema,
   telemetryConnectionSchema,
   telemetryIntegrationSchema,
   type OperationPlan,
@@ -26,6 +29,7 @@ type Scope = z.infer<typeof customerScopeSchema>;
 type MonitorSettings = Omit<z.input<typeof monitorConfigInputSchema>, 'organizationId' | 'applicationId'>;
 type PlanKind = z.infer<typeof operationPlanKindSchema>;
 type PlanStepKey = z.infer<typeof operationPlanStepSchema.shape.key>;
+type ProtectionUpdate = Omit<z.input<typeof runtimeProtectionUpdateSchema>, 'organizationId' | 'applicationId'>;
 
 function applicationPath({ organizationId, applicationId }: Scope) {
   return `/api/customer/workspaces/${encodeURIComponent(organizationId)}/applications/${encodeURIComponent(applicationId)}`;
@@ -121,6 +125,19 @@ export const operationsApi = {
     const id = z.uuid().parse(integrationId);
     return customerRequest(`${applicationPath(scope)}/telemetry/${encodeURIComponent(id)}`, z.undefined(), {
       method: 'DELETE',
+    });
+  },
+  protection(scope: Scope) {
+    return customerRequest(`${applicationPath(scope)}/protection`, runtimeProtectionConfigSchema);
+  },
+  protectionDetections(scope: Scope) {
+    return customerRequest(`${applicationPath(scope)}/protection/detections`, z.array(runtimeProtectionDetectionSchema).max(100));
+  },
+  configureProtection(scope: Scope, input: ProtectionUpdate) {
+    const value = runtimeProtectionUpdateSchema.parse({ ...scope, ...input });
+    return customerRequest(`${applicationPath(scope)}/protection`, runtimeProtectionConfigSchema, {
+      method: 'PUT',
+      ...jsonBody({ mode: value.mode, enabledDetectors: value.enabledDetectors }),
     });
   },
 };
