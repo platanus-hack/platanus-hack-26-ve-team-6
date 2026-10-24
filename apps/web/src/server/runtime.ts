@@ -110,6 +110,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
   const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, operations: web.operations, corrections: web.corrections, context: web.context, triage: web.triage,
     members: web.members,
+    github: web.github,
     actions: web.actions,
     validations: web.validations,
     repositoryCatalog: async (identity, scope) => {
@@ -122,6 +123,8 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
     ...(accounts ? { localAccounts: accounts } : {}),
     registrationEnabled: Boolean(accounts) && auth.enabled && env.NODE_ENV === 'development' && env.GOTCHU_ALLOW_LOCAL_REGISTRATION === 'true',
     providers: publicAuthProviders(settings),
+    ...(env.GOTCHU_GITHUB_READER_APP_FILE ? { githubAppFile: env.GOTCHU_GITHUB_READER_APP_FILE } : {}),
+    ...(env.GOTCHU_GITHUB_APP_SLUG ? { githubAppSlug: env.GOTCHU_GITHUB_APP_SLUG } : {}),
   });
   return {
     handle,

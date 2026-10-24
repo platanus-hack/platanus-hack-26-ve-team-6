@@ -20,6 +20,8 @@ import {
   type CustomerSourceSummary,
   type CustomerTarget,
   type CustomerWorkspace,
+  githubConnectionSchema,
+  githubRepositorySchema,
 } from '@gotchu/contracts';
 import {
   prepareCorrectionRequestSchema,
@@ -57,6 +59,7 @@ const deletedSourceSchema = z.union([z.undefined(), z.object({ deleted: z.litera
 const actionProposalSchema = z.object({ id: z.uuid(), actionHash: z.string().regex(/^[0-9a-f]{64}$/), kind: z.string(), state: z.enum(['proposed','eligible','ineligible','approved','expired','invalidated','executing','succeeded','failed','uncertain','reconciliation_required']), effect: z.string(), scope: z.string(), target: z.unknown(), cost: z.object({ state: z.literal('unknown'), amount: z.null() }).strict(), diff: z.object({ path: z.string(), summary: z.string() }).strict().nullable(), validations: z.array(z.object({ label: z.string(), state: z.enum(['pending','passed','failed','unknown']) }).strict()), limits: z.array(z.string()), blockingReasons: z.array(z.string()), createdAt: z.iso.datetime() }).strict();
 const actionListSchema = z.array(actionProposalSchema).max(100);
 const actionEligibilitySchema = z.object({ status: z.enum(['eligible','ineligible']), blockingReasons: z.array(z.string()) }).strict();
+const githubSelectSchema = z.object({ repository: githubRepositorySchema, link: z.object({ id: z.uuid(), applicationId: z.uuid(), repositoryKey: z.string(), fullName: z.string(), defaultBranch: z.string(), readAccess: z.literal('granted'), writeAccess: z.literal('not_granted') }).strict(), source: customerSourceSummarySchema, jobId: z.uuid() }).strict();
 
 export type CustomerSession = z.infer<typeof customerSessionSchema>;
 export type CustomerJob = z.infer<typeof customerJobSchema>;
@@ -258,5 +261,16 @@ export const customerApi = {
     });
   },
   job: (organizationId: string, applicationId: string, jobId: string) => request(`${organizationPath(organizationId)}/jobs/${encodeURIComponent(jobId)}`, customerJobSchema),
+  githubConnect: async (organizationId: string) => {
+    const result = await request('/api/customer/github/connect', z.object({ installUrl: z.string().url() }).strict(), { method: 'POST', ...jsonBody({ organizationId }) });
+    return result.installUrl;
+  },
+  githubConnections: (organizationId: string) => request(`${organizationPath(organizationId)}/github/connections`, z.array(githubConnectionSchema).max(20)),
+  githubRepositories: (organizationId: string, applicationId: string, installationId: string) => request(`${applicationPath(organizationId, applicationId)}/github/installations/${encodeURIComponent(installationId)}/repositories`, z.array(githubRepositorySchema).max(1000)),
+  githubSelectRepository: (input: { organizationId: string; applicationId: string; installationId: string; repositoryId: number; fullName: string; defaultBranch: string }) => request(
+    `${applicationPath(input.organizationId, input.applicationId)}/github/installations/${encodeURIComponent(input.installationId)}/repositories/${input.repositoryId}/select`,
+    githubSelectSchema, { method: 'POST', ...jsonBody({ fullName: input.fullName, defaultBranch: input.defaultBranch }) }, 201,
+  ),
+  githubDisconnect: (organizationId: string, installationId: string) => request(`${organizationPath(organizationId)}/github/connections/${encodeURIComponent(installationId)}`, z.undefined(), { method: 'DELETE' }),
 };
 export { request as customerRequest };

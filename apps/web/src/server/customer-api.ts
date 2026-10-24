@@ -21,6 +21,7 @@ import { handleContextApi } from './context-api.js';
 import { handleTriageApi } from './triage-api.js';
 import { handleMembersApi } from './members-api.js';
 import { handleActionsApi } from './actions-api.js';
+import { createGitHubApi } from './github-api.js';
 
 export interface CustomerServices {
   stepUp?: NonNullable<Backend['stepUp']>;
@@ -36,6 +37,7 @@ export interface CustomerServices {
   operations?: Backend['operations'];
   triage?: Backend['triage'];
   actions?: Backend['actions'];
+  github?: Backend['github'];
   repositoryCatalog?: (identity: Identity, scope: { organizationId: string; applicationId: string }) => Promise<Array<{ key: string; label: string }>>;
   listWorkspaces(identity: Identity): Promise<CustomerWorkspace[]>;
   createWorkspace(identity: Identity, value: z.infer<typeof customerCreateWorkspaceSchema>): Promise<CustomerWorkspace>;
@@ -72,7 +74,10 @@ export function createCustomerApi(options: {
   auth: AuthService; origin: string; services: CustomerServices | null;
   localAccounts?: LocalAccounts; registrationEnabled: boolean;
   providers: readonly { id: string; name: string; type: string }[];
+  githubAppFile?: string; githubAppSlug?: string;
 }) {
+  const handleGitHub = createGitHubApi({ origin: options.origin, ...(options.githubAppFile ? { appFile: options.githubAppFile } : {}), ...(options.githubAppSlug ? { appSlug: options.githubAppSlug } : {}),
+    services: options.services?.github ? { github: options.services.github, uploadSource: options.services.uploadSource, queue: options.services.queue } : null });
   return async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url);
@@ -84,6 +89,13 @@ export function createCustomerApi(options: {
         for (const cookie of identity?.cookies ?? []) headers.append('set-cookie', cookie);
         return json({ user: identity ? { id: identity.userId } : null, providers: options.providers,
           localAuthEnabled: Boolean(options.localAccounts), registrationEnabled: options.registrationEnabled }, 200, headers);
+      }
+      if (url.pathname === '/api/customer/github/callback' || url.pathname === '/api/customer/github/connect'
+        || /^\/api\/customer\/workspaces\/[^/]+\/(?:applications\/[^/]+\/)?github(?:\/|$)/.test(url.pathname)) {
+        const githubSession = await options.auth.identity(request);
+        const githubIdentity = githubSession ? { userId: githubSession.userId } : null;
+        const response = await handleGitHub(request, githubIdentity, githubSession?.cookies ?? []);
+        if (response) return response;
       }
       if (request.method === 'POST' && url.pathname === '/api/customer/register') {
         if (!options.registrationEnabled || !options.localAccounts) throw new HttpError(403, 'registration_disabled', 'El registro local no está habilitado.');
