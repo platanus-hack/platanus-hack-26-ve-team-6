@@ -5,12 +5,13 @@ export { migrate, provisionRuntimeLogin, setRecoveryState } from './migrate.js';
 export const runtimeRoleSchema = z.enum(['gotchu_api', 'gotchu_ingest', 'gotchu_coordinator', 'gotchu_executor']);
 export type RuntimeRole = z.infer<typeof runtimeRoleSchema>;
 export interface Transaction {
-  query<R extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<QueryResult<R>>;
+  query<R extends QueryResultRow = Record<string, unknown>>(text: string, values?: unknown[]): Promise<QueryResult<R>>;
 }
 export interface Database {
   readonly role: RuntimeRole;
   tenant<T>(organizationId: string, work: (tx: Transaction) => Promise<T>): Promise<T>;
   integration<T>(integrationId: string, work: (tx: Transaction) => Promise<T>): Promise<T>;
+  checkHealth(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -19,7 +20,7 @@ export function createDatabase(options: { connectionString: string; role: Runtim
   const role = runtimeRoleSchema.parse(options.role);
   const pool = new pg.Pool({ connectionString: options.connectionString, max: options.max ?? 10, connectionTimeoutMillis: 5_000 });
   // Do not expose credentials through an unhandled pool error.
-  pool.on('error', () => {});
+  pool.on('error', () => { process.emitWarning('An idle Gotchu database connection failed; the pool will replace it'); });
   async function transaction<T>(organizationId: string | null, integrationId: string | null, work: (tx: Transaction) => Promise<T>): Promise<T> {
     const client = await pool.connect();
     let discard = false;
@@ -54,6 +55,7 @@ export function createDatabase(options: { connectionString: string; role: Runtim
       if (role !== 'gotchu_ingest') throw new Error('Integration lookup requires the intake database role');
       return transaction(null, z.uuid().parse(id), work);
     },
+    checkHealth: () => transaction(null, null, async tx => { await tx.query('SELECT 1'); }),
     close: () => pool.end(),
   };
 }

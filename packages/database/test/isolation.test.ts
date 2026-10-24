@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDatabase } from '../src/index.js';
-import { fixture, liveUrl } from './support.js';
+import { fixture, liveUrl, present } from './support.js';
 
 const live = liveUrl ? describe : describe.skip;
 live('real Postgres tenant and role isolation (GOTCHU_TEST_DATABASE_URL)', () => {
@@ -16,7 +16,7 @@ live('real Postgres tenant and role isolation (GOTCHU_TEST_DATABASE_URL)', () =>
     for (const row of roles.rows) expect(row).toMatchObject({ rolsuper: false, rolbypassrls: false, rolcanlogin: false });
   });
   it('rejects privileged runtime connections even if SET ROLE could hide privilege', async () => {
-    const unsafe = createDatabase({ connectionString: liveUrl!, role: 'gotchu_api' });
+    const unsafe = createDatabase({ connectionString: present(liveUrl), role: 'gotchu_api' });
     await expect(unsafe.tenant(f.a.organizationId, async tx => tx.query('SELECT 1'))).rejects.toThrow('non-owner');
     await unsafe.close();
   });
