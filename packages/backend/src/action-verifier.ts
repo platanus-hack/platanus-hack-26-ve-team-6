@@ -9,6 +9,7 @@ import { canonicalJson, sha256 } from './core.js';
 import { scoreValidation, verifyValidationAttestation } from './validations.js';
 import { createExecutionArtifactService } from './execution-artifacts.js';
 import type { ActionEligibility, ActionVerifier } from './actions.js';
+import { dependencyCommitMessage, expectedDependencyCommitSha } from './git-commit.js';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const workflowExceptionSchema = z.object({
@@ -39,6 +40,7 @@ export interface ActionVerifierRepositoryPort {
 function validationReason(raw: unknown, runner: {
   runnerIsolationEvidence: unknown; runExpiresAt: Date; runOrganizationId: string; runApplicationId: string;
   runActionRef: string; storedRunId: string; candidateSourceId: string; patchDigest: string; candidateTreeDigest: string;
+  validationMode: 'correction' | 'dependency';
   storedAttestations: Array<{ id: string; keyId: string; signature: string; expiresAt: Date }>;
 } | null, action: z.infer<typeof actionV2Schema>, rootfsDigest: string): string | null {
   if (raw === null) return 'validation_missing';
@@ -52,9 +54,12 @@ function validationReason(raw: unknown, runner: {
     : action.evidence[0]?.id;
   if (facts.runOrganizationId !== action.organizationId || facts.runApplicationId !== action.applicationId
     || facts.runActionRef !== facts.actionRef || facts.storedRunId !== facts.runId || facts.candidateSourceId !== expectedActionRef) return 'validation_tampered';
+  if (action.kind === 'dependency_pull_request' && runner.validationMode !== 'dependency'
+    || action.kind === 'source_patch_pull_request' && runner.validationMode !== 'correction') return 'validation_tampered';
   if (action.kind === 'source_patch_pull_request'
     && (facts.patchDigest !== action.patchSha256 || facts.candidateTreeDigest !== action.snapshotSha256)) return 'validation_tampered';
-  const boundAttestationIds = action.kind === 'source_patch_pull_request' ? action.validationAttestationIds : [];
+  const boundAttestationIds = action.kind === 'source_patch_pull_request' ? action.validationAttestationIds
+    : action.kind === 'dependency_pull_request' ? [action.rescanAttestationId, action.suiteAttestationId] : [];
   if (facts.attestations.length === 0) return 'validation_unsigned';
   if (facts.attestations.length !== runner.storedAttestations.length) return 'validation_tampered';
   for (const attestation of facts.attestations) {
@@ -64,8 +69,9 @@ function validationReason(raw: unknown, runner: {
     if (stored.expiresAt.getTime() !== Date.parse(attestation.payload.expiresAt)) return 'validation_tampered';
   }
   if (new Set(facts.attestations.map(attestation => attestation.payload.id)).size !== facts.attestations.length
-    || (boundAttestationIds.length > 0 && (boundAttestationIds.length !== facts.attestations.length
-      || boundAttestationIds.some(id => !facts.attestations.some(attestation => attestation.payload.id === id))))) return 'validation_tampered';
+    || action.kind === 'source_patch_pull_request' && boundAttestationIds.length > 0 && (boundAttestationIds.length !== facts.attestations.length
+      || boundAttestationIds.some(id => !facts.attestations.some(attestation => attestation.payload.id === id)))
+    || action.kind === 'dependency_pull_request' && boundAttestationIds.some(id => !facts.attestations.some(attestation => attestation.payload.id === id))) return 'validation_tampered';
   const keys = new Map(facts.keys.map(key => [key.keyId, key.publicKey]));
   if (facts.attestations.some(attestation => !keys.has(attestation.keyId))) return 'validation_unsigned';
   if (facts.attestations.some(attestation => {
@@ -76,12 +82,24 @@ function validationReason(raw: unknown, runner: {
       || payload.applicationId !== action.applicationId || payload.actionRef !== facts.actionRef || payload.actionRef !== expectedActionRef
       || payload.runId !== facts.runId)) return 'validation_tampered';
   if (!expectedActionRef || facts.actionRef !== expectedActionRef) return 'validation_tampered';
+  if (action.kind === 'dependency_pull_request') {
+    const rescan = facts.attestations.find(item => item.payload.id === action.rescanAttestationId);
+    const suite = facts.attestations.find(item => item.payload.id === action.suiteAttestationId);
+    if (rescan?.payload.evidence.kind !== 'independent_rescan' || rescan.payload.evidence.result !== 'passed'
+      || suite?.payload.evidence.kind !== 'functional_suite' || suite.payload.evidence.result !== 'passed') return 'validation_tampered';
+  }
   if (facts.state === 'failed') return 'validation_failed';
   if (facts.state === 'expired' || facts.runExpiresAt.getTime() <= Date.now()) return 'validation_expired';
   if (facts.state !== 'passed') return 'validation_inconclusive';
-  const score = scoreValidation(facts.attestations.map(item => item.payload.evidence));
+  const score = scoreValidation(facts.attestations.map(item => item.payload.evidence), action.kind === 'dependency_pull_request' ? 'dependency' : 'correction');
   if (score.state === 'inconclusive') return 'validation_inconclusive';
   if (score.state === 'failed') return 'validation_failed';
+  if (action.kind === 'dependency_pull_request') {
+    const rescan = facts.attestations.map(item => item.payload.evidence).find(item => item.kind === 'independent_rescan');
+    if (!rescan || rescan.kind !== 'independent_rescan') return 'validation_tampered';
+    const keys = action.changes.flatMap(change => action.advisoryIds.map(id => `npm:${change.name}:${id}`));
+    if (keys.some(key => !rescan.targetedIdentities.includes(key) || !rescan.before.identities.includes(key) || rescan.after.identities.includes(key))) return 'validation_failed';
+  }
   const isolation = facts.runnerIsolationEvidence;
   const parsedIsolation = z.object({ sandbox:z.object({ kind:z.string() }).passthrough(), cleanupVerified:z.boolean(), rootfsDigest:digest.nullable() }).passthrough().safeParse(isolation);
   if (!parsedIsolation.success || parsedIsolation.data.cleanupVerified !== true || parsedIsolation.data.rootfsDigest !== rootfsDigest
@@ -146,9 +164,11 @@ export function createActionVerifier(input: {
         return { eligible: false, blockingReasons: ['sin adaptador de escritura'] };
       }
       const link = await input.database.tenant(action.organizationId, async tx => {
-        const result = await tx.query<{ repository_key: string; default_branch: string; state: string; revoked: boolean; write_access: string }>(
-          `SELECT repository_key,default_branch,state,revoked,write_access FROM gotchu.application_repository_links
-           WHERE organization_id=$1 AND application_id=$2 AND id=$3`,
+        const result = await tx.query<{ repository_key: string; default_branch: string; state: string; revoked: boolean; write_access: string; installation_id: string | null; installation_state: string | null }>(
+          `SELECT l.repository_key,l.default_branch,l.state,l.revoked,l.write_access,l.installation_id,g.state AS installation_state
+           FROM gotchu.application_repository_links l LEFT JOIN gotchu.github_installations g
+             ON g.organization_id=l.organization_id AND g.installation_id=l.installation_id
+           WHERE l.organization_id=$1 AND l.application_id=$2 AND l.id=$3`,
           [action.organizationId, action.applicationId, action.target.repositoryLinkId],
         );
         return result.rows[0];
@@ -156,6 +176,8 @@ export function createActionVerifier(input: {
       const linkValid = link !== undefined && !link.revoked && link.state === 'verified'
         && link.write_access === 'granted' && link.repository_key === action.target.repositoryKey
         && link.default_branch === action.target.branch;
+      const githubConnectionValid = action.kind !== 'dependency_pull_request'
+        || link !== undefined && link.installation_id !== null && link.installation_state === 'active';
       const capability = await input.database.tenant(action.organizationId, async tx => {
         const result = await tx.query<{ capability_id: string; adapter_available: boolean }>(
           'SELECT capability_id,adapter_available FROM gotchu.action_capabilities WHERE kind=$1', [action.kind],
@@ -166,8 +188,12 @@ export function createActionVerifier(input: {
         ? z.object({ id:z.uuid(),sha256:digest,kind:z.literal('private_correction_candidate') }).strict().safeParse(action.evidence.find(item => item.kind === 'private_correction_candidate'))
         : null;
       if (candidate && !candidate.success) return { eligible:false,blockingReasons:['artefacto candidato inválido'] };
+      const dependencyCandidate = action.kind === 'dependency_pull_request'
+        ? z.object({ id:z.uuid(),sha256:digest,kind:z.literal('dependency_candidate') }).strict().safeParse(action.evidence.find(item => item.kind === 'dependency_candidate'))
+        : null;
+      if (dependencyCandidate && !dependencyCandidate.success) return { eligible:false,blockingReasons:['dependency_candidate_invalid'] };
 
-      let artifactValid = action.kind !== 'source_patch_pull_request';
+      let artifactValid = action.kind !== 'source_patch_pull_request' && action.kind !== 'dependency_pull_request';
       let artifactReason = 'execution_artifact_missing';
       if (action.kind === 'source_patch_pull_request' && candidate?.success) {
         const artifacts = await input.database.tenant(action.organizationId, async tx => {
@@ -193,6 +219,44 @@ export function createActionVerifier(input: {
         artifactValid = artifactValid && artifactCheck.valid;
         artifactReason = artifactCheck.unsupportedReason ?? 'execution_artifact_digest_mismatch';
       }
+      if (action.kind === 'dependency_pull_request' && dependencyCandidate?.success) {
+        const metadata = await input.database.tenant(action.organizationId, async tx => {
+          const result = await tx.query<{
+            candidate_source_id:string;repository_link_id:string;base_commit:string;base_digest:string;package_name:string;from_version:string;to_version:string;
+            advisory_ids:unknown;lockfile_sha256:string;patch_sha256:string;candidate_digest:string;validation_run_id:string;
+            source_digest:string;source_deleted_at:Date|null;bound_repository_link_id:string;binding_commit:string;binding_digest:string;
+            validation_state:string;validation_mode:string;tree_sha:string|null;commit_message:string;tree_complete:boolean;
+          }>(`SELECT c.candidate_source_id,c.repository_link_id,c.base_commit,c.base_digest,c.package_name,c.from_version,c.to_version,c.advisory_ids,c.lockfile_sha256,c.patch_sha256,c.candidate_digest,c.validation_run_id,
+              s.digest AS source_digest,s.deleted_at AS source_deleted_at,b.repository_link_id AS bound_repository_link_id,b.commit_sha AS binding_commit,b.source_digest AS binding_digest,
+              v.state AS validation_state,v.validation_mode,a.tree_sha,a.commit_message,a.tree_complete
+            FROM gotchu.dependency_fix_candidates c
+            JOIN gotchu.customer_sources s ON s.organization_id=c.organization_id AND s.application_id=c.application_id AND s.id=c.candidate_source_id
+            JOIN gotchu.customer_source_repository_bindings b ON b.organization_id=c.organization_id AND b.application_id=c.application_id AND b.source_id=c.base_source_id
+            JOIN gotchu.validation_runs v ON v.organization_id=c.organization_id AND v.application_id=c.application_id AND v.id=c.validation_run_id
+            JOIN gotchu.execution_artifacts a ON a.organization_id=c.organization_id AND a.application_id=c.application_id AND a.candidate_source_id=c.candidate_source_id
+            WHERE c.organization_id=$1 AND c.application_id=$2 AND c.candidate_source_id=$3`, [action.organizationId,action.applicationId,dependencyCandidate.data.id]);
+          return result.rows[0];
+        });
+        const advisoryIds = metadata ? z.array(z.string().regex(/^[A-Za-z0-9._-]{1,128}$/)).min(1).max(20).safeParse(metadata.advisory_ids) : null;
+        const change = action.changes.length === 1 ? action.changes[0] : undefined;
+        const metadataValid = metadata !== undefined && advisoryIds?.success === true && change !== undefined
+          && metadata.candidate_source_id === dependencyCandidate.data.id && metadata.source_digest === dependencyCandidate.data.sha256
+          && metadata.source_deleted_at === null && metadata.repository_link_id === action.target.repositoryLinkId
+          && metadata.bound_repository_link_id === action.target.repositoryLinkId && metadata.base_commit === action.baseCommit
+          && metadata.binding_commit === action.baseCommit && metadata.binding_digest === metadata.base_digest
+          && metadata.package_name === change.name && metadata.from_version === change.from && metadata.to_version === change.to
+          && canonicalJson(advisoryIds.data) === canonicalJson(action.advisoryIds) && metadata.lockfile_sha256 === action.lockfileSha256
+          && metadata.patch_sha256 === action.patchSha256 && metadata.validation_state === 'passed' && metadata.validation_mode === 'dependency'
+          && metadata.tree_complete && metadata.tree_sha !== null
+          && action.candidateCommit === expectedDependencyCommitSha(metadata.tree_sha, metadata.base_commit,
+            dependencyCommitMessage({ packageName: metadata.package_name, fromVersion: metadata.from_version, toVersion: metadata.to_version }));
+        const artifactCheck = await createExecutionArtifactService(input.database).verifyCandidateDigest({
+          organizationId:action.organizationId,applicationId:action.applicationId,candidateSourceId:dependencyCandidate.data.id,
+          snapshotSha256:dependencyCandidate.data.sha256,patchSha256:action.patchSha256,
+        });
+        artifactValid = Boolean(metadataValid && artifactCheck.valid);
+        artifactReason = artifactCheck.unsupportedReason ?? 'dependency_candidate_invalid';
+      }
 
       let currentHead: string;
       try {
@@ -200,7 +264,7 @@ export function createActionVerifier(input: {
       } catch {
         return { eligible:false,blockingReasons:['base del repositorio desconocida'] };
       }
-      const actionRef = candidate?.success ? candidate.data.id : action.evidence[0]?.id;
+      const actionRef = candidate?.success ? candidate.data.id : dependencyCandidate?.success ? dependencyCandidate.data.id : action.evidence[0]?.id;
       let facts: unknown | null = null;
       let factsUnavailable = false;
       if (actionRef) {
@@ -208,7 +272,7 @@ export function createActionVerifier(input: {
         catch { factsUnavailable = true; }
       }
       const runner = facts === null ? null : await input.database.tenant(action.organizationId, async tx => {
-        const result = await tx.query<{ organization_id: string; application_id: string; id: string; action_ref: string; candidate_source_id: string; patch_digest: string; candidate_tree_digest: string; sandbox_kind: string; rootfs_digest: string | null; cleanup_verified: boolean; expires_at: Date }>(`SELECT organization_id,application_id,id,action_ref,candidate_source_id,patch_digest,candidate_tree_digest,sandbox_kind,rootfs_digest,cleanup_verified,expires_at FROM gotchu.validation_runs WHERE organization_id=$1 AND application_id=$2 AND action_ref=$3`, [action.organizationId, action.applicationId, actionRef]);
+        const result = await tx.query<{ organization_id: string; application_id: string; id: string; action_ref: string; candidate_source_id: string; patch_digest: string; candidate_tree_digest: string; validation_mode: string; sandbox_kind: string; rootfs_digest: string | null; cleanup_verified: boolean; expires_at: Date }>(`SELECT organization_id,application_id,id,action_ref,candidate_source_id,patch_digest,candidate_tree_digest,validation_mode,sandbox_kind,rootfs_digest,cleanup_verified,expires_at FROM gotchu.validation_runs WHERE organization_id=$1 AND application_id=$2 AND action_ref=$3`, [action.organizationId, action.applicationId, actionRef]);
         const row = result.rows[0];
         if (!row) return null;
         const storedAttestations = await tx.query<{ id: string; key_id: string; signature: string; expires_at: Date }>(`SELECT id,key_id,signature,expires_at FROM gotchu.validation_attestations
@@ -218,12 +282,14 @@ export function createActionVerifier(input: {
           runExpiresAt: row.expires_at, runOrganizationId: row.organization_id, runApplicationId: row.application_id,
           runActionRef: row.action_ref, storedRunId: row.id, candidateSourceId: row.candidate_source_id,
           patchDigest: row.patch_digest, candidateTreeDigest: row.candidate_tree_digest,
+          validationMode: row.validation_mode === 'dependency' ? 'dependency' as const : 'correction' as const,
           storedAttestations: storedAttestations.rows.map(item => ({ id: item.id, keyId: item.key_id, signature: item.signature, expiresAt: item.expires_at })),
         };
       });
       const reason = factsUnavailable ? 'validation_inconclusive' : validationReason(facts, runner, action, rootfsDigest);
       const reasons: string[] = [];
       if (!linkValid) reasons.push('vínculo de repositorio no autorizado o cambiado');
+      if (!githubConnectionValid) reasons.push('github_connection_unavailable');
       if (capability?.capability_id !== action.capabilityId || !capability.adapter_available) reasons.push('adaptador no habilitado para la capacidad');
       if (!await input.repository.isPolicyCurrent({ organizationId:action.organizationId,applicationId:action.applicationId,capabilityId:action.capabilityId,policyVersion:action.policyVersion }).catch(() => false)) reasons.push('política vigente no verificada');
       if (!artifactValid) reasons.push(artifactReason);
