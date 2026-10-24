@@ -225,6 +225,19 @@ describe('bounded LangGraph investigation', () => {
     expect(output).toMatchObject({ status: 'delayed', reasonCode: 'model_budget_exhausted', counters: { modelCalls: 1, tokensUsed: 13 } });
   });
 
+  it('returns delayed when model spend exceeds the remaining currency budget', async () => {
+    const fixture = makeDependencies({
+      limits: { maxTokens: 100, maxSpendMicroUsd: 10 },
+      model: async () => ({
+        ...candidateReply(),
+        usage: { inputTokens: 8, outputTokens: 5, totalTokens: 13, spendMicroUsd: 11 },
+      }),
+    });
+    const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
+
+    expect(output).toMatchObject({ status: 'delayed', reasonCode: 'model_budget_exhausted', counters: { spendMicroUsd: 11 } });
+  });
+
   it('returns delayed when the model call exceeds the active-time limit', async () => {
     const fixture = makeDependencies({
       limits: { maxActiveMs: 15 },
