@@ -4,13 +4,14 @@ import { analysis, bounded, isScannerCleanupError, evidence, finding, finish } f
 import type { ScannerAdapter, ScannerName, ToolResult } from './docker.js';
 import { parseLockfile, type AdvisoryAdapter } from './advisory.js';
 import { createHelmetCspGate, HELMET_CSP_GATE_VERSION, isHelmetCspCandidateRule, HELMET_CSP_TYPESCRIPT_VERSION } from './helmet-csp-gate.js';
+import { classifyKubernetesCandidate, findKubernetesCorrectionLocation } from './kubernetes.js';
 
 const position = z.object({line:z.number().int().positive()});
 const semgrepPosition = position.extend({offset:z.number().int().nonnegative().optional(),col:z.number().int().positive().optional()});
 const semgrepSchema = z.object({version:z.string(),results:z.array(z.object({check_id:z.string().max(128),path:z.string().max(1024),start:semgrepPosition})).max(2000),errors:z.array(z.unknown()),paths:z.object({scanned:z.array(z.string())})});
 const leaksSchema = z.array(z.object({RuleID:z.string().max(128),File:z.string().max(1024),StartLine:z.number().int().positive()})).max(2000);
-const trivySchema = z.object({SchemaVersion:z.number(),Results:z.array(z.object({Target:z.string().max(1024),Misconfigurations:z.array(z.object({ID:z.string().max(128),AVDID:z.string().max(128),Title:z.string().min(1).max(256),Description:z.string().min(1).max(4000),Resolution:z.string().min(1).max(4000),Severity:z.enum(['UNKNOWN','LOW','MEDIUM','HIGH','CRITICAL']),CauseMetadata:z.object({StartLine:z.number().int().nonnegative().optional()}).optional()})).optional()})).optional()});
-interface Indicator { rule: string; path: string; line: number; offset?:number; col?:number; severity: AssessmentFinding['severity']; title?:string; description?:string; recommendation?:string }
+const trivySchema = z.object({SchemaVersion:z.number(),Results:z.array(z.object({Target:z.string().max(1024),Misconfigurations:z.array(z.object({ID:z.string().max(128),AVDID:z.string().max(128),Title:z.string().min(1).max(256),Description:z.string().min(1).max(4000),Resolution:z.string().min(1).max(4000),Severity:z.enum(['UNKNOWN','LOW','MEDIUM','HIGH','CRITICAL']),CauseMetadata:z.object({StartLine:z.number().int().nonnegative().optional(),EndLine:z.number().int().nonnegative().optional()}).optional()})).optional()})).optional()});
+interface Indicator { rule: string; path: string; line: number; checkId?:string; causeStartLine?:number; causeEndLine?:number; correctionLocationLine?:number; offset?:number; col?:number; severity: AssessmentFinding['severity']; title?:string; description?:string; recommendation?:string }
 function normalize(name: ScannerName, result: ToolResult): {indicators:Indicator[]; incomplete:boolean; scanned:number; scannedPaths?:string[]} {
   if (name === 'semgrep') {
     const parsed = semgrepSchema.parse(result.output);
@@ -20,7 +21,7 @@ function normalize(name: ScannerName, result: ToolResult): {indicators:Indicator
   if (name === 'gitleaks') return {indicators:leaksSchema.parse(result.output).map(r=>({rule:r.RuleID,path:r.File,line:r.StartLine,severity:'high'})),incomplete:false,scanned:0};
   const parsed = trivySchema.parse(result.output);
   const severities={UNKNOWN:'unknown',LOW:'low',MEDIUM:'medium',HIGH:'high',CRITICAL:'critical'} as const;
-  return {indicators:(parsed.Results??[]).flatMap(r=>(r.Misconfigurations??[]).map(m=>({rule:m.AVDID,path:r.Target,line:m.CauseMetadata?.StartLine??0,severity:severities[m.Severity],title:m.Title,description:m.Description,recommendation:m.Resolution}))),incomplete:false,scanned:parsed.Results?.length??0,scannedPaths:(parsed.Results??[]).map(r=>r.Target)};
+  return {indicators:(parsed.Results??[]).flatMap(r=>(r.Misconfigurations??[]).map(m=>({rule:m.AVDID,path:r.Target,line:m.CauseMetadata?.StartLine??0,checkId:m.ID,...(m.CauseMetadata?.StartLine === undefined ? {} : {causeStartLine:m.CauseMetadata.StartLine}),...(m.CauseMetadata?.EndLine === undefined ? {} : {causeEndLine:m.CauseMetadata.EndLine}),severity:severities[m.Severity],title:m.Title,description:m.Description,recommendation:m.Resolution}))),incomplete:false,scanned:parsed.Results?.length??0,scannedPaths:(parsed.Results??[]).map(r=>r.Target)};
 }
 function addTool(a: AssessmentAnalysis, name: ScannerName, result: ToolResult, source: NonNullable<CustomerRunInput['source']>) {
   const parsed = normalize(name,result);
@@ -38,15 +39,18 @@ function addTool(a: AssessmentAnalysis, name: ScannerName, result: ToolResult, s
   if (name === 'trivy') {
     const scanned = new Set((parsed.scannedPaths??[]).map(path=>path.replace(/^\/?source\//,'')));
     if ([...scanned].some(path=>!source.files.some(file=>file.path===path))) throw new Error('scanner_unknown_path');
-    // Every YAML/JSON file can contain Kubernetes configuration. An omitted file is
-    // unknown, even if Trivy successfully reported findings for another file.
-    missingConfigurations=source.files.filter(file=>/\.(?:ya?ml|json)$/i.test(file.path) && !scanned.has(file.path)).length;
+    const candidates = source.files.map(file => ({file,state:classifyKubernetesCandidate(file.path,file.content)}))
+      .filter(item=>item.state.candidate || item.state.unrecognized);
+    // Only Kubernetes-shaped documents are coverage candidates. Malformed candidates
+    // remain unknown even if Trivy emitted a result entry for the file.
+    missingConfigurations=candidates.filter(item=>item.state.unrecognized || !scanned.has(item.file.path)).length;
     if (missingConfigurations) parsed.incomplete=true;
   }
   const provenance = {image:result.image,profileChecksum:result.profileChecksum,sourceDigest:source.digest,redacted:true,matched:parsed.indicators.length,scanned:parsed.scanned,...(name === 'semgrep' ? {helmetCspGateVersion:HELMET_CSP_GATE_VERSION,typescriptVersion:HELMET_CSP_TYPESCRIPT_VERSION} : {})};
   const tool = {name,version:result.version};
   evidence(a,'configuration',`scanner-profile:${name}`,provenance,tool);
   let truncated = false;
+  const correctionLocations = new Map<string,number|undefined>();
   for (const hit of parsed.indicators) {
     if (a.findings.length >= 75 || a.evidence.length >= 150) {truncated=true;break;}
     const path = hit.path.replace(/^\/?source\//,'');
@@ -61,16 +65,22 @@ function addTool(a: AssessmentAnalysis, name: ScannerName, result: ToolResult, s
         continue;
       }
     }
-    const location = `${path}:${hit.line}`;
-    const id = evidence(a,name === 'gitleaks' ? 'source' : name === 'trivy' ? 'configuration':'source',location,{rule:hit.rule,path,line:hit.line,...(hit.offset === undefined ? {} : {offset:hit.offset}),...(hit.col === undefined ? {} : {col:hit.col}),content:'[REDACTED]',sourceDigest:source.digest},tool);
+    let correctionLocationLine: number | undefined;
+    if (name === 'trivy' && hit.checkId && hit.causeStartLine !== undefined && hit.causeEndLine !== undefined) {
+      const key = `${path}\0${hit.checkId}\0${hit.causeStartLine}\0${hit.causeEndLine}`;
+      if (!correctionLocations.has(key)) correctionLocations.set(key,findKubernetesCorrectionLocation(file.content,hit.checkId,hit.causeStartLine,hit.causeEndLine));
+      correctionLocationLine = correctionLocations.get(key);
+    }
+    const location = `${path}:${correctionLocationLine ?? hit.line}`;
+    const id = evidence(a,name === 'gitleaks' ? 'source' : name === 'trivy' ? 'configuration':'source',location,{rule:hit.rule,path,line:hit.line,...(hit.checkId === undefined ? {} : {checkId:hit.checkId}),...(hit.causeStartLine === undefined ? {} : {causeStartLine:hit.causeStartLine}),...(hit.causeEndLine === undefined ? {} : {causeEndLine:hit.causeEndLine}),...(correctionLocationLine === undefined ? {} : {correctionLocationLine}),...(hit.offset === undefined ? {} : {offset:hit.offset}),...(hit.col === undefined ? {} : {col:hit.col}),content:'[REDACTED]',sourceDigest:source.digest},tool);
     const cspDescription = 'A Semgrep candidate and bounded TypeScript AST gate found a top-level Helmet configuration that sets contentSecurityPolicy to false. Registration, execution, other CSP mechanisms, deployment, route association, causality, and exploitability remain unknown.';
     finding(a,{ruleId:hit.rule,correlationKey:helmetCspCandidate ? 'http:content-security-policy' : `${name}:${hit.rule}:${path}`.slice(0,512),title:helmetCspCandidate ? 'Helmet CSP disabling configuration indication' : hit.title ?? `${name} static indicator: ${hit.rule}`.slice(0,256),location,description:helmetCspCandidate ? cspDescription : hit.description ?? `The controlled ${name} profile matched a static indicator in the uploaded bytes. The source excerpt and any secret value are redacted.`,severity:hit.severity,confidence:'inferred',impact:helmetCspCandidate ? 'The source configuration may disable Helmet-managed CSP if the call is registered and executed; effective policy and deployment are unknown.' : name === 'gitleaks' ? 'Potential credential material may be exposed; validity and use are unknown.':'The matched source or configuration may weaken a security boundary; runtime reachability is unknown.',recommendation:helmetCspCandidate ? 'Review the intended CSP policy and the independently observed deployed responses.' : hit.recommendation ?? (name === 'gitleaks' ? 'Review privately; revoke and rotate if this is a real credential.':'Review the indicated location and trust boundary, then rescan the updated snapshot.'),limitations:[helmetCspCandidate ? 'Static configuration indication only; registration, execution, other CSP mechanisms, deployment, route association, causality, and exploitability remain unknown.' : 'Static rule match only; no customer code or exploit was executed.'],evidenceIds:[id]});
   }
   if(name === 'trivy' && parsed.scanned===0 && !missingConfigurations) {
-    a.coverage.push({capability:name,state:'unsupported',detail:'The pinned Kubernetes profile recognized no supported configuration in this snapshot.'});
+    a.coverage.push({capability:name,state:'unsupported',detail:'No plausible Kubernetes documents were present in the uploaded YAML/JSON files.'});
     return;
   }
-  a.coverage.push({capability:name,state:parsed.incomplete || helmetGateIncomplete || truncated ? 'unavailable':'inspected',detail:missingConfigurations ? `${missingConfigurations} candidate YAML/JSON configuration files were omitted or unrecognized; their coverage is unknown. Available findings are retained.` : helmetGateIncomplete ? 'A Helmet CSP Semgrep candidate lacked a unique call offset or fell outside the bounded parser gate; no correlated finding was emitted for that candidate.' : parsed.incomplete ? 'Scanner reported parsing or analysis errors; findings retain only available evidence.' : truncated ? 'Finding cap reached; additional matches were omitted.' : `Completed pinned ${name} profile against uploaded files only; no finding is not proof of safety.`});
+  a.coverage.push({capability:name,state:parsed.incomplete || helmetGateIncomplete || truncated ? 'unavailable':'inspected',detail:missingConfigurations ? `${missingConfigurations} Kubernetes candidate files were omitted, malformed or exceeded the bounded parser; their coverage is unknown. Available findings are retained.` : helmetGateIncomplete ? 'A Helmet CSP Semgrep candidate lacked a unique call offset or fell outside the bounded parser gate; no correlated finding was emitted for that candidate.' : parsed.incomplete ? 'Scanner reported parsing or analysis errors; findings retain only available evidence.' : truncated ? 'Finding cap reached; additional matches were omitted.' : `Completed pinned ${name} profile against uploaded files only; no finding is not proof of safety.`});
 }
 export async function assessInternal(input: CustomerRunInput, signal: AbortSignal, scanners: ScannerAdapter, advisory?: AdvisoryAdapter) {
   const source = input.source; if (!source) throw new Error('missing_source');

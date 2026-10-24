@@ -23,6 +23,7 @@
     "@langchain/langgraph": "^1.5.2",
     "@gotchu/contracts": "workspace:*",
     "typescript": "~5.9.3",
+    "js-yaml": "4.3.2",
     "zod": "^4.0.0"
   }
 }
