@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { DependencyInventory, LicensePolicy, WorkspaceRetentionPolicyInput } from '@gotchu/contracts';
-import type { AssessmentFinding, DependencyInventory, LicensePolicy } from '@gotchu/contracts';
+import type { DependencyInventory, LicensePolicy, WorkspaceRetentionPolicyInput, AssessmentFinding } from '@gotchu/contracts';
 import { CustomerApiError, customerApi } from './customer-client';
 
 const policyLabels = { allowed: 'Permitida', review: 'Revisión', denied: 'No permitida' } as const;

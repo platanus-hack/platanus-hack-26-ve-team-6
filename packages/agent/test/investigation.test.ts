@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, generateKeyPairSync } from 'node:crypto';
 import { SignJWT } from 'jose';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { generateKeyPairSync } from 'node:crypto';
 import {
   DEFAULT_INVESTIGATION_LIMITS,
   runBoundedInvestigation,

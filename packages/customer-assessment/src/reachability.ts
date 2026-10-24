@@ -1,6 +1,5 @@
 import ts from 'typescript';
-import type { DependencyComponent, DependencyReachability } from '@gotchu/contracts';
-import type { CustomerRunInput } from '@gotchu/contracts';
+import type { DependencyComponent, DependencyReachability, CustomerRunInput } from '@gotchu/contracts';
 import type { LockedPackage } from './lockfiles.js';
 
 type SourceFile = NonNullable<CustomerRunInput['source']>['files'][number];

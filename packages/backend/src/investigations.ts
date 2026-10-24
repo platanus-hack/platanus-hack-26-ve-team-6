@@ -10,8 +10,7 @@ import {
   requestInvestigationSchema,
   type InvestigationSubject,
 } from '@gotchu/contracts';
-import type { Database } from '@gotchu/database';
-import type { Transaction } from '@gotchu/database';
+import type { Database, Transaction } from '@gotchu/database';
 import { z } from 'zod';
 import { audit, authorize, BackendError, canonicalJson, parse, type Identity } from './core.js';
 import { enqueue } from './jobs.js';

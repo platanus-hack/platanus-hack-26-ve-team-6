@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { customerAssessmentIntentSchema, customerAssessmentReportSchema, customerRunInputSchema, customerScopeSchema, customerSourceSnapshotSchema, type CustomerAssessmentReport, type CustomerRunInput, type OsvAdvisoryMetadata, type DependencyFixRecommendation } from '@gotchu/contracts';
+import { customerAssessmentIntentSchema, customerAssessmentReportSchema, customerRunInputSchema, customerScopeSchema, customerSourceSnapshotSchema, type CustomerAssessmentReport, type CustomerRunInput, type OsvAdvisoryMetadata, type DependencyFixRecommendation, dependencyFixPreparationRequestSchema, dependencyFixPreparationResponseSchema, type DependencyFixPreparationRequest, type DependencyFixPreparationResponse } from '@gotchu/contracts';
 import type { Database, Transaction } from '@gotchu/database';
 import { prepareCorrectionRequestSchema, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
 import { buildRecipeRecommendations, correctionResponseForQueuedScan, prepareCandidatePatch, RecipeBoundaryError } from '@gotchu/scenarios/server';
@@ -7,7 +7,6 @@ import { audit, authorize, BackendError, canonicalJson, identitySchema, parse, s
 import { createCustomerService } from './customers.js';
 import { createValidationService, enqueueValidation } from './validations.js';
 import { createNpmRegistryAdapter, parseNpmAdvisoryEvidence, prepareNpmDependencyPatch, type NpmFixReason, type NpmRegistryPort } from './npm-dependency-fix.js';
-import { dependencyFixPreparationRequestSchema, dependencyFixPreparationResponseSchema, type DependencyFixPreparationRequest, type DependencyFixPreparationResponse } from '@gotchu/contracts';
 
 export const correctionReportScopeSchema = customerScopeSchema.extend({ reportId: z.uuid() }).strict();
 export const prepareCorrectionInputSchema = correctionReportScopeSchema.extend(prepareCorrectionRequestSchema.shape).strict();

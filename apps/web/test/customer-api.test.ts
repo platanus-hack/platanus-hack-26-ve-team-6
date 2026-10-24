@@ -6,10 +6,8 @@ import { createCustomerApi, type CustomerServices } from '../src/server/customer
 import { contextClient } from '../src/components/context-client.js';
 import type { AuthService } from '../src/server/auth.js';
 import type { LocalAccounts } from '../src/server/local-accounts.js';
-import { decisionRecordPageSchema, operationPlanSchema } from '@gotchu/contracts';
-import type { LicensePolicy } from '@gotchu/contracts';
-import type { WorkspaceRetentionPolicy } from '@gotchu/contracts';
-import { customerAssessmentReportSchema } from '@gotchu/contracts';
+import { decisionRecordPageSchema, operationPlanSchema, customerAssessmentReportSchema } from '@gotchu/contracts';
+import type { LicensePolicy, WorkspaceRetentionPolicy } from '@gotchu/contracts';
 import { buildCycloneDx } from '@gotchu/customer-assessment';
 const origin = 'http://localhost:3000';
 const organizationId = randomUUID();

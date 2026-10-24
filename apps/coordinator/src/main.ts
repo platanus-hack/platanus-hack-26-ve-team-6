@@ -3,8 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { createScannerClient, readScannerCaFile } from '@gotchu/scanner';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
-import { createBackend } from '@gotchu/backend';
-import { DEMO_ASSESSMENT_SCOPE } from '@gotchu/backend';
+import { createBackend, DEMO_ASSESSMENT_SCOPE, createFileNotificationSecretStore } from '@gotchu/backend';
 import { createControlledAssessmentRunner } from '@gotchu/assessment';
 import { startDemoTargetServer } from '@gotchu/demo-target';
 import { createDatabase } from '@gotchu/database';
@@ -17,7 +16,6 @@ import { createConfiguredMonitoringAdapters } from './monitoring-adapters.js';
 import { inspectMonitoringLiveness, recordSchedulerHeartbeat } from './liveness.js';
 import { createNotificationDeliveryWorker } from './notification-delivery.js';
 import { createNotificationDeliverySender, readSmtpSettings } from './notification-adapters.js';
-import { createFileNotificationSecretStore } from '@gotchu/backend';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
