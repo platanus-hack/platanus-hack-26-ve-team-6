@@ -11,7 +11,7 @@
 | Location | Purpose | Frequency | Implementation |
 | --- | --- | --- | --- |
 | Hero group | Arrival / first-time orientation | Rare | Transform 8px and opacity .6→1, 600ms strong ease-out, 60ms stagger; immediately usable |
-| Lens pointer response | Spatial consistency and first-visit delight | Rare marketing exploration | Two interruptible Motion springs, duration .4, bounce 0; ±8°/±6°; fine pointer only |
+| Lens pointer response | Spatial consistency and first-visit delight | Rare marketing exploration | Two interruptible Motion springs, duration .4, bounce 0; ±6°/±4°; fine pointer only |
 | Lens scroll story | Explain source/HTTPS/evidence relationship | Once per visit | Native sticky; chapter observer; 500ms transform retargeting and 300ms opacity; bounded 18px depth travel |
 | Scope selection | Prevent abrupt change | Occasional | 200ms opacity crossfade for pointer; keyboard updates immediately |
 | Press / hover | Immediate feedback | Frequent | .97 press scale, 160ms token ease; 2px hover lift only with fine pointer |
