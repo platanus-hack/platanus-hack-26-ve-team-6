@@ -204,7 +204,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     realEngine = createCustomerAssessmentRunner({ scanners: createDockerScanners(), advisory: createOsvAdapter(), https });
     const scanner = createScannerServer({ secret, runner: { run: input => engine.run(input), readiness: () => engine.readiness() } });
     scannerOrigin = `http://127.0.0.1:${await listen(scanner)}`; cleanup.push(() => closeServer(scanner));
-    const webPort = await unusedPort(); origin = `http://127.0.0.1:${webPort}`;
+    const webPort = await unusedPort(); origin = `http://localhost:${webPort}`;
     const web = childProcess('Nitro web', 'apps/web/.output/server/index.mjs', webPort, {
       NODE_ENV: 'development', HOST: '127.0.0.1', NITRO_HOST: '127.0.0.1', PUBLIC_APP_URL: origin,
       GOTCHU_API_DATABASE_URL: f.runtimeConnectionString('gotchu_api'), GOTCHU_INGEST_DATABASE_URL: f.runtimeConnectionString('gotchu_ingest'),
