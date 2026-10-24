@@ -106,8 +106,8 @@ ensure_scanner_secret() {
 ensure_scanner_tls() {
   local gateway="$1" cert="$state_dir/scanner.crt" key="$state_dir/scanner.key" cert_public key_public tmp_cert="${state_dir}/.scanner.crt.$$" tmp_key="${state_dir}/.scanner.key.$$"
   if [[ -f "$cert" && ! -L "$cert" && -f "$key" && ! -L "$key" ]] \
-    && openssl x509 -in "$cert" -noout -checkhost host.docker.internal >/dev/null 2>&1 \
-    && openssl x509 -in "$cert" -noout -checkip "$gateway" >/dev/null 2>&1 \
+    && openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null | grep -Fq 'DNS:host.docker.internal' \
+    && openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null | grep -Fq "IP Address:${gateway}" \
     && openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null 2>&1 \
     && openssl x509 -in "$cert" -noout -ext basicConstraints 2>/dev/null | grep -q 'CA:TRUE'; then
     cert_public="$(openssl x509 -in "$cert" -pubkey -noout | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
