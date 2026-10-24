@@ -99,7 +99,7 @@ export function correlate(inputValue: unknown, options: CorrelationOptions): Tri
   }));
   const verifiedDeploymentErrors = (input.context?.deployments ?? []).filter(deployment => deployment.state === 'verified')
     .flatMap(deployment => errors.some(({ series, sample }) => series.service === deployment.service
-      && sample.eventAt > deployment.deployedAt
+      && Date.parse(sample.eventAt) > Date.parse(deployment.deployedAt)
       && errorThreshold(input, series.service, series.environment, sample.value)) ? [deployment.service] : []);
   const servicesWithVerifiedDeploymentErrors = new Set(verifiedDeploymentErrors);
   const providerAlternatives = providerEvidence.filter(({ dependency }) => servicesWithVerifiedDeploymentErrors.has(dependency.service));
@@ -140,9 +140,9 @@ export function correlate(inputValue: unknown, options: CorrelationOptions): Tri
   const releaseCandidates = deployments.filter(deployment => deployment.state === 'verified' || deployment.state === 'declared');
   const releaseMatches = releaseCandidates.flatMap(deployment => {
     const matchingErrors = errors.filter(({ series, sample }) => series.service === deployment.service
-      && sample.eventAt > deployment.deployedAt && errorThreshold(input, series.service, series.environment, sample.value));
+      && Date.parse(sample.eventAt) > Date.parse(deployment.deployedAt) && errorThreshold(input, series.service, series.environment, sample.value));
     const earlierErrors = errors.filter(({ series, sample }) => series.service === deployment.service
-      && sample.eventAt <= deployment.deployedAt && errorThreshold(input, series.service, series.environment, sample.value));
+      && Date.parse(sample.eventAt) <= Date.parse(deployment.deployedAt) && errorThreshold(input, series.service, series.environment, sample.value));
     return matchingErrors.length > 0 || earlierErrors.length > 0 ? [{ deployment, matchingErrors, earlierErrors }] : [];
   });
   const declaredReleaseMatches = releaseMatches.filter(item => item.deployment.state === 'declared');
@@ -152,7 +152,8 @@ export function correlate(inputValue: unknown, options: CorrelationOptions): Tri
     verifiedAfterRelease.some(({ deployment }) => deployment.service === dependency.service));
   const staleReleaseEvidence = staleSamples.filter(({ series, sample }) => series.metric === 'error_rate'
     && errorThreshold(input, series.service, series.environment, sample.value)
-    && releaseCandidates.some(deployment => deployment.service === series.service && sample.eventAt > deployment.deployedAt));
+    && releaseCandidates.some(deployment => deployment.service === series.service
+      && Date.parse(sample.eventAt) > Date.parse(deployment.deployedAt)));
   const anyElevatedAfterRelease = releaseMatches.some(item => item.matchingErrors.length > 0);
   const anyElevatedBeforeRelease = releaseMatches.some(item => item.earlierErrors.length > 0);
   if (releaseCandidates.length > 0 || errors.some(({ series, sample }) => errorThreshold(input, series.service, series.environment, sample.value)) || deploymentUnknown.length > 0 || staleReleaseEvidence.length > 0) {

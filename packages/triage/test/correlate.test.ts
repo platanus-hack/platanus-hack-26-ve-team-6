@@ -160,6 +160,25 @@ describe('correlation acceptance cases', () => {
     expect(regression?.evidenceAgainst.some(item => item.ref.startsWith('pre-release-error:'))).toBe(true);
   });
 
+  it('orders event and deployment timestamps by instant across precisions', () => {
+    const labeled = tuningCases.find(item => item.id === 'tuning-release-after-deploy');
+    if (!labeled) throw new Error('missing_test_case');
+    const input = {
+      ...labeled.input,
+      context: {
+        ...labeled.input.context!,
+        deployments: [{ service: 'tune-payments', releaseId: 'release-payments', commit: 'fixture',
+          deployedAt: '2026-10-24T11:03:00.500Z', state: 'verified' as const }],
+      },
+      signals: labeled.input.signals.map(series => series.metric === 'error_rate'
+        ? { ...series, samples: [{ eventAt: '2026-10-24T11:03:00Z', acceptedAt: '2026-10-24T11:03:02.000Z', value: 0.24 }] }
+        : series),
+    };
+    const regression = result(input, '2026-10-24T11:06:00.000Z').hypotheses.find(item => item.kind === 'application_regression');
+    expect(regression?.status).toBe('contradicted');
+    expect(regression?.ruleIds).toContain('release.errors_precede_deployment.v1');
+  });
+
   it('keeps provider and release explanations open when both match one service', () => {
     const labeled = tuningCases.find(item => item.id === 'tuning-provider-isolated');
     if (!labeled) throw new Error('missing_test_case');
