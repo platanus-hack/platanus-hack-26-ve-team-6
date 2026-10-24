@@ -217,3 +217,35 @@ OAuth callbacks against a live GitHub application, production MFA and trusted el
 The first full product demonstration still needs the vulnerable-dependency scanner path and an approved tested GitHub PR. Current tests prove the event/investigation foundation and execution authorization ledger using explicitly labeled external fixtures.
 
 The production web build emits upstream Nitro/Rolldown warnings about bundled `use client` directives. The build passes; these warnings have not been suppressed. No repository lint script is defined.
+
+## Pre-merge corrections and focused verification — 2026-10-24
+
+This follow-up records the focused corrections after the earlier evidence above. The product-code range is `1551830..7cbf3ed`, including 17 corrections after the prior history-ledger commit; runtime image packaging is fixed by `464f19d`. This is scoped verification, not broad release certification. Earlier core, production TLS, and real NodeBB/Kuma evidence remains historical and was not rerun here.
+
+### Review
+
+The original broad pre-merge review found 13 unique confirmed P2 defects across web/context, triage, Git adapters, validator, and runner behavior. Focused code corrections resolved those findings. An independent Astra Git-adapter review initially caught a mismatch for `?` in branch globs; final commit `7cbf3ed` rejects that unsupported pattern. The final confirmation was **GO**, with 26 in-memory assertions passing. A separate validator/runner confirmation was **GO** for probe registry cleanup and isolation, scalar/array/JSON/nested setup paths, and host/guest digest handling. Earlier focused fix reviews had no remaining blockers; none of these reviews is a broad release certification.
+
+### Builds and tests
+
+| Check | Result |
+| --- | --- |
+| Root `pnpm build` and `pnpm typecheck` | Passed on `9b92710`; the final Git-adapter guard package build also passed on `7cbf3ed`. |
+| Concurrent `pnpm test` attempt | The initial attempt hit the 5-second harness timeout during customer-assessment lifecycle child startup. It did not pass. The same isolated test passed in 1.19 seconds; no test was relaxed. |
+| `pnpm -r --workspace-concurrency=1 --sort --if-present test` | The full ordinary workspace test suite passed on `7cbf3ed`. |
+| Web, backend, triage, and coordinator packages | Web's 26 customer API tests, typecheck, and build passed. Backend and triage typechecks and the identifier test passed. Coordinator's four unit tests, typecheck, build, and dependency build passed. |
+| Disposable PostgreSQL backend harness | 14 database and 133 backend tests passed, including strict probe DTO GET/PUT behavior and tenant checks. |
+| Disposable PostgreSQL/Redis coordinator harness | Seven files and 25 tests passed, including 101 deployments and 200-character identifiers. |
+| Validator and runner | Builds, typechecks, and unit suites passed. Nine injected-runner quarantine tests passed against an isolated real PostgreSQL harness. No real VM was run and no VM gate was enabled. |
+| Git adapter package | Earlier build/typecheck/unit checks passed with seven tests and two provider cases skipped. Final `?`-glob package build/typecheck passed with eight tests and two provider cases skipped. |
+| Independent root regression probes | All seven probes moved from failing at baseline to passing at final: push-ignore, secret environment, `toJSON`, root/nested scalar setup, provider 101, and probe 201. |
+
+The GitHub live-infrastructure attempt initially failed at coordinator startup because `@gotchu/triage` was missing from both final images. `464f19d` packages the manifest, built distribution, and production dependencies, then performs a real import/schema smoke before readiness while retaining the sandbox. A stale WebAuthn capability assertion was also corrected; OAuth, provider writes, and customer-code execution remain unavailable. These local results do not establish hosted CI.
+
+### Browser and persistent local PostgreSQL
+
+Using the normal UI and persistent local PostgreSQL, an isolated owner account, guest account, and workspaces A and B were created; a one-use invitation was generated and accepted. Before the workspace-key fix, A's removal dialog remained open after switching to B; it was cancelled, and PostgreSQL confirmed both memberships remained. After the fix, switching A to B cleared the dialog and invite field while both membership rows remained. Removing the guest from A through the UI returned 200; PostgreSQL confirmed A's membership row was removed while the guest remained a viewer in B. The desktop UI was visually inspected at 1280×800 with no console errors.
+
+Local development was safely restarted with `pnpm dev:stop` and `pnpm dev:start`; the app became ready on port 3000. No production deployment, provider operation, or customer-code execution occurred. No emails, tokens, credentials, UUIDs, or local artifact paths are recorded here.
+
+Hosted CI remains a merge prerequisite; consult [PR #2](https://github.com/0bkevin/gotchu/pull/2) for the latest check status. This record makes no hosted-CI pass claim. The documentation update itself does not rerun earlier core-19, production-TLS, or real NodeBB/Kuma proofs.
