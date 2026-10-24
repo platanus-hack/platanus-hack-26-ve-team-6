@@ -272,7 +272,17 @@ export function parseNpmAdvisoryEvidence(excerpt: string, packageNameExpected?: 
     const parsed = z.object({
       schemaVersion: z.union([z.literal(1), z.literal(2)]).optional(),
       id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
-      package: z.object({ name: packageName, version: z.string().max(100), location: z.string().min(1).max(1000), relationship: z.enum(['direct','transitive']) }).strict(),
+      package: z.object({
+        name: packageName,
+        version: z.string().max(100),
+        location: z.string().min(1).max(1000),
+        relationship: z.enum(['direct','transitive']),
+        purl: z.string().min(1).max(512).optional(),
+        sourceFile: z.string().min(1).max(512).optional(),
+        dependencies: z.array(z.string().min(1).max(512)).max(100).optional(),
+        declaredLicense: z.string().max(200).nullable().optional(),
+        integrity: z.string().max(1_024).nullable().optional(),
+      }).strict(),
       sourceDigest: z.string().regex(/^[a-f0-9]{64}$/),
       advisory: z.unknown().optional(),
     }).passthrough().safeParse(value);

@@ -39,7 +39,11 @@ describe('npm dependency fix selection', () => {
     const excerpt = (schemaVersion: number) => JSON.stringify({
       schemaVersion,
       id: 'GHSA-live',
-      package: { name: 'lodash', version: '4.17.20', location: 'package-lock.json:node_modules/lodash', relationship: 'direct' },
+      package: {
+        name: 'lodash', version: '4.17.20', location: 'package-lock.json:node_modules/lodash', relationship: 'direct',
+        purl: 'pkg:npm/lodash@4.17.20', sourceFile: 'package-lock.json', dependencies: [], declaredLicense: 'MIT',
+        ...(schemaVersion === 2 ? { integrity: 'sha512-YWJj' } : {}),
+      },
       sourceDigest: 'a'.repeat(64),
       advisory: advisory('GHSA-live', '4.17.21'),
     });
