@@ -29,10 +29,13 @@ gotchu.kevinbravo.com {
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
 	}
-	reverse_proxy 127.0.0.1:3000 {
+	reverse_proxy https://127.0.0.1:3000 {
 		header_up Host gotchu.kevinbravo.com
 		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Host gotchu.kevinbravo.com
+		header_up -Forwarded
 		transport http {
+			tls_trusted_ca_certs /etc/gotchu/web.crt
 			dial_timeout 5s
 			response_header_timeout 60s
 		}

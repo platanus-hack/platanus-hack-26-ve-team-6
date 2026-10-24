@@ -18,6 +18,14 @@ install -m 640 -o root -g gotchu-scanner-client "$state/scanner.secret" /etc/got
 install -m 640 -o root -g gotchu-scanner "$state/scanner.key" /etc/gotchu/scanner.key
 install -m 644 -o root -g root "$state/scanner.crt" /etc/gotchu/scanner.crt
 install -m 644 -o root -g root "$state/monitoring-repositories.json" /etc/gotchu/repositories.json
+if [[ ! -s /etc/gotchu/web.crt || ! -s /etc/gotchu/web.key ]]; then
+  (umask 077; openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
+    -keyout /etc/gotchu/web.key -out /etc/gotchu/web.crt -subj '/CN=gotchu-loopback' \
+    -addext 'basicConstraints=critical,CA:TRUE' -addext 'subjectAltName=IP:127.0.0.1') >/dev/null 2>&1
+fi
+chown root:gotchu-web /etc/gotchu/web.key
+chmod 640 /etc/gotchu/web.key
+chmod 644 /etc/gotchu/web.crt
 
 # Environment files are read by systemd as root; runtime users receive only their service's values.
 node --input-type=module <<'NODE'
@@ -44,6 +52,7 @@ const services = {
   web: {
     ...common, GOTCHU_SERVICE_ENTRY: '/opt/gotchu/app/apps/web/.output/server/index.mjs',
     PORT: '3000', NITRO_PORT: '3000', HOST: '127.0.0.1', NITRO_HOST: '127.0.0.1',
+    NITRO_SSL_CERT: '/etc/gotchu/web.crt', NITRO_SSL_KEY: '/etc/gotchu/web.key',
     PUBLIC_APP_URL: 'https://gotchu.kevinbravo.com', GOTCHU_AUTH_MODE: 'self_host', AUTH_SECRET: required('AUTH_SECRET'),
     GOTCHU_API_DATABASE_URL: database('GOTCHU_API'), GOTCHU_INGEST_DATABASE_URL: database('GOTCHU_INGEST'),
     GOTCHU_EVENT_CREDENTIAL_DIRECTORY: '/var/lib/gotchu-web/event-credentials',
