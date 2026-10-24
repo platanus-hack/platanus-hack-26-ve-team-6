@@ -9,6 +9,7 @@ import type { Database } from '@gotchu/database';
 import { scoreValidation } from '@gotchu/backend';
 import { sourceArchive } from './archive.js';
 import { signAttestation, type ValidatorKey } from './keys.js';
+import { createValidationInputRegistry } from './input-registry.js';
 import { suiteModifiedByCandidate, validationAdmissionReason } from './validation-rules.js';
 
 const leaseMs = 300_000;
@@ -45,7 +46,11 @@ export interface ValidationWorkerOptions {
   readonly key: ValidatorKey;
   readonly runnerGate?: typeof checkRunnerGate;
   readonly scanner?: typeof scanner;
-  readonly runnerJobAdapter?: (job: z.infer<typeof runnerJobSchema>, options?: { signal?: AbortSignal }) => Promise<unknown>;
+  readonly runnerJobAdapter?: (
+    job: z.infer<typeof runnerJobSchema>,
+    options: { signal?: AbortSignal } | undefined,
+    resolveInput: (reference: z.infer<typeof runnerJobSchema>['input'], scope: { organizationId: string; jobId: string }) => Promise<Uint8Array>,
+  ) => Promise<unknown>;
   readonly concurrency?: number;
   readonly shutdownSignal?: AbortSignal;
 }
@@ -57,11 +62,8 @@ export async function runValidatedRunnerJob(adapter: (job: z.infer<typeof runner
 }
 
 export function createValidationWorker(options: ValidationWorkerOptions) {
-  const vmRunner = createFirecrackerRunner({ maxConcurrent: options.concurrency ?? 1, resolveInput: async (ref, scope) => {
-    const input = inputObjects.get(`${scope.organizationId}:${ref.objectId}`);
-    if (!input) throw new Error('validation_input_expired');
-    return input;
-  } });
+  const inputRegistry = createValidationInputRegistry();
+  const vmRunner = createFirecrackerRunner({ maxConcurrent: options.concurrency ?? 1, resolveInput: inputRegistry.resolveInput });
   const runnerDigests = readFile(join(runnerPackageRoot, 'images.lock.json'), 'utf8').then(async raw => {
     const lockValue: unknown = JSON.parse(raw);
     const lock = imageLockSchema.parse(lockValue);
@@ -125,12 +127,15 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     if (suite.regressionTestPath && !base.files.some(file => file.path === suite.regressionTestPath)) return inconclusive('regression_test_missing');
     if (suiteModifiedByCandidate(base, candidate, { scriptName: suite.scriptName, regressionTestPath: suite.regressionTestPath })) return inconclusive('suite_modified_by_candidate');
     const beforeArchive = sourceArchive(base); const candidateArchive = sourceArchive(candidate);
-    const inputObjects = new Map<string, Buffer>();
     const runVm = async (bytes: Buffer) => {
-      const objectId = randomUUID(); inputObjects.set(`${run.organizationId}:${objectId}`, bytes);
+      const objectId = randomUUID();
       const job = runnerJobSchema.parse({ jobId: randomUUID(), organizationId: run.organizationId, profile: run.runnerProfile, input: { objectId, sha256: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length }, limits: run.limits, networkPolicy: { mode: 'deny' } });
-      const runJob = options.runnerJobAdapter ?? ((runnerJob, runnerOptions) => vmRunner.runJob(runnerJob, runnerOptions));
-      try { return await runValidatedRunnerJob(runJob, job, options.shutdownSignal ? { signal: options.shutdownSignal } : {}); } finally { inputObjects.delete(`${run.organizationId}:${objectId}`); }
+      const runnerOptions = options.shutdownSignal ? { signal: options.shutdownSignal } : {};
+      const adapter = options.runnerJobAdapter;
+      const runJob = adapter
+        ? (runnerJob: z.infer<typeof runnerJobSchema>, runOptions?: { signal?: AbortSignal }) => adapter(runnerJob, runOptions, inputRegistry.resolveInput)
+        : (runnerJob: z.infer<typeof runnerJobSchema>, runOptions?: { signal?: AbortSignal }) => vmRunner.runJob(runnerJob, runOptions);
+      return inputRegistry.withInput(run.organizationId, objectId, bytes, () => runValidatedRunnerJob(runJob, job, runnerOptions));
     };
     const results: RunnerResult[] = [];
     try {
@@ -171,7 +176,7 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     } catch (error) {
       const why = error instanceof Error && error.message === 'validation_lease_lost' ? 'lease_lost' : 'validation_execution_failed';
       await inconclusive(why);
-    } finally { inputObjects.clear(); }
+    }
   }
 
   async function processClaim(claim: { organizationId: string; applicationId: string; runId: string; leaseToken: string }) {
@@ -188,8 +193,6 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     try { await processClaimInner(claim); }
     finally { clearInterval(heartbeat); }
   }
-
-  const inputObjects = new Map<string, Buffer>();
   async function claim() {
     const leaseToken = randomUUID();
     const row = await options.database.tenant('00000000-0000-0000-0000-000000000000', async tx => {
