@@ -22,6 +22,12 @@ export const triageIncidentDetailSchema = z.object({
 }).strict();
 export const updateIncidentStatusSchema = z.object({ status: incidentStatusSchema }).strict();
 export const evidenceRequestResponseSchema = z.object({ requested: z.array(z.enum(['https_health', 'provider_status'])), message: z.string() }).strict();
+export const probeRoutePathSchema = z.enum(['/','/.well-known/security.txt','/security.txt','/robots.txt','/sitemap.xml']);
+export const probeRouteOptionSchema = z.object({ serviceId: z.uuid(), service: z.string().min(1).max(120), dependencyId: z.uuid().nullable(), provider: z.string().min(1).max(64).nullable(), component: z.string().min(1).max(200).nullable(), state: z.enum(['declared','verified','unknown']) }).strict();
+export const triageProbeRouteSchema = z.object({ route: probeRoutePathSchema, serviceId: z.uuid(), service: z.string().min(1).max(120), dependencyId: z.uuid().nullable(), dependsOnProvider: z.string().min(1).max(64).nullable(), role: z.enum(['application','control']), declared: z.literal(true), declaredBy: z.string().min(1).max(256), declaredAt: timestamp }).strict();
+export const triageProbeRouteInputSchema = customerScopeSchema.extend({ route: probeRoutePathSchema, serviceId: z.uuid(), dependencyId: z.uuid().nullable(), role: z.enum(['application','control']) }).strict().refine(value => value.role !== 'control' || value.dependencyId === null, 'A control route must be explicitly independent');
+export const triageProbeRouteSettingsSchema = z.object({ routes: z.array(triageProbeRouteSchema).max(5), allowedRoutes: z.array(probeRoutePathSchema).max(5), options: z.array(probeRouteOptionSchema).max(200) }).strict();
 export type TriageIncident = z.infer<typeof triageIncidentSchema>;
 export type TriageIncidentDetail = z.infer<typeof triageIncidentDetailSchema>;
 export type TriageRevision = z.infer<typeof triageRevisionSchema>;
+export type TriageProbeRoute = z.infer<typeof triageProbeRouteSchema>;
