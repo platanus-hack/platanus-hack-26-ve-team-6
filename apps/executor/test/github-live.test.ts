@@ -373,6 +373,8 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
     expect(artifact.files.map(file=>file.path).sort()).toEqual(['package-lock.json','package.json']);
     const eligibility=await api.actions.getEligibility({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposed.proposalId});
     expect(eligibility,JSON.stringify(eligibility)).toMatchObject({status:'eligible'});
+    const executorEligibility=await executor.actions.getEligibility({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposed.proposalId});
+    expect(executorEligibility,JSON.stringify(executorEligibility)).toMatchObject({status:'eligible'});
     const stepUpProof=randomUUID();
     const authenticatedAt=new Date();
     proofs.set(stepUpProof,{proofId:stepUpProof,userId:f.a.userId,organizationId:f.a.organizationId,actionHash:proposed.actionHash,
