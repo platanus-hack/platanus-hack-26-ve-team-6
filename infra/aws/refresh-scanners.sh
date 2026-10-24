@@ -15,4 +15,4 @@ trap resume EXIT
 systemctl stop gotchu@coordinator
 systemctl stop gotchu@scanner
 cd /opt/gotchu/app
-runuser -u gotchu-scanner -- /usr/local/bin/node scripts/update-trivy-db.mjs
+runuser -u gotchu-scanner -- env GOTCHU_TRIVY_DB_DIRECTORY=/var/lib/gotchu-scanner/trivy-db /usr/local/bin/node scripts/update-trivy-db.mjs

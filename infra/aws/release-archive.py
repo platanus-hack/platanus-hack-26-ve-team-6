@@ -28,6 +28,9 @@ def extract_release(archive, destination, commit):
                   'infra/aws/compose.yaml', 'infra/aws/backup.sh']:
         if not (destination / entry).is_file():
             raise ValueError(f'Missing runtime file: {entry}')
+    for entry in ['infra/aws/backup.sh', 'infra/aws/check-scanner.sh', 'infra/aws/refresh-scanners.sh']:
+        if not os.access(destination / entry, os.X_OK):
+            raise ValueError(f'Runtime script is not executable: {entry}')
     # Extraction uses a private umask; serving users need read/execute permission on the release.
     for root, directories, files in os.walk(destination):
         os.chmod(root, 0o755)

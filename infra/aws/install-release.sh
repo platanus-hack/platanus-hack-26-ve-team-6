@@ -25,6 +25,7 @@ transaction="$base/transactions/$release"
 install -d -m 700 "$transaction" "$target"
 cp /etc/gotchu/release.txt "$transaction/previous-release.txt"
 stopped=false
+exposed=false
 record() {
   python3 - "$base/state.json" "$1" "$release" "$checksum" "$previous" <<'PY'
 import json,os,sys,time
@@ -52,12 +53,13 @@ finish() {
     if $stopped; then
       # Never restore data or infer compatibility after an ambiguous migration outcome.
       systemctl stop caddy gotchu@web gotchu@coordinator gotchu@scanner || true
-      if node "$helpers/release-db.mjs" snapshot "$previous" >"$transaction/after-failure.json" &&
+      if ! $exposed && node "$helpers/release-db.mjs" snapshot "$previous" >"$transaction/after-failure.json" &&
           cmp -s "$transaction/before.json" "$transaction/after-failure.json"; then
         switch_to "$previous"
-        if start_runtime && systemctl start caddy; then
+        if start_runtime; then
           cp "$transaction/previous-release.txt" /etc/gotchu/release.txt
           record failed
+          systemctl start caddy
           echo 'Deployment failed; previous release resumed with unchanged database migrations.' >&2
         else
           systemctl stop caddy gotchu@web gotchu@coordinator gotchu@scanner || true
@@ -65,7 +67,7 @@ finish() {
         fi
       else
         record recovery_required
-        echo 'Database compatibility is unknown or changed; runtime remains stopped for operator recovery.' >&2
+        echo 'Database compatibility is unknown, changed, or public traffic resumed; runtime remains stopped for operator recovery.' >&2
       fi
     else
       record failed
@@ -95,6 +97,7 @@ node "$helpers/release-db.mjs" snapshot "$target" >"$transaction/after.json"
 switch_to "$target"
 start_runtime
 printf '%s\n' "${release%%-*}" >/etc/gotchu/release.txt
+exposed=true
 systemctl start caddy
 curl --fail --silent --show-error --max-time 20 https://gotchu.kevinbravo.com/api/ready >/dev/null
 record succeeded
