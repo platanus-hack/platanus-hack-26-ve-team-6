@@ -15,7 +15,7 @@ const applicationId = randomUUID();
 const userId = `credentials:${randomUUID()}`;
 function ports() {
   const unused = async (): Promise<never> => { throw new Error('Unexpected service invocation'); };
-  const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listContainerImages: unused, uploadContainerImage: unused, deleteContainerImage: unused, listReports: unused, getReport: unused, recordReportDownload: unused, queue: unused, job: unused };
+  const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, updateWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listContainerImages: unused, uploadContainerImage: unused, deleteContainerImage: unused, listReports: unused, getReport: unused, recordReportDownload: unused, queue: unused, job: unused };
   const auth: AuthService = { enabled: true, handle: async () => new Response(), identity: async () => ({ userId, cookies: ['authjs.session-token=refreshed; Path=/; HttpOnly'] }), accountEmail: async () => null };
   return { services, auth };
 }
@@ -74,6 +74,21 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect(updated.status).toBe(200);
     expect(await updated.json()).toMatchObject({ organizationId, policy, configured: true });
     expect(updatePolicy).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, policy });
+  });
+
+  it('renames a workspace using the authenticated path scope', async () => {
+    const { services, auth } = ports();
+    const workspace = { id: organizationId, name: 'Renamed', role: 'owner' as const };
+    services.updateWorkspace = vi.fn(async (identity, input) => {
+      expect(identity).toEqual({ userId });
+      expect(input).toEqual({ organizationId, name: 'Renamed' });
+      return workspace;
+    });
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const response = await handle(new Request(`${origin}/api/customer/workspaces/${organizationId}`, { method: 'PATCH', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Renamed' }) }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(workspace);
+    expect(services.updateWorkspace).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed when step-up routes are unavailable', async () => {

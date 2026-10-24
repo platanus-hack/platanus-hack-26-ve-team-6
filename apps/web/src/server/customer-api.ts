@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  customerCreateWorkspaceSchema, customerCreateApplicationSchema, customerUpdateApplicationSchema,
+  customerCreateWorkspaceSchema, customerUpdateWorkspaceSchema, customerCreateApplicationSchema, customerUpdateApplicationSchema,
   customerEnrollTargetSchema, customerTargetIdSchema, customerUploadSourceSchema, customerQueueSchema,
   customerWorkspaceSchema, customerApplicationSchema, customerTargetSchema, customerEnrollmentSchema,
   customerSourceSummarySchema, customerReportSummarySchema, customerAssessmentReportSchema, CUSTOMER_MAX_SOURCE_BYTES,
@@ -58,6 +58,7 @@ export interface CustomerServices {
   repositoryCatalog?: (identity: Identity, scope: { organizationId: string; applicationId: string }) => Promise<Array<{ key: string; label: string }>>;
   listWorkspaces(identity: Identity): Promise<CustomerWorkspace[]>;
   createWorkspace(identity: Identity, value: z.infer<typeof customerCreateWorkspaceSchema>): Promise<CustomerWorkspace>;
+  updateWorkspace(identity: Identity, value: z.infer<typeof customerUpdateWorkspaceSchema>): Promise<CustomerWorkspace>;
   listApplications(identity: Identity, value: { organizationId: string }): Promise<CustomerApplication[]>;
   createApplication(identity: Identity, value: z.infer<typeof customerCreateApplicationSchema>): Promise<CustomerApplication>;
   updateApplication(identity: Identity, value: z.infer<typeof customerUpdateApplicationSchema>): Promise<CustomerApplication>;
@@ -109,7 +110,7 @@ export function createCustomerApi(options: {
         const identity = options.auth.enabled ? await options.auth.identity(request) : null;
         const headers = new Headers();
         for (const cookie of identity?.cookies ?? []) headers.append('set-cookie', cookie);
-        return json({ user: identity ? { id: identity.userId } : null, providers: options.providers,
+        return json({ user: identity ? { id: identity.userId, ...(identity.displayName ? { displayName: identity.displayName } : {}) } : null, providers: options.providers,
           localAuthEnabled: Boolean(options.localAccounts), registrationEnabled: options.registrationEnabled }, 200, headers);
       }
       if (url.pathname === '/api/customer/github/callback' || url.pathname === '/api/customer/github/connect'
@@ -227,6 +228,10 @@ export function createCustomerApi(options: {
           const value = parse(licensePolicySchema, await body(request));
           return send(workspaceLicensePolicySchema.parse(await services.updateLicensePolicy(identity, { organizationId, policy: value })));
         }
+      }
+      if (parts.length === 4 && request.method === 'PATCH') {
+        const value = parse(customerUpdateWorkspaceSchema.omit({ organizationId: true }), await body(request));
+        return send(customerWorkspaceSchema.parse(await services.updateWorkspace(identity, { organizationId, ...value })));
       }
       if (parts.length === 5 && parts[4] === 'decision-records' && request.method === 'GET') {
         if (!services.decisionRecords) throw new HttpError(503, 'decision_records_not_configured', 'El historial de decisiones no está configurado.');

@@ -3,6 +3,7 @@ import {
   customerAssessmentReportSchema,
   customerCreateApplicationSchema,
   customerCreateWorkspaceSchema,
+  customerUpdateWorkspaceSchema,
   customerEnrollTargetSchema,
   customerScanProfileSchema,
   customerEnrollmentSchema,
@@ -45,7 +46,7 @@ import {
 import { z } from 'zod';
 
 const customerSessionSchema = z.object({
-  user: z.object({ id: z.string().min(1).max(256) }).strict().nullable(),
+  user: z.object({ id: z.string().min(1).max(256), displayName: z.string().min(1).max(200).optional() }).strict().nullable(),
   providers: z.array(z.object({ id: z.string().min(1).max(128), name: z.string().min(1).max(100), type: z.string().min(1).max(32) }).strict()),
   localAuthEnabled: z.boolean(),
   registrationEnabled: z.boolean(),
@@ -215,6 +216,10 @@ export const customerApi = {
   createWorkspace: (name: string) => {
     const input = customerCreateWorkspaceSchema.parse({ name });
     return request('/api/customer/workspaces', customerWorkspaceSchema, { method: 'POST', ...jsonBody(input) });
+  },
+  updateWorkspace: (organizationId: string, name: string) => {
+    const input = customerUpdateWorkspaceSchema.parse({ organizationId, name });
+    return request(`/api/customer/workspaces/${encodeURIComponent(input.organizationId)}`, customerWorkspaceSchema, { method: 'PATCH', ...jsonBody({ name: input.name }) });
   },
   applications: (organizationId: string) => request(`${organizationPath(organizationId)}/applications`, applicationListSchema),
   createApplication: (organizationId: string, name: string) => {
