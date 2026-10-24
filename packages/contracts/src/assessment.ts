@@ -78,15 +78,13 @@ export const assessmentComparisonSchema = z.object({
   explanation,
 }).strict();
 
-export const assessmentReportSchema = z.object({
-  version: z.literal(1),
+export const assessmentReportFields = {
   id: z.uuid(),
   organizationId: z.uuid(),
   applicationId: z.uuid(),
   jobId: z.uuid(),
   applicationName: z.string().min(1).max(200),
   mode: assessmentModeSchema,
-  revision: demoRevisionSchema,
   startedAt: timestamp,
   finishedAt: timestamp,
   internal: assessmentAnalysisSchema.nullable(),
@@ -95,7 +93,10 @@ export const assessmentReportSchema = z.object({
   limitations: z.array(explanation).max(40),
   responseMode: z.literal('observation'),
   actionsPerformed: z.array(z.string()).max(0),
-}).strict().superRefine((report, context) => {
+};
+
+/** Shared semantic checks for every report version; no fixture projection. */
+export function refineAssessmentReport(report: z.infer<z.ZodObject<typeof assessmentReportFields>>, context: z.RefinementCtx) {
   if ((report.mode !== 'external') !== (report.internal !== null) || (report.mode !== 'internal') !== (report.external !== null)) {
     context.addIssue({ code: 'custom', message: 'Analysis presence must match the requested mode' });
   }
@@ -126,7 +127,9 @@ export const assessmentReportSchema = z.object({
   }
   if (mentioned.length !== byId.size || new Set(mentioned).size !== mentioned.length) context.addIssue({ code: 'custom', message: 'Comparison must include each finding exactly once' });
   if (Date.parse(report.finishedAt) < Date.parse(report.startedAt)) context.addIssue({ code: 'custom', message: 'Report completion precedes its start' });
-});
+}
+
+export const assessmentReportSchema = z.object({ ...assessmentReportFields, version: z.literal(1), revision: demoRevisionSchema }).strict().superRefine(refineAssessmentReport);
 
 export const assessmentRequestSchema = z.object({ mode: assessmentModeSchema, revision: demoRevisionSchema }).strict();
 export const assessmentRunInputSchema = assessmentRequestSchema.extend({

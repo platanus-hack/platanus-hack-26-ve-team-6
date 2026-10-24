@@ -71,3 +71,4 @@ export type EventBatch = z.infer<typeof eventBatchSchema>;
 export type EventBatchInput = z.input<typeof eventBatchSchema>;
 export type JobEnvelope = z.infer<typeof jobEnvelopeSchema>;
 export type InvestigationRequest = z.infer<typeof investigationRequestSchema>;
+export * from './customer-assessment.js';
