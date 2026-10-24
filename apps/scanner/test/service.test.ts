@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { connect } from 'node:net';
 import { createServer, request } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CustomerRunInput } from '@gotchu/contracts';
@@ -49,4 +50,58 @@ describe('service authentication and client',()=>{
  it('allows only one active run',async()=>{
   let release:()=>void=()=>{};const gate=new Promise<void>(resolve=>{release=resolve;});const actual=runner();const run=vi.fn(async(data:CustomerRunInput)=>{await gate;return actual.run(data);});const origin=await listen(createScannerServer({secret,runner:{run,readiness:actual.readiness}}));const client=createScannerClient({origin,secret,allowDevelopmentHttp:true});const first=client.run(input());await vi.waitFor(()=>expect(run).toHaveBeenCalledTimes(1));await expect(client.run(input())).rejects.toThrow('scanner_http_429');release();await first;
  });
+ it('coalesces 40 pipelined readiness requests and caches the aggregate',async()=>{
+  let release=()=>{};const gate=new Promise<void>(resolve=>{release=resolve;});
+  const readiness=vi.fn(async()=>{await gate;return {ready:true,tools:[]};});
+  const origin=await listen(createScannerServer({secret,runner:{run:runner().run,readiness}}));
+  const socket=connect(Number(new URL(origin).port),'127.0.0.1');
+  try {
+   const closed=new Promise<void>((resolve,reject)=>{socket.on('error',reject);socket.on('close',()=>resolve());});
+   socket.resume();socket.write('GET /readyz HTTP/1.1\r\nHost: localhost\r\n\r\n'.repeat(40));
+   await vi.waitFor(()=>expect(readiness).toHaveBeenCalledTimes(1));
+   expect(await post(origin,Buffer.from(JSON.stringify(input())))).toBe(429);
+   release();await closed;
+   expect((await fetch(`${origin}/readyz`)).status).toBe(200);expect(readiness).toHaveBeenCalledTimes(1);
+  } finally {release();socket.destroy();}
+ });
+ it('times out readiness without releasing a hung probe slot or starting another probe',async()=>{
+  let release=()=>{};const gate=new Promise<void>(resolve=>{release=resolve;});
+  const readiness=vi.fn(async()=>{await gate;return {ready:true,tools:[]};});
+  const origin=await listen(createScannerServer({secret,runner:{run:runner().run,readiness}}));
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});
+  try {
+   const first=fetch(`${origin}/readyz`);await vi.waitFor(()=>expect(readiness).toHaveBeenCalledTimes(1));
+   await vi.advanceTimersByTimeAsync(40001);expect((await first).status).toBe(503);
+   expect((await fetch(`${origin}/readyz`)).status).toBe(503);expect(readiness).toHaveBeenCalledTimes(1);
+   expect(await post(origin,Buffer.from(JSON.stringify(input())))).toBe(429);
+   release();await vi.waitFor(async()=>expect((await fetch(`${origin}/readyz`)).status).toBe(200));
+  } finally {release();vi.useRealTimers();}
+ });
+ it('keeps admission through engine cleanup after HTTP timeout, then releases on confirmed cleanup',async()=>{
+  let release=()=>{};const cleanup=new Promise<void>(resolve=>{release=resolve;});let aborted=0;
+  const actual=createCustomerAssessmentRunner({deadlineMs:10,scanners:{readiness:async()=>({ready:true,tools:[]}),async run(_name,_source,signal){
+   await new Promise<void>(resolve=>signal.addEventListener('abort',()=>{aborted++;resolve();},{once:true}));
+   await cleanup;throw new Error('scanner_aborted');
+  }}});
+  const origin=await listen(createScannerServer({secret,runner:actual}));
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});
+  try {
+   const first=post(origin,Buffer.from(JSON.stringify(input())));await vi.waitFor(()=>expect(aborted).toBe(3));
+   await vi.advanceTimersByTimeAsync(55001);expect(await first).toBe(503);
+   expect(await post(origin,Buffer.from(JSON.stringify(input())))).toBe(429);
+   expect((await fetch(`${origin}/readyz`)).status).toBe(503);
+   release();await vi.waitFor(async()=>expect(await post(origin,Buffer.from(JSON.stringify(input())))).toBe(200));
+  } finally {release();vi.useRealTimers();}
+ });
+ it.each(['run','readiness'] as const)('latches admission and readiness closed after a %s cleanup fault',async method=>{
+  const run=vi.fn(method==='run'?async()=>{throw new Error('scanner_cleanup_unavailable');}:runner().run);
+  const readiness=vi.fn(async()=>{if(method==='readiness')throw new Error('scanner_cleanup_unavailable');return {ready:true,tools:[]};});
+  const origin=await listen(createScannerServer({secret,runner:{run,readiness}}));
+  if(method==='readiness')expect((await fetch(`${origin}/readyz`)).status).toBe(503);
+  else expect(await post(origin,Buffer.from(JSON.stringify(input())))).toBe(503);
+  expect(await post(origin,Buffer.from(JSON.stringify(input())))).toBe(503);
+  expect((await fetch(`${origin}/readyz`)).status).toBe(503);
+  expect(run).toHaveBeenCalledTimes(method==='run'?1:0);expect(readiness).toHaveBeenCalledTimes(method==='readiness'?1:0);
+ });
+
 });

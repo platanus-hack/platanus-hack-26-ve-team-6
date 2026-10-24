@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { customerRunInputSchema, customerAssessmentReportSchema, type CustomerRunInput, type CustomerAssessmentReport } from '@gotchu/contracts';
-import { compare, sha256 } from './common.js';
+import { compare, isScannerCleanupError, sha256 } from './common.js';
 import { createDockerScanners, type ScannerAdapter } from './docker.js';
 import { assessExternal } from './external.js';
 import { assessInternal } from './internal.js';
 import type { HttpsOptions } from './https.js';
 import type { AdvisoryAdapter } from './advisory.js';
+export { isScannerCleanupError } from './common.js';
 export { createDockerScanners, profiles } from './docker.js';
 export type { ScannerAdapter, ScannerName, ToolResult } from './docker.js';
 export { createOsvAdapter, parseLockfile } from './advisory.js';
@@ -25,20 +26,46 @@ export function createCustomerAssessmentRunner(options: CustomerAssessmentOption
   const scanners = options.scanners ?? createDockerScanners();
   const deadlineMs = options.deadlineMs ?? 55000;
   if (!Number.isInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > 55000) throw new Error('invalid_engine_deadline');
+  let fault: Error | undefined;
+  let readinessPending: Promise<{ready:boolean;tools:Array<{name:string;available:boolean}>}> | undefined;
+  let readinessCache: {until:number;state:Awaited<NonNullable<typeof readinessPending>>} | undefined;
   return {
     async readiness() {
-      const [state, advisoryReady] = await Promise.all([scanners.readiness(), options.advisory?.readiness?.() ?? false]);
-      return {ready:state.ready && advisoryReady,tools:[...state.tools,{name:'npm_advisories',available:advisoryReady}]};
+      if (fault) throw fault;
+      if (readinessPending) return readinessPending;
+      if (readinessCache && readinessCache.until > Date.now()) return readinessCache.state;
+      readinessPending = (async()=>{
+        const results = await Promise.allSettled([
+          Promise.resolve().then(()=>scanners.readiness()),
+          Promise.resolve().then(()=>options.advisory?.readiness?.() ?? false),
+        ]);
+        for (const result of results) if (result.status === 'rejected' && isScannerCleanupError(result.reason)) { fault=result.reason; throw fault; }
+        if (fault) throw fault;
+        const state = results[0].status === 'fulfilled' ? results[0].value : {ready:false,tools:[]};
+        const advisoryReady = results[1].status === 'fulfilled' && results[1].value;
+        const aggregate = {ready:state.ready && advisoryReady,tools:[...state.tools,{name:'npm_advisories',available:advisoryReady}]};
+        readinessCache={until:Date.now()+30000,state:aggregate};
+        return aggregate;
+      })();
+      try { return await readinessPending; } finally { readinessPending=undefined; }
     },
     async run(raw: CustomerRunInput): Promise<CustomerAssessmentReport> {
+      if (fault) throw fault;
       const input = customerRunInputSchema.parse(raw);
       if (input.source && sourceDigest(input.source) !== input.source.digest) throw new Error('source_digest_mismatch');
       const startedAt = new Date().toISOString();
       const signal = AbortSignal.timeout(deadlineMs);
-      const [internal,external] = await Promise.all([
+      const results = await Promise.allSettled([
         input.mode === 'external' ? null : assessInternal(input,signal,scanners,options.advisory),
         input.mode === 'internal' ? null : assessExternal(input,signal,options.https),
       ]);
+      // Neither branch may release the supervisor while the other still owns resources.
+      for (const result of results) if (result.status === 'rejected' && isScannerCleanupError(result.reason)) { fault=result.reason; readinessCache=undefined; }
+      if (fault) throw fault;
+      const [internalResult,externalResult] = results;
+      if (internalResult.status === 'rejected') throw internalResult.reason;
+      if (externalResult.status === 'rejected') throw externalResult.reason;
+      const internal=internalResult.value, external=externalResult.value;
       const report = customerAssessmentReportSchema.parse({version:2,id:randomUUID(),organizationId:input.organizationId,applicationId:input.applicationId,jobId:input.jobId,applicationName:input.applicationName,mode:input.mode,subject:reportSubject(input),startedAt,finishedAt:new Date().toISOString(),internal,external,comparison:compare(internal,external),responseMode:'observation',actionsPerformed:[],limitations:['Bounded static and independent root HTTPS observations, not a comprehensive audit or proof of safety. Unknown coverage remains unknown.', 'Uploaded source is not proven to match deployment. Version matches and banners never establish exploitation.', 'No customer-code execution, provider writes, remediation, monitoring or cloud deployment.']});
       assertReportBinding(input,report); return report;
     },

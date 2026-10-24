@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AssessmentAnalysis, AssessmentFinding, CustomerRunInput } from '@gotchu/contracts';
-import { analysis, bounded, evidence, finding, finish } from './common.js';
+import { analysis, bounded, isScannerCleanupError, evidence, finding, finish } from './common.js';
 import type { ScannerAdapter, ScannerName, ToolResult } from './docker.js';
 import { parseLockfile, type AdvisoryAdapter } from './advisory.js';
 
@@ -47,12 +47,12 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
   const a = analysis('internal',`source:${source.id}:sha256:${source.digest}`);
   a.limitations.push('Static analysis only. Customer code, imports, build tools, package scripts and tests never execute.', 'Semgrep checks eval, selected child_process exec calls and disabled TLS verification. Gitleaks checks three controlled secret patterns. Trivy inspects Kubernetes configuration with image-bundled rules.', 'Package-lock metadata is not proof of installed/deployed packages, reachability, exploitation or compromise. No provider changes or remediation occur.');
   const names: ScannerName[] = ['semgrep','gitleaks','trivy'];
-  const results = await Promise.allSettled(names.map(name=>bounded(scanners.run(name,source,signal),signal)));
+  const results = await Promise.allSettled(names.map(name=>bounded(()=>scanners.run(name,source,signal),signal)));
   for (let i=0;i<names.length;i++) {
     const name = names[i]; const result = results[i]; if (!name || !result) continue;
     const beforeEvidence = a.evidence.length; const beforeFindings = a.findings.length;
     try { if(result.status === 'rejected') throw result.reason; addTool(a,name,result.value,source); }
-    catch { a.evidence.length=beforeEvidence; a.findings.length=beforeFindings; a.coverage.push({capability:name,state:'unavailable',detail:'Pinned scanner unavailable, malformed output, resource/deadline exceeded or invalid source mapping. No clean result inferred.'}); }
+    catch (error) { if (isScannerCleanupError(error)) throw error; a.evidence.length=beforeEvidence; a.findings.length=beforeFindings; a.coverage.push({capability:name,state:'unavailable',detail:'Pinned scanner unavailable, malformed output, resource/deadline exceeded or invalid source mapping. No clean result inferred.'}); }
   }
   const locked = parseLockfile(source);
   if (!locked.found) a.coverage.push({capability:'npm_lockfile',state:'unavailable',detail:'No package-lock v2/v3 was uploaded. Package declarations and banners are not substituted for exact resolved versions.'});
@@ -60,7 +60,7 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
     a.coverage.push({capability:'npm_lockfile',state:locked.unknown.length ? 'unavailable':'inspected',detail:`Resolved ${locked.inventory.length} direct/transitive exact package versions; ${locked.unknown.length} unsupported or capped entries. Yarn, pnpm, aliases, links and installed state are outside this profile.`});
     try {
       if (!advisory) throw new Error('advisory_unconfigured');
-      const matches = await bounded(advisory.query(locked.inventory.map(({name,version})=>({name,version})),signal),signal);
+      const matches = await bounded(()=>advisory.query(locked.inventory.map(({name,version})=>({name,version})),signal),signal);
       if (matches.length !== locked.inventory.length) throw new Error('advisory_count');
       let incomplete = matches.some(m=>!m.complete);
       for (let i=0;i<matches.length;i++) {

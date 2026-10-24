@@ -30,9 +30,35 @@ describe('customer report boundaries',()=>{
   it('uses the backend canonical snapshot digest',()=>{
     const a={revision:'r',files:[{path:'a.ts',content:'x'}]};expect(sourceDigest(a)).toBe(sourceDigest({revision:'r',files:[{content:'x',path:'a.ts'}]}));
   });
-  it('bounds a hanging adapter and never evaluates customer source',async()=>{
-    const runner=createCustomerAssessmentRunner({deadlineMs:20,scanners:{...absentScanners,run:()=>new Promise(()=>{})}});
-    const started=Date.now();const report=await runner.run(input([{path:'danger.ts',content:'throw new Error("MUST_NOT_RUN"); process.exit(99);'}]));expect(Date.now()-started).toBeLessThan(1000);expect(report.internal?.status).toBe('unavailable');
+  it('holds ownership beyond the deadline until every scanner cleanup settles',async()=>{
+    let release=()=>{};const cleanup=new Promise<void>(resolve=>{release=resolve;});
+    let aborted=0;
+    const run=vi.fn(async (_name:unknown,_source:unknown,signal:AbortSignal)=>{
+      await new Promise<void>(resolve=>signal.addEventListener('abort',()=>{aborted++;resolve();},{once:true}));
+      await cleanup;throw new Error('scanner_aborted');
+    });
+    let settled=false;
+    const work=createCustomerAssessmentRunner({deadlineMs:10,scanners:{...absentScanners,run}}).run(input([{path:'danger.ts',content:'process.exit(99);'}]));
+    work.then(()=>{settled=true;},()=>{settled=true;});
+    await vi.waitFor(()=>expect(aborted).toBe(3));expect(settled).toBe(false);
+    release();expect((await work).internal?.status).toBe('unavailable');
+  });
+  it('propagates cleanup faults only after sibling operations settle and latches the runner',async()=>{
+    let release=()=>{};const cleanup=new Promise<void>(resolve=>{release=resolve;});
+    const run=vi.fn(async(name:string)=>{if(name!=='semgrep')await cleanup;throw new Error(name==='semgrep'?'scanner_cleanup_unavailable':'unavailable');});
+    const runner=createCustomerAssessmentRunner({scanners:{run,readiness:async()=>({ready:true,tools:[]})},advisory:{query:async()=>[],readiness:async()=>true}});
+    let settled=false;const work=runner.run(input());work.then(()=>{settled=true;},()=>{settled=true;});
+    await vi.waitFor(()=>expect(run).toHaveBeenCalledTimes(3));expect(settled).toBe(false);
+    release();await expect(work).rejects.toThrow('scanner_cleanup_unavailable');
+    await expect(runner.run(input())).rejects.toThrow('scanner_cleanup_unavailable');expect(run).toHaveBeenCalledTimes(3);
+    await expect(runner.readiness()).rejects.toThrow('scanner_cleanup_unavailable');
+  });
+  it('coalesces and caches aggregate readiness including advisory checks',async()=>{
+    let release=()=>{};const gate=new Promise<void>(resolve=>{release=resolve;});
+    const readiness=vi.fn(async()=>{await gate;return true;});
+    const runner=createCustomerAssessmentRunner({scanners:absentScanners,advisory:{query:async()=>[],readiness}});
+    const calls=Array.from({length:40},()=>runner.readiness());await vi.waitFor(()=>expect(readiness).toHaveBeenCalledTimes(1));release();await Promise.all(calls);
+    await runner.readiness();expect(readiness).toHaveBeenCalledTimes(1);
   });
   it('keeps external-only runs independent of scanner and source access',async()=>{
     const run=vi.fn(absentScanners.run);const fixture=input();fixture.mode='external';fixture.source=null;fixture.target={id:fixture.jobId,origin:'https://customer.org',version:3,verifiedAt:new Date(Date.now()-10000).toISOString(),expiresAt:new Date(Date.now()+10000).toISOString()};

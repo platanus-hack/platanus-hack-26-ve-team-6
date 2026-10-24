@@ -27,15 +27,18 @@ async function command(args: string[], signal: AbortSignal, maxBytes = 1_048_576
     const chunks: Buffer[] = []; const errors: Buffer[] = []; let bytes = 0; let exceeded = false;
     child.stdout.on('data',(chunk: Buffer) => { bytes += chunk.length; if (bytes > maxBytes) { exceeded = true; child.kill('SIGKILL'); } else chunks.push(chunk); });
     child.stderr.on('data',(chunk: Buffer) => { if(allowMissingContainer && bytes < 65536) errors.push(chunk); bytes += chunk.length; if (bytes > maxBytes) { exceeded = true; child.kill('SIGKILL'); } });
-    child.on('error',() => reject(new Error('scanner_process_unavailable')));
-    child.on('close',code => !exceeded && (code === 0 || allowMissingContainer && Buffer.concat(errors).toString('utf8').includes('No such container:')) ? resolve(Buffer.concat(chunks)) : reject(new Error('scanner_failed_or_output_limit')));
+    let processError = false;
+    child.on('error',() => { processError=true; child.kill('SIGKILL'); });
+    child.on('close',code => !processError && !exceeded && (code === 0 || allowMissingContainer && Buffer.concat(errors).toString('utf8').includes('No such container:')) ? resolve(Buffer.concat(chunks)) : reject(new Error('scanner_failed_or_output_limit')));
   });
 }
 export function createDockerScanners(): ScannerAdapter {
   let cached: {until:number;state:Awaited<ReturnType<ScannerAdapter['readiness']>>} | undefined;
   let pending: ReturnType<ScannerAdapter['readiness']> | undefined;
+  let cleanupFault: Error | undefined;
   const adapter: ScannerAdapter = {
     async readiness() {
+      if (cleanupFault) throw cleanupFault;
       if(cached && cached.until > Date.now()) return cached.state;
       if(pending) return pending;
       const source = {id:randomUUID(),digest:'0'.repeat(64),revision:'readiness-self-test',files:[
@@ -56,11 +59,14 @@ export function createDockerScanners(): ScannerAdapter {
             return {name,available};
           } catch {return {name,available:false};}
         }));
+        if (cleanupFault) throw cleanupFault;
         const state={ready:tools.every(t=>t.available),tools};cached={until:Date.now()+30000,state};return state;
       })();
       try{return await pending;}finally{pending=undefined;}
     },
     async run(name,source,parentSignal) {
+      if (cleanupFault) throw cleanupFault;
+      parentSignal.throwIfAborted();
       if (name === 'semgrep' && process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') throw new Error('development_scanner_profile_not_allowed');
       customerSourceSnapshotSchema.parse({revision:source.revision,files:source.files});
       const profile = profiles[name]; const id = `gotchu-scan-${randomUUID()}`;
@@ -84,13 +90,15 @@ export function createDockerScanners(): ScannerAdapter {
         cached=undefined;
         throw error;
       } finally {
+        // Only remove source bytes after the exact container has been confirmed removed.
+        // On uncertainty, retain the directory for operator reconciliation and latch the adapter.
         try {
           await command(['rm','--force',id],AbortSignal.timeout(3000),65536,true);
-        } catch {
-          cached=undefined;
-          throw new Error('scanner_cleanup_unavailable');
-        } finally {
           await rm(directory,{recursive:true,force:true});
+        } catch (cause) {
+          cached=undefined;
+          cleanupFault=new Error('scanner_cleanup_unavailable',{cause});
+          throw cleanupFault;
         }
       }
     },

@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { customerAssessmentReportSchema, customerRunInputSchema, type CustomerRunInput, type CustomerAssessmentReport } from '@gotchu/contracts';
-import { createCustomerAssessmentRunner, assertReportBinding } from '@gotchu/customer-assessment';
+import { createCustomerAssessmentRunner, assertReportBinding, isScannerCleanupError } from '@gotchu/customer-assessment';
 import { checkSecret, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, verifyScannerSignature } from './auth.js';
 export interface ScannerRunner {
   run(input: CustomerRunInput): Promise<CustomerAssessmentReport>;
@@ -12,14 +12,42 @@ async function body(request: IncomingMessage) {
   const timer=setTimeout(()=>request.destroy(),5000);
   try {for await(const chunk of request){const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);size+=bytes.length;if(size>MAX_REQUEST_BYTES) throw new Error('body_limit');chunks.push(bytes);}return Buffer.concat(chunks);}finally{clearTimeout(timer);}
 }
+async function responseWithin<T>(work: Promise<T>, milliseconds: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([work,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('runner_timeout')),milliseconds);})]);
+  } finally { if(timer) clearTimeout(timer); }
+}
 export function createScannerServer(options: {secret:Uint8Array;runner?:ScannerRunner}) {
   checkSecret(options.secret); const secret=Buffer.from(options.secret); const runner=options.runner??createCustomerAssessmentRunner();
-  const used=new Map<string,number>(); let active=false;
+  const used=new Map<string,number>(); let active=false; let fault=false;
+  type Readiness = Awaited<ReturnType<ScannerRunner['readiness']>>;
+  let readinessCache: {until:number;state:Readiness} | undefined;
+  let readinessResponse: Promise<Readiness> | undefined;
+  const unavailable: Readiness = {ready:false,tools:[]};
+  function release(error?: unknown) {
+    if (isScannerCleanupError(error)) fault=true;
+    if (error) readinessCache=undefined;
+    active=false;
+  }
+  function readiness(): Promise<Readiness> {
+    if(fault) return Promise.resolve(unavailable);
+    if(readinessResponse) return readinessResponse;
+    if(active) return Promise.resolve(unavailable);
+    if(readinessCache && readinessCache.until>Date.now()) return Promise.resolve(readinessCache.state);
+    active=true;
+    const work=Promise.resolve().then(()=>runner.readiness());
+    // The response can time out, but only settlement of the underlying probe frees admission.
+    work.then(state=>{readinessCache={until:Date.now()+30000,state};readinessResponse=undefined;release();},error=>{readinessResponse=undefined;release(error);});
+    readinessResponse=responseWithin(work,40000).catch(()=>unavailable);
+    return readinessResponse;
+  }
   async function handle(req: IncomingMessage,res: ServerResponse) {
-    if(req.url === '/readyz' && req.method === 'GET') {const state=await runner.readiness();send(res,state.ready?200:503,state);return;}
+    if(req.url === '/readyz' && req.method === 'GET') {const state=await readiness();send(res,state.ready?200:503,state);return;}
     if(req.url !== '/v1/assessments' || req.method !== 'POST'){send(res,404,{error:'not_found'});return;}
     const timestamp=req.headers['x-gotchu-timestamp'];const signature=req.headers['x-gotchu-signature'];
     if(typeof timestamp!=='string'||typeof signature!=='string'||req.headers['content-type']!=='application/json'||req.headers['content-encoding']||Number(req.headers['content-length']??0)>MAX_REQUEST_BYTES){send(res,400,{error:'invalid_request'});return;}
+    if(fault){send(res,503,{error:'scanner_unavailable'});return;}
     if(active){send(res,429,{error:'scanner_busy'});return;}
     active=true; let workOwnsSlot=false;
     try {
@@ -32,16 +60,12 @@ export function createScannerServer(options: {secret:Uint8Array;runner?:ScannerR
       let json: unknown;try{json=JSON.parse(bytes.toString('utf8'));}catch{send(res,400,{error:'invalid_json'});return;}
       const parsed=customerRunInputSchema.safeParse(json);
       if(!parsed.success){send(res,400,{error:'invalid_input'});return;}
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const work=runner.run(parsed.data); workOwnsSlot=true;
-      // A timed-out injected runner keeps admission closed until it actually settles.
-      work.then(()=>{active=false;},()=>{active=false;});
-      try {
-        const result=await Promise.race([work,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('runner_timeout')),60000);})]);
-        const report=customerAssessmentReportSchema.parse(result);assertReportBinding(parsed.data,report);
-        if(Buffer.byteLength(JSON.stringify(report))>MAX_RESPONSE_BYTES)throw new Error('report_limit');
-        send(res,200,report);
-      } finally {if(timer)clearTimeout(timer);}
+      const work=Promise.resolve().then(()=>runner.run(parsed.data)); workOwnsSlot=true;
+      work.then(()=>release(),error=>release(error));
+      const result=await responseWithin(work,55000);
+      const report=customerAssessmentReportSchema.parse(result);assertReportBinding(parsed.data,report);
+      if(Buffer.byteLength(JSON.stringify(report))>MAX_RESPONSE_BYTES)throw new Error('report_limit');
+      send(res,200,report);
     } catch {send(res,503,{error:'assessment_unavailable'});}
     finally {if(!workOwnsSlot)active=false;}
   }

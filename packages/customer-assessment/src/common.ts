@@ -33,9 +33,18 @@ export function compare(internal: AssessmentAnalysis | null, external: Assessmen
   // Source deployment equivalence and matching opposite-side coverage are not established.
   return [...groups].map(([key, g]) => ({ key, classification: g.internal.length && g.external.length ? 'both' : 'unverified', internalFindingIds: g.internal, externalFindingIds: g.external, explanation: 'Independent evidence grouped by rule; deployment equivalence, opposite-side absence and exploitability remain unknown.' }));
 }
-export async function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+/** Cancellation stops new work; callers retain ownership until started work and cleanup settle. */
+export async function bounded<T>(work: Promise<T> | (() => Promise<T>), signal: AbortSignal): Promise<T> {
+  if (typeof work === 'function') {
+    signal.throwIfAborted();
+    work = work();
+  }
+  // Always observe an already-created promise, even when the signal was already aborted.
+  // A cleanup rejection takes precedence over the deadline and must reach the supervisor.
+  const result = await work;
   signal.throwIfAborted();
-  let abort: () => void = () => {};
-  const interrupted = new Promise<never>((_, reject) => { abort = () => reject(new Error('deadline_exceeded')); signal.addEventListener('abort', abort, { once: true }); });
-  try { return await Promise.race([work, interrupted]); } finally { signal.removeEventListener('abort', abort); }
+  return result;
+}
+export function isScannerCleanupError(error: unknown): error is Error {
+  return error instanceof Error && error.message === 'scanner_cleanup_unavailable';
 }
