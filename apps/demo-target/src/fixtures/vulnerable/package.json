@@ -1,0 +1,8 @@
+{
+  "name": "fictional-paper-moon-store-inventory",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only inventory fixture. Never install these dependencies.",
+  "dependencies": { "lodash": "4.17.20" }
+}

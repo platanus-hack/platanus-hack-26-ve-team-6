@@ -1,0 +1,8 @@
+{
+  "name": "fictional-paper-moon-store-inventory",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Read-only inventory fixture. The unused declared dependency was removed.",
+  "dependencies": {}
+}

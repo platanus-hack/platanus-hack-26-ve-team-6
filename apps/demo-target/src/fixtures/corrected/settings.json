@@ -1,0 +1,7 @@
+{
+  "responseHeaders": {
+    "content-type": "text/html; charset=utf-8",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+  }
+}
