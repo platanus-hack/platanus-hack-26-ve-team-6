@@ -5,7 +5,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { runnerJobSchema, runnerResultSchema, type RunnerJob, type RunnerResult } from './contracts.js';
 import { checkRunnerGate, runnerPackageRoot } from './gate.js';
 import { parseGuestFrame, validateGuestPayload } from './protocol.js';
-import { validateInputArchive } from './archive.js';
+import { readArchiveFiles, validateInputArchive } from './archive.js';
+import { fetchNpmDependencies } from './npm-cache.js';
 import { isolationEvidence, readImageLock, sha256 } from './images.js';
 import { prepareVmBootFiles } from './vm-config.js';
 import { collectCapped, emptyOutput, finalResult, killProcessGroup, MAX_SERIAL_BYTES, parseResult, waitForExit, type VmOutcome } from './vm-output.js';
@@ -67,6 +68,10 @@ class Semaphore {
 }
 
 async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signal?: AbortSignal): Promise<VmOutcome> {
+  const archive = validateInputArchive(input);
+  const packageLock = readArchiveFiles(archive.tarBytes).get('package-lock.json');
+  if (!packageLock) throw new Error('node24-npm-test requires package-lock.json');
+  const npmDependencies = await fetchNpmDependencies(packageLock);
   const lock = await readImageLock();
   if (!lock) throw new Error('Runner image lock could not be read');
   const started = Date.now();
@@ -86,7 +91,7 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
 
   try {
     if (signal?.aborted) throw new AbortBeforeStartError();
-    const bootFiles = await prepareVmBootFiles(job, input, cacheDir, tempDir, lock);
+    const bootFiles = await prepareVmBootFiles(job, archive.tarBytes, cacheDir, tempDir, lock, npmDependencies);
     imagesVerified = true;
     if (signal?.aborted) throw new AbortBeforeStartError();
     const remainingMs = job.limits.wallMs - (Date.now() - started);

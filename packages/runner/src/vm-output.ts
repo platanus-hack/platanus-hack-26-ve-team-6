@@ -15,12 +15,13 @@ export function emptyOutput(limitBytes: number) {
 }
 
 export function parseResult(payload: GuestPayload, job: RunnerJob, durationMs: number): RunnerResult {
-  const isolation = isolationEvidence(job, undefined, false, true);
   if (payload.status === 'infrastructure_failed') {
+    const isolation = isolationEvidence(job, undefined, false, true);
     return runnerResultSchema.parse({
       status: 'infrastructure_failed', reason: payload.reason, durationMs, isolation,
     });
   }
+  const isolation = isolationEvidence(job, undefined, false, true, { lockfileSha256: payload.lockfileSha256, tarballSetSha256: payload.tarballSetSha256 });
   const maxPerStream = Math.floor(job.limits.outputBytes / 2);
   const guestCappedOutput = payload.status === 'resource_exceeded' && payload.resource === 'output';
   const captured = (value: string) => {

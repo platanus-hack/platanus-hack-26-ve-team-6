@@ -47,12 +47,15 @@ const artifactSchema = z.object({
 }).strict();
 
 const isolationSchema = z.object({
+  sandbox: z.object({ kind: z.literal('bwrap+systemd-scope'), memoryMaxMiB: z.number().int().positive(), tasksMax: z.number().int().positive(), cpuQuotaPercent: z.number().int().positive() }).strict(),
   runnerVersion: z.string().min(1).max(64),
   firecrackerVersion: z.string().min(1).max(64),
   kernelDigest: z.string().regex(/^[a-f0-9]{64}$/),
   rootfsDigest: z.string().regex(/^[a-f0-9]{64}$/),
   profile: runnerProfileSchema,
   networkPolicy: networkPolicySchema,
+  lockfileSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  tarballSetSha256: z.string().regex(/^[a-f0-9]{64}$/),
   cleanupVerified: z.boolean(),
 }).strict();
 

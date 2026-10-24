@@ -18,12 +18,14 @@ const guestOutputFields = {
   artifacts: z.array(z.unknown()).max(1000),
 };
 const guestPayloadSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('completed'), exitCode: z.number().int(), ...guestOutputFields }).strict(),
-  z.object({ status: z.literal('timed_out'), ...guestOutputFields }).strict(),
+  z.object({ status: z.literal('completed'), exitCode: z.number().int(), lockfileSha256: z.string().regex(/^[a-f0-9]{64}$/), tarballSetSha256: z.string().regex(/^[a-f0-9]{64}$/), ...guestOutputFields }).strict(),
+  z.object({ status: z.literal('timed_out'), lockfileSha256: z.string().regex(/^[a-f0-9]{64}$/), tarballSetSha256: z.string().regex(/^[a-f0-9]{64}$/), ...guestOutputFields }).strict(),
   z.object({
     status: z.literal('resource_exceeded'),
     exitCode: z.number().int(),
     resource: z.enum(['pids', 'memory', 'disk', 'output', 'cpu']),
+    lockfileSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    tarballSetSha256: z.string().regex(/^[a-f0-9]{64}$/),
     ...guestOutputFields,
   }).strict(),
   z.object({ status: z.literal('infrastructure_failed'), reason: z.string().min(1).max(512) }).strict(),

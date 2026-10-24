@@ -7,6 +7,7 @@ const run = promisify(execFile);
 const job = JSON.parse(await readFile('/input/job.json', 'utf8'));
 const work = '/scratch/work';
 await mkdir(work, { recursive: true });
+const cacheManifest = JSON.parse(await readFile('/npm-cache-source/manifest.json', 'utf8'));
 await run('/usr/bin/tar', ['-xf', '/input/project.tar', '-C', work, '--no-same-owner', '--no-same-permissions']);
 await run('/usr/bin/chown', ['-R', 'node:node', work]);
 await mkdir('/scratch/home', { recursive: true });
@@ -48,7 +49,12 @@ let status = 'completed';
 let exitCode = 0;
 let resource;
 try {
-  let result = await execute(['npm', 'ci', '--ignore-scripts', '--offline', '--cache', '/scratch/npm-cache']);
+  let result = { code: 0, signal: null };
+  for (const entry of cacheManifest.entries) {
+    result = await execute(['npm', 'cache', 'add', `/npm-cache-source/tarballs/${entry.file}`, '--cache', '/scratch/npm-cache', '--offline']);
+    if (result.code !== 0) break;
+  }
+  if (result.code === 0) result = await execute(['npm', 'ci', '--ignore-scripts', '--offline', '--cache', '/scratch/npm-cache']);
   if (result.code === 0) result = await execute(['npm', 'test']);
   exitCode = result.code;
   const combined = Buffer.concat([...outputs.stdout, ...outputs.stderr]).toString('utf8');
@@ -79,6 +85,8 @@ const payload = {
   stdout,
   stderr,
   artifacts: [],
+  lockfileSha256: cacheManifest.lockfileSha256,
+  tarballSetSha256: cacheManifest.tarballSetSha256,
 };
 const frame = Buffer.from(JSON.stringify(payload), 'utf8');
 process.stdout.write(`\nGOTCHU_RESULT_V1 ${frame.length}\n`);
