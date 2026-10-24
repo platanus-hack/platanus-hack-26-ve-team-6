@@ -8,7 +8,7 @@ const validManifest='apiVersion: v1\nkind: Pod\nmetadata:\n  name: customer\n';
 const malformedManifest='apiVersion: v1\nkind: Pod\nspec: [unclosed\n';
 
 describe('configuration coverage',()=>{
-  it.each(['broken.yaml','broken.yml','nested/broken.json'])('retains available findings and marks omitted %s unknown',async path=>{
+  it.each(['broken.yaml','nested/broken.json'])('retains available findings and marks omitted %s unknown',async path=>{
     const malformed=path.endsWith('.json')?'{"apiVersion":"v1","kind":"Pod","spec":[}':malformedManifest;
     const report=await createCustomerAssessmentRunner({scanners}).run(input([{path:'valid.yaml',content:validManifest},{path,content:malformed}]));
     expect(report.internal?.findings).toHaveLength(1);

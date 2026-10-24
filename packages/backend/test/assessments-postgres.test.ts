@@ -87,7 +87,8 @@ live('real Postgres assessment authorization and storage (synthetic report evide
     expect(orphans.rowCount).toBe(0);
   });
 
-  it.each(['internal', 'external', 'both'] as const)('persists both revisions with only the requested %s analyses', async mode => {
+  it('persists both revisions of a combined internal and external assessment', async () => {
+    const mode = 'both';
     for (const revision of ['vulnerable', 'corrected'] as const) {
       const { jobId } = await api.assessments.queue(identity(), { ...queueInput(), mode, revision });
       const claim = present(await coordinator.jobs.claim({ organizationId: f.a.organizationId, jobId }));

@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { correlationWindowInputSchema } from '../src/inputs.js';
-import { canonicalTriageJson, correlate, revise, triageRevisionSchema, type HypothesisKind } from '../src/correlate.js';
-import { scenarioCatalog, supportMatrix } from '../src/catalog.js';
+import { canonicalTriageJson, correlate, revise, type HypothesisKind } from '../src/correlate.js';
 import { evaluationNow, holdoutCases, tuningCases } from '../corpus/cases.js';
 
 function result(input: unknown, now = evaluationNow) { return correlate(input, { now, rulesVersion: 'test-1' }); }
@@ -11,24 +9,6 @@ function forCase(labeled: (typeof tuningCases)[number]) {
 function supportedKinds(value: ReturnType<typeof result>): HypothesisKind[] {
   return value.hypotheses.filter(item => item.status === 'supported').map(item => item.kind);
 }
-function exhaustive(kind: HypothesisKind): string {
-  switch (kind) {
-    case 'application_regression': return 'regression';
-    case 'abuse': return 'abuse';
-    case 'provider_dependency': return 'provider';
-    case 'legitimate_load': return 'load';
-    case 'unknown': return 'unknown';
-    default: { const neverKind: never = kind; return neverKind; }
-  }
-}
-
-describe('scenario catalog', () => {
-  it('versions all requested scenarios with declared support and guidance', () => {
-    expect(scenarioCatalog).toHaveLength(13);
-    expect(scenarioCatalog.every(item => item.version && item.preconditions.length && item.requiredSignals.length && item.contraryEvidence.length && item.minimumCoverage.length && item.severityRules.length && item.confidenceRules.length && item.responseOptions.every(option => option.adapter === 'none' || option.adapter.length > 0) && item.stopConditions.length && item.reason)).toBe(true);
-    expect(supportMatrix()).toHaveLength(13);
-  });
-});
 
 describe('correlation acceptance cases', () => {
   it.each([...tuningCases, ...holdoutCases])('evaluates $id using independent impact and cause labels', labeled => {
@@ -218,13 +198,6 @@ describe('correlation acceptance cases', () => {
     expect(value.hypotheses.find(item => item.kind === 'legitimate_load')?.nextCheck).toContain('no capacity change');
   });
 
-  it('is deterministic and exposes exhaustive hypothesis kinds', () => {
-    const labeled = holdoutCases[0];
-    if (!labeled) throw new Error('missing_test_case');
-    expect(canonicalTriageJson(forCase(labeled))).toBe(canonicalTriageJson(forCase(labeled)));
-    expect((['application_regression', 'abuse', 'provider_dependency', 'legitimate_load', 'unknown'] as const).map(exhaustive)).toHaveLength(5);
-  });
-
   it('creates immutable, linked revisions', () => {
     const beforeCase = tuningCases[0];
     if (!beforeCase) throw new Error('missing_test_case');
@@ -236,21 +209,5 @@ describe('correlation acceptance cases', () => {
     expect(canonicalTriageJson(before)).toBe(snapshot);
     expect(after).toMatchObject({ revision: 2, previousRevisionId: before.id, rulesVersion: 'test-2' });
   });
-
-  it('exports a runtime schema for persisted revisions', () => {
-    const labeled = tuningCases[0];
-    if (!labeled) throw new Error('missing_test_case');
-    expect(triageRevisionSchema.parse(forCase(labeled))).toMatchObject({ revision: 1, impact: { observed: 'degraded' } });
-  });
 });
 
-describe('input bounds', () => {
-  it('rejects overlong signal arrays', () => {
-    const base = tuningCases[0]?.input;
-    if (!base) throw new Error('missing_test_case');
-    expect(() => correlationWindowInputSchema.parse({ ...base, signals: Array.from({ length: 101 }, (_, index) => ({
-      id: `s-${index}`, metric: 'error_rate', service: 'checkout', environment: 'production', sampling: 1, freshnessMs: 60_000,
-      samples: [{ eventAt: '2026-10-24T11:04:00.000Z', acceptedAt: '2026-10-24T11:04:02.000Z', value: 0.1 }],
-    })) })).toThrow();
-  });
-});

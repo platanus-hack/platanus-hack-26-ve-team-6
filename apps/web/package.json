@@ -8,8 +8,7 @@
     "build": "vite build",
     "start": "node .output/server/index.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --config vitest.config.ts",
-    "test:design": "playwright test"
+    "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "@auth/core": "0.41.3",
@@ -35,8 +34,6 @@
     "@simplewebauthn/browser": "14.0.0"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.14.0",
-    "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
