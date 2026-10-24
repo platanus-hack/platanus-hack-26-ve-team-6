@@ -46,9 +46,9 @@ export const eventBatchSchema = z.object({
 export const jobKindSchema = z.enum(['audit', 'events.aggregate', 'investigation', 'execution', 'notification']);
 export const jobEnvelopeSchema = z.object({
   version: z.literal(1),
-  id: idSchema,
-  organizationId: idSchema,
-  applicationId: idSchema,
+  id: idSchema.transform((id) => id.toLowerCase()),
+  organizationId: idSchema.transform((id) => id.toLowerCase()),
+  applicationId: idSchema.transform((id) => id.toLowerCase()),
   kind: jobKindSchema,
 }).strict();
 

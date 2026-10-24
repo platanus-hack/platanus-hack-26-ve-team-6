@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { eventBatchSchema } from '../src/index.js';
+import { eventBatchSchema, jobEnvelopeSchema } from '../src/index.js';
 
 const event = {
   id: '437d7331-bd6f-4619-b2bb-a2c649727e55',
@@ -24,5 +24,13 @@ describe('external event contract', () => {
   it('bounds batches and accepts stable event identities', () => {
     expect(eventBatchSchema.parse(batch).events[0]?.id).toBe(event.id);
     expect(eventBatchSchema.safeParse({ ...batch, events: Array.from({ length: 101 }, () => event) }).success).toBe(false);
+  });
+
+  it('canonicalizes durable job UUIDs without rewriting signed event data', () => {
+    const upper = batch.applicationId.toUpperCase();
+    const job = jobEnvelopeSchema.parse({ version: 1, id: event.id.toUpperCase(), organizationId: upper, applicationId: upper, kind: 'audit' });
+    expect(job.applicationId).toBe(batch.applicationId);
+    expect(job.id).toBe(event.id);
+    expect(eventBatchSchema.parse({ ...batch, applicationId: upper }).applicationId).toBe(upper);
   });
 });
