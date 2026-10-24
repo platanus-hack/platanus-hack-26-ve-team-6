@@ -1,0 +1,34 @@
+# Keep the existing persistent volumes and loopback-only ports.
+services:
+  postgres:
+    mem_limit: 512m
+    command:
+      - postgres
+      - -c
+      - listen_addresses=0.0.0.0
+      - -c
+      - max_connections=60
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_wal_size=512MB
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "2"
+  redis:
+    mem_limit: 128m
+    command:
+      - sh
+      - -ec
+      - exec redis-server --appendonly yes --appendfsync everysec --requirepass "$$REDIS_PASSWORD" --maxmemory 96mb --maxmemory-policy noeviction
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "2"

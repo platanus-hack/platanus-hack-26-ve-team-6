@@ -1,0 +1,31 @@
+{
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 30s
+			write 90s
+			idle 60s
+		}
+	}
+}
+
+gotchu.kevinbravo.com {
+	encode zstd gzip
+	request_body {
+		max_size 16MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	reverse_proxy 127.0.0.1:3000 {
+		header_up Host gotchu.kevinbravo.com
+		header_up X-Forwarded-Proto https
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 60s
+		}
+	}
+}
