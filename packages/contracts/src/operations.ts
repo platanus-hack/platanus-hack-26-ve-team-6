@@ -1,17 +1,18 @@
 import { z } from 'zod';
 import { customerScopeSchema } from './customer-assessment.js';
 
-const timestamp = z.iso.datetime();
+const timestamp = z.iso.datetime().refine(value => new Date(value).getUTCFullYear() >= 2000, 'Timestamp must be in the supported era');
 const checksum = z.string().regex(/^[a-f0-9]{64}$/);
 export const monitorConfigInputSchema = customerScopeSchema.extend({
   enabled: z.boolean(), intervalSeconds: z.number().int().min(3600).max(86400),
+  providers: z.array(z.enum(['cloudflare', 'railway'])).max(2).default([]),
   sourceSnapshotId: z.uuid().nullable().default(null), targetId: z.uuid().nullable().default(null),
   repositoryKey: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/).nullable().default(null),
-}).strict().refine(v => !v.enabled || v.sourceSnapshotId !== null || v.targetId !== null || v.repositoryKey !== null,
+}).strict().refine(v => !v.enabled || v.sourceSnapshotId !== null || v.targetId !== null || v.repositoryKey !== null || v.providers.length > 0,
   'Enabled monitoring requires a source, authorized target or operator-configured repository key');
 export const monitorConfigSchema = customerScopeSchema.extend({
   enabled: z.boolean(), intervalSeconds: z.number().int(), sourceSnapshotId: z.uuid().nullable(), targetId: z.uuid().nullable(),
-  repositoryKey: z.string().nullable(), revision: z.number().int().positive(), nextDueAt: timestamp, updatedAt: timestamp,
+  repositoryKey: z.string().nullable(), providers: z.array(z.enum(['cloudflare', 'railway'])).max(2), revision: z.number().int().positive(), nextDueAt: timestamp, updatedAt: timestamp,
 });
 export const monitorClaimSchema = customerScopeSchema.extend({ runId: z.uuid(), leaseToken: z.uuid() }).strict();
 export const monitorWorkSchema = monitorClaimSchema.extend({
@@ -21,7 +22,7 @@ export const operationMetricsSchema = z.object({
   windowStartedAt: timestamp, windowEndedAt: timestamp, requestCount: z.number().int().min(1).max(1_000_000),
   errorCount: z.number().int().nonnegative(), latencyP95Ms: z.number().min(0).max(3_600_000).nullable(),
   capacityUtilization: z.number().min(0).max(1).nullable(),
-}).strict().refine(v => v.errorCount <= v.requestCount && v.windowStartedAt < v.windowEndedAt, 'Invalid metric window or error count');
+}).strict().refine(v => v.errorCount <= v.requestCount && Date.parse(v.windowStartedAt) < Date.parse(v.windowEndedAt), 'Invalid metric window or error count');
 export const operationEvidenceSchema = z.object({
   source: z.enum(['repository', 'provider_status', 'signed_event', 'assessment']),
   reference: z.string().min(1).max(512), checksum, collectedAt: timestamp,
@@ -34,7 +35,7 @@ export const operationObservationBasisSchema = z.discriminatedUnion('kind', [
 ]);
 export const recordOperationObservationSchema = customerScopeSchema.extend({
   idempotencyKey: z.string().min(1).max(128), basis: operationObservationBasisSchema,
-  kind: z.enum(['repository_change', 'dependency_advisory', 'public_surface', 'upstream_outage', 'traffic_pressure', 'coverage_gap']),
+  kind: z.enum(['repository_change', 'dependency_advisory', 'public_surface', 'upstream_outage', 'traffic_pressure', 'application_error', 'security_finding', 'coverage_gap', 'coverage_check']),
   summary: z.string().min(1).max(2000), severity: z.enum(['info', 'low', 'medium', 'high', 'critical']),
   confidence: z.enum(['low', 'medium', 'high']), observedAt: timestamp, expiresAt: timestamp,
   evidence: z.array(operationEvidenceSchema).min(1).max(20), metrics: operationMetricsSchema.nullable().default(null),
@@ -43,7 +44,7 @@ export const recordOperationObservationSchema = customerScopeSchema.extend({
 }).strict().superRefine((v, ctx) => {
   if (v.kind === 'traffic_pressure' && (v.metrics === null || v.basis.kind !== 'events')) ctx.addIssue({ code: 'custom', message: 'Traffic pressure requires persisted signed events and measured metrics' });
   if (v.kind === 'upstream_outage' && v.upstreamImpact !== 'unverified') ctx.addIssue({ code: 'custom', message: 'A provider status report does not verify application impact' });
-  if (v.observedAt >= v.expiresAt) ctx.addIssue({ code: 'custom', message: 'Evidence requires a positive freshness window' });
+  if (Date.parse(v.observedAt) >= Date.parse(v.expiresAt)) ctx.addIssue({ code: 'custom', message: 'Evidence requires a positive freshness window' });
 });
 export const operationObservationSchema = customerScopeSchema.extend({
   id: z.uuid(), kind: recordOperationObservationSchema.shape.kind, summary: z.string(),
@@ -56,6 +57,12 @@ export const operationAlertSchema = z.object({
   id: z.uuid(), observation: operationObservationSchema, state: z.enum(['open', 'acknowledged', 'resolved']),
   updatedAt: timestamp, resolution: z.string().nullable(),
 });
+export const operationCoverageSchema = z.object({
+  config: monitorConfigSchema.nullable(), status: z.enum(['not_configured', 'pending', 'active', 'degraded', 'stale']), scopeCurrent: z.boolean(),
+  lastRun: z.object({ runId: z.uuid(), jobId: z.uuid().nullable(), status: z.enum(['running', 'completed', 'degraded', 'cancelled']), reason: z.string().nullable(), startedAt: timestamp, finishedAt: timestamp.nullable() }).nullable(),
+  observations: z.object({ fresh: z.number().int().nonnegative(), stale: z.number().int().nonnegative() }), limitations: z.array(z.string()),
+});
+export type OperationCoverage = z.infer<typeof operationCoverageSchema>;
 export const operationPlanKindSchema = z.enum(['investigate_capacity', 'migration_readiness', 'review_improvement']);
 export const operationPlanRequestSchema = customerScopeSchema.extend({
   kind: operationPlanKindSchema, observationIds: z.array(z.uuid()).min(1).max(20),
