@@ -675,4 +675,33 @@ body { margin: 0; }
 .customer-next-actions > div { flex: 1 1 100%; }
 .customer-next-actions h2, .customer-next-actions p { margin: 4px 0; }
 .customer-next-actions p { color: var(--customer-muted, #697386); }
+.customer-report-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; border-bottom: 1px solid #e7ede7; }
+.customer-report-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; color: #718077; padding: 10px 12px; font-size: 12px; cursor: pointer; }
+.customer-report-tab[aria-selected="true"] { border-color: var(--customer-green); color: #31513b; font-weight: 650; }
+.customer-dependency-inventory { margin-top: 16px; }
+.customer-dependency-coverage { display: grid; gap: 5px; margin: 12px 0 16px; border: 1px solid #e3eae3; border-radius: 7px; background: #f7f9f6; padding: 11px 13px; color: #718077; font-size: 11px; }
+.customer-dependency-coverage strong { color: #4c6654; font-size: 11px; }
+.customer-dependency-filters { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(140px, .45fr)); gap: 10px; margin: 14px 0; }
+.customer-dependency-filters label, .customer-license-policy-grid label { display: grid; gap: 6px; color: #5f7366; font-size: 11px; font-weight: 600; }
+.customer-dependency-filters input, .customer-dependency-filters select, .customer-license-policy-grid textarea { min-width: 0; border: 1px solid #d8e2da; border-radius: 5px; background: #fff; color: #314b3c; padding: 8px; font: inherit; font-weight: 400; }
+.customer-dependency-table-wrap { overflow: auto; border: 1px solid #e3eae3; border-radius: 7px; }
+.customer-dependency-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 11px; }
+.customer-dependency-table th { background: #f7f9f6; color: #6f8175; font-size: 10px; font-weight: 650; }
+.customer-dependency-table th, .customer-dependency-table td { min-width: 100px; border-bottom: 1px solid #edf1ed; padding: 10px 11px; vertical-align: top; }
+.customer-dependency-table td:first-child { min-width: 145px; }
+.customer-dependency-table td strong, .customer-dependency-table td small { display: block; }
+.customer-dependency-table td strong { color: #415d49; font-size: 11px; }
+.customer-dependency-table td small { margin-top: 4px; color: #87948b; font-size: 10px; }
+.customer-dependency-table code { color: #687c6d; overflow-wrap: anywhere; font-size: 10px; }
+.customer-license-status { display: inline-flex; border-radius: 999px; padding: 4px 7px; font-size: 10px; white-space: nowrap; }
+.customer-license-allowed { background: #eaf4ec; color: #3f704b; }
+.customer-license-review { background: #fff3da; color: #87631d; }
+.customer-license-denied { background: #fbe9e5; color: #a04436; }
+.customer-license-policy-panel { display: grid; gap: 13px; }
+.customer-license-policy-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.customer-license-policy-grid textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; line-height: 1.6; }
+.customer-license-policy-grid small { color: #859188; font-size: 10px; font-weight: 400; }
+.customer-license-default-note, .customer-license-saved { margin: 0; border-radius: 6px; background: #f5f8f4; color: #607665; padding: 10px 12px; font-size: 11px; line-height: 1.6; }
+.customer-license-saved { background: #eaf4ec; color: #3f704b; }
+@media (max-width: 700px) { .customer-dependency-filters, .customer-license-policy-grid { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .customer-onboarding { padding: 20px 12px 40px; } .customer-onboarding-steps li { flex-direction: column; text-align: center; font-size: .75rem; } .customer-onboarding-card { padding: 20px; } .customer-next-actions > button { flex: 1 1 100%; } }

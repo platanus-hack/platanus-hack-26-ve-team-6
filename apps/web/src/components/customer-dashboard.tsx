@@ -33,15 +33,17 @@ import { ApprovalPanel } from './approval-panel';
 import { GitHubRepositoryPanel, Onboarding } from './onboarding';
 import { WorkflowExceptions } from './workflow-exceptions';
 import { DecisionRecordHistory } from './decision-record-history';
+import { DependencyInventoryPanel, LicensePolicyPanel } from './customer-supply-chain';
 import './customer-dashboard.css';
 
-type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records';
+type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy';
 
 const pages: { id: Page; label: string; glyph: string }[] = [
   { id: 'overview', label: 'Inicio', glyph: '⌂' },
   { id: 'applications', label: 'Aplicaciones', glyph: '▦' },
   { id: 'operations', label: 'Vigilancia', glyph: '◉' },
   { id: 'reports', label: 'Informes', glyph: '≋' },
+  { id: 'license-policy', label: 'Licencias', glyph: '©' },
   { id: 'members', label: 'Equipo', glyph: '♧' },
   { id: 'decision-records', label: 'Decisiones', glyph: '◷' },
 ];
@@ -371,6 +373,9 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
 }) {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloadingSbom, setDownloadingSbom] = useState(false);
+  const [sbomError, setSbomError] = useState<string | null>(null);
+  const [activeReportTab, setActiveReportTab] = useState<'findings' | 'dependencies'>('findings');
   const entries = [...report.internal?.findings ?? [], ...report.external?.findings ?? []];
   const evidence = [...report.internal?.evidence ?? [], ...report.external?.evidence ?? []];
   const byId = new Map(entries.map(finding => [finding.id, finding]));
@@ -396,6 +401,22 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
     <div className="customer-report-callout"><strong>{entries.length} observaciones registradas</strong><p>Los resultados describen el alcance evaluado. Una fuente ausente, un indicio o una cobertura limitada no equivale a una comprobación aprobada. No se han realizado cambios en la aplicación.</p></div>
     <ComparisonSummary comparisons={report.comparison} internal={report.internal} external={report.external} />
     <ExternalHttpsEvidence analysis={report.external} />
+    <div className="customer-report-tabs" role="tablist" aria-label="Contenido del informe" onKeyDown={event => {
+      if (event.key === 'ArrowRight' || event.key === 'ArrowLeft' || event.key === 'Home' || event.key === 'End') {
+        event.preventDefault();
+        setActiveReportTab(event.key === 'Home' || event.key === 'ArrowLeft' ? 'findings' : 'dependencies');
+      }
+    }}>
+      <button type="button" className="customer-report-tab" id="report-findings-tab" role="tab" aria-controls="report-findings-panel" aria-selected={activeReportTab === 'findings'} tabIndex={activeReportTab === 'findings' ? 0 : -1} onClick={() => setActiveReportTab('findings')}>Hallazgos</button>
+      <button type="button" className="customer-report-tab" id="report-dependencies-tab" role="tab" aria-controls="report-dependencies-panel" aria-selected={activeReportTab === 'dependencies'} tabIndex={activeReportTab === 'dependencies' ? 0 : -1} onClick={() => setActiveReportTab('dependencies')}>Dependencias y licencias</button>
+    </div>
+    {activeReportTab === 'dependencies' && <div id="report-dependencies-panel" className="customer-report-tabpanel" role="tabpanel" aria-labelledby="report-dependencies-tab" tabIndex={0}><DependencyInventoryPanel inventory={report.internal?.dependencyInventory} busy={downloadingSbom} error={sbomError} onDownload={async () => {
+      setDownloadingSbom(true); setSbomError(null);
+      try { const blob = await customerApi.downloadSbom(organizationId, applicationId, report.id); downloadBlob(blob, `gotchu-${report.id}.cdx.json`); }
+      catch (error) { setSbomError(readableError(error)); }
+      finally { setDownloadingSbom(false); }
+    }} /></div>}
+    {activeReportTab === 'findings' && <div id="report-findings-panel" className="customer-report-tabpanel" role="tabpanel" aria-labelledby="report-findings-tab" tabIndex={0}>
     <section className="customer-report-section"><div className="customer-section-heading"><div><span className="customer-eyebrow">HALLAZGOS</span><h3>Observaciones y contraste</h3></div></div>
       {report.comparison.length === 0 ? <div className="customer-empty-inline">Este informe no contiene observaciones. Consulta la cobertura para ver qué perfiles y capacidades se evaluaron.</div> : <div className="customer-findings">{report.comparison.map(item => {
         const linked = [...item.internalFindingIds, ...item.externalFindingIds].map(id => byId.get(id)).filter((finding): finding is NonNullable<typeof finding> => finding !== undefined);
@@ -421,12 +442,22 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
       canManage={canManage}
       archived={archived}
       onQueued={onCorrectionQueued}
-    />}
+    />
+    </div>}
     <section className="customer-report-section customer-coverage"><div className="customer-section-heading"><div><span className="customer-eyebrow">COBERTURA</span><h3>Qué se evaluó</h3></div></div>
       <div className="customer-analysis-grid">{originSections.map(({ origin, analysis }) => <article className="customer-analysis-card" key={origin}><div className="customer-card-heading"><h4>{report.subject.containerImageDigest && origin === 'internal' ? 'Imagen' : sourceLabels[origin]}</h4><span className="customer-status customer-status-muted">{analysis ? analysisLabels[analysis.status] : 'No solicitado'}</span></div>{analysis ? <><p>{analysis.tool.name} · v{analysis.tool.version}</p><ul>{analysis.coverage.map(item => <li key={item.capability}><span><strong>{coverageCapabilityLabel(item.capability)}</strong><small>{item.detail}</small></span><span className="customer-status customer-status-muted">{coverageLabels[item.state]}</span></li>)}</ul>{analysis.limitations.length > 0 && <details className="customer-analysis-limits"><summary>Límites del perfil ({analysis.limitations.length})</summary><ul>{analysis.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></details>}</> : <p>Esta perspectiva no se solicitó para este informe.</p>}</article>)}</div>
     </section>
     {report.limitations.length > 0 && <section className="customer-report-section"><div className="customer-section-heading"><div><span className="customer-eyebrow">CONTEXTO</span><h3>Límites del informe</h3></div></div><ul className="customer-report-limitations">{report.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></section>}
   </div>;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 function downloadReport(report: CustomerAssessmentReport) {
@@ -630,6 +661,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
         : page === 'decision-records' && organizationId ? <>
           <div className="customer-page-heading"><div><span className="customer-eyebrow">{workspace?.name}</span><h1>Historial de decisiones</h1><p>Consulta quién realizó cambios y qué evaluaciones, alertas y acciones quedaron registradas en este espacio de trabajo.</p></div></div>
           <DecisionRecordHistory userId={userId} organizationId={organizationId} />
+        </>
+        : page === 'license-policy' && organizationId ? <>
+          <div className="customer-page-heading"><div><span className="customer-eyebrow">{workspace?.name}</span><h1>Política de licencias</h1><p>Define cómo clasificar las licencias declaradas en las dependencias exactas de cada evaluación de código.</p></div></div>
+          <LicensePolicyPanel key={`${userId}:${organizationId}`} userId={userId} organizationId={organizationId} canManage={canManage} />
         </>
         : applications.isPending ? <Loading label="Cargando aplicaciones…" />
         : applications.error ? <ErrorNotice message={readableError(applications.error)} retry={() => { applications.refetch().catch(caught => setPageError(readableError(caught))); }} />
