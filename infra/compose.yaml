@@ -16,7 +16,8 @@ x-disabled-service: &disabled-service
 
 services:
   postgres:
-    image: postgres:17.11-bookworm
+    # PostgreSQL 17.11 Bookworm, pinned for reproducible local development.
+    image: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
     user: "999:999"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
@@ -53,7 +54,8 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7.4.11-bookworm
+    # Redis 7.4.11 Bookworm, pinned for reproducible local development.
+    image: redis:7.4.11-bookworm@sha256:44960b3100c48159a66d28c18b0588c193492e25f7551d60e51dd464fc3eca5b
     user: "999:999"
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?run scripts/infra-local-setup.sh first}

@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout } from 'node:timers/promises';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
+// PostgreSQL 17.11 and Redis 7.4.11 are pinned to OCI manifest digests for repeatable live tests.
+const postgresImage = 'postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb';
+const redisImage = 'redis:7.4.11-alpine@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541';
 const suffix = randomBytes(6).toString('hex');
 const postgres = `gotchu-assessment-pg-${suffix}`;
 const redis = `gotchu-assessment-redis-${suffix}`;
@@ -18,9 +21,9 @@ function command(binary, args, env = process.env) {
 function cleanup() { for (const name of started.splice(0)) spawnSync('docker', ['rm', '--force', name], { stdio: 'ignore' }); }
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { cleanup(); process.exit(130); });
 try {
-  command('docker', ['run', '--detach', '--rm', '--name', postgres, '--memory', '512m', '--cpus', '1', '--tmpfs', '/var/lib/postgresql/data:rw', '-p', '127.0.0.1::5432', '-e', 'POSTGRES_PASSWORD', '-e', 'POSTGRES_DB=gotchu_test_assessments', 'postgres:17-alpine'], { ...process.env, POSTGRES_PASSWORD: pgPassword });
+  command('docker', ['run', '--detach', '--rm', '--name', postgres, '--memory', '512m', '--cpus', '1', '--tmpfs', '/var/lib/postgresql/data:rw', '-p', '127.0.0.1::5432', '-e', 'POSTGRES_PASSWORD', '-e', 'POSTGRES_DB=gotchu_test_assessments', postgresImage], { ...process.env, POSTGRES_PASSWORD: pgPassword });
   started.push(postgres);
-  command('docker', ['run', '--detach', '--rm', '--name', redis, '--memory', '256m', '--cpus', '0.5', '-p', '127.0.0.1::6379', '-e', 'REDIS_PASSWORD', 'redis:7.4-alpine', 'sh', '-ec', 'exec redis-server --appendonly no --requirepass "$REDIS_PASSWORD"'], { ...process.env, REDIS_PASSWORD: redisPassword });
+  command('docker', ['run', '--detach', '--rm', '--name', redis, '--memory', '256m', '--cpus', '0.5', '-p', '127.0.0.1::6379', '-e', 'REDIS_PASSWORD', redisImage, 'sh', '-ec', 'exec redis-server --appendonly no --requirepass "$REDIS_PASSWORD"'], { ...process.env, REDIS_PASSWORD: redisPassword });
   started.push(redis);
   let ready = false;
   for (let attempt = 0; attempt < 60; attempt++) {
