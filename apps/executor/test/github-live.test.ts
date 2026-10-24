@@ -182,13 +182,16 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
       const executionResult=await first.waitUntilFinished(events,180_000);
       let executionDiagnostics: unknown;
       if (executionResult.status !== 'verified') {
+        const storedExecution=present(await executor.executions.findByApproval({organizationId:f.a.organizationId,approvalId:input.approvalId}));
+        const executionId=storedExecution.executionId;
         const attempts=await f.admin.query('SELECT attempt,step,state,provider_reference,detail FROM gotchu.executor_attempts WHERE organization_id=$1 AND execution_id=$2 ORDER BY attempt',
-          [envelope.organizationId,present(executionResult.executionId)]);
-        const publication={action:input.action,actionHash:input.actionHash,executionId:present(executionResult.executionId),
+          [envelope.organizationId,executionId]);
+        const publication={action:input.action,actionHash:input.actionHash,executionId,
           artifact:await executor.executionArtifacts.readForExecutor({organizationId:f.a.organizationId,applicationId:f.a.applicationId,candidateSourceId:input.candidateSourceId})};
         const branchHead=await adapter.readHead(input.branch).then(commitSha=>({commitSha})).catch(error=>({error:error instanceof GitAdapterError?error.code:'unknown'}));
         const pullRequest=await adapter.findPullRequestByBranch(input.branch).then(value=>value??null).catch(error=>({error:error instanceof GitAdapterError?error.code:'unknown'}));
-        executionDiagnostics={result:executionResult,attempts:attempts.rows,reconciliation:await actionProvider.reconcile(publication),branchHead,pullRequest};
+        executionDiagnostics={result:executionResult,storedExecution:{state:storedExecution.state,providerReference:storedExecution.providerReference},
+          attempts:attempts.rows,reconciliation:await actionProvider.reconcile(publication),branchHead,pullRequest};
       }
       expect(executionResult,JSON.stringify(executionDiagnostics??executionResult)).toMatchObject({status:'verified'});
       const pullRequest=present(await adapter.findPullRequestByBranch(input.branch));
