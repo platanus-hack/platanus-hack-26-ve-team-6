@@ -93,10 +93,12 @@ type AsciiMarkProps = {
   open?: MotionValue<number>;
   /** Resting separation when no `open` value is supplied. */
   rest?: number;
+  /** Hold the finding's spin, e.g. from a visible pause control. */
+  paused?: boolean;
 };
 
 /** The mark extruded in 3D and drawn in characters; turns toward the pointer and closes on primary actions. */
-export function AsciiMark({ className = '', open, rest = .35 }: AsciiMarkProps) {
+export function AsciiMark({ className = '', open, rest = .35, paused = false }: AsciiMarkProps) {
   const root = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const reduced = useReducedMotion();
@@ -117,12 +119,12 @@ export function AsciiMark({ className = '', open, rest = .35 }: AsciiMarkProps) 
     };
     const draw = (time: number) => {
       frameId = 0;
-      if (!reduced) spin += Math.min(64, time - (last || time)) * 0.0006;
+      if (!reduced && !paused) spin += Math.min(64, time - (last || time)) * 0.0006;
       last = time;
       const separation = (open?.get() ?? rest) * (1 - catching.get());
       paint(context, width, height, { yaw: -0.5 + look.x.get() * 0.75 + 0.35, pitch: 0.28 + look.y.get() * 0.45, open: Math.max(0, separation), spin });
       root.current?.setAttribute('data-ready', 'true');
-      if (visible && !reduced && document.visibilityState === 'visible') frameId = requestAnimationFrame(draw);
+      if (visible && !reduced && !paused && document.visibilityState === 'visible') frameId = requestAnimationFrame(draw);
     };
     const start = () => { if (!frameId) frameId = requestAnimationFrame(draw); };
     const observer = new IntersectionObserver(([entry]) => { visible = entry?.isIntersecting ?? false; if (visible) start(); });
@@ -135,7 +137,7 @@ export function AsciiMark({ className = '', open, rest = .35 }: AsciiMarkProps) 
       cancelAnimationFrame(frameId); observer.disconnect(); sizer.disconnect();
       stops.forEach(stop => stop()); document.removeEventListener('visibilitychange', start);
     };
-  }, [catching, look.x, look.y, open, reduced, rest]);
+  }, [catching, look.x, look.y, open, paused, reduced, rest]);
 
   return <div ref={root} className={`g-ascii ${className}`} aria-hidden="true">
     <GotchuMark className="g-ascii-fallback" size={160} />

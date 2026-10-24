@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { UiIcon } from './ui';
-import { PrismMark } from './prism-mark';
+import { AsciiMark } from './ascii-mark';
 import './hero.css';
 
 const scope = [
@@ -42,7 +42,7 @@ export function Hero() {
           <g fill="none" stroke="#e7147d" strokeWidth="1.2"><path d="M128 245h20M452 245h20M300 73v20M300 397v20" /><path d="M180 122h-35v-28M420 365h34v28" /></g>
         </svg>
         <span className="g-art-scan" aria-hidden="true" />
-        <PrismMark className="g-hero-prism" paused={paused} />
+        <div className="g-hero-ascii"><AsciiMark paused={paused} /></div>
         <div className="g-art-status">
           <div><p className="g-mono"><span className="g-square" aria-hidden="true" />Alcance autorizado</p><p>De la instantánea al informe.</p></div>
           <button className="g-art-pause" type="button" aria-pressed={paused} aria-label={paused ? 'Reanudar animación' : 'Pausar animación'} onClick={() => setPaused(!paused)}>{paused ? '▶' : 'Ⅱ'}</button>
