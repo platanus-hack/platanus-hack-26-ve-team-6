@@ -104,22 +104,28 @@ ensure_scanner_secret() {
   chmod 600 "$path"
 }
 ensure_scanner_tls() {
-  local gateway="$1" cert="$state_dir/scanner.crt" key="$state_dir/scanner.key" cert_public key_public tmp_cert="${state_dir}/.scanner.crt.$$" tmp_key="${state_dir}/.scanner.key.$$"
+  local cert="$state_dir/scanner.crt" key="$state_dir/scanner.key" cert_public key_public tmp_cert="${state_dir}/.scanner.crt.$$" tmp_key="${state_dir}/.scanner.key.$$" gateway san="DNS:host.docker.internal"
+  for gateway in "$@"; do san+=",IP:${gateway}"; done
   if [[ -f "$cert" && ! -L "$cert" && -f "$key" && ! -L "$key" ]] \
-    && openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null | grep -Fq 'DNS:host.docker.internal' \
-    && openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null | grep -Fq "IP Address:${gateway}" \
+    && openssl x509 -in "$cert" -noout -checkhost host.docker.internal 2>/dev/null | grep -Fq 'Hostname host.docker.internal does match certificate' \
     && openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null 2>&1 \
     && openssl x509 -in "$cert" -noout -ext basicConstraints 2>/dev/null | grep -q 'CA:TRUE'; then
-    cert_public="$(openssl x509 -in "$cert" -pubkey -noout | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
-    key_public="$(openssl pkey -in "$key" -pubout -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
-    if [[ -n "$cert_public" && "$cert_public" == "$key_public" ]]; then chmod 600 "$cert" "$key"; return; fi
+    local valid_ips=true
+    for gateway in "$@"; do
+      if ! openssl x509 -in "$cert" -noout -checkip "$gateway" 2>/dev/null | grep -Fq "IP ${gateway} does match certificate"; then valid_ips=false; break; fi
+    done
+    if [[ "$valid_ips" == true ]]; then
+      cert_public="$(openssl x509 -in "$cert" -pubkey -noout | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
+      key_public="$(openssl pkey -in "$key" -pubout -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
+      if [[ -n "$cert_public" && "$cert_public" == "$key_public" ]]; then chmod 600 "$cert" "$key"; return; fi
+    fi
   fi
   (umask 077; openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
     -keyout "$tmp_key" -out "$tmp_cert" -subj '/CN=host.docker.internal' \
     -addext 'basicConstraints=critical,CA:TRUE' \
     -addext 'keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign,cRLSign' \
     -addext 'extendedKeyUsage=serverAuth' \
-    -addext "subjectAltName=DNS:host.docker.internal,IP:${gateway}") || fail 'No se pudo crear el certificado TLS privado del scanner.'
+    -addext "subjectAltName=${san}") || fail 'No se pudo crear el certificado TLS privado del scanner.'
   chmod 600 "$tmp_cert" "$tmp_key"
   mv -f -- "$tmp_cert" "$cert"; mv -f -- "$tmp_key" "$key"
 }
@@ -199,6 +205,7 @@ up() {
   local network gateway port; network="${project}_local-app-host"; port="$(env_value SCANNER_HOST_PORT)"
   gateway="$(docker network inspect "$network" --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
   [[ "$gateway" =~ ^[0-9.]+$ ]] || fail 'No se pudo identificar la puerta de enlace de la red local del coordinator.'
+  ensure_scanner_tls "$bridge_gateway" "$gateway"
   export SCANNER_HOST_GATEWAY="$gateway"
   start_scanner
   NODE_EXTRA_CA_CERTS="$state_dir/scanner.crt" wait_http "https://${gateway}:${port}/readyz" scanner
