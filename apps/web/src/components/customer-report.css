@@ -1,7 +1,7 @@
 /* Report: history and detail, findings, severity, evidence exhibits, recommendations, dependencies, licenses, corrections, analysis and decision records. Ruled lists on the brand tokens; frames only for code exhibits. */
 
 /* Shared marks */
-.customer-report-detail, .customer-report-history { --diamond: 8px; }
+.customer-report-detail, .customer-report-history, .customer-report-list { --diamond: 8px; }
 .customer-severity, .customer-license-status { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; color: var(--muted-foreground); font: 600 11.5px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .customer-severity::before, .customer-license-status::before { content: ''; flex: 0 0 var(--diamond); width: var(--diamond); height: var(--diamond); border: 1.5px solid currentColor; transform: rotate(45deg) scale(.82); }
 .customer-severity-critical { border-color: var(--brand); color: var(--brand-ink); font-weight: 700; }
@@ -22,12 +22,16 @@
 .customer-card.customer-report-history, .customer-card.customer-report-card { border: 0; border-top: 2px solid var(--foreground); border-radius: 0; background: transparent; padding: 0; overflow: visible; }
 .customer-report-card { min-height: 390px; }
 .customer-report-history { min-width: 0; }
+/* The list column stays in view beside the long report instead of leaving a blank column. */
+@media (min-width: 801px) {
+  .customer-report-layout > .customer-card.customer-report-history { position: sticky; top: 68px; max-height: calc(100svh - 84px); overflow-y: auto; }
+}
 .customer-report-history > .customer-card-heading { padding: 16px 0 14px; border-bottom: 1px solid var(--border); }
 .customer-report-list { list-style: none; margin: 0; padding: 0; }
 .customer-report-list li { border-bottom: 1px solid var(--border); }
 .customer-report-list button { display: flex; width: 100%; min-width: 0; min-height: 56px; align-items: center; gap: 12px; border: 0; border-left: 2px solid transparent; background: transparent; color: var(--foreground); padding: 12px 10px; text-align: left; font: inherit; cursor: pointer; transition: border-color 160ms var(--ease), padding 160ms var(--ease); }
 .customer-report-list button:hover { border-left-color: var(--foreground); }
-.customer-report-list button.is-selected { border-left-color: var(--brand); padding-left: 14px; }
+.customer-report-history .customer-report-list button.is-selected { border-left-color: var(--brand); padding-left: 14px; }
 .customer-report-list button:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }
 /* The glyph in the markup is replaced by the brand diamond. */
 .customer-report-icon { display: block; width: var(--diamond); height: var(--diamond); flex: 0 0 var(--diamond); overflow: hidden; border: 1.5px solid var(--muted-foreground); background: transparent; color: transparent; font-size: 0; line-height: 0; transform: rotate(45deg) scale(.82); }
@@ -196,7 +200,8 @@
 .customer-license-default-note, .customer-license-saved { max-width: 62ch; margin: 0; border-left: 2px solid var(--foreground); padding: 2px 0 2px 16px; color: var(--muted-foreground); font-size: 15px; line-height: 1.6; }
 .customer-license-saved { color: var(--foreground); }
 
-/* Decision records. Specificity matches the parent selector so these win over any leftover base rules. */
+/* Decision records: this file is the single owner. */
+.customer-decision-history { min-width: 0; }
 .customer-decision-history-content .customer-decision-record-list { display: block; margin: 0; padding: 0; list-style: none; border-top: 2px solid var(--foreground); }
 .customer-decision-history-content .customer-decision-record { min-width: 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; padding: 14px 0; }
 .customer-decision-history-content .customer-decision-record-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px 16px; }
@@ -241,7 +246,3 @@
 .customer-dependency-table td details { margin-top: 6px; }
 .customer-dependency-table td summary { cursor: pointer; font: 600 12.5px/1.5 var(--mono); }
 .customer-dependency-table td details p { margin: 6px 0; font-size: 14px; line-height: 1.6; }
-
-/* Card titles in my panels carry their label after the title, not as a kicker above it. */
-.customer-license-policy-panel > .customer-card-heading > div, .customer-decision-history > .customer-card-heading > div { display: flex; flex-direction: column-reverse; }
-.customer-license-policy-panel > .customer-card-heading .customer-eyebrow, .customer-decision-history > .customer-card-heading .customer-eyebrow { margin: 6px 0 0; }

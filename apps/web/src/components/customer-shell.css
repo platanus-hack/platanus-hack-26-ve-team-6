@@ -1,12 +1,5 @@
 /* Shell: base and reset, app shell, sidebar, topbar, auth page, shared primitives (buttons, forms, cards, chips, states) and enrollment. */
 .customer-app-shell, .customer-auth-page {
-  /* TRANSITIONAL: bridge so area files not yet restyled pick up brand colours. Delete once nothing reads --customer-*. */
-  --customer-green: var(--foreground);
-  --customer-green-dark: var(--foreground);
-  --customer-ink: var(--foreground);
-  --customer-muted: var(--muted-foreground);
-  --customer-border: var(--border);
-  --customer-soft: var(--muted);
   background: var(--background);
   color: var(--foreground);
   font-family: 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -155,8 +148,9 @@
 .customer-button:hover { border-color: var(--foreground); background: var(--muted); }
 .customer-button-primary { border-color: transparent; background: var(--primary); color: var(--primary-foreground); }
 .customer-button-primary:hover { border-color: transparent; background: var(--primary); translate: -2px -2px; box-shadow: 4px 4px 0 var(--brand); }
-.customer-button-secondary { border-color: transparent; background: var(--secondary); color: var(--secondary-foreground); }
-.customer-button-secondary:hover { border-color: transparent; background: var(--secondary); translate: -2px -2px; box-shadow: 4px 4px 0 var(--brand); }
+/* Secondary is the outline variant of ui/button: ground fill, hairline, darkening to foreground on hover. */
+.customer-button-secondary { border-color: var(--border); background: var(--background); color: var(--foreground); }
+.customer-button-secondary:hover { border-color: var(--foreground); background: var(--muted); }
 .customer-button svg { width: 16px; height: 16px; flex: 0 0 16px; }
 .customer-button:disabled:hover { translate: none; box-shadow: none; }
 .customer-button-small { min-height: 34px; padding: 5px 14px; font-size: 13.5px; }
@@ -164,29 +158,14 @@
 .customer-button:active:not(:disabled), .customer-icon-button:active:not(:disabled) { scale: .97; }
 .customer-button:disabled, .customer-icon-button:disabled { cursor: not-allowed; opacity: .5; }
 @media (min-width: 768px) { .customer-button-primary:not(.customer-button-small) { min-height: 48px; padding: 8px 22px; font-size: 16px; } }
-.customer-link-button { display: inline-flex; min-height: 0; align-items: center; gap: 6px; border: 0; border-radius: 2px; background: transparent; color: var(--foreground); padding: 2px 0; font-size: 14.5px; font-weight: 600; text-align: left; text-decoration: underline 2px; text-underline-offset: .28em; transition: color 160ms var(--ease), text-decoration-color 160ms var(--ease); }
+.customer-link-button { display: inline-flex; min-height: 0; align-items: center; gap: 6px; border: 0; border-radius: 2px; background: transparent; color: var(--foreground); padding: 2px 0; font-size: 14.5px; font-weight: 600; text-align: left; white-space: nowrap; text-decoration: underline 2px; text-underline-offset: .28em; transition: color 160ms var(--ease), text-decoration-color 160ms var(--ease); }
 .customer-link-button svg { width: 16px; height: 16px; flex: 0 0 16px; }
 .customer-link-button:hover { color: var(--brand-ink); text-decoration-color: var(--brand); }
 .customer-danger-link, .customer-danger-link:hover { color: var(--destructive); }
 .customer-card { min-width: 0; border-top: 2px solid var(--foreground); padding: 20px 0 0; }
-.customer-context-panel { margin-top: 16px; }
-.customer-context-label, .customer-context-forms label { display: block; margin: 16px 0 6px; color: var(--muted-foreground); font-size: 12px; font-weight: 650; }
-.customer-context-select { width: min(100%, 380px); border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--foreground); padding: 10px 11px; }
-.customer-context-forms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 12px 18px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
-.customer-context-forms form > div { display: flex; gap: 8px; }
-.customer-context-forms input, .customer-context-forms select { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--foreground); padding: 9px 10px; }
-.customer-context-lists { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; }
-.customer-context-lists > section { min-width: 0; border-bottom: 1px solid var(--border); padding: 16px 0; }
-.customer-context-lists h3 { margin: 0 0 9px; color: var(--muted-foreground); font-size: 13px; font-weight: 650; }
-.customer-context-lists ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.customer-context-lists li { display: grid; gap: 2px; min-width: 0; color: var(--muted-foreground); font-size: 12px; }
-.customer-context-lists li strong { overflow-wrap: anywhere; color: var(--foreground); font-size: 13px; font-weight: 600; }
-.customer-context-badge { width: fit-content; margin-top: 4px; border: 1px solid var(--border); border-radius: 6px; color: var(--muted-foreground); padding: 2px 7px; font-family: var(--mono); font-size: 11.5px; text-transform: uppercase; }
-.customer-context-badge.is-matches { color: var(--foreground); }
-.customer-context-badge.is-differs { border-color: var(--destructive); color: var(--destructive); }
 .customer-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .customer-card-heading h2 { margin: 0; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(18px, 1.9vw, 24px); font-weight: 700; letter-spacing: -.005em; line-height: 1.1; text-transform: uppercase; }
-.customer-card-heading .customer-eyebrow { margin-bottom: 4px; }
+.customer-card-heading .customer-eyebrow { margin: 6px 0 0; }
 .customer-card-copy { max-width: 62ch; margin: 12px 0 18px; color: var(--muted-foreground); font-size: 15px; line-height: 1.6; }
 .customer-status { display: inline-flex; width: fit-content; max-width: 100%; align-items: center; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--muted-foreground); padding: 3px 8px; font-family: var(--mono); font-size: 11.5px; font-weight: 500; letter-spacing: .06em; line-height: 1.5; text-transform: uppercase; white-space: nowrap; }
 .customer-status-ready { border-color: var(--foreground); color: var(--foreground); }
@@ -265,14 +244,9 @@
 .customer-empty-inline { color: var(--muted-foreground); padding: 20px 0; font-size: 14px; line-height: 1.6; }
 .customer-form-error + .customer-empty-inline { padding-top: 10px; }
 
-.customer-empty-state { display: grid; max-width: 600px; justify-items: start; margin: 48px auto; border-top: 2px solid var(--foreground); padding-top: 24px; }
-.customer-empty-mark { display: grid; width: 34px; height: 34px; place-items: center; margin-bottom: 16px; border: 1px solid var(--foreground); border-radius: 6px; color: var(--foreground); }
-.customer-empty-state h1 { margin: 0; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(22px, 2.4vw, 30px); font-weight: 700; letter-spacing: -.01em; line-height: 1.1; text-transform: uppercase; }
-.customer-empty-state > p { max-width: 62ch; color: var(--muted-foreground); font-size: 15px; line-height: 1.6; }
-.customer-empty-state .customer-inline-create { width: min(360px, 100%); margin-top: 12px; text-align: left; }
 .customer-success, .customer-error { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin: 0 0 24px; border-left: 2px solid var(--foreground); padding: 4px 0 4px 14px; color: var(--foreground); font-size: 14.5px; line-height: 1.6; }
 .customer-success .customer-icon-button { margin: -6px 0 -6px 0; }
-.customer-error { display: block; border-left-color: var(--destructive); color: var(--destructive); }
+.customer-error { display: block; border-left-color: var(--destructive); border-radius: 2px; background: none; color: var(--destructive); }
 .customer-error strong { font-size: 15px; }
 .customer-error p { margin: 4px 0 8px; font-size: 14px; line-height: 1.6; }
 .customer-loading { display: flex; align-items: center; gap: 12px; min-height: 100px; color: var(--muted-foreground); font-size: 14.5px; }
@@ -295,6 +269,7 @@
   .customer-auth-top { gap: 28px; }
   .customer-auth-nav { margin: 0; }
   .customer-auth-band {
+    /* Fixed dot-field palette for the always-dark band (DESIGN.md brand values). */
     --dot-1: #fffefa; --dot-2: #c7bfbd; --dot-3: #e7147d; --dot-4: #ff8fbe; --dot-5: #3d3b4c; --dot-6: #24232c;
     position: sticky; top: 0; display: flex; height: 100vh; flex-direction: column; gap: 24px; background: var(--footer-bg); color: var(--footer-fg); padding: 18px clamp(28px, 4vw, 56px) clamp(32px, 5vh, 56px);
   }
@@ -305,7 +280,7 @@
   .customer-auth-pitch p { margin: 0; font-size: 17px; line-height: 1.55; }
   .customer-auth-pitch .customer-auth-headline { font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(32px, 3.6vw, 52px); font-weight: 700; letter-spacing: -.015em; line-height: 1.02; text-transform: uppercase; }
   .customer-auth-headline span { padding: 0 .06em; margin: 0 -.06em; background: linear-gradient(var(--brand), var(--brand)) no-repeat 0 52% / 100% .78em; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
-  .customer-auth-pitch .customer-auth-trust { display: flex; align-items: flex-start; gap: 12px; border-top: 1px solid rgb(255 254 250 / .24); padding-top: 18px; font-size: 14.5px; }
+  .customer-auth-pitch .customer-auth-trust { display: flex; align-items: flex-start; gap: 12px; border-top: 1px solid color-mix(in srgb, var(--footer-fg) 24%, transparent); padding-top: 18px; font-size: 14.5px; }
   .customer-auth-trust svg { width: 16px; height: 16px; flex: 0 0 16px; margin-top: 3px; }
 }
 .customer-auth-card h1 { margin: 0; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(26px, 3.2vw, 34px); font-weight: 700; letter-spacing: -.015em; line-height: 1.05; text-transform: uppercase; }
@@ -353,7 +328,6 @@
   .customer-topbar { padding: 0 20px; }
   .customer-main { padding: 23px 20px 0; }
   .customer-asset-grid { grid-template-columns: 1fr; }
-  .customer-context-lists { grid-template-columns: 1fr; }
 }
 @media (max-width: 620px) {
   .customer-main { padding: 20px 14px 0; }
@@ -364,11 +338,11 @@
   .customer-applications-card > .customer-card-heading { align-items: flex-start; flex-direction: column; }
   .customer-applications-card .customer-inline-create { width: 100%; }
   .customer-footer { flex-direction: column; gap: 5px; }
-  .customer-empty-state { margin: 23px auto; padding: 24px 17px; }
-  .customer-auth-social-row { gap: 8px; }
+    .customer-auth-social-row { gap: 8px; }
 }
 @media (prefers-reduced-motion: reduce) { .customer-spinner { animation: none; } }
-.customer-button-danger { border: 1px solid var(--destructive); border-radius: 8px; background: var(--destructive); color: var(--background); min-height: 34px; padding: 6px 16px; font-size: 14.5px; font-weight: 600; }
+.customer-button-danger { border-color: var(--destructive); background: var(--background); color: var(--destructive); }
+.customer-button-danger:hover { border-color: var(--destructive); background: var(--muted); }
 .customer-button-danger:disabled, .customer-button-secondary:disabled { cursor: wait; opacity: .65; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
 

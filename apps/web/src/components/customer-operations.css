@@ -53,7 +53,6 @@
 .customer-ruled-title { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .customer-ruled-title strong { overflow-wrap: anywhere; font-size: 15px; }
 .customer-ruled-title small { overflow-wrap: anywhere; }
-.customer-ruled-section { display: grid; gap: 12px; border-top: 1px solid var(--border); padding-top: 18px; }
 
 /* Neutral status chips; the shell owns the base .customer-status. */
 .customer-ops-status-ready { border-color: var(--foreground); color: var(--foreground); }
@@ -146,20 +145,6 @@
 .customer-liveness-banner-late { border-left-color: var(--brand); }
 .customer-liveness-banner-late strong { color: var(--brand-ink); }
 
-/* Decision-record history (rendered inside alert cards and the decisions page). */
-.customer-decision-history { min-width: 0; }
-.customer-decision-record-list { display: grid; margin: 0; padding: 0; list-style: none; }
-.customer-decision-record { min-width: 0; border-top: 1px solid var(--border); padding: 12px 0; }
-.customer-decision-record-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px 12px; }
-.customer-decision-record-heading > div { display: grid; gap: 4px; min-width: 0; }
-.customer-decision-record-heading strong { overflow-wrap: anywhere; font-size: 14.5px; }
-.customer-decision-record-heading small, .customer-decision-subject { color: var(--muted-foreground); font-family: var(--mono); font-size: 12px; }
-.customer-decision-record > p { margin: 6px 0 0; font-size: 14px; }
-.customer-decision-record .customer-status { flex: 0 0 auto; }
-.customer-decision-more { margin-top: 10px; }
-.customer-decision-inline { border-top: 1px solid var(--border); padding-top: 12px; }
-.customer-decision-history-content.is-compact { margin-top: 8px; }
-
 /* Signed telemetry */
 .customer-ops-integration > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .customer-ops-integration strong { overflow-wrap: anywhere; font-family: var(--mono); font-size: 12.5px; font-weight: 500; }
@@ -216,7 +201,8 @@
 .customer-panel > section[aria-labelledby] { display: grid; gap: 12px; }
 .customer-panel .customer-form > label:not(.customer-checkbox) { display: grid; gap: 6px; margin: 0; }
 .customer-panel .customer-form .customer-button { margin: 0; justify-self: start; }
-.customer-invite-link { display: grid; gap: 8px; border-left: 2px solid var(--foreground); padding: 2px 0 2px 14px; }
+.customer-invite-link { display: grid; gap: 8px; border-top: 1px solid var(--border); padding-top: 14px; }
+.customer-panel .customer-invite-link > label { color: var(--muted-foreground); font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; }
 .customer-invite-link input { flex: 1; font-family: var(--mono); font-size: 12.5px; }
 .customer-confirm-dialog { position: fixed; z-index: 20; inset: 50% auto auto 50%; display: grid; gap: 10px; width: min(440px, calc(100vw - 32px)); transform: translate(-50%, -50%); border: 1px solid var(--foreground); border-top: 2px solid var(--destructive); border-radius: 12px; background: var(--background); padding: 24px; }
 .customer-confirm-dialog h3 { margin: 0; color: var(--destructive); }
@@ -244,20 +230,22 @@
 
 /* ---- Application context ---- */
 .customer-context-panel { margin-top: 0; }
-.customer-context-panel .customer-context-label, .customer-context-panel .customer-context-forms label { margin: 0 0 6px; color: var(--foreground); font-size: 13.5px; }
-.customer-context-panel .customer-context-select { width: min(100%, 380px); border-radius: 8px; padding: 6px 12px; }
-.customer-context-panel .customer-context-forms { gap: 16px 24px; border-bottom: 0; border-top: 1px solid var(--border); padding: 16px 0 0; }
-.customer-context-panel .customer-context-forms input, .customer-context-panel .customer-context-forms select { border-radius: 8px; padding: 6px 12px; }
-.customer-context-panel .customer-context-forms form > div { display: flex; gap: 8px; }
-.customer-context-panel .customer-context-lists { gap: 0 32px; }
-.customer-context-panel .customer-context-lists > section { display: grid; align-content: start; gap: 10px; border-bottom: 0; border-top: 1px solid var(--border); padding: 16px 0; }
-.customer-context-panel .customer-context-lists ul { display: grid; gap: 0; padding: 0; list-style: none; }
-.customer-context-panel .customer-context-lists li { gap: 3px; border-top: 1px solid var(--border); padding: 10px 0; font-size: 13.5px; }
-.customer-context-panel .customer-context-lists li:first-child { border-top: 0; padding-top: 0; }
-.customer-context-panel .customer-context-lists li strong { font-size: 15px; }
-.customer-context-panel .customer-context-lists li > span { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
-.customer-context-panel .customer-context-badge { margin: 4px 0 0; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--muted-foreground); padding: 2px 8px; font-family: var(--mono); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
-.customer-context-panel .customer-context-badge.is-differs { border-color: var(--destructive); color: var(--destructive); }
+.customer-context-label, .customer-context-forms label { display: block; margin: 0 0 6px; color: var(--foreground); font-size: 13.5px; font-weight: 600; }
+.customer-context-select { width: min(100%, 380px); border: 1px solid var(--input); border-radius: 8px; background: var(--background); color: var(--foreground); padding: 6px 12px; }
+.customer-context-forms { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 16px 24px; border-top: 1px solid var(--border); padding: 16px 0 0; }
+.customer-context-forms form > div { display: flex; gap: 8px; }
+.customer-context-forms input, .customer-context-forms select { min-width: 0; flex: 1; border: 1px solid var(--input); border-radius: 8px; background: var(--background); color: var(--foreground); padding: 6px 12px; }
+.customer-context-lists { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+.customer-context-lists > section { display: grid; min-width: 0; align-content: start; gap: 10px; border-top: 1px solid var(--border); padding: 16px 0; }
+.customer-context-lists h3 { margin: 0; }
+.customer-context-lists ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.customer-context-lists li { display: grid; gap: 3px; min-width: 0; border-top: 1px solid var(--border); padding: 10px 0; color: var(--muted-foreground); font-size: 13.5px; }
+.customer-context-lists li:first-child { border-top: 0; padding-top: 0; }
+.customer-context-lists li strong { overflow-wrap: anywhere; color: var(--foreground); font-size: 15px; font-weight: 600; }
+.customer-context-lists li > span { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.customer-context-badge { width: fit-content; margin: 4px 0 0; border: 1px solid var(--border); border-radius: 6px; color: var(--muted-foreground); padding: 2px 8px; font-family: var(--mono); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+.customer-context-badge.is-matches { color: var(--foreground); }
+.customer-context-badge.is-differs { border-color: var(--destructive); color: var(--destructive); }
 
 /* ---- Step-up (WebAuthn) and recovery ---- */
 .customer-stepup-factors { display: grid; margin: 0; padding: 0 !important; list-style: none; }
@@ -275,7 +263,6 @@
 .customer-stepup-recovery .customer-button { justify-self: start; }
 
 /* ---- Exact-action approvals ---- */
-.customer-approval-list { display: grid; margin: 0; padding: 0; }
 .customer-approval { display: grid; gap: 12px; min-width: 0; border-top: 1px solid var(--border); padding: 20px 0; }
 .customer-approval:first-child { border-top: 0; padding-top: 4px; }
 .customer-approval-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 16px; }
@@ -327,12 +314,6 @@
 .customer-onboarding-card h2 { margin: 0; font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: 20px; font-weight: 700; letter-spacing: -.005em; text-transform: uppercase; }
 .customer-onboarding-card h3 { border-top: 1px solid var(--border); padding-top: 16px; }
 .customer-onboarding-card > label { margin-bottom: -8px; }
-.customer-onboarding-source-options { display: grid; gap: 0; }
-.customer-onboarding-source-options label { display: flex; align-items: flex-start; gap: 12px; border-top: 1px solid var(--border); border-radius: 0; padding: 14px 0; cursor: pointer; }
-.customer-onboarding-source-options label:has(input:checked) { border-top: 2px solid var(--foreground); margin-top: -1px; }
-.customer-onboarding-source-options input { margin-top: 4px; }
-.customer-onboarding-source-options span { display: grid; gap: 4px; font-weight: 600; }
-.customer-onboarding-source-options small { color: var(--muted-foreground); font-family: 'Gotchu Text', sans-serif; font-size: 14px; font-weight: 400; line-height: 1.5; }
 .customer-onboarding-source-body { display: grid; gap: 12px; }
 .customer-onboarding-source-body p { overflow-wrap: anywhere; }
 .customer-onboarding-source-body .customer-button { justify-self: start; }
@@ -342,12 +323,15 @@
 .customer-onboarding-repositories strong { overflow-wrap: anywhere; font-family: var(--mono); font-size: 13px; font-weight: 500; }
 .customer-onboarding-repositories small { color: var(--muted-foreground); font-family: var(--mono); }
 .customer-next-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 20px; }
+.customer-next-actions ~ .customer-report-layout { margin-top: 40px; }
 .customer-next-actions > div { flex: 1 1 100%; }
-.customer-next-actions h2, .customer-next-actions p { margin: 4px 0; }
+.customer-next-actions h2 { margin: 0; font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(18px, 1.9vw, 24px); font-weight: 700; letter-spacing: -.005em; line-height: 1.1; text-transform: uppercase; }
+.customer-next-actions p { margin: 8px 0 4px; }
 .customer-next-actions p { color: var(--muted-foreground); }
 
 @media (max-width: 800px) {
   .customer-protection-layout { grid-template-columns: 1fr; gap: 20px; }
+  .customer-context-lists { grid-template-columns: 1fr; }
   .customer-ops-facts { grid-template-columns: 1fr; }
   .customer-ops-alert-heading { grid-template-columns: 1fr; }
   .customer-ops-badges { justify-content: flex-start; }
