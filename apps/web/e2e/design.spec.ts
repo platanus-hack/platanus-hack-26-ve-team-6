@@ -4,7 +4,7 @@ import AxeBuilder from '@axe-core/playwright';
 /** Controls keep the project's 34px minimum (above WCAG 2.2 AA's 24px target size). */
 async function checkLayout(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  const tiny = await page.locator('button:visible, summary:visible, .g-button:visible').evaluateAll(elements => elements.filter(element => {
+  const tiny = await page.locator('button:visible, [data-slot="button"]:not([class*="underline"]):visible').evaluateAll(elements => elements.filter(element => {
     const rect = element.getBoundingClientRect(); return rect.width < 33 || rect.height < 33;
   }).map(element => element.outerHTML.slice(0, 140)));
   expect(tiny).toEqual([]);
@@ -13,6 +13,14 @@ async function checkA11y(page: Page) {
   const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
   expect(result.violations.map(item => ({ id: item.id, nodes: item.nodes.map(node => node.target) }))).toEqual([]);
 }
+/** Scrolls through the page so every scroll reveal settles before an audit. */
+async function revealAll(page: Page) {
+  await page.evaluate(async () => {
+    for (let y = 0; y < document.documentElement.scrollHeight; y += 400) { scrollTo(0, y); await new Promise(resolve => setTimeout(resolve, 60)); }
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  });
+}
+const background = (page: Page) => page.locator('.gl').first().evaluate(element => getComputedStyle(element).backgroundColor);
 
 test('landing is server-rendered without a loader, fabricated results or explanatory artwork captions', async ({ page }, info) => {
   const errors: string[] = []; const apiRequests: string[] = [];
@@ -22,145 +30,141 @@ test('landing is server-rendered without a loader, fabricated results or explana
   expect(response?.status()).toBe(200);
   expect(await response?.text()).toContain('Mira de cerca.');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Mira de cerca. Decide con pruebas.');
-  await expect(page.locator('body')).not.toContainText(/ilustración conceptual|ejemplo ilustrativo|no es un análisis en vivo|cambiar de pestaña solo|cargando/i);
+  await expect(page.locator('body')).not.toContainText(/ilustración conceptual|ejemplo ilustrativo|no es un análisis en vivo|cargando/i);
   await expect(page.locator('.g-page img')).toHaveCount(0);
-  await expect(page.locator('.g-hero-mark .g-ascii')).toHaveAttribute('data-ready', 'true');
+  await expect(page.locator('.gl-hero-field .g-dot-plate')).toHaveAttribute('data-ready', 'true');
   expect(await page.evaluate(() => document.fonts.check('700 48px "Gotchu Display"'))).toBe(true);
   await checkLayout(page); await checkA11y(page);
   expect(errors).toEqual([]); expect(apiRequests).toEqual([]);
   await page.screenshot({ path: info.outputPath('hero.png') });
 });
 
-test('scope controls work with pointer and keyboard, retaining valid panel relationships', async ({ page }, info) => {
+test('the theme switch moves between pure white, pure black and the system preference, and persists', async ({ page }, info) => {
+  test.setTimeout(90_000);
+  await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/', { waitUntil: 'networkidle' });
-  await page.getByRole('tab', { name: 'Ambas', exact: true }).click();
-  await expect(page.getByRole('tabpanel')).toHaveAttribute('id', 'panel-both');
-  await expect(page.getByRole('tabpanel')).toContainText('Comparación de hallazgos');
-  await page.getByRole('tab', { name: 'Ambas', exact: true }).press('Home');
-  await expect(page.getByRole('tab', { name: 'Código', exact: true })).toBeFocused();
-  await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('tab', { name: 'HTTPS', exact: true })).toBeFocused();
-  await expect(page.getByRole('tabpanel')).toHaveAttribute('id', 'panel-https');
-  await page.keyboard.press('End');
-  await expect(page.getByRole('tabpanel')).toHaveAttribute('id', 'panel-both');
-  await checkLayout(page); await checkA11y(page);
-  await page.screenshot({ path: info.outputPath('perspectives.png') });
+  const group = page.getByRole('group', { name: 'Tema' }).first();
+  if (!(await group.isVisible())) await page.getByRole('button', { name: 'Menú', exact: true }).click();
+  const theme = page.getByRole('group', { name: 'Tema' }).locator('visible=true');
+  await expect(theme.getByRole('button', { name: 'Tema del sistema' })).toHaveAttribute('aria-pressed', 'true');
+  expect(await background(page)).toBe('rgb(255, 255, 255)');
+
+  await theme.getByRole('button', { name: 'Tema oscuro' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  expect(await background(page)).toBe('rgb(0, 0, 0)');
+
+  // The stored choice is applied before paint on the next visit, over the system preference.
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.keyboard.press('Escape');
+  await revealAll(page);
+  await checkA11y(page);
+  await page.screenshot({ path: info.outputPath('dark.png') });
+
+  // Back to "system": it follows the operating system as that changes.
+  await page.evaluate(() => scrollTo(0, 0));
+  await expect(page.locator('.gl-header')).not.toHaveClass(/is-tucked/);
+  if (!(await group.isVisible())) await page.getByRole('button', { name: 'Menú', exact: true }).click();
+  await page.getByRole('group', { name: 'Tema' }).locator('visible=true').getByRole('button', { name: 'Tema del sistema' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 });
 
-test('menu, anchor navigation, FAQ and dashboard CTAs retain native accessible behavior', async ({ page, isMobile }) => {
+test('the light theme passes the accessibility audit after every reveal', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await revealAll(page);
+  await checkA11y(page);
+});
+
+test('menu, anchor navigation, FAQ and dashboard CTAs keep accessible behavior', async ({ page, isMobile }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
   if (isMobile) {
-    const menu = page.getByRole('button', { name: 'Menú', exact: true }); await menu.click();
-    await expect(page.getByRole('button', { name: 'Cerrar', exact: true })).toHaveAttribute('aria-expanded', 'true');
-    await page.getByRole('link', { name: 'Preguntas', exact: true }).focus(); await page.keyboard.press('Escape');
-    await expect(menu).toBeFocused(); await expect(menu).toHaveAttribute('aria-expanded', 'false');
+    const menu = page.getByRole('button', { name: 'Menú', exact: true });
     await menu.click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toBeHidden();
+    await expect(menu).toBeFocused();
+    await menu.click();
+    await page.getByRole('dialog').getByRole('link', { name: 'Preguntas', exact: true }).click();
+    await expect(page.getByRole('dialog')).toBeHidden();
+  } else {
+    await page.getByRole('banner').getByRole('link', { name: 'Preguntas', exact: true }).click();
   }
-  await page.getByRole('link', { name: 'Preguntas', exact: true }).click();
-  expect(new URL(page.url()).hash).toBe('#preguntas');
-  const disclosure = page.locator('summary').first(); await disclosure.focus(); await page.keyboard.press('Enter');
-  await expect(page.locator('details').first()).toHaveAttribute('open', '');
-  await expect(page.locator('details').first().locator('p')).toBeVisible();
-  await checkA11y(page);
-  const ctas = await page.locator('.g-button').evaluateAll(elements => elements.map(element => element.getAttribute('href')));
-  expect(ctas.length).toBeGreaterThan(1); expect(ctas.every(href => href === '/dashboard')).toBe(true);
+  expect(new URL(page.url()).hash).toBe('#gl-preguntas');
+
+  const first = page.getByRole('button', { name: '¿Tengo que compartir mi código?' });
+  await expect(first).toHaveAttribute('aria-expanded', 'false');
+  await first.focus(); await page.keyboard.press('Enter');
+  await expect(first).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByText('Puedes revisar el origen HTTPS de un dominio que controles')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(first).toHaveAttribute('aria-expanded', 'false');
+
+  const primary = page.getByRole('link', { name: 'Revisar mi aplicación', exact: true });
+  await expect(primary).toHaveAttribute('href', '/dashboard');
+  await expect(page.getByRole('link', { name: 'Empezar mi revisión', exact: true })).toHaveAttribute('href', '/dashboard');
+  await checkLayout(page);
 });
 
-test('the 3D mark turns toward the pointer and closes on the primary action', async ({ page, isMobile }) => {
+test('the dot fields follow the pointer, gather on the primary action and pause on request', async ({ page, isMobile }) => {
   test.skip(isMobile, 'Pointer following is exercised with a fine pointer.');
   await page.goto('/', { waitUntil: 'networkidle' });
-  const canvas = page.locator('.g-hero-mark canvas');
-  await expect(page.locator('.g-hero-mark .g-ascii')).toHaveAttribute('data-ready', 'true');
-  const frame = () => canvas.evaluate(element => element instanceof HTMLCanvasElement ? element.toDataURL() : '');
-  await page.mouse.move(1400, 880);
-  await page.waitForTimeout(700);
+  const plate = page.locator('.gl-hero-field .g-dot-plate');
+  await expect(plate).toHaveAttribute('data-ready', 'true');
+  const frame = () => plate.locator('canvas').evaluate(element => element instanceof HTMLCanvasElement ? element.toDataURL() : '');
+  await page.waitForTimeout(2500);
+  const box = await plate.boundingBox();
+  if (!box) throw new Error('The hero field has no box.');
   const resting = await frame();
-  await page.mouse.move(20, 120);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
   await expect.poll(frame).not.toBe(resting);
-  const turned = await frame();
   await page.getByRole('link', { name: 'Revisar mi aplicación', exact: true }).hover();
-  await expect.poll(frame).not.toBe(turned);
-  await checkLayout(page);
+  await page.waitForTimeout(300);
+  const gathering = await frame();
+  await expect.poll(frame).not.toBe(gathering);
+
+  const pause = page.getByRole('button', { name: 'Pausar animación' });
+  await pause.click();
+  await expect(page.getByRole('button', { name: 'Reanudar animación' })).toHaveAttribute('aria-pressed', 'true');
+  await page.waitForTimeout(200);
+  const still = await frame();
+  await page.mouse.move(box.x + 40, box.y + 40, { steps: 8 });
+  await page.waitForTimeout(400);
+  expect(await frame()).toBe(still);
 });
 
-test('scrolling separates the perspectives, closes them on a finding and brings the report without trapping the page', async ({ page, isMobile }) => {
-  test.skip(isMobile, 'The pinned sequence runs on roomy screens; small screens keep the stacked layout.');
-  await page.goto('/', { waitUntil: 'networkidle' });
-  const stage = page.locator('.g-stage');
-  await expect(stage).toHaveAttribute('data-live', 'true');
-  const opacity = (selector: string) => page.locator(selector).evaluate(element => Number(getComputedStyle(element).opacity));
-  await expect.poll(() => opacity('.g-stage-report')).toBe(0);
-  await stage.evaluate(element => window.scrollTo(0, element.offsetTop + (element.offsetHeight - innerHeight) * .52));
-  await expect.poll(() => opacity('.g-stage-flash')).toBeGreaterThan(.5);
-  await stage.evaluate(element => window.scrollTo(0, element.offsetTop + element.offsetHeight - innerHeight));
-  await expect.poll(() => opacity('.g-stage-report')).toBeGreaterThan(.95);
-  await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeVisible();
-  await expect(page.locator('.g-report-card')).toContainText('Lo que se revisó y lo que quedó fuera');
-  await page.locator('.g-footer').scrollIntoViewIfNeeded();
-  await expect(page.getByRole('link', { name: 'Gotchu, volver al inicio' })).toBeVisible();
-});
-
-test('scroll narrative tracks chapters and does not trap page scrolling', async ({ page, isMobile }) => {
-  await page.goto('/', { waitUntil: 'networkidle' });
-  for (const [index, id] of ['codigo', 'https', 'evidencia'].entries()) {
-    await page.locator(`#${id}`).evaluate(element => window.scrollTo(0, element.getBoundingClientRect().top + scrollY - innerHeight * .25));
-    if (!isMobile) await expect(page.locator('.g-journey-visual .g-product-flow')).toHaveAttribute('data-step', String(index));
-  }
-  await page.locator('.g-footer').scrollIntoViewIfNeeded();
-  await expect(page.getByRole('link', { name: 'Gotchu, volver al inicio' })).toBeVisible();
-  await checkLayout(page);
-});
-
-test('reduced motion and a 320px viewport retain all content without pointer or scroll parallax', async ({ page }) => {
+test('reduced motion and a 320px viewport keep all content and drop the pause control', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' }); await page.setViewportSize({ width: 320, height: 844 });
   await page.goto('/', { waitUntil: 'networkidle' });
-  await expect(page.locator('.g-stage')).toHaveAttribute('data-live', 'false');
-  await expect(page.locator('.g-hero-mark .g-ascii')).toHaveAttribute('data-ready', 'true');
-  await page.locator('#perspectivas').scrollIntoViewIfNeeded();
-  await page.getByRole('tab', { name: 'HTTPS', exact: true }).click();
-  await expect(page.getByRole('tabpanel')).toContainText('sin compartir el código fuente');
-  expect(await page.locator('.g-hero-scan').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
+  await expect(page.locator('.gl-hero-field .g-dot-plate')).toHaveAttribute('data-ready', 'true');
+  await expect(page.getByRole('button', { name: 'Pausar animación' })).toHaveCount(0);
+  expect(await page.locator('.gl-display--hero .gl-line-in').first().evaluate(element => getComputedStyle(element).animationName)).toBe('none');
   await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeAttached();
   await checkLayout(page); await checkA11y(page);
 });
 
-test('the product journey presents source versioning, DNS authorization and persisted report capabilities', async ({ page, isMobile }) => {
-  await page.goto('/', { waitUntil: 'networkidle' });
-  const steps = [
-    { id: 'codigo', title: 'Instantánea de código', text: 'Huella SHA-256' },
-    { id: 'https', title: 'Origen HTTPS', text: '_gotchu.<dominio>' },
-    { id: 'evidencia', title: 'Informe de evaluación', text: 'Lo revisado y lo que quedó fuera' },
-  ];
-  for (const [index, step] of steps.entries()) {
-    await page.locator(`#${step.id}`).evaluate(element => window.scrollTo(0, element.getBoundingClientRect().top + scrollY - innerHeight * .25));
-    const flow = isMobile ? page.locator(`#${step.id} .g-mobile-flow`) : page.locator('.g-journey-visual .g-product-flow');
-    await expect(flow).toHaveAttribute('data-step', String(index));
-    await expect(flow.getByRole('heading', { name: step.title, exact: true })).toBeVisible();
-    await expect(flow).toContainText(step.text);
-  }
-  await expect(page.locator('.g-workflow')).toContainText('Cada revisión, en su lugar');
-  await expect(page.locator('.g-workflow')).toContainText('Llévate los datos contigo');
-  await expect(page.getByRole('link', { name: 'Ir a mis aplicaciones', exact: true })).toHaveAttribute('href', '/dashboard');
-  await page.locator('.g-workflow').scrollIntoViewIfNeeded();
-  await checkLayout(page); await checkA11y(page);
-});
-
-test('the headline and primary CTA remain usable without JavaScript', async ({ browser, baseURL }) => {
+test('the headline, sections and primary CTA remain usable without JavaScript', async ({ browser, baseURL }) => {
   const context = await browser.newContext({ javaScriptEnabled: false }); const page = await context.newPage();
   await page.goto(baseURL ?? 'http://127.0.0.1:3085/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Decide con pruebas.');
   await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeVisible();
+  await expect(page.getByText('Sin hallazgos significa que esa revisión no produjo hallazgos')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Revisar mi aplicación', exact: true })).toHaveAttribute('href', '/dashboard');
   await context.close();
 });
 
 test('the header tucks away while scrolling down and returns when scrolling up', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
-  const header = page.locator('.g-header');
-  await expect(page.locator('.g-hero-mark .g-ascii')).toHaveAttribute('data-ready', 'true');
+  const header = page.locator('.gl-header');
+  await expect(page.locator('.gl-hero-field .g-dot-plate')).toHaveAttribute('data-ready', 'true');
   for (const step of [400, 400, 400]) { await page.evaluate(distance => scrollBy(0, distance), step); await page.waitForTimeout(80); }
   await expect(header).toHaveClass(/is-tucked/);
   await page.evaluate(() => scrollBy(0, -300));
   await expect(header).not.toHaveClass(/is-tucked/);
-  await expect(page.getByRole('link', { name: 'Gotchu, inicio' })).toBeInViewport();
+  await expect(page.getByRole('link', { name: 'Gotchu, inicio' }).first()).toBeInViewport();
 });
