@@ -1,8 +1,171 @@
 /*
- * Tailwind for the landing's shadcn/ui components. Preflight is left out on purpose: this stylesheet
- * can stay loaded after client navigation, and a global reset would restyle /dashboard and /demo.
- * A minimal reset scoped to the landing root (.gl) stands in for it.
+ * shadcn/ui theme for the landing, mapped from DESIGN.md.
+ *
+ * Tailwind's preflight is left out on purpose: this stylesheet can stay loaded after client
+ * navigation, and a global reset would restyle /dashboard and /demo. Tokens and the minimal reset
+ * below are scoped to the landing root (.gl) for the same reason. The theme follows the
+ * html[data-theme] attribute that THEME_SCRIPT sets, with prefers-color-scheme as the no-JS fallback.
  */
 @layer theme, base, components, utilities;
 @import 'tailwindcss/theme.css' layer(theme);
 @import 'tailwindcss/utilities.css' layer(utilities);
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:where([data-theme='dark'] *));
+
+@theme inline {
+  --font-sans: 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Gotchu Display', 'Gotchu Text', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  /* Brand roles without a shadcn slot. */
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-band: var(--band);
+  --color-band-foreground: var(--band-foreground);
+  /* DESIGN.md radius scale, pinned per class instead of --radius multipliers. */
+  --radius-sm: 2px;  /* pixels, bars */
+  --radius-md: 6px;  /* chips, menu items */
+  --radius-lg: 8px;  /* buttons, inputs, toggles */
+  --radius-xl: 12px; /* panels, popovers */
+  --radius-2xl: 14px; /* sheets */
+  --radius-3xl: 16px; /* section cards, the maximum */
+  --radius-4xl: 6px; /* badges stay chips: no pills */
+}
+
+/* Hairline system: no soft drop shadows on controls. */
+@theme {
+  --shadow-xs: 0 0 #0000;
+}
+
+.gl {
+  /* Light: a complete white ground. */
+  --background: #ffffff;
+  --foreground: #191923;
+  --card: #ffffff;
+  --card-foreground: #191923;
+  --popover: #ffffff;
+  --popover-foreground: #191923;
+  --primary: #191923;
+  --primary-foreground: #ffffff;
+  --secondary: #f3eff1;
+  --secondary-foreground: #191923;
+  --muted: #f6f4f5;
+  --muted-foreground: #646174;
+  --accent: #f3eff1;
+  --accent-foreground: #191923;
+  --destructive: #b42318;
+  --border: #c7bfbd;
+  --input: #c7bfbd;
+  --ring: #c80c68;
+  --brand: #e7147d;
+  /* Magenta for small text and marks: the action shade keeps 5.9:1 on white. */
+  --brand-ink: #c80c68;
+  /* Highlighter band behind body text, and the type set on it. */
+  --band: #ff8fbe;
+  --band-foreground: #191923;
+  --chart-1: #e7147d;
+  --chart-2: #c80c68;
+  --chart-3: #ff8fbe;
+  --chart-4: #646174;
+  --chart-5: #191923;
+  /* Dot field tones: structure, finding, dust. */
+  --dot-1: #191923;
+  --dot-2: #646174;
+  --dot-3: #e7147d;
+  --dot-4: #c80c68;
+  --dot-5: #c7bfbd;
+  --dot-6: #e6e1df;
+  color-scheme: light;
+}
+
+/* Dark: a complete black ground. */
+[data-theme='dark'] .gl {
+  --background: #000000;
+  --foreground: #fffefa;
+  --card: #000000;
+  --card-foreground: #fffefa;
+  --popover: #0d0d10;
+  --popover-foreground: #fffefa;
+  --primary: #fffefa;
+  --primary-foreground: #000000;
+  --secondary: #17161c;
+  --secondary-foreground: #fffefa;
+  --muted: #0e0e12;
+  --muted-foreground: #b5b1bb;
+  --accent: #1b1a21;
+  --accent-foreground: #fffefa;
+  --destructive: #ffb4aa;
+  --border: #3d3b4c;
+  --input: #3d3b4c;
+  --ring: #ff8fbe;
+  --brand: #e7147d;
+  --brand-ink: #ff8fbe;
+  --band: #c80c68;
+  --band-foreground: #fffefa;
+  --chart-1: #e7147d;
+  --chart-2: #ff8fbe;
+  --chart-3: #c80c68;
+  --chart-4: #b5b1bb;
+  --chart-5: #fffefa;
+  --dot-1: #fffefa;
+  --dot-2: #c7bfbd;
+  --dot-3: #e7147d;
+  --dot-4: #ff8fbe;
+  --dot-5: #3d3b4c;
+  --dot-6: #24232c;
+  color-scheme: dark;
+}
+
+/* Without JavaScript the system preference decides. Mirrors the dark block above. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .gl {
+    --background: #000000; --foreground: #fffefa; --card: #000000; --card-foreground: #fffefa;
+    --popover: #0d0d10; --popover-foreground: #fffefa; --primary: #fffefa; --primary-foreground: #000000;
+    --secondary: #17161c; --secondary-foreground: #fffefa; --muted: #0e0e12; --muted-foreground: #b5b1bb;
+    --accent: #1b1a21; --accent-foreground: #fffefa; --destructive: #ffb4aa; --border: #3d3b4c; --input: #3d3b4c;
+    --ring: #ff8fbe; --brand: #e7147d; --brand-ink: #ff8fbe; --band: #c80c68; --band-foreground: #fffefa;
+    --chart-1: #e7147d; --chart-2: #ff8fbe; --chart-3: #c80c68; --chart-4: #b5b1bb; --chart-5: #fffefa;
+    --dot-1: #fffefa; --dot-2: #c7bfbd; --dot-3: #e7147d; --dot-4: #ff8fbe; --dot-5: #3d3b4c; --dot-6: #24232c;
+    color-scheme: dark;
+  }
+}
+
+/* The page behind the landing matches its ground, so overscroll never shows another color. */
+html:has(.gl), html:has(.gl) body { background: #ffffff; }
+html[data-theme='dark']:has(.gl), html[data-theme='dark']:has(.gl) body { background: #000000; }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]):has(.gl), html:not([data-theme]):has(.gl) body { background: #000000; }
+}
+
+/* Minimal reset scoped to the landing, standing in for preflight. */
+@layer base {
+  .gl :where(*, ::before, ::after) { box-sizing: border-box; border: 0 solid var(--border); }
+  .gl :where(button, input, select, textarea) { margin: 0; padding: 0; font: inherit; color: inherit; background: transparent; }
+  .gl :where(button, [role='button'], [role='radio'], summary) { cursor: pointer; }
+  .gl :where(img, svg, canvas) { display: block; }
+  .gl :where(svg) { flex-shrink: 0; }
+}
