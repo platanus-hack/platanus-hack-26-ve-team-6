@@ -1,13 +1,142 @@
 {
   "version": "1.0.0",
   "cases": [
-    { "id": "holdout-provider-down-app-healthy", "scenario": "provider-down-app-healthy", "truth": { "impact": "none_observed_at_checked_points", "causes": [] } },
-    { "id": "holdout-provider-healthy-release-error", "scenario": "release-regression", "truth": { "impact": "degraded", "causes": ["application_regression"] }, "expectedConfidence": "medium" },
-    { "id": "holdout-provider-and-dependency-failure", "scenario": "provider-compatible-failure", "truth": { "impact": "unavailable", "causes": ["provider_dependency"] }, "expectedConfidence": "high" },
-    { "id": "holdout-stale-telemetry", "scenario": "stale-telemetry", "truth": { "impact": "unknown", "causes": [] } },
-    { "id": "holdout-two-causes", "scenario": "simultaneous-causes", "truth": { "impact": "degraded", "causes": ["application_regression", "abuse"] } },
-    { "id": "holdout-incomplete-regional-feed", "scenario": "incomplete-regional-feed", "truth": { "impact": "unknown", "causes": [] } },
-    { "id": "holdout-legitimate-increase", "scenario": "legitimate-traffic-increase", "truth": { "impact": "none_observed_at_checked_points", "causes": ["legitimate_load"] }, "expectedConfidence": "medium" },
-    { "id": "holdout-abstain-app-without-signals", "scenario": "abstention-control", "truth": { "impact": "unknown", "causes": [] } }
+    {
+      "id": "holdout-release-after-deploy",
+      "scenario": "release-regression",
+      "truth": {
+        "impact": "degraded",
+        "causes": [
+          "application_regression"
+        ]
+      },
+      "expectedConfidence": "medium"
+    },
+    {
+      "id": "holdout-regional-provider-isolated",
+      "scenario": "provider-compatible-failure",
+      "truth": {
+        "impact": "unavailable",
+        "causes": [
+          "provider_dependency"
+        ]
+      },
+      "expectedConfidence": "high"
+    },
+    {
+      "id": "holdout-missing-baseline",
+      "scenario": "missing-baseline",
+      "truth": {
+        "impact": "unknown",
+        "causes": []
+      }
+    },
+    {
+      "id": "holdout-declared-deploy",
+      "scenario": "declared-deployment",
+      "truth": {
+        "impact": "degraded",
+        "causes": []
+      }
+    },
+    {
+      "id": "holdout-errors-before-deploy",
+      "scenario": "pre-deployment-errors",
+      "truth": {
+        "impact": "degraded",
+        "causes": []
+      }
+    },
+    {
+      "id": "holdout-global-feed-route-fails",
+      "scenario": "global-feed-compatible-failure",
+      "truth": {
+        "impact": "degraded",
+        "causes": [
+          "provider_dependency"
+        ]
+      },
+      "expectedConfidence": "medium"
+    },
+    {
+      "id": "holdout-app-wide-control-fails",
+      "scenario": "provider-and-control-fail",
+      "truth": {
+        "impact": "unavailable",
+        "causes": []
+      }
+    },
+    {
+      "id": "holdout-provider-reports-down-but-route-healthy",
+      "scenario": "provider-down-dependent-healthy",
+      "truth": {
+        "impact": "none_observed_at_checked_points",
+        "causes": []
+      }
+    },
+    {
+      "id": "holdout-abuse-and-load",
+      "scenario": "simultaneous-abuse-and-legitimate-load",
+      "truth": {
+        "impact": "none_observed_at_checked_points",
+        "causes": [
+          "abuse",
+          "legitimate_load"
+        ]
+      }
+    },
+    {
+      "id": "holdout-fresh-probe-stale-series",
+      "scenario": "fresh-probe-with-stale-metrics",
+      "truth": {
+        "impact": "unavailable",
+        "causes": []
+      }
+    },
+    {
+      "id": "holdout-traffic-without-impact",
+      "scenario": "legitimate-traffic-increase",
+      "truth": {
+        "impact": "none_observed_at_checked_points",
+        "causes": [
+          "legitimate_load"
+        ]
+      },
+      "expectedConfidence": "medium"
+    },
+    {
+      "id": "holdout-stale-only",
+      "scenario": "stale-telemetry",
+      "truth": {
+        "impact": "unknown",
+        "causes": []
+      }
+    },
+    {
+      "id": "holdout-provider-region-mismatch",
+      "scenario": "incomplete-regional-feed",
+      "truth": {
+        "impact": "none_observed_at_checked_points",
+        "causes": []
+      }
+    },
+    {
+      "id": "holdout-abuse-only",
+      "scenario": "abuse",
+      "truth": {
+        "impact": "none_observed_at_checked_points",
+        "causes": [
+          "abuse"
+        ]
+      }
+    },
+    {
+      "id": "holdout-unknown-deployment",
+      "scenario": "unknown-deployment-state",
+      "truth": {
+        "impact": "degraded",
+        "causes": []
+      }
+    }
   ]
 }

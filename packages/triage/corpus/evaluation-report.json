@@ -3,24 +3,26 @@
     "corpusVersion": "1.0.0",
     "rulesVersion": "1.0.0",
     "split": "tuning",
-    "caseCount": 8,
+    "caseCount": 15,
     "scenarios": [
       {
-        "scenario": "abstention-control",
+        "scenario": "abuse",
         "cases": 1,
-        "truePositives": 0,
-        "predictedPositives": 0,
-        "actualPositives": 0,
-        "precision": null,
-        "recall": null,
+        "truePositives": 1,
+        "predictedPositives": 1,
+        "actualPositives": 1,
+        "precision": 1,
+        "recall": 1,
         "falseAlarms": 0,
-        "abstained": 1,
-        "abstentionRate": 1,
+        "abstained": 0,
+        "abstentionRate": 0,
         "confidenceErrors": 0,
-        "confidenceDenominator": 0
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
-        "scenario": "incomplete-regional-feed",
+        "scenario": "declared-deployment",
         "cases": 1,
         "truePositives": 0,
         "predictedPositives": 0,
@@ -31,7 +33,41 @@
         "abstained": 1,
         "abstentionRate": 1,
         "confidenceErrors": 0,
-        "confidenceDenominator": 0
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "fresh-probe-with-stale-metrics",
+        "cases": 1,
+        "truePositives": 0,
+        "predictedPositives": 0,
+        "actualPositives": 0,
+        "precision": null,
+        "recall": null,
+        "falseAlarms": 0,
+        "abstained": 1,
+        "abstentionRate": 1,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "global-feed-compatible-failure",
+        "cases": 1,
+        "truePositives": 1,
+        "predictedPositives": 1,
+        "actualPositives": 1,
+        "precision": 1,
+        "recall": 1,
+        "falseAlarms": 0,
+        "abstained": 0,
+        "abstentionRate": 0,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 1,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
         "scenario": "legitimate-traffic-increase",
@@ -45,7 +81,57 @@
         "abstained": 0,
         "abstentionRate": 0,
         "confidenceErrors": 0,
-        "confidenceDenominator": 1
+        "confidenceDenominator": 1,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "missing-baseline",
+        "cases": 1,
+        "truePositives": 0,
+        "predictedPositives": 0,
+        "actualPositives": 0,
+        "precision": null,
+        "recall": null,
+        "falseAlarms": 0,
+        "abstained": 1,
+        "abstentionRate": 1,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "pre-deployment-errors",
+        "cases": 1,
+        "truePositives": 0,
+        "predictedPositives": 0,
+        "actualPositives": 0,
+        "precision": null,
+        "recall": null,
+        "falseAlarms": 0,
+        "abstained": 1,
+        "abstentionRate": 1,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "provider-and-control-fail",
+        "cases": 1,
+        "truePositives": 0,
+        "predictedPositives": 0,
+        "actualPositives": 0,
+        "precision": null,
+        "recall": null,
+        "falseAlarms": 0,
+        "abstained": 1,
+        "abstentionRate": 1,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
         "scenario": "provider-compatible-failure",
@@ -59,10 +145,12 @@
         "abstained": 0,
         "abstentionRate": 0,
         "confidenceErrors": 0,
-        "confidenceDenominator": 1
+        "confidenceDenominator": 1,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
-        "scenario": "provider-down-app-healthy",
+        "scenario": "provider-down-dependent-healthy",
         "cases": 1,
         "truePositives": 0,
         "predictedPositives": 0,
@@ -73,7 +161,9 @@
         "abstained": 1,
         "abstentionRate": 1,
         "confidenceErrors": 0,
-        "confidenceDenominator": 0
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
         "scenario": "release-regression",
@@ -87,10 +177,12 @@
         "abstained": 0,
         "abstentionRate": 0,
         "confidenceErrors": 0,
-        "confidenceDenominator": 1
+        "confidenceDenominator": 1,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
-        "scenario": "simultaneous-causes",
+        "scenario": "simultaneous-abuse-and-legitimate-load",
         "cases": 1,
         "truePositives": 2,
         "predictedPositives": 2,
@@ -101,7 +193,9 @@
         "abstained": 0,
         "abstentionRate": 0,
         "confidenceErrors": 0,
-        "confidenceDenominator": 0
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
         "scenario": "stale-telemetry",
@@ -115,18 +209,74 @@
         "abstained": 1,
         "abstentionRate": 1,
         "confidenceErrors": 0,
-        "confidenceDenominator": 0
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "unknown-deployment-state",
+        "cases": 1,
+        "truePositives": 0,
+        "predictedPositives": 0,
+        "actualPositives": 0,
+        "precision": null,
+        "recall": null,
+        "falseAlarms": 0,
+        "abstained": 1,
+        "abstentionRate": 1,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "unrelated-provider-feed",
+        "cases": 1,
+        "truePositives": 0,
+        "predictedPositives": 0,
+        "actualPositives": 0,
+        "precision": null,
+        "recall": null,
+        "falseAlarms": 0,
+        "abstained": 1,
+        "abstentionRate": 1,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       }
-    ]
+    ],
+    "impactAccuracy": 1,
+    "impactCorrect": 15,
+    "impactDenominator": 15,
+    "mismatchedCaseIds": [],
+    "impactMismatchCaseIds": [],
+    "causeMismatchCaseIds": []
   },
   {
     "corpusVersion": "1.0.0",
     "rulesVersion": "1.0.0",
     "split": "holdout",
-    "caseCount": 8,
+    "caseCount": 15,
     "scenarios": [
       {
-        "scenario": "abstention-control",
+        "scenario": "abuse",
+        "cases": 1,
+        "truePositives": 1,
+        "predictedPositives": 1,
+        "actualPositives": 1,
+        "precision": 1,
+        "recall": 1,
+        "falseAlarms": 0,
+        "abstained": 0,
+        "abstentionRate": 0,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "declared-deployment",
         "cases": 1,
         "truePositives": 0,
         "predictedPositives": 0,
@@ -137,7 +287,41 @@
         "abstained": 1,
         "abstentionRate": 1,
         "confidenceErrors": 0,
-        "confidenceDenominator": 0
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "fresh-probe-with-stale-metrics",
+        "cases": 1,
+        "truePositives": 0,
+        "predictedPositives": 0,
+        "actualPositives": 0,
+        "precision": null,
+        "recall": null,
+        "falseAlarms": 0,
+        "abstained": 1,
+        "abstentionRate": 1,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "global-feed-compatible-failure",
+        "cases": 1,
+        "truePositives": 1,
+        "predictedPositives": 1,
+        "actualPositives": 1,
+        "precision": 1,
+        "recall": 1,
+        "falseAlarms": 0,
+        "abstained": 0,
+        "abstentionRate": 0,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 1,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
         "scenario": "incomplete-regional-feed",
@@ -151,7 +335,9 @@
         "abstained": 1,
         "abstentionRate": 1,
         "confidenceErrors": 0,
-        "confidenceDenominator": 0
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
         "scenario": "legitimate-traffic-increase",
@@ -165,7 +351,57 @@
         "abstained": 0,
         "abstentionRate": 0,
         "confidenceErrors": 0,
-        "confidenceDenominator": 1
+        "confidenceDenominator": 1,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "missing-baseline",
+        "cases": 1,
+        "truePositives": 0,
+        "predictedPositives": 0,
+        "actualPositives": 0,
+        "precision": null,
+        "recall": null,
+        "falseAlarms": 0,
+        "abstained": 1,
+        "abstentionRate": 1,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "pre-deployment-errors",
+        "cases": 1,
+        "truePositives": 0,
+        "predictedPositives": 0,
+        "actualPositives": 0,
+        "precision": null,
+        "recall": null,
+        "falseAlarms": 0,
+        "abstained": 1,
+        "abstentionRate": 1,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "provider-and-control-fail",
+        "cases": 1,
+        "truePositives": 0,
+        "predictedPositives": 0,
+        "actualPositives": 0,
+        "precision": null,
+        "recall": null,
+        "falseAlarms": 0,
+        "abstained": 1,
+        "abstentionRate": 1,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
         "scenario": "provider-compatible-failure",
@@ -179,10 +415,12 @@
         "abstained": 0,
         "abstentionRate": 0,
         "confidenceErrors": 0,
-        "confidenceDenominator": 1
+        "confidenceDenominator": 1,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
-        "scenario": "provider-down-app-healthy",
+        "scenario": "provider-down-dependent-healthy",
         "cases": 1,
         "truePositives": 0,
         "predictedPositives": 0,
@@ -193,7 +431,9 @@
         "abstained": 1,
         "abstentionRate": 1,
         "confidenceErrors": 0,
-        "confidenceDenominator": 0
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
         "scenario": "release-regression",
@@ -207,10 +447,12 @@
         "abstained": 0,
         "abstentionRate": 0,
         "confidenceErrors": 0,
-        "confidenceDenominator": 1
+        "confidenceDenominator": 1,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
-        "scenario": "simultaneous-causes",
+        "scenario": "simultaneous-abuse-and-legitimate-load",
         "cases": 1,
         "truePositives": 2,
         "predictedPositives": 2,
@@ -221,7 +463,9 @@
         "abstained": 0,
         "abstentionRate": 0,
         "confidenceErrors": 0,
-        "confidenceDenominator": 0
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       },
       {
         "scenario": "stale-telemetry",
@@ -235,8 +479,32 @@
         "abstained": 1,
         "abstentionRate": 1,
         "confidenceErrors": 0,
-        "confidenceDenominator": 0
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
+      },
+      {
+        "scenario": "unknown-deployment-state",
+        "cases": 1,
+        "truePositives": 0,
+        "predictedPositives": 0,
+        "actualPositives": 0,
+        "precision": null,
+        "recall": null,
+        "falseAlarms": 0,
+        "abstained": 1,
+        "abstentionRate": 1,
+        "confidenceErrors": 0,
+        "confidenceDenominator": 0,
+        "impactCorrect": 1,
+        "impactDenominator": 1
       }
-    ]
+    ],
+    "impactAccuracy": 1,
+    "impactCorrect": 15,
+    "impactDenominator": 15,
+    "mismatchedCaseIds": [],
+    "impactMismatchCaseIds": [],
+    "causeMismatchCaseIds": []
   }
 ]
