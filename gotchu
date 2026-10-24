@@ -156,9 +156,11 @@ executor_enabled() {
   return 0
 }
 require_executor_setup() {
-  local installation_id mode
+  local installation_id mode internal_token
   installation_id="$(optional_env_value GOTCHU_GITHUB_WRITER_INSTALLATION_ID)"
   [[ "$installation_id" =~ ^[0-9]{1,20}$ ]] || fail 'Configura GOTCHU_GITHUB_WRITER_INSTALLATION_ID para activar el executor.' 2
+  internal_token="$(optional_env_value GOTCHU_EXECUTOR_INTERNAL_TOKEN)"
+  [[ "$internal_token" =~ ^[a-f0-9]{64}$ ]] || fail 'Configura GOTCHU_EXECUTOR_INTERNAL_TOKEN para activar el executor.' 2
   [[ -f "$state_dir/github-writer-app.json" && ! -L "$state_dir/github-writer-app.json" ]] || fail 'Falta el archivo privado github-writer-app.json.' 2
   mode="$(stat -c '%a' "$state_dir/github-writer-app.json")"
   (( (8#$mode & 077) == 0 )) || fail 'El archivo github-writer-app.json debe ser privado (modo 0600 o más restrictivo).' 2
@@ -230,13 +232,14 @@ start_app() {
       local database_url redis_connection_url
       database_url="$(postgres_url "$(env_value GOTCHU_EXECUTOR_DB_USERNAME)" "$(env_value GOTCHU_EXECUTOR_DB_PASSWORD)" "$(env_value POSTGRES_HOST_PORT)" "$(env_value POSTGRES_DB)")"
       redis_connection_url="$(redis_url "$(env_value REDIS_PASSWORD)" "$(env_value REDIS_HOST_PORT)")"
-      environment+=("PORT=$port" "GOTCHU_EXECUTOR_DATABASE_URL=$database_url" "GOTCHU_REDIS_URL=$redis_connection_url" \
+      environment+=("PORT=$port" "PUBLIC_APP_URL=$(env_value PUBLIC_APP_URL)" "GOTCHU_EXECUTOR_DATABASE_URL=$database_url" "GOTCHU_REDIS_URL=$redis_connection_url" \
+        "GOTCHU_EXECUTOR_INTERNAL_TOKEN=$(env_value GOTCHU_EXECUTOR_INTERNAL_TOKEN)" \
         "GOTCHU_GITHUB_WRITER_APP_FILE=$state_dir/github-writer-app.json" \
         "GOTCHU_GITHUB_WRITER_INSTALLATION_ID=$(env_value GOTCHU_GITHUB_WRITER_INSTALLATION_ID)" \
         "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json")
       ;;
     web)
-      local api_url ingest_url github_app_file github_credentials_file webauthn_rp_id
+      local api_url ingest_url github_app_file github_credentials_file webauthn_rp_id executor_port executor_token
       api_url="$(postgres_url "$(env_value GOTCHU_API_DB_USERNAME)" "$(env_value GOTCHU_API_DB_PASSWORD)" "$(env_value POSTGRES_HOST_PORT)" "$(env_value POSTGRES_DB)")"
       ingest_url="$(postgres_url "$(env_value GOTCHU_INGEST_DB_USERNAME)" "$(env_value GOTCHU_INGEST_DB_PASSWORD)" "$(env_value POSTGRES_HOST_PORT)" "$(env_value POSTGRES_DB)")"
       github_app_file="$(optional_env_value GOTCHU_GITHUB_READER_APP_FILE)"
@@ -244,6 +247,9 @@ start_app() {
       if [[ "$github_app_file" == /run/secrets/github/* ]]; then github_app_file="$state_dir/github/${github_app_file##*/}"; fi
       github_credentials_file="$(optional_env_value GOTCHU_GITHUB_READER_APP_CREDENTIALS_FILE)"
       if [[ "$github_credentials_file" == /run/secrets/github/* ]]; then github_credentials_file="$state_dir/github/${github_credentials_file##*/}"; fi
+      executor_port="$(optional_env_value EXECUTOR_HOST_PORT)"; executor_port="${executor_port:-3004}"
+      executor_token="$(optional_env_value GOTCHU_EXECUTOR_INTERNAL_TOKEN)"
+      if [[ -n "$executor_token" && ! "$executor_token" =~ ^[a-f0-9]{64}$ ]]; then fail 'GOTCHU_EXECUTOR_INTERNAL_TOKEN debe ser un secreto hexadecimal de 32 bytes.' 2; fi
       environment+=("PORT=$port" "NITRO_PORT=$port" "HOST=127.0.0.1" "NITRO_HOST=127.0.0.1" "PUBLIC_APP_URL=$(env_value PUBLIC_APP_URL)" \
         "AUTH_SECRET=$(env_value AUTH_SECRET)" "GOTCHU_AUTH_MODE=self_host" "GOTCHU_API_DATABASE_URL=$api_url" "GOTCHU_INGEST_DATABASE_URL=$ingest_url" \
         "AUTH_GITHUB_ID=$(optional_env_value AUTH_GITHUB_ID)" "AUTH_GITHUB_SECRET=$(optional_env_value AUTH_GITHUB_SECRET)" \
@@ -257,6 +263,9 @@ start_app() {
         "GOTCHU_DNS_SERVERS_JSON=$(optional_env_value GOTCHU_DNS_SERVERS_JSON)" \
         "GOTCHU_EVENT_CREDENTIAL_DIRECTORY=$state_dir/event-credentials" \
         "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json")
+      if [[ -n "$executor_token" ]]; then
+        environment+=("GOTCHU_EXECUTOR_INTERNAL_URL=http://127.0.0.1:${executor_port}" "GOTCHU_EXECUTOR_INTERNAL_TOKEN=$executor_token")
+      fi
       [[ -z "$webauthn_rp_id" ]] || environment+=("GOTCHU_WEBAUTHN_RP_ID=$webauthn_rp_id")
       ;;
   esac

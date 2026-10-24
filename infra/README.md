@@ -1,10 +1,10 @@
 # Local runtime and AWS pilot foundation
 
-Compose provides persistent local Postgres and Redis by default. `./gotchu up` builds and runs the `web` and `coordinator` profiles; the bounded scanner service runs as a host process so it can call Docker with host-visible temporary source paths. The coordinator reaches it through Docker's host gateway over HTTPS with a locally generated certificate trusted only for that scanner client. `gateway`, `agent` (`apps/worker`), and `executor` remain unavailable boundaries until their provider and VM isolation gates pass. For the existing development launcher, see [development](../docs/development.md).
+Compose provides persistent local Postgres and Redis. `./gotchu up` builds the app and runs web, coordinator, scanner, and (when enabled) executor as host processes bound to loopback; Compose starts only the two data services. The scanner can call Docker with host-visible temporary source paths, and the coordinator reaches it over loopback HTTPS with a private certificate. The executor is disabled by default and starts only when `GOTCHU_EXECUTOR_ENABLED=true`, the private Writer App file, installation ID, repository catalog, and internal verification token are configured. Its Writer App credentials remain in the private state directory. `gateway`, `agent` (`apps/worker`), and the VM validator remain separately gated. For the development launcher, see [development](../docs/development.md).
 
 Self-host uses a private `.gotchu/.env`, its own Compose project name, and the one-time Owner bootstrap described in [self-hosting](../docs/self-hosting.md). The legacy `infra-local-*` scripts continue using `infra/.env` by default.
 
-The first product deliverable is a controlled demonstration assessed internally and externally, with evidence-backed comparison reports. Core assessment uses deterministic local checks and an attributed advisory snapshot, without a model or paid API. Live monitoring, approval, limited automation, and provider recovery are later stages. See the [AWS deployment and release gates](deployment.md).
+The customer application is the product: authenticated workspaces, authorized source and HTTPS assessment, evidence-backed reports, and a usable interface. The fictional vulnerable/corrected application remains a regression fixture. Core assessment uses deterministic local checks and attributed advisory data, without a model or paid API. See the [AWS deployment and release gates](deployment.md).
 
 ## Start locally
 
@@ -25,22 +25,24 @@ The controlled demo is opt-in: `GOTCHU_DEMO_ENABLED` defaults to `false` for bot
 
 | Service | Profile | Published address | Readiness gate |
 | --- | --- | --- | --- |
-| Web | `web` | `127.0.0.1:3000` | Both runtime database logins must be ready. Interactive sign-in needs a separately configured Auth.js identity provider. Routes: `/api/health` and `/api/ready`. |
-| Coordinator | `coordinator` | `127.0.0.1:3003` | Postgres, Redis, and at least one assigned organization. Routes: `/health/live` and `/health/ready`. |
+| Web | host process | `127.0.0.1:3000` | Both runtime database logins must be ready. Interactive sign-in needs a separately configured Auth.js identity provider. Routes: `/api/health` and `/api/ready`. |
+| Coordinator | host process | `127.0.0.1:3003` | Postgres, Redis, and at least one assigned organization. Routes: `/health/live` and `/health/ready`. |
+| Scanner | host process | `127.0.0.1:4400` | Coordinator-authenticated HTTPS readiness and pinned scanner profiles. |
 | Postgres | always on | `127.0.0.1:55432` | Persistent named volume; bootstrap credentials are not used by app containers. |
 | Redis | always on | `127.0.0.1:56379` | Password protected, AOF enabled, persistent named volume. |
+| Executor | opt-in host process | `127.0.0.1:3004` | Postgres/Redis leases and approvals, Writer App only in the executor, exact remote PR verification; readiness requires a configured Writer App. |
 
-No sign-in provider is enabled by default. Configure a supported generic OIDC provider or optional GitHub OAuth when interactive sign-in is needed. The controlled demo itself has no external provider dependency. Fresh second-factor approval remains explicitly unavailable in the web readiness capability data. The coordinator returns 503 while no organization is assigned. Investigator availability is reported separately: deterministic queue processing can be ready without a model worker, and investigation jobs remain visibly unavailable until one is configured.
+No sign-in provider is enabled by default. Configure a supported generic OIDC provider or optional GitHub OAuth when interactive sign-in is needed. The controlled demo itself has no external provider dependency. Web readiness reports fresh second-factor support only when step-up is configured; repository writes still require the opt-in executor and an Owner grant verified for that repository. The coordinator returns 503 while no organization is assigned. Investigator availability is reported separately: deterministic queue processing can be ready without a model worker, and investigation jobs remain visibly unavailable until one is configured.
 
-The coordinator reads `GOTCHU_COORDINATOR_HOST` for its bind address. Its container sets this to `0.0.0.0` so Docker can publish the listener; it does not use the unrelated `HOST` variable. Never publish the database or Redis ports beyond loopback, and do not attach the agent to either data network or mount the Docker socket.
+The host app processes bind to loopback. The executor health and private verification routes are reachable only at `127.0.0.1`; web receives a separate random internal token but never receives the Writer App key. Never publish database, Redis, or executor ports beyond loopback, and do not attach the agent to either data network or mount the Docker socket.
 
 ## Network and deployment gates
 
-Postgres, Redis, and app-to-data traffic use the internal `data` network. The local database and coordinator publishing bridges disable inter-container communication and outbound masquerading. Coordinator also joins that host-only bridge so its loopback-published port is reachable while its control-plane, data, and agent links stay internal. Gateway, executor, and agent stay on internal networks. The host scanner binds only the Docker bridge gateway; its HTTPS certificate is generated in the private state directory, and its CA is mounted read-only into the coordinator. Only web joins `web-egress`, a normal Docker bridge, so a configured identity provider can support its OIDC authorization/token flow. This grants broad outbound connectivity; Compose does not enforce destination allowlists or a DNS policy. Production needs a reviewed egress policy for whichever identity provider is configured.
+Postgres and Redis use an internal Docker network plus loopback-only host ports. The app processes connect through those host ports. The installer does not start the Compose app profiles; those profiles remain available for separate packaging checks. Production needs a reviewed egress policy for whichever identity provider and provider-write adapters are configured.
 
 Published app ports use plain HTTP on host loopback for local development. There is no public ingress or TLS-terminating proxy in this Compose stack. Outside local development, `PUBLIC_APP_URL` must be an HTTPS origin and an independently reviewed ingress must terminate TLS before the app is exposed. The current live check verifies outbound HTTPS reachability to its test endpoint; it does not prove OIDC callback/token exchange, public ingress TLS, organization authorization, or fresh-MFA behavior.
 
-The isolated agent profile receives no database, Redis, provider credential, signing key, host path, or Docker socket. Gateway, executor, and scanner profiles stay disabled; the executor has no provider write integration, and customer-code execution remains disabled until a disposable VM-class boundary is demonstrated. Compose container hardening is not a substitute for that boundary.
+The Compose executor profile remains a fail-closed boundary; the installer starts the independent executor as a host process only after its setup checks pass. It receives the Writer App file path and its own database login; web receives only the shared loopback verification token. Repository write access requires the Owner WebAuthn grant flow after the executor verifies its installation can read the connected repository. Customer-code validation uses the separate Firecracker runner; customer-code execution remains disabled.
 
 ## Checks and cleanup
 

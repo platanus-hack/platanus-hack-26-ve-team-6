@@ -12,7 +12,7 @@ const requireValue = (condition, message) => {
 const hasLoopbackPort = (service, target) => (service.ports ?? []).some((port) =>
   port.target === target && port.host_ip === '127.0.0.1'
   && Number.isInteger(Number(port.published)) && Number(port.published) >= 1 && Number(port.published) <= 65535);
-const logicalNetworkNames = ['data', 'local-data-host', 'control-plane', 'web-egress', 'agent-link', 'scanner-boundary'];
+const logicalNetworkNames = ['data', 'local-data-host', 'control-plane', 'web-egress', 'executor-egress', 'agent-link', 'scanner-boundary'];
 const normalizeNetworkName = (name) => logicalNetworkNames.find((logical) =>
   name === logical || name.endsWith(`_${logical}`) || name.endsWith(`-${logical}`)) ?? name;
 const networkDefinition = (logicalName) => compose.networks?.[logicalName]
@@ -64,10 +64,16 @@ requireValue(Object.keys(services.web.environment ?? {}).includes('GOTCHU_API_DA
 requireValue(Object.keys(services.web.environment ?? {}).includes('GOTCHU_INGEST_DATABASE_URL'), 'event ingestion must use the distinct gotchu_ingest runtime login.');
 requireValue(Object.keys(services.web.environment ?? {}).includes('GOTCHU_EVENT_SIGNING_KEYS_JSON'), 'web must accept the optional local event-signing credential map.');
 requireValue(Object.keys(services.web.environment ?? {}).includes('GOTCHU_GITHUB_READER_APP_FILE'), 'web must accept the optional GitHub reader app file path.');
+requireValue(Object.keys(services.web.environment ?? {}).includes('GOTCHU_EXECUTOR_INTERNAL_URL'), 'web must use the private executor verification endpoint.');
+requireValue(Object.keys(services.web.environment ?? {}).includes('GOTCHU_EXECUTOR_INTERNAL_TOKEN'), 'web must authenticate its private executor verification requests.');
 const githubCredentialsMount = (services.web.volumes ?? []).find((volume) => volume.target === '/run/secrets/github');
 requireValue(githubCredentialsMount?.type === 'bind' && githubCredentialsMount.read_only === true && githubCredentialsMount.source.endsWith('/github'), 'web may mount only the private GitHub credential directory, read-only.');
+requireValue(Object.keys(services.web.environment ?? {}).includes('GOTCHU_MONITORING_CONFIG_FILE'), 'web must receive the operator-managed repository catalog.');
+requireValue((services.web.volumes ?? []).some((volume) => volume.target === '/run/config/monitoring-repositories.json' && volume.read_only), 'web repository catalog must be mounted read-only.');
 requireValue(Object.keys(services.coordinator.environment ?? {}).includes('GOTCHU_COORDINATOR_DATABASE_URL'), 'coordinator must use the gotchu_coordinator runtime login.');
 requireValue(Object.keys(services.coordinator.environment ?? {}).includes('GOTCHU_REDIS_URL'), 'only the trusted coordinator may receive Redis access.');
+requireValue(Object.keys(services.coordinator.environment ?? {}).includes('GOTCHU_MONITORING_CONFIG_FILE'), 'coordinator must receive the operator-managed repository catalog.');
+requireValue((services.coordinator.volumes ?? []).some((volume) => volume.target === '/run/config/monitoring-repositories.json' && volume.read_only), 'coordinator repository catalog must be mounted read-only.');
 requireValue(Object.keys(services.gateway.environment ?? {}).includes('GOTCHU_GATEWAY_DATABASE_URL'), 'gateway must use its own gotchu_coordinator runtime login.');
 requireValue(Object.keys(services.gateway.environment ?? {}).includes('GOTCHU_RUN_CAPABILITY_PUBLIC_KEY'), 'gateway must receive the run capability verification key.');
 requireValue(!Object.keys(services.gateway.environment ?? {}).some((key) => /PRIVATE_KEY|REDIS|PROVIDER.*(TOKEN|SECRET|CREDENTIAL)/i.test(key)), 'gateway must not receive a signing private key, Redis login, or provider credential.');
@@ -75,25 +81,39 @@ requireValue(!Object.keys(services.coordinator.environment ?? {}).includes('GOTC
 requireValue(!Object.keys(services.agent.environment ?? {}).includes('GOTCHU_EVENT_SIGNING_KEYS_JSON'), 'event-signing credential material must not be passed to the agent.');
 const gatewayNetworks = normalizedNetworkNames(services.gateway).sort();
 requireValue(JSON.stringify(gatewayNetworks) === JSON.stringify(['agent-link', 'data']), 'gateway must only join its agent link and database network.');
-requireValue(!Object.keys(services.executor.environment ?? {}).some((key) => /REDIS|PRIVATE_KEY|PROVIDER.*(TOKEN|SECRET|CREDENTIAL)/i.test(key)), 'executor gets no Redis, signing private key, or provider credentials until write execution is wired.');
+requireValue(Object.keys(services.executor.environment ?? {}).includes('GOTCHU_REDIS_URL'), 'only the executor and coordinator may receive Redis access.');
 requireValue(Object.keys(services.executor.environment ?? {}).includes('GOTCHU_EXECUTOR_DATABASE_URL'), 'executor must use the gotchu_executor runtime login.');
+requireValue(Object.keys(services.executor.environment ?? {}).includes('GOTCHU_GITHUB_WRITER_APP_FILE'), 'the independent executor must receive the writer App credential path.');
+requireValue(Object.keys(services.executor.environment ?? {}).includes('GOTCHU_GITHUB_WRITER_INSTALLATION_ID'), 'the executor writer installation must be explicit.');
+requireValue(Object.keys(services.executor.environment ?? {}).includes('GOTCHU_EXECUTOR_INTERNAL_TOKEN'), 'executor must share only the private verification token with web.');
+requireValue(Object.keys(services.executor.environment ?? {}).includes('GOTCHU_MONITORING_CONFIG_FILE'), 'the executor must resolve targets from the operator repository catalog.');
+requireValue(Object.keys(services.executor.environment ?? {}).includes('PUBLIC_APP_URL'), 'the executor must link PR evidence back to the public Gotchu app origin.');
+requireValue(!Object.keys(services.executor.environment ?? {}).some((key) => /EVENT_SIGNING|RUN_CAPABILITY_PRIVATE|AUTH_.*SECRET|READER.*(TOKEN|SECRET|CREDENTIAL)/i.test(key)), 'executor must receive only writer credentials, not web, validation, or reader secrets.');
+requireValue((services.executor.volumes ?? []).some((volume) => volume.target === '/run/secrets/github-writer-app.json' && volume.read_only), 'executor writer App credentials must use a read-only private mount.');
+requireValue((services.executor.volumes ?? []).some((volume) => volume.target === '/run/config/monitoring-repositories.json' && volume.read_only), 'executor target catalog must use a read-only mount.');
 requireValue(normalizedNetworkNames(services.agent).length === 1 && normalizedNetworkNames(services.agent)[0] === 'agent-link', 'apps/worker agent must use only the agent link.');
 const webNetworks = normalizedNetworkNames(services.web).sort();
 requireValue(JSON.stringify(webNetworks) === JSON.stringify(['control-plane', 'data', 'web-egress']), 'web must use control-plane/data plus its dedicated outbound network.');
 const coordinatorNetworks = normalizedNetworkNames(services.coordinator).sort();
 requireValue(JSON.stringify(coordinatorNetworks) === JSON.stringify(['agent-link', 'control-plane', 'data', 'local-app-host']), 'coordinator must use internal app/data networks plus its host-only publishing bridge.');
+const executorNetworks = normalizedNetworkNames(services.executor).sort();
+requireValue(JSON.stringify(executorNetworks) === JSON.stringify(['data', 'executor-egress']), 'executor must use only the data and dedicated provider-egress networks.');
+requireValue(normalizedNetworkNames(services.web).includes('data') && normalizedNetworkNames(services.executor).includes('data'), 'web and executor must share only the internal data network for Owner write-access verification.');
+requireValue((services.executor.ports ?? []).length === 0, 'executor health and Owner verification endpoints must not be host-published.');
 requireValue(Object.keys(services.coordinator.environment ?? {}).includes('GOTCHU_COORDINATOR_HOST'), 'coordinator must bind through GOTCHU_COORDINATOR_HOST.');
 requireValue(!Object.keys(services.coordinator.environment ?? {}).includes('HOST'), 'coordinator must not use the unrelated HOST setting.');
 const appUser = /^([1-9][0-9]*):([1-9][0-9]*)$/.exec(services.web.user ?? '');
-requireValue(appUser && services.coordinator.user === services.web.user, 'built applications must run as the same unprivileged host user for private bind-mounted credentials.');
-requireValue(services.web.build?.target === 'web' && services.coordinator.build?.target === 'coordinator', 'web and coordinator must build their real multi-stage application targets.');
-requireValue(!String(services.web.command ?? []).includes('process.exit(78)') && !String(services.coordinator.command ?? []).includes('process.exit(78)'), 'web and coordinator must not use placeholder exit commands.');
+requireValue(appUser && services.coordinator.user === services.web.user && services.executor.user === services.web.user, 'built applications must run as the same unprivileged host user for private bind-mounted credentials.');
+requireValue(services.web.build?.target === 'web' && services.coordinator.build?.target === 'coordinator' && services.executor.build?.target === 'executor', 'web, coordinator, and executor must build their real multi-stage application targets.');
+requireValue(!String(services.web.command ?? []).includes('process.exit(78)') && !String(services.coordinator.command ?? []).includes('process.exit(78)') && !String(services.executor.command ?? []).includes('process.exit(78)'), 'enabled application services must not use placeholder exit commands.');
 const healthcheckText = (service) => JSON.stringify(service.healthcheck?.test ?? []);
 requireValue(healthcheckText(services.web).includes('/api/ready'), 'web health must use its actual readiness route.');
 requireValue(healthcheckText(services.web).includes('body.ready'), 'web health must follow the web readiness contract.');
 requireValue(healthcheckText(services.coordinator).includes('/health/ready'), 'coordinator health must use its actual readiness route.');
 requireValue(healthcheckText(services.coordinator).includes("body.status === 'ready'"), 'coordinator health must follow the coordinator readiness contract.');
-for (const name of ['agent', 'gateway', 'executor', 'scanner-boundary']) {
+requireValue(healthcheckText(services.executor).includes('/health/ready'), 'executor health must use its loopback readiness route.');
+requireValue(healthcheckText(services.executor).includes("body.status === 'ready'"), 'executor health must follow the executor readiness contract.');
+for (const name of ['agent', 'gateway', 'scanner-boundary']) {
   requireValue(services[name].image?.startsWith('node:24.'), `${name} must retain its explicit disabled Node boundary.`);
   requireValue((services[name].command ?? []).some((part) => String(part).includes('process.exit(78)')), `${name} must fail closed with status 78 until its deployment gate passes.`);
 }
@@ -101,8 +121,14 @@ const egressUsers = Object.entries(services)
   .filter(([, service]) => Object.keys(service.networks ?? {}).some((name) => normalizeNetworkName(name) === 'web-egress'))
   .map(([name]) => name);
 requireValue(JSON.stringify(egressUsers) === JSON.stringify(['web']), 'only web may join the outbound web-egress bridge for GitHub OAuth.');
+const executorEgressUsers = Object.entries(services)
+  .filter(([, service]) => Object.keys(service.networks ?? {}).some((name) => normalizeNetworkName(name) === 'executor-egress'))
+  .map(([name]) => name);
+requireValue(JSON.stringify(executorEgressUsers) === JSON.stringify(['executor']), 'only the independent executor may join the provider-egress bridge.');
 requireValue(networkDefinition('web-egress')?.internal !== true, 'web-egress must retain outbound connectivity for the GitHub OAuth flow.');
 requireValue(networkDefinition('web-egress')?.driver_opts?.['com.docker.network.bridge.enable_ip_masquerade'] === 'true', 'web-egress must provide the explicit bridge NAT route required for OAuth.');
+requireValue(networkDefinition('executor-egress')?.internal !== true, 'executor-egress must retain outbound connectivity required by GitHub App writes.');
+requireValue(networkDefinition('executor-egress')?.driver_opts?.['com.docker.network.bridge.enable_ip_masquerade'] === 'true', 'executor-egress must provide its explicit outbound route.');
 const webEgressAttachment = Object.entries(services.web.networks ?? {}).find(([name]) => normalizeNetworkName(name) === 'web-egress')?.[1];
 requireValue(Number(webEgressAttachment?.gw_priority) >= 1, 'web-egress must be the preferred default route across the attached networks.');
 requireValue(networkDefinition('data')?.internal === true, 'data network must be internal.');

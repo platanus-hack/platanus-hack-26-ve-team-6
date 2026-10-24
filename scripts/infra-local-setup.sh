@@ -48,6 +48,8 @@ trap 'rm -f "$tmp_file"' EXIT
   printf 'GOTCHU_EXECUTOR_DB_USERNAME=gotchu_executor_login\n'
   printf 'GOTCHU_EXECUTOR_DB_PASSWORD=%s\n' "$(openssl rand -hex 32)"
   printf 'GOTCHU_EXECUTOR_ENABLED=false\n'
+  printf 'GOTCHU_EXECUTOR_INTERNAL_URL=http://127.0.0.1:%s\n' "${GOTCHU_EXECUTOR_PORT:-3004}"
+  printf 'GOTCHU_EXECUTOR_INTERNAL_TOKEN=%s\n' "$(openssl rand -hex 32)"
   printf 'GOTCHU_GITHUB_WRITER_INSTALLATION_ID=\n'
 } > "$tmp_file"
 
