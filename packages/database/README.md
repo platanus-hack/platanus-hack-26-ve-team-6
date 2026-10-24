@@ -1,0 +1,13 @@
+# Database foundation
+
+Build `@gotchu/database` and run `GOTCHU_MIGRATION_DATABASE_URL=... pnpm --filter @gotchu/database migrate` using an operator connection with role/schema creation rights. The migrator takes an advisory lock, verifies checksums, and rejects unsafe pre-existing role definitions. Roles and schema are idempotent; it does not create passwords or a default login.
+
+Provision a **distinct login per process** with `provisionRuntimeLogin({ connectionString: operatorUrl, username, password, role })`, using an externally generated random password (at least 24 characters). Existing login names fail closed instead of silently rotating credentials. The login must not own tables, belong to `gotchu_owner`, have privileged roles, or hold more than one service role. Runtime helpers verify this before each transaction. Never use the migrator URL in web/worker/executor configuration.
+
+`createDatabase({ connectionString: runtimeUrl, role, max? })` exports transaction callbacks through `tenant(organizationId, fn)` and the intake-only `integration(integrationId, fn)`. All queries use one checked-out connection. Tenant and integration context are parameterized `set_config(..., true)`, reset at transaction boundaries and pool return, and inaccessible after callback completion. Callbacks are **trusted backend code**, not arbitrary SQL or a customer sandbox. Selecting a tenant does not establish membership; the backend authorizes the trusted Auth.js user before web operations.
+
+All customer tables force RLS and use composite tenant-aware foreign keys. Runtime roles have neither DDL nor TRUNCATE permissions. Credentials are opaque references in a separate intake-only table. The investigation process gets no database URL; only the trusted coordinator has the coordinator role.
+
+The initial state freezes provider writes. After reconciliation, an operator can call `setRecoveryState({ connectionString, mode: 'reconciled', reconciliationReference })`. Immediately after every database restore, stop executors, call `setRecoveryState({ connectionString, mode: 'freeze' })` to increment the epoch, then reconcile before unfreezing. This is an operator procedure and ledger gate, not a claimed automatic disaster-recovery guarantee. New approvals cannot revive an old-epoch proposal.
+
+`GOTCHU_TEST_DATABASE_URL` enables real integration tests. It must point to a disposable database named `gotchu_test_*` and supply an operator login. Tests create random tenant fixtures and random temporary runtime logins; they never accept a generic production-looking database name. Without this variable, live tests are explicitly skipped. Do not count a skipped live suite as an infrastructure pass.

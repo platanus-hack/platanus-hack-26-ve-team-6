@@ -1,0 +1,81 @@
+import { createHash } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
+import pg from 'pg';
+import { z } from 'zod';
+
+const roles = ['gotchu_owner', 'gotchu_api', 'gotchu_ingest', 'gotchu_coordinator', 'gotchu_executor'] as const;
+const ident = (value: string) => '"' + value.replaceAll('"', '""') + '"';
+const literal = (value: string) => "'" + value.replaceAll("'", "''") + "'";
+
+export async function migrate(options: { connectionString: string }): Promise<void> {
+  const client = new pg.Client({ connectionString: options.connectionString });
+  await client.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(612481953)');
+    for (const role of roles) {
+      const found = await client.query('SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication FROM pg_roles WHERE rolname = $1', [role]);
+      if (!found.rowCount) await client.query(`CREATE ROLE ${role} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`);
+      else if (Object.values(found.rows[0]).some(Boolean)) throw new Error(`Refusing unsafe pre-existing role ${role}`);
+    }
+    await client.query('CREATE SCHEMA IF NOT EXISTS gotchu AUTHORIZATION gotchu_owner');
+    const owner = await client.query("SELECT pg_get_userbyid(nspowner) AS owner FROM pg_namespace WHERE nspname = 'gotchu'");
+    if (owner.rows[0]?.owner !== 'gotchu_owner') throw new Error('Unexpected gotchu schema owner');
+    await client.query('SET LOCAL ROLE gotchu_owner');
+    await client.query('REVOKE ALL ON SCHEMA gotchu FROM PUBLIC');
+    await client.query('ALTER DEFAULT PRIVILEGES IN SCHEMA gotchu REVOKE ALL ON TABLES FROM PUBLIC');
+    await client.query('ALTER DEFAULT PRIVILEGES IN SCHEMA gotchu REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC');
+    await client.query('CREATE TABLE IF NOT EXISTS gotchu.schema_migrations (name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())');
+    const directory = new URL('../migrations/', import.meta.url);
+    for (const name of (await readdir(directory)).filter((name) => /^\d+_[a-z_]+\.sql$/.test(name)).sort()) {
+      const sql = await readFile(new URL(name, directory), 'utf8');
+      const checksum = createHash('sha256').update(sql).digest('hex');
+      const existing = await client.query('SELECT checksum FROM gotchu.schema_migrations WHERE name = $1', [name]);
+      if (existing.rowCount) {
+        if (existing.rows[0]?.checksum !== checksum) throw new Error(`Migration checksum mismatch: ${name}`);
+        continue;
+      }
+      await client.query(sql);
+      await client.query('INSERT INTO gotchu.schema_migrations(name, checksum) VALUES ($1, $2)', [name, checksum]);
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally { await client.end(); }
+}
+
+/** Operator-only bootstrap. Password must be generated externally; never persist it in source. */
+export async function provisionRuntimeLogin(options: { connectionString: string; username: string; password: string; role: 'gotchu_api' | 'gotchu_ingest' | 'gotchu_coordinator' | 'gotchu_executor' }): Promise<void> {
+  const username = z.string().regex(/^[a-z][a-z0-9_]{0,62}$/).parse(options.username);
+  const password = z.string().min(24).max(1024).refine((x) => !x.includes('\0')).parse(options.password);
+  const role = z.enum(['gotchu_api', 'gotchu_ingest', 'gotchu_coordinator', 'gotchu_executor']).parse(options.role);
+  if (roles.includes(username as typeof roles[number])) throw new Error('Runtime login cannot use a group-role name');
+  const client = new pg.Client({ connectionString: options.connectionString });
+  await client.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(612481953)');
+    const existing = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [username]);
+    // Do not mutate unknown roles or rotate credentials as an implicit side effect.
+    if (existing.rowCount) throw new Error('Runtime login already exists; rotate or inspect it through the operator workflow');
+    await client.query(`CREATE ROLE ${ident(username)} LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD ${literal(password)}`);
+    await client.query(`GRANT ${role} TO ${ident(username)}`);
+    await client.query('COMMIT');
+  } catch (error) { await client.query('ROLLBACK'); throw error; } finally { await client.end(); }
+}
+
+/** Run using operator credentials immediately after a restore, before starting executors. */
+export async function setRecoveryState(options: { connectionString: string; mode: 'freeze' | 'reconciled'; reconciliationReference?: string }): Promise<{ epoch: string; frozen: boolean }> {
+  const client = new pg.Client({ connectionString: options.connectionString });
+  await client.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE gotchu_owner');
+    const result = options.mode === 'freeze'
+      ? await client.query('UPDATE gotchu.platform_state SET recovery_epoch = recovery_epoch + 1, writes_frozen = true, reconciliation_reference = NULL, updated_at = now() RETURNING recovery_epoch, writes_frozen')
+      : await client.query('UPDATE gotchu.platform_state SET writes_frozen = false, reconciliation_reference = $1, updated_at = now() RETURNING recovery_epoch, writes_frozen', [z.string().min(1).max(1000).parse(options.reconciliationReference)]);
+    await client.query('COMMIT');
+    return { epoch: String(result.rows[0].recovery_epoch), frozen: result.rows[0].writes_frozen as boolean };
+  } catch (error) { await client.query('ROLLBACK'); throw error; } finally { await client.end(); }
+}
