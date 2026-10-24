@@ -18,12 +18,36 @@ function average(values: number[]): number | undefined {
   return values.length >= 3 ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined;
 }
 
+function compareText(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function selectRecentDistinct<T>(input: {
+  values: readonly T[];
+  key: (value: T) => string;
+  observedAt: (value: T) => string;
+  limit: number;
+  priority?: (value: T) => number;
+}) {
+  const sorted = [...input.values].sort((left, right) => Date.parse(input.observedAt(right)) - Date.parse(input.observedAt(left))
+    || (input.priority?.(left) ?? 0) - (input.priority?.(right) ?? 0)
+    || compareText(input.key(left), input.key(right)));
+  const distinct = new Map<string, T>();
+  for (const value of sorted) {
+    const key = input.key(value);
+    if (!distinct.has(key)) distinct.set(key, value);
+  }
+  const values = [...distinct.values()];
+  return { values: values.slice(0, input.limit), omitted: Math.max(0, values.length - input.limit) };
+}
+
 export function buildCorrelationInput(input: {
   now: Date;
   observations: readonly MetricObservation[];
   providerStatuses?: readonly unknown[];
   probes?: readonly unknown[];
   context?: CorrelationWindowInput['context'];
+  anomalies?: readonly string[];
   windowMs?: number;
 }): CorrelationWindowInput {
   const windowMs = input.windowMs ?? 30 * 60_000;
@@ -85,9 +109,29 @@ export function buildCorrelationInput(input: {
       ? [{ service: row.service, environment: row.environment, errorRate, latencyMs, requestRate, resourceUtilization, authFailures: 0 }]
       : [];
   });
-  const providerStatuses = (input.providerStatuses ?? []).map(value => providerStatusInputSchema.parse(value));
-  const probes = (input.probes ?? []).map(value => httpsProbeSchema.parse(value));
-  return correlationWindowInputSchema.parse({ window: { startedAt, endedAt }, ...(input.context ? { context: input.context } : {}), signals, providerStatuses, probes, baselines, anomalies: [] });
+  const providerStartMs = Math.max(startMs, endMs - 30 * 60_000);
+  const parsedProviderStatuses = (input.providerStatuses ?? []).map(value => providerStatusInputSchema.parse(value))
+    .filter(status => Date.parse(status.observedAt) >= providerStartMs && Date.parse(status.observedAt) <= endMs);
+  const providerSelection = selectRecentDistinct({
+    values: parsedProviderStatuses,
+    key: status => JSON.stringify([status.provider, status.scope, status.component, status.region, status.fixture]),
+    observedAt: status => status.observedAt,
+    limit: 100,
+    priority: status => status.scope === 'global' ? 0 : status.scope === 'regional' ? 1 : 2,
+  });
+  const parsedProbes = (input.probes ?? []).map(value => httpsProbeSchema.parse(value))
+    .filter(probe => Date.parse(probe.at) >= startMs && Date.parse(probe.at) <= endMs);
+  const probeSelection = selectRecentDistinct({
+    values: parsedProbes,
+    key: probe => JSON.stringify([probe.route, probe.service, probe.dependsOnProvider, probe.role]),
+    observedAt: probe => probe.at,
+    limit: 200,
+  });
+  const anomalies = [...(input.anomalies ?? [])];
+  if (providerSelection.omitted > 0) anomalies.push(`Provider status coverage is incomplete: ${providerSelection.omitted} distinct recent inputs omitted at the 100-record limit.`);
+  if (probeSelection.omitted > 0) anomalies.push(`HTTPS probe coverage is incomplete: ${probeSelection.omitted} distinct recent inputs omitted at the 200-record limit.`);
+  return correlationWindowInputSchema.parse({ window: { startedAt, endedAt }, ...(input.context ? { context: input.context } : {}), signals,
+    providerStatuses: providerSelection.values, probes: probeSelection.values, baselines, anomalies });
 }
 
 export function hasCorrelationEvidence(input: CorrelationWindowInput) {
