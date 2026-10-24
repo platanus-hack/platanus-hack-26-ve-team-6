@@ -66,3 +66,5 @@ export async function startDemoTargetServer(options: z.input<typeof demoServerOp
     }),
   };
 }
+
+export { startTriageEvaluationTarget, type EvaluationFault, type EvaluationTargetOptions } from './triage-evaluation-target.js';

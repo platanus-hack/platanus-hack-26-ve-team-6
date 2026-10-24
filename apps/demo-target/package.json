@@ -11,5 +11,9 @@
     "test": "vitest run",
     "start": "node dist/main.js"
   },
-  "dependencies": { "zod": "^4.0.0" }
+  "dependencies": {
+    "@gotchu/contracts": "workspace:*",
+    "@gotchu/sdk": "workspace:*",
+    "zod": "^4.0.0"
+  }
 }
