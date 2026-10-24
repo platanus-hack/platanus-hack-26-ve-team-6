@@ -2,7 +2,7 @@ import { Auth, type AuthConfig } from '@auth/core';
 import type { JWT } from '@auth/core/jwt';
 import GitHub from '@auth/core/providers/github';
 import { z } from 'zod';
-import { HttpError, json } from './http.js';
+import { HttpError, json, readBoundedBody } from './http.js';
 
 export interface AuthSettings {
   origin: string;
@@ -90,7 +90,10 @@ export function createAuthService(settings: AuthSettings | null): AuthService {
     enabled: true,
     handle: async (request) => {
       const headers = validateOrigin(request);
-      const response = await Auth(new Request(request, { headers }), config);
+      const bounded = request.method === 'POST'
+        ? new Request(request.url, { method: 'POST', headers, body: new Uint8Array(await readBoundedBody(request, 16_384)), signal: request.signal })
+        : new Request(request, { headers });
+      const response = await Auth(bounded, config);
       // Auth.js may return an immutable redirect response.
       const responseHeaders = new Headers(response.headers);
       responseHeaders.set('Cache-Control', 'private, no-store');

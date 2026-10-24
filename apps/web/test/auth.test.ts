@@ -45,6 +45,12 @@ describe('Auth.js Request/Response integration', () => {
     expect(response.headers.get('location')).toContain('error=MissingCSRF');
   });
 
+  it('bounds anonymous auth POST bodies before Auth.js reads them', async () => {
+    await expect(service.handle(new Request(`${settings.origin}/api/auth/signout`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'x'.repeat(16_385),
+    }))).rejects.toMatchObject({ status: 413, code: 'body_too_large' });
+  });
+
   it('stays explicitly unavailable without provider setup and rejects insecure public origins', async () => {
     expect(authSettings({})).toBeNull();
     expect((await createAuthService(null).handle(new Request(`${settings.origin}/api/auth/session`))).status).toBe(503);
