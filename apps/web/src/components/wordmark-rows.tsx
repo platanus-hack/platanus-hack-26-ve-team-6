@@ -27,7 +27,7 @@ export function WordmarkRows({ rows = 5, className = '' }: { rows?: number; clas
   }, [draw, look.x, scrollYProgress]);
   return <div ref={root} className={`g-wordrows ${className}`} aria-hidden="true">
     {Array.from({ length: rows }, (_, index) => <div key={index} ref={element => { lines.current[index] = element; }} className={index % 2 ? 'is-outline' : ''}>
-      {Array.from({ length: 6 }, (_, word) => <span key={word}>GOTCHU<GotchuMark size={0} /></span>)}
+      {Array.from({ length: 6 }, (_, word) => <span key={word} data-word="GOTCHU"><GotchuMark size={0} /></span>)}
     </div>)}
   </div>;
 }

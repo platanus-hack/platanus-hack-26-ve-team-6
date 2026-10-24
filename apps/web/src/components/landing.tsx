@@ -94,7 +94,7 @@ export function LandingPage() {
             <div><DotMatrix name="json" /><h3>Exportación JSON</h3><p>Descarga el informe completo con sus hallazgos, evidencia, cobertura y limitaciones.</p><a className="g-secondary-link" href="/dashboard">Ir a mis aplicaciones <UiIcon name="arrow" /></a></div>
             <figure className="g-export" aria-label="Estructura del informe exportado">
               <figcaption className="g-tag">[ informe.json ]</figcaption>
-              <pre><code>{exportShape.map(([key, value], index) => <span key={index}><i>{index + 1}</i>{key.includes('"') ? <><b>{key}</b>{value}</> : key}</span>)}</code></pre>
+              <pre tabIndex={0}><code>{exportShape.map(([key, value], index) => <span key={index}><i>{index + 1}</i>{key.includes('"') ? <><b>{key}</b>{value}</> : key}</span>)}</code></pre>
             </figure>
           </article>
         </div>

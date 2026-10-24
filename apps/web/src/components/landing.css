@@ -14,8 +14,8 @@
 .g-brand { display: inline-flex; align-items: center; gap: 12px; min-height: 44px; font: 700 22px/1 var(--gc-font-display); text-transform: uppercase; letter-spacing: .01em; }
 .g-nav { display: flex; align-items: center; gap: 32px; }
 .g-nav > a:not(.g-button) { position: relative; display: inline-flex; align-items: center; min-height: 44px; font: 600 12px/1 var(--gc-font-code); letter-spacing: .08em; text-transform: uppercase; color: var(--gc-silver); transition: color 160ms ease; }
-.g-nav > a:not(.g-button)::before { content: '['; margin-right: 6px; color: var(--gc-accent-ink); opacity: 0; transform: translateX(4px); transition: opacity 160ms ease, transform 200ms var(--gc-ease); }
-.g-nav > a:not(.g-button)::after { content: ']'; margin-left: 6px; color: var(--gc-accent-ink); opacity: 0; transform: translateX(-4px); transition: opacity 160ms ease, transform 200ms var(--gc-ease); }
+.g-nav > a:not(.g-button)::before { content: '[' / ''; display: inline-block; margin-right: 6px; color: var(--gc-accent-ink); opacity: 0; transform: translateX(4px); transition: opacity 160ms ease, transform 200ms var(--gc-ease); }
+.g-nav > a:not(.g-button)::after { content: ']' / ''; display: inline-block; margin-left: 6px; color: var(--gc-accent-ink); opacity: 0; transform: translateX(-4px); transition: opacity 160ms ease, transform 200ms var(--gc-ease); }
 
 .g-page .g-button { position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; min-height: 54px; gap: 26px; padding: 14px 26px; background: var(--gc-action); color: var(--gc-paper); border: 0; border-radius: 999px; font: 700 14px/1 var(--gc-font-display); letter-spacing: .03em; text-transform: uppercase; transition: transform var(--gc-duration) var(--gc-ease), background-color var(--gc-duration) ease; }
 .g-page .g-button-ink { background: var(--gc-canvas); color: var(--gc-paper); }
@@ -72,9 +72,9 @@
 .g-workflow-grid h3 { font-size: 22px; line-height: 1.1; text-transform: uppercase; letter-spacing: -.005em; margin-bottom: 12px; }
 .g-workflow-grid p { font-size: 15px; }
 .g-workflow-wide { align-items: flex-end; min-height: 260px; }
-.g-workflow-history { flex-direction: column; justify-content: space-between; }
-.g-workflow-history .g-dots { color: var(--gc-canvas); }
-.g-workflow-history p { color: #2b1020; }
+.g-workflow-history { flex-direction: column; justify-content: space-between; background: var(--gc-action); color: var(--gc-paper); }
+.g-workflow-history .g-dots { color: var(--gc-paper); }
+.g-workflow-history p { color: var(--gc-paper); }
 .g-workflow-export { grid-column: 1 / -1; display: grid !important; grid-template-columns: .8fr 1.2fr; align-items: center; }
 .g-workflow-export > div { display: grid; gap: 14px; justify-items: start; }
 .g-workflow-export .g-secondary-link { color: var(--gc-accent-ink); }
