@@ -141,6 +141,7 @@ live('workspace invitations and membership lifecycle on real Postgres', () => {
     });
     await ready;
     const removal = api.members.remove({ userId: f.a.userId }, { organizationId: f.a.organizationId, userId: target });
+    const ordinaryRead = removal.then(() => api.members.list({ userId: f.a.userId }, { organizationId: f.a.organizationId }));
     try {
       await expect.poll(async () => {
         const result = await f.admin.query<{ count: number }>(`SELECT count(*)::int AS count FROM pg_stat_activity WHERE usename=$1
@@ -149,6 +150,7 @@ live('workspace invitations and membership lifecycle on real Postgres', () => {
       }, { timeout: 3_000 }).toBeGreaterThan(0);
     } finally { release(); }
     await held; await removal;
+    expect((await ordinaryRead).map(member => member.userId)).not.toContain(target);
     await expect(api.customers.listApplications({ userId: target }, { organizationId: f.a.organizationId })).rejects.toMatchObject({ code: 'forbidden' });
   });
 });

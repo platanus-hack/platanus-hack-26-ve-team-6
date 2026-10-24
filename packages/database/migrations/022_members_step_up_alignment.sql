@@ -1,5 +1,19 @@
 -- Membership changes invalidate workspace-bound authorization state only.
 -- Authentication factors and recovery codes belong to users across workspaces.
+CREATE OR REPLACE FUNCTION gotchu.lock_membership(p_organization uuid,p_user text) RETURNS text
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE result text;
+BEGIN
+  IF p_organization IS DISTINCT FROM gotchu.tenant_id() THEN RETURN NULL; END IF;
+  BEGIN
+    PERFORM pg_advisory_xact_lock_shared(hashtextextended('workspace-member:'||p_organization::text||':'||p_user,0));
+  EXCEPTION WHEN lock_not_available THEN
+    RAISE EXCEPTION 'workspace_membership_lock_timeout' USING ERRCODE='P0001';
+  END;
+  SELECT role INTO result FROM gotchu.memberships WHERE organization_id=p_organization AND user_id=p_user FOR SHARE;
+  RETURN result;
+END $$;
+
 CREATE OR REPLACE FUNCTION gotchu.workspace_member_change_role(p_organization uuid,p_user text,p_role text,p_actor text)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE current_role text; owners integer;
