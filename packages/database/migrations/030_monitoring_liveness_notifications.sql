@@ -95,6 +95,8 @@ ALTER TABLE gotchu.coordinator_heartbeats FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON gotchu.coordinator_heartbeats FROM PUBLIC;
 
 GRANT SELECT ON gotchu.monitoring_liveness TO gotchu_api, gotchu_coordinator;
+GRANT INSERT (organization_id, application_id, state, reason, since) ON gotchu.monitoring_liveness TO gotchu_api;
+GRANT UPDATE (state, reason, since, updated_at) ON gotchu.monitoring_liveness TO gotchu_api;
 GRANT INSERT, UPDATE ON gotchu.monitoring_liveness TO gotchu_coordinator;
 GRANT SELECT (organization_id, id, kind, label, destination, minimum_severity, state, created_at, updated_at) ON gotchu.notification_channels TO gotchu_api;
 GRANT SELECT ON gotchu.notification_channels TO gotchu_coordinator;
