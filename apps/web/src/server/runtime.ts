@@ -8,6 +8,7 @@ import { bindDemoAssessmentServices, createDemoAssessmentApi } from './demo.js';
 import { createLocalAccounts } from './local-accounts.js';
 import { createCustomerApi } from './customer-api.js';
 import { createCustomerDnsVerifier } from './customer-dns.js';
+import { createFileEventCredentials } from './event-credentials.js';
 
 function credentialStore(value: string | undefined): CredentialStore | undefined {
   if (!value) return undefined;
@@ -58,12 +59,18 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const settings = authSettings(env, accounts);
   const auth = createAuthService(settings);
   const dnsServers = env.GOTCHU_DNS_SERVERS_JSON ? z.array(z.string().min(1).max(100)).max(5).parse(JSON.parse(env.GOTCHU_DNS_SERVERS_JSON)) : [];
-  const web = apiDatabase ? createBackend({ database: apiDatabase, customerDnsVerifier: createCustomerDnsVerifier(dnsServers) }) : null;
-  const credentials = credentialStore(env.GOTCHU_EVENT_SIGNING_KEYS_JSON);
+  const eventCredentials = env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY ? createFileEventCredentials(env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY) : undefined;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const configuredCredentials = credentialStore(env.GOTCHU_EVENT_SIGNING_KEYS_JSON);
+  const credentials: CredentialStore | undefined = eventCredentials || configuredCredentials ? { getSigningSecret: async reference => {
+    if (reference.startsWith('local-event:') && eventCredentials) return eventCredentials.getSigningSecret(reference);
+    if (configuredCredentials) return configuredCredentials.getSigningSecret(reference);
+    throw new HttpError(503, 'credential_unavailable', 'Integration signing credential is unavailable');
+  } } : undefined;
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
-  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, job: (identity, value) => web.web.getJob(identity, value) } : null,
+  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, telemetry: web.telemetry, job: (identity, value) => web.web.getJob(identity, value) } : null,
     ...(accounts ? { localAccounts: accounts } : {}),
     registrationEnabled: Boolean(accounts) && auth.enabled && env.NODE_ENV === 'development' && env.GOTCHU_ALLOW_LOCAL_REGISTRATION === 'true',
     providers: publicAuthProviders(settings),

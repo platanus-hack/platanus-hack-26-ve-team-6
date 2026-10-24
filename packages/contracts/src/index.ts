@@ -10,6 +10,8 @@ export const eventTypeSchema = z.enum([
   'http.request',
   'waf.match',
   'monitor.heartbeat',
+  'app.error',
+  'runtime.resource',
 ]);
 
 const attributeValueSchema = z.union([
@@ -73,3 +75,4 @@ export type JobEnvelope = z.infer<typeof jobEnvelopeSchema>;
 export type InvestigationRequest = z.infer<typeof investigationRequestSchema>;
 export * from './customer-assessment.js';
 export * from './operations.js';
+export * from './telemetry.js';

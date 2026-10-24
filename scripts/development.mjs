@@ -593,6 +593,7 @@ async function start() {
       GOTCHU_INGEST_DATABASE_URL: urls.ingest,
       GOTCHU_LOCAL_AUTH_ENABLED: 'true',
       GOTCHU_ALLOW_LOCAL_REGISTRATION: 'true',
+      GOTCHU_EVENT_CREDENTIAL_DIRECTORY: join(directory, 'event-credentials'),
     });
 
     await waitForScanner(ports.scanner);

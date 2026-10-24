@@ -8,6 +8,7 @@ import { createExecutionService } from './executions.js';
 import { createRunService } from './runs.js';
 import { createCustomerService, type CustomerDnsVerifier } from './customers.js';
 import { createAssessmentService } from './assessments.js';
+import { createTelemetryService, type WritableEventCredentials } from './telemetry.js';
 export * from './core.js';
 export * from './events.js';
 export * from './jobs.js';
@@ -18,8 +19,9 @@ export * from './runs.js';
 export * from './assessments.js';
 export * from './demo.js';
 export * from './customers.js';
-export interface BackendDependencies { database: Database; clock?: Clock; credentials?: CredentialStore; stepUpVerifier?: StepUpVerifier; proposalVerifier?: ProposalVerifier; customerDnsVerifier?: CustomerDnsVerifier }
+export * from './telemetry.js';
+export interface BackendDependencies { database: Database; clock?: Clock; credentials?: CredentialStore; eventCredentials?: WritableEventCredentials; stepUpVerifier?: StepUpVerifier; proposalVerifier?: ProposalVerifier; customerDnsVerifier?: CustomerDnsVerifier }
 export function createBackend(deps: BackendDependencies) {
-  return { events: createEventService(deps), web: createWebService(deps), outbox: createOutboxService(deps), jobs: createJobService(deps), proposals: createProposalService(deps), executions: createExecutionService(deps), runs: createRunService(deps), assessments: createAssessmentService(deps), customers: createCustomerService(deps) };
+  return { events: createEventService(deps), web: createWebService(deps), outbox: createOutboxService(deps), jobs: createJobService(deps), proposals: createProposalService(deps), executions: createExecutionService(deps), runs: createRunService(deps), assessments: createAssessmentService(deps), customers: createCustomerService(deps), telemetry: createTelemetryService(deps) };
 }
 export type Backend = ReturnType<typeof createBackend>;

@@ -6,13 +6,15 @@ import {
   customerSourceSummarySchema, customerReportSummarySchema, customerAssessmentReportSchema, CUSTOMER_MAX_SOURCE_BYTES,
   type CustomerWorkspace, type CustomerApplication, type CustomerTarget, type CustomerEnrollment,
   type CustomerSourceSummary, type CustomerReportSummary, type CustomerAssessmentReport,
+  telemetryIntegrationSchema, telemetryConnectionSchema,
 } from '@gotchu/contracts';
-import type { Identity } from '@gotchu/backend';
+import type { Identity, Backend } from '@gotchu/backend';
 import type { AuthService } from './auth.js';
 import { localRegistrationSchema, type LocalAccounts } from './local-accounts.js';
 import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } from './http.js';
 
 export interface CustomerServices {
+  telemetry?: Backend['telemetry'];
   listWorkspaces(identity: Identity): Promise<CustomerWorkspace[]>;
   createWorkspace(identity: Identity, value: z.infer<typeof customerCreateWorkspaceSchema>): Promise<CustomerWorkspace>;
   listApplications(identity: Identity, value: { organizationId: string }): Promise<CustomerApplication[]>;
@@ -98,6 +100,15 @@ export function createCustomerApi(options: {
         return send(customerApplicationSchema.parse(await services.updateApplication(identity, { ...scope, ...value })));
       }
       if (parts.length === 7) {
+        if (parts[6] === 'telemetry') {
+          const telemetry = services.telemetry;
+          if (!telemetry) throw new HttpError(503, 'telemetry_not_configured', 'La conexión de eventos no está configurada.');
+          if (request.method === 'GET') return send(z.array(telemetryIntegrationSchema).max(20).parse(await telemetry.list(identity, scope)));
+          if (request.method === 'POST') {
+            parse(z.object({}).strict(), await body(request));
+            return send(telemetryConnectionSchema.parse(await telemetry.connect(identity, scope)), 201);
+          }
+        }
         if (parts[6] === 'targets') {
           if (request.method === 'GET') return send(z.array(customerTargetSchema).max(20).parse(await services.listTargets(identity, scope)));
           if (request.method === 'POST') {
@@ -118,6 +129,12 @@ export function createCustomerApi(options: {
           const input = parse(customerQueueSchema, { ...scope, ...value, idempotencyKey: request.headers.get('idempotency-key') });
           return send(z.object({ jobId: uuid }).strict().parse(await services.queue(identity, input)), 202);
         }
+      }
+      if (parts.length === 8 && parts[6] === 'telemetry' && request.method === 'DELETE') {
+        if (!services.telemetry) throw new HttpError(503, 'telemetry_not_configured', 'La conexión de eventos no está configurada.');
+        await services.telemetry.disable(identity, { ...scope, integrationId: parse(uuid, parts[7]) });
+        headers.set('Cache-Control', 'private, no-store');
+        return new Response(null, { status: 204, headers });
       }
       if (parts.length === 8 && parts[6] === 'reports' && request.method === 'GET') return send(customerAssessmentReportSchema.parse(await services.getReport(identity, { ...scope, reportId: parse(uuid, parts[7]) })));
       if (parts.length === 8 && parts[6] === 'sources' && request.method === 'DELETE') {
