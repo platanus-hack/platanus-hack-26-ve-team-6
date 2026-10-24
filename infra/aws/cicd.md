@@ -17,7 +17,7 @@ The `production` environment accepts branch `prod` only, not tags. Main/prod req
 Infrastructure is declared in [cicd.yaml](cicd.yaml), stack `gotchu-production-cicd`, region `us-east-1`.
 
 - `gotchu-prod-releases-477010601418-us-east-1`: private, versioned, encrypted, TLS-only S3 releases. Conditional `If-None-Match: *` is mandatory. Keys contain the commit, workflow run ID and attempt; retention is 30 days. This bucket is separate from recovery backups.
-- `gotchu-github-production-deploy`: only release-object upload, the exact install document/managed host, and command-result reads. It cannot edit documents, change infrastructure, open SSH, read application secrets or access other projects.
+- `gotchu-github-production-deploy`: only release-object upload, the exact install document/managed host, and command-result reads. It cannot edit documents, change infrastructure, open SSH or change other projects. AWS does not support resource scoping for `GetCommandInvocation`, so reads of known command results are account-wide; the role cannot list commands. Keep secrets out of command output.
 - `gotchu-production-managed-host`: SSM's managed-node policy and read-only access to release objects. The registered node is `mi-04d50f702fe2f48e2`; hybrid credentials rotate in root-only `/root/.aws/credentials`. The host CLI's assumed-role identity was verified; no developer/root AWS credentials were installed.
 - `Gotchu-InstallProductionRelease`, version 1: validates release/checksum parameters, uses environment interpolation and invokes the independently installed root-owned control. It accepts no arbitrary shell command.
 
