@@ -253,12 +253,15 @@ Trabajo:
 
 Trabajo:
 
-- [ ] Conectar un puerto de modelo sustituible, incluyendo opción local si el hardware lo permite. Mantener el camino determinista y mostrar investigación deshabilitada cuando no haya modelo o consentimiento.
-- [ ] Ampliar el gateway con lecturas acotadas de contexto de D01, código redactado, findings, diffs, resultados de validación y triage. Autorización por tenant/app/run; cada nueva herramienta con schema y presupuesto.
-- [ ] Persistir reservas y liquidación de tokens y dinero por run/organización antes de llamar al modelo. Los límites actuales del worker no son contabilidad autoritativa de tokens en backend. Incluir llamadas en vuelo, timeout y resultado de coste desconocido.
-- [ ] Crear investigaciones de findings/operaciones materiales con dedupe, cancelación, reanudación y checkpoints mínimos. No reabrir cada evento individual ni desplazar el carril determinista.
-- [ ] Tratar código, logs, avisos y respuestas como datos no confiables. Probar prompt injection, secretos canario, referencias inexistentes y herramientas fuera de scope. El modelo nunca recibe permisos de escritura ni elige su rol.
-- [ ] Permitir sugerir una nueva hipótesis o candidato privado cuando no haya receta; pasar siempre por D05 y política humana antes de convertirlo en una receta ejecutable. Versionar el catálogo y permitir retirarlo.
+- [x] Conectar un puerto de modelo sustituible, con adaptadores OpenAI-compatible y Anthropic Messages y opción local. Mantener el camino determinista y mostrar investigación deshabilitada cuando no haya modelo o consentimiento.
+- [x] Ampliar el gateway con lecturas acotadas de contexto de D01, código redactado, findings, diffs, resultados de validación y triage. Autorización por tenant/app/run; cada herramienta tiene schema y presupuesto.
+- [x] Persistir reservas y liquidación de tokens y dinero por run/organización antes de llamar al modelo. Los límites del worker no son contabilidad autoritativa en backend. Las llamadas en vuelo y el coste desconocido siguen reservados.
+- [x] Crear investigaciones de findings/operaciones materiales con dedupe, cancelación, reanudación y checkpoints mínimos. La reanudación abre una ejecución nueva desde la evidencia original; no reabre cada evento ni desplaza el carril determinista.
+- [x] Tratar código, logs, avisos y respuestas como datos no confiables. Probar prompt injection, secretos canario, referencias inexistentes y herramientas fuera de scope. El modelo no recibe permisos de escritura ni elige su rol.
+- [x] Permitir una hipótesis o sugerencia de candidato privada sin volverla ejecutable; la salida indica que requiere D05. El candidato no se publica ni se marca verificado.
+- [ ] Encaminar candidatos por validación D05 y política humana antes de cualquier acción ejecutable. Versionar y permitir retirar el catálogo.
+
+**Estado de esta entrega:** la configuración es por workspace y Owner, el consentimiento distingue siete categorías de datos y las credenciales nunca se devuelven. En desarrollo, el secreto usa un adaptador local de archivos con permisos privados; los entornos alojados deben inyectar un almacén cifrado. No había Ollama ni llama.cpp disponible en este entorno; el caso con modelo real queda como prueba opt-in y no se ejecutó. Los tests del proveedor fixture son deterministas y no cuentan como evidencia de modelo real.
 
 **Aceptación:** al menos un caso de investigación útil con modelo real configurado y minimización auditada; pruebas deterministas con proveedor fixture etiquetado; cero escrituras por prompt injection; límites durables bajo concurrencia/restart. Explicar una evidencia no confiere “hallazgo verificado”.
 
