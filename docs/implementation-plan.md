@@ -34,6 +34,7 @@ This inventory describes repository test sources, not checks run for this docume
 - `@gotchu/web`: fixed-scope demo API constraints, same-origin/body/input validation, Auth.js adapter behavior, and API routes. These sources do not establish a live OAuth-provider login.
 - `@gotchu/coordinator`: assessment runner boundary, bounded execution behavior, and existing durable event/investigation processing. Local integration fixtures do not establish cloud deployment.
 - `@gotchu/infra`: Pulumi resource/configuration policy under mocks only; no AWS account is contacted.
+- `test/integration/assessment-demo.test.ts`: real scoped report persistence and all six mode/revision combinations using Postgres, Redis/BullMQ, the actual assessment runner and target, and the production HTTP handler behind a test-only Node bridge. Covers duplicate delivery, external independence, quotas and revoked targets.
 - `test/integration/pipeline.test.ts`: the separate event-pipeline path with temporary Postgres and Redis. It does not substitute for cloud, restore, production identity, scanner, or customer-code isolation evidence.
 
 ## Local commands

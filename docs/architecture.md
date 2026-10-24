@@ -87,7 +87,7 @@ After the frozen pnpm install, scripts/controlled-demo.mjs builds relevant packa
 
 Node 24, pnpm 11, and Docker are required for this local workflow. Local runs and mock tests do not establish cloud behavior.
 
-AWS is the primary deployment target. Pulumi describes a control EC2 instance, a separate scanner/assessment EC2 instance, private S3 artifact storage, network policy, and role-scoped storage access. The resource-policy tests use Pulumi mocks; no AWS deployment or live AWS check has been performed. Deployment, TLS, restore, capacity, and cost evidence remain open.
+AWS is the primary deployment target. Pulumi describes a control EC2 instance, a private EC2 instance reserved for the future scanner boundary, private S3 artifact storage, network policy, and role-scoped storage access. The controlled assessment currently runs inside the trusted coordinator against bundled fixtures; the private EC2 instance is not a configured scanner runtime or a disposable VM sandbox. The resource-policy tests use Pulumi mocks; no AWS deployment or live AWS check has been performed. Deployment, TLS, restore, capacity, and cost evidence remain open.
 
 The domain contracts and storage/runtime adapters keep the core flow portable. AWS is the first deployment target, not a required provider dependency. GitHub, hosted models, any particular OIDC provider, and paid external services remain optional integrations.
 

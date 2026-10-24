@@ -11,7 +11,7 @@ Gotchu currently delivers a controlled security-assessment demonstration: bounde
 
 The public demo is fixed to one seeded tenant, application, and target. Requests can select only an assessment mode and the vulnerable or corrected fixture. They cannot provide a URL, path, tenant, or application. The backend permits at most three unfinished jobs and 100 lifetime jobs for this demo scope. Each web process also limits new idempotency keys to 10 per rolling minute and well-formed assessment POSTs to 30 per 60-second window. These are admission bounds, not throughput guarantees.
 
-The assessment profile checks three fixed files with deterministic TypeScript AST/literal and configuration rules, plus one offline captured lodash advisory. The corrected fixture removes its unused lodash declaration. No code is executed, packages are not installed, and no exploit is attempted. The external profile uses one bounded GET to the configured literal loopback/private IPv4 HTTP origin; it does not need source access. A partial or missing check remains unknown coverage, and no finding is not a security verdict.
+The assessment profile checks three fixed files with deterministic TypeScript AST/literal and configuration rules, plus one offline captured lodash advisory. The corrected fixture removes its unused lodash declaration. The assessment does not evaluate fixture code, install packages, or attempt an exploit. The external profile uses one bounded GET to the configured literal loopback/private IPv4 HTTP origin; it does not need source access. A partial or missing check remains unknown coverage, and no finding is not a security verdict.
 
 ## Run locally
 
@@ -21,6 +21,8 @@ Use Node 24, pnpm 11, and Docker. Install dependencies once, then start the cont
 pnpm install --frozen-lockfile
 pnpm demo:start
 ```
+
+Open http://127.0.0.1:3000/dashboard after the command reports that the demo is ready.
 
 The root demo commands use `scripts/controlled-demo.mjs`. It builds the relevant packages, starts Compose Postgres and Redis, applies the operator-only fixed demo seed, and launches the built web and coordinator processes with the inline target. Defaults bind the web UI to loopback port 3000, the coordinator to loopback port 3003, and the target to loopback port 4100. Set `GOTCHU_DEMO_WEB_PORT` or `GOTCHU_DEMO_COORDINATOR_PORT` to override the first two ports. Process IDs, ports, logs, and state are recorded under `.local/demo`.
 

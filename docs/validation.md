@@ -1,8 +1,51 @@
-# Foundation verification — 2026-10-24
+# Verification record
+
+## Controlled assessments and AWS direction — 2026-10-24
+
+The current milestone is a controlled demonstration with real source/HTTP assessments and a usable dashboard, rather than the earlier scanner-plus-approved-PR demonstration. The older foundation record below remains historical evidence. General customer scanning, response automation and cloud deployment remain separate gates.
+
+| Command | Observed result |
+| --- | --- |
+| `pnpm install --frozen-lockfile` | Passed after integrating the AWS and assessment dependencies. |
+| `pnpm peers check` | No peer dependency issues. |
+| `pnpm check` | All workspace builds, strict source/test typechecks and integration-test typechecks passed; 157 package cases passed. Default tests explicitly skipped 69 database-gated cases. |
+| `pnpm --filter @gotchu/database test:postgres` | 47 passed: 7 database cases and 40 backend cases, including 39 actual Postgres checks and 8 units. |
+| `pnpm --filter @gotchu/coordinator test:live` | 5 passed: 3 actual Postgres/Redis delivery cases with explicitly synthetic report adapters and 2 watchdog units. |
+| `pnpm --filter @gotchu/gateway test:postgres` | 23 passed, including 18 actual Postgres cases and real HTTP worker/LangGraph integration. Separate transport tests use a fixture service with TLS certificate validation enabled. |
+| `pnpm --filter @gotchu/executor test:postgres` | 35 passed, including 9 actual Postgres ledger checks. Provider, MFA and eligibility adapters remain labeled fixtures. |
+| `pnpm test:integration` | 33 passed: the existing 14 pipeline cases plus 19 controlled-assessment cases using real Postgres, Redis/BullMQ, the assessment runner and HTTP target. The demo API uses the production handler and binding behind a test-only Node HTTP bridge. |
+| `pnpm --filter @gotchu/web typecheck` and `test` | Passed again after the optional OIDC-name fix; 25 web cases passed. |
+| `scripts/infra-compose-validate.sh` | Default Compose boundary, opt-in demo, optional identity settings and private target-port checks passed. |
+| `scripts/infra-live-check.sh` | Built and booted real web/coordinator images; checked both bundled assessment revisions inside the nonroot, read-only coordinator image with external networking disabled. Both source and loopback HTTP profiles completed. Persistent Postgres/Redis restart, repeatable role bootstrap, loopback bindings, unavailable-auth readiness, verified HTTPS egress, disabled profiles, graceful shutdown and isolated-project cleanup passed. |
+
+Across the package and live suites, 259 distinct cases passed, including 102 cases using real Postgres. Repeated units inside live commands are counted once. The live runners used temporary isolated databases, generated credentials, random loopback ports and cleanup; they did not reuse the local demonstration volumes or customer data. Pulumi's three cases use mocks, not AWS.
+
+### Behavior exercised
+
+- All six mode/revision combinations persist validated reports and evidence. Exact idempotent retries and repeated delivery produce one durable result. Revoked targets and stale leases cannot persist a successful report.
+- Public callers cannot select another tenant/application, target, URL, path or response mode. The reserved demo principal cannot use general customer operations. Database constraints, RLS and atomic completion remain authoritative.
+- Source and HTTP are independent: external mode completes with a repository port that rejects every access. Internal mode does not make HTTP requests. Redirects, hanging reads, oversized/incomplete responses and unavailable evidence retain limits or degraded coverage.
+- The vulnerable fixture produces three source findings and two HTTP observations. The corrected fixture produces no source findings and retains its informational fictional banner. This is a narrow deterministic profile; an advisory declaration is not proof of installation, reachability or exploitation.
+- Demo admission is serialized durably: three unfinished jobs and 100 lifetime jobs. API rate tests additionally cover the per-process 10-new-key rolling-minute and 30-POST fixed-window caps, including concurrent requests and exact retries.
+- Two scoped Astra review rounds found and resolved OIDC subject-length and partial-analysis classification issues. The second round found no material remaining defect. Distinct maximum-length OIDC subjects map to bounded issuer/client-scoped principals; incomplete opposite coverage cannot justify a one-sided comparison. These are code/session-fixture checks, not live OAuth.
+
+### Actual dashboard verification
+
+The built Nitro web process and coordinator ran against the worktree's own local Compose data services. A Chromium client exercised all six mode/revision combinations through the actual web routes over TCP, report history, comparison filters, native evidence dialogs and Escape dismissal, coverage, JSON download, and direct navigation between the two combined reports used by the revision comparison. The downloaded JSON passed the report schema. A coordinator/web restart retained the reports. At 390 CSS pixels the page had no horizontal overflow and all four navigation controls remained visible. Blocking the API in the browser produced an error state with assessment submission disabled; restoring it recovered the report list. No browser exceptions were observed.
+
+The T3 collaborative browser and HTML-preview tools were unavailable because of the host AppArmor policy. A locally installed headless Chromium provided the browser checks without changing host security settings. Browser captures and process metadata are ignored local artifacts under `.local/demo`.
+
+### Remaining limits
+
+No AWS preview/deployment, live OIDC/GitHub OAuth exchange, production MFA, model/provider calls, customer repository enrollment, general scanners, disposable customer-code VMs, deployed TLS, recovery drill, production retention/capacity/cost or alerts are established by these checks. The assessment is observation-only; provider writes remain frozen. The current demo quotas are implemented bounds, not measured production throughput or global customer quotas. CI steps are committed; remote Actions results are separate evidence.
+
+The web build still reports upstream Nitro/Rolldown `use client` directive warnings; these are not suppressed. No lint script is defined.
+
+## Earlier foundation verification — 2026-10-24
 
 The integrated foundation passed its workspace build, strict typechecks, package tests, and isolated database/queue/HTTP suites. These checks establish the implemented local boundaries; they do not establish production readiness or the full product demonstration.
 
-## Checks run
+### Checks run
 
 | Command | Result |
 | --- | --- |
@@ -19,7 +62,7 @@ The integrated foundation passed its workspace build, strict typechecks, package
 
 Across these suites, 161 distinct test cases passed, including 69 that use real PostgreSQL. Repeated executions of the same case are not counted twice. Live runners use generated credentials, random loopback ports, isolated test databases, and cleanup in `finally`; they do not reuse customer data or existing database volumes.
 
-## Important failure cases exercised
+### Important failure cases exercised
 
 - Tenant and application scope, forged identity headers, signed intake, repeated delivery, concurrent UUID-equivalent replay, and atomic event/outbox persistence.
 - Lost, completed, or failed Redis delivery records with unfinished durable Postgres intent.
@@ -38,7 +81,7 @@ The built Nitro server was also started on a temporary loopback port: the homepa
 
 The final coordinator image was rebuilt after the recovery-selector change and loaded its transport/recovery exports as UID 1000 with networking disabled and no data credentials. The pipeline's intake leg uses the production Request/Response adapter through an injected SDK fetch; gateway/worker legs use real HTTP sockets. A positive signed-event POST through the built Nitro host over TCP was not part of these checks.
 
-## Limits of this evidence
+### Limits of this evidence
 
 OAuth callbacks against a live GitHub application, production MFA and trusted eligibility verifiers, real model/provider calls, GitHub PR writes, scanner execution, disposable customer-code VMs, deployed gateway/worker TLS, backups/restoration, quotas/retention, alert delivery, representative-traffic calibration, capacity, latency, and operating cost remain unproven or unimplemented. Pulumi policy tests use mocks; no cloud resources were deployed. CI configuration is committed, but remote GitHub Actions results have not been claimed.
 
