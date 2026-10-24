@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createBackend, type WritableEventCredentials } from '@gotchu/backend';
+import type { EventBatchInput } from '@gotchu/contracts';
 import { createCoordinatorTransport, dispatchOutbox, processDurableJob } from '@gotchu/coordinator';
 import { httpRequestEvent, applicationErrorEvent, signEventBatch } from '@gotchu/sdk';
 import { createCustomerAssessmentRunner, type ScannerAdapter } from '@gotchu/customer-assessment';
@@ -31,14 +32,36 @@ live('operational alerts through signed intake, Postgres and actual BullMQ deliv
     const connection = await api.telemetry.connect(identity, scope);
     return { identity, scope, connection };
   }
-  async function ingest(app: Awaited<ReturnType<typeof application>>, bad = true) {
-    const batch = { applicationId: app.scope.applicationId, events: Array.from({ length: 30 }, () => httpRequestEvent({ route: '/api/orders/:id', statusCode: bad ? 503 : 200, durationMs: bad ? 1800 : 20 })) };
+  function recentPastWindow(offset = 0) {
+    const start = Math.floor(Date.now() / 600_000) * 600_000 - (offset + 1) * 600_000;
+    return { start: new Date(start).toISOString(), occurredAt: new Date(start + 60_000).toISOString() };
+  }
+  async function ingestEvents(app: Awaited<ReturnType<typeof application>>, events: EventBatchInput['events']) {
+    const batch = { applicationId: app.scope.applicationId, events };
     const signed = signEventBatch({ integrationId: app.connection.integration.id, secret: Buffer.from(app.connection.signingKey, 'base64'), batch });
     const result = await intake.events.ingest({ integrationId: app.connection.integration.id, rawBody: Buffer.from(signed.body), timestamp: signed.headers['X-Gotchu-Timestamp'], signature: signed.headers['X-Gotchu-Signature'] });
     return { result, batch };
   }
+  async function ingest(app: Awaited<ReturnType<typeof application>>, bad = true, occurredAt = new Date().toISOString()) {
+    const events = Array.from({ length: 30 }, () => ({ ...httpRequestEvent({ route: '/api/orders/:id', statusCode: bad ? 503 : 200, durationMs: bad ? 1800 : 20 }), occurredAt }));
+    return ingestEvents(app, events);
+  }
   function envelope(app: Awaited<ReturnType<typeof application>>, id: string) { return { version: 1 as const, id, ...app.scope, kind: 'events.aggregate' as const }; }
   const dependencies = () => ({ database: f.databases.gotchu_coordinator, backend: coordinator });
+  async function metricSnapshot(app: Awaited<ReturnType<typeof application>>, window: ReturnType<typeof recentPastWindow>) {
+    const bucket = Date.parse(window.start);
+    return f.admin.query<{ organization_id: string; application_id: string; id: string; idempotency_key: string; content_hash: string; body: unknown; basis: unknown; expires_at: Date; created_at: Date }>(
+      'SELECT * FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2 AND idempotency_key=$3',
+      [app.scope.organizationId, app.scope.applicationId, `signal:metrics:${bucket}`]);
+  }
+  async function projectionState(app: Awaited<ReturnType<typeof application>>) {
+    return f.admin.query<{ observations: number; alerts: number; notification_jobs: number; notification_outbox: number }>(`SELECT
+      (SELECT count(*)::int FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2) AS observations,
+      (SELECT count(*)::int FROM gotchu.operation_alerts WHERE organization_id=$1 AND application_id=$2) AS alerts,
+      (SELECT count(*)::int FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2 AND kind='notification') AS notification_jobs,
+      (SELECT count(*)::int FROM gotchu.outbox o JOIN gotchu.jobs j ON j.organization_id=o.organization_id AND j.id=o.job_id
+        WHERE j.organization_id=$1 AND j.application_id=$2 AND j.kind='notification') AS notification_outbox`, [app.scope.organizationId, app.scope.applicationId]);
+  }
   async function terminal(app: Awaited<ReturnType<typeof application>>, id: string) {
     for (let attempt = 0; attempt < 200; attempt++) {
       const state = await api.web.getJob(app.identity, { organizationId: app.scope.organizationId, jobId: id });
@@ -49,7 +72,7 @@ live('operational alerts through signed intake, Postgres and actual BullMQ deliv
     throw new Error('operational_delivery_timeout');
   }
   it('creates scoped error/pressure alerts, suppresses repeated-window noise and binds advisory plans', async () => {
-    const app = await application(); const first = await ingest(app);
+    const app = await application(); const window = recentPastWindow(); const first = await ingest(app, true, window.occurredAt);
     expect(await coordinator.customers.pendingOrganizations()).toContain(app.scope.organizationId);
     const failures: unknown[] = [];
     const transport = createCoordinatorTransport({ redisUrl: present(process.env.GOTCHU_TEST_REDIS_URL), organizationIds: [app.scope.organizationId], dependencies: dependencies(), prefix: `ops-${randomUUID()}`, report: (_event, error) => failures.push(error) });
@@ -58,6 +81,9 @@ live('operational alerts through signed intake, Postgres and actual BullMQ deliv
       await terminal(app, present(first.result.jobId));
       const alerts = await api.operations.listAlerts(app.identity, app.scope);
       expect(alerts.map(a => a.observation.kind).sort()).toEqual(['application_error', 'traffic_pressure']);
+      const firstMetrics = await metricSnapshot(app, window);
+      expect(firstMetrics.rows).toHaveLength(1);
+      expect(firstMetrics.rows[0]?.body).toMatchObject({ metrics: { requestCount: 30, errorCount: 30, latencyP95Ms: 1800 } });
       const pressure = present(alerts.find(a => a.observation.kind === 'traffic_pressure'));
       expect(pressure.observation.metrics).toMatchObject({ requestCount: 30, errorCount: 30, latencyP95Ms: 1800 });
       const origin = 'http://localhost:3000';
@@ -70,9 +96,22 @@ live('operational alerts through signed intake, Postgres and actual BullMQ deliv
         expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ id: pressure.id, state });
         expect(response.headers.get('set-cookie')).toContain('session=renewed');
       }
-      const second = await ingest(app);
+      const alertsBeforeRepeat = await api.operations.listAlerts(app.identity, app.scope);
+      const second = await ingest(app, true, window.occurredAt);
       await dispatchOutbox(coordinator, app.scope.organizationId, transport.publish); await terminal(app, present(second.result.jobId));
-      expect(await api.operations.listAlerts(app.identity, app.scope)).toHaveLength(2);
+      expect(await api.operations.listAlerts(app.identity, app.scope)).toEqual(alertsBeforeRepeat);
+      expect((await metricSnapshot(app, window)).rows).toEqual(firstMetrics.rows);
+      const nextWindow = recentPastWindow(1);
+      const third = await ingest(app, true, nextWindow.occurredAt);
+      await dispatchOutbox(coordinator, app.scope.organizationId, transport.publish); await terminal(app, present(third.result.jobId));
+      const secondMetrics = await metricSnapshot(app, nextWindow);
+      expect(secondMetrics.rows).toHaveLength(1);
+      expect(secondMetrics.rows[0]?.id).not.toBe(firstMetrics.rows[0]?.id);
+      expect(secondMetrics.rows[0]?.body).toMatchObject({ metrics: { windowStartedAt: nextWindow.start, requestCount: 30, errorCount: 30 } });
+      const alertsAfterNextWindow = await api.operations.listAlerts(app.identity, app.scope);
+      const nextWindowAlerts = alertsAfterNextWindow.filter(alert => alert.observation.metrics?.windowStartedAt === nextWindow.start);
+      expect(nextWindowAlerts.map(alert => alert.observation.kind).sort()).toEqual(['application_error', 'traffic_pressure']);
+      expect(new Set([...alertsBeforeRepeat.map(alert => alert.id), ...nextWindowAlerts.map(alert => alert.id)]).size).toBe(4);
       const plan = await api.operations.createPlan(app.identity, { ...app.scope, kind: 'investigate_capacity', observationIds: [pressure.observation.id] });
       const binding = { ...app.scope, planId: plan.id, revision: plan.revision, actionHash: plan.actionHash };
       expect(await api.operations.checkReadiness(app.identity, binding)).toMatchObject({ ready: false, execution: 'disabled' });
@@ -81,16 +120,51 @@ live('operational alerts through signed intake, Postgres and actual BullMQ deliv
       expect(failures).toEqual([]);
     } finally { await transport.close(); }
   }, 25_000);
+  it('detects new thresholds from the full window after a healthy first metrics snapshot', async () => {
+    const app = await application(); const window = recentPastWindow();
+    const healthy = await ingest(app, false, window.occurredAt);
+    await processDurableJob(dependencies(), envelope(app, present(healthy.result.jobId)));
+    expect(await api.operations.listAlerts(app.identity, app.scope)).toEqual([]);
+    const firstMetrics = await metricSnapshot(app, window);
+    expect(firstMetrics.rows[0]?.body).toMatchObject({ metrics: { requestCount: 30, errorCount: 0, latencyP95Ms: 20 } });
+    const failing = await ingest(app, true, window.occurredAt);
+    await processDurableJob(dependencies(), envelope(app, present(failing.result.jobId)));
+    const alerts = await api.operations.listAlerts(app.identity, app.scope);
+    expect(alerts.map(alert => alert.observation.kind).sort()).toEqual(['application_error', 'traffic_pressure']);
+    expect(alerts.map(alert => alert.observation.metrics)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ requestCount: 60, errorCount: 30, latencyP95Ms: 1800 }),
+    ]));
+    expect((await metricSnapshot(app, window)).rows).toEqual(firstMetrics.rows);
+  });
+  it('commits auth incidents when a same-window auth-only batch follows runtime metrics', async () => {
+    const app = await application(); const window = recentPastWindow();
+    const first = await ingest(app, true, window.occurredAt);
+    await processDurableJob(dependencies(), envelope(app, present(first.result.jobId)));
+    const events: EventBatchInput['events'] = Array.from({ length: 10 }, (_, index) => ({
+      id: randomUUID(), type: 'auth.login_failed', source: 'application', occurredAt: window.occurredAt,
+      outcome: 'failure', actor: { accountId: `auth-${index}`, ip: '192.0.2.44' }, attributes: {},
+    }));
+    const second = await ingestEvents(app, events);
+    await processDurableJob(dependencies(), envelope(app, present(second.result.jobId)));
+    expect(await api.web.getJob(app.identity, { organizationId: app.scope.organizationId, jobId: present(second.result.jobId) })).toMatchObject({ state: 'succeeded' });
+    const incidents = await f.admin.query('SELECT id FROM gotchu.incidents WHERE organization_id=$1 AND application_id=$2', [app.scope.organizationId, app.scope.applicationId]);
+    expect(incidents.rowCount).toBeGreaterThan(0);
+    expect((await metricSnapshot(app, window)).rows).toHaveLength(1);
+  });
   it('keeps accepted authentication detection running when alert storage is full', async () => {
-    const app = await application(); const first = await ingest(app);
+    const app = await application(); const window = recentPastWindow(); const first = await ingest(app, true, window.occurredAt);
     await processDurableJob(dependencies(), envelope(app, present(first.result.jobId)));
     // Explicit operator fixture fills admission without manufacturing verified security findings.
+    const count = await f.admin.query<{ total: number }>('SELECT count(*)::int AS total FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2', [app.scope.organizationId, app.scope.applicationId]);
+    const fillerCount = 100 - present(count.rows[0]).total;
+    expect(fillerCount).toBeGreaterThan(0);
     await f.admin.query(`INSERT INTO gotchu.operation_observations(organization_id,application_id,id,idempotency_key,content_hash,body,basis,expires_at)
       SELECT $1,$2,n.id,'quota-fixture:'||n.id,o.content_hash,jsonb_set(o.body,'{id}',to_jsonb(n.id::text)),o.basis,o.expires_at
       FROM (SELECT * FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2 LIMIT 1) o
-      CROSS JOIN (SELECT gen_random_uuid() AS id FROM generate_series(1,98)) n`, [app.scope.organizationId, app.scope.applicationId]);
-    const occurredAt = new Date().toISOString();
-    const events = [...Array.from({ length: 3 }, () => applicationErrorEvent('database')), ...Array.from({ length: 10 }, () => ({ id: randomUUID(), type: 'auth.login_failed' as const, source: 'application' as const, occurredAt, outcome: 'failure' as const, actor: { accountId: 'quota-regression' }, attributes: {} }))];
+      CROSS JOIN (SELECT gen_random_uuid() AS id FROM generate_series(1,$3)) n`, [app.scope.organizationId, app.scope.applicationId, fillerCount]);
+    const fullCount = await f.admin.query<{ total: number }>('SELECT count(*)::int AS total FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2', [app.scope.organizationId, app.scope.applicationId]);
+    expect(present(fullCount.rows[0]).total).toBe(100);
+    const events = [...Array.from({ length: 3 }, () => ({ ...applicationErrorEvent('database'), occurredAt: window.occurredAt })), ...Array.from({ length: 10 }, () => ({ id: randomUUID(), type: 'auth.login_failed' as const, source: 'application' as const, occurredAt: window.occurredAt, outcome: 'failure' as const, actor: { accountId: 'quota-regression' }, attributes: {} }))];
     const signed = signEventBatch({ integrationId: app.connection.integration.id, secret: Buffer.from(app.connection.signingKey, 'base64'), batch: { applicationId: app.scope.applicationId, events } });
     const accepted = await intake.events.ingest({ integrationId: app.connection.integration.id, rawBody: Buffer.from(signed.body), timestamp: signed.headers['X-Gotchu-Timestamp'], signature: signed.headers['X-Gotchu-Signature'] });
     await processDurableJob(dependencies(), envelope(app, present(accepted.jobId)));
@@ -121,11 +195,13 @@ live('operational alerts through signed intake, Postgres and actual BullMQ deliv
     expect(await processDurableJob(dependencies(), delivery)).toEqual({ status: 'already_terminal' });
     expect((await api.operations.getCoverage(app.identity, app.scope)).limitations.some(reason => reason.includes('assessment_alert_projection'))).toBe(true);
   });
-  it('does not alert on legitimate volume and rolls back alert effects on a failed consumer transaction', async () => {
+  it('does not alert on legitimate volume and rolls back observation and projection effects on failure', async () => {
     const healthy = await application();
-    for (let i = 0; i < 4; i++) { const batch = await ingest(healthy, false); await processDurableJob(dependencies(), envelope(healthy, present(batch.result.jobId))); }
+    const healthyWindow = recentPastWindow();
+    for (let i = 0; i < 4; i++) { const batch = await ingest(healthy, false, healthyWindow.occurredAt); await processDurableJob(dependencies(), envelope(healthy, present(batch.result.jobId))); }
     expect(await api.operations.listAlerts(healthy.identity, healthy.scope)).toEqual([]);
-    const app = await application(); const batch = await ingest(app); const delivery = envelope(app, present(batch.result.jobId));
+    const app = await application(); const window = recentPastWindow(); const batch = await ingest(app, true, window.occurredAt); const delivery = envelope(app, present(batch.result.jobId));
+    expect(await projectionState(app)).toMatchObject({ rows: [{ observations: 0, alerts: 0, notification_jobs: 0, notification_outbox: 0 }] });
     const database = f.databases.gotchu_coordinator;
     const failingDatabase: Database = { ...database, tenant: (tenant, work) => database.tenant(tenant, tx => work({ query: (sql, values) => {
       if (sql.startsWith('INSERT INTO gotchu.operation_alerts')) throw new Error('injected_alert_write_failure');
@@ -133,9 +209,14 @@ live('operational alerts through signed intake, Postgres and actual BullMQ deliv
     } })) };
     await expect(processDurableJob({ database: failingDatabase, backend: createBackend({ database: failingDatabase }) }, delivery)).rejects.toThrow('injected_alert_write_failure');
     expect(await api.operations.listAlerts(app.identity, app.scope)).toEqual([]);
+    expect(await projectionState(app)).toMatchObject({ rows: [{ observations: 0, alerts: 0, notification_jobs: 0, notification_outbox: 0 }] });
     expect((await api.web.getJob(app.identity, { organizationId: app.scope.organizationId, jobId: delivery.id })).state).toBe('queued');
     await processDurableJob(dependencies(), delivery);
     expect(await api.operations.listAlerts(app.identity, app.scope)).toHaveLength(2);
+    const retriedProjection = present((await projectionState(app)).rows[0]);
+    expect(retriedProjection).toMatchObject({ observations: 3, alerts: 2 });
+    expect(retriedProjection.notification_jobs).toBeGreaterThan(0);
+    expect(retriedProjection.notification_outbox).toBeGreaterThan(0);
   }, 25_000);
   it('projects persisted coverage independently while notification delivery cannot occupy the event slot', async () => {
     const app = await application();
