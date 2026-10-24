@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { ModelSecretStore } from '@gotchu/backend';
 import {
+  investigationModelProviderForPreset,
+  investigationModelEndpointSchema,
   investigationProviderCatalog,
   investigationProviderPresetIdSchema,
   modelProviderSchema,
@@ -88,11 +90,17 @@ function extractJson(text: string): unknown {
   catch { throw new ModelProviderError('invalid_response'); }
 }
 
+function endpointMatchesPreset(request: ModelCompletionRequest, preset: typeof investigationProviderCatalog[number]): boolean {
+  const endpoint = investigationModelEndpointSchema.safeParse(request.endpoint.href);
+  return endpoint.success && (preset.baseUrl === null || endpoint.data === new URL(preset.baseUrl).href);
+}
+
 function openAiAdapter(fetchImpl: typeof fetch): ModelPort {
   return {
     async complete(request) {
       const preset = investigationProviderCatalog.find(item => item.id === request.providerPresetId);
-      if (!preset || preset.adapterKind !== 'openai_compatible' || request.provider !== preset.adapterKind) {
+      if (!preset || preset.adapterKind !== 'openai_compatible' || preset.authHeaderStyle !== 'bearer'
+        || request.provider !== investigationModelProviderForPreset(preset) || !endpointMatchesPreset(request, preset)) {
         throw new ModelProviderError('invalid_response');
       }
       let response: Response;
@@ -102,7 +110,9 @@ function openAiAdapter(fetchImpl: typeof fetch): ModelPort {
           headers: { 'content-type': 'application/json', accept: 'application/json', ...(request.apiKey ? { authorization: `Bearer ${request.apiKey}` } : {}) },
           body: JSON.stringify({ model: request.modelId, messages: [
             { role: 'system', content: request.systemInstruction }, { role: 'user', content: request.userContext },
-          ], [preset.maxTokensField]: request.maxOutputTokens, stream: false }),
+          ], [preset.maxTokensField]: request.maxOutputTokens, stream: false,
+          ...(preset.supportsJsonObjectMode && [preset.defaultModelId, ...preset.suggestedModelIds].some(modelId => modelId === request.modelId)
+            ? { response_format: { type: 'json_object' } } : {}) }),
         });
       } catch { throw new ModelProviderError(request.signal.aborted ? 'aborted' : 'request_failed'); }
       const payload = openAiResponseSchema.safeParse(await readBoundedJson(response));
@@ -123,7 +133,8 @@ function anthropicAdapter(fetchImpl: typeof fetch): ModelPort {
   return {
     async complete(request) {
       const preset = investigationProviderCatalog.find(item => item.id === request.providerPresetId);
-      if (!preset || preset.adapterKind !== 'anthropic_messages' || request.provider !== preset.adapterKind) {
+      if (!preset || preset.adapterKind !== 'anthropic' || preset.authHeaderStyle !== 'anthropic_messages'
+        || request.provider !== investigationModelProviderForPreset(preset) || !endpointMatchesPreset(request, preset)) {
         throw new ModelProviderError('invalid_response');
       }
       if (!request.apiKey) throw new ModelProviderError('request_failed', 401);
@@ -149,7 +160,8 @@ export function createModelPort(options: { fetchImpl?: typeof fetch } = {}): Mod
   const fetchImpl = options.fetchImpl ?? fetch;
   return {
     complete(request) {
-      return request.providerPresetId === 'anthropic'
+      const preset = investigationProviderCatalog.find(item => item.id === request.providerPresetId);
+      return preset?.adapterKind === 'anthropic'
         ? anthropicAdapter(fetchImpl).complete(request)
         : openAiAdapter(fetchImpl).complete(request);
     },

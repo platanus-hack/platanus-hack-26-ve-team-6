@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { investigationProviderCatalog } from '@gotchu/contracts';
+import { investigationModelProviderForPreset, investigationProviderCatalog } from '@gotchu/contracts';
 import { createModelPort } from '../src/model-provider.js';
 
 const livePresets = investigationProviderCatalog.filter(preset => preset.id !== 'custom_openai_compatible');
@@ -14,7 +14,7 @@ describe.each(livePresets)('live model adapter: $displayName (opt-in; makes a re
   } else {
     it('returns schema-shaped JSON and usage from the selected live provider', async () => {
       const result = await createModelPort().complete({
-        provider: preset.adapterKind,
+        provider: investigationModelProviderForPreset(preset),
         providerPresetId: preset.id,
         endpoint: new URL(preset.baseUrl),
         modelId,

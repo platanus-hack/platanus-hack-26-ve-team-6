@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { investigationProviderCatalog } from '@gotchu/contracts';
+import { investigationModelProviderForPreset, investigationProviderCatalog } from '@gotchu/contracts';
 import { createModelPort } from '../src/model-provider.js';
 import { redactEvidenceExcerpt } from '../src/service.js';
 
@@ -102,12 +102,12 @@ describe('hosted investigator provider adapters (local HTTPS fixtures; not live-
     const systemInstruction = 'Return a JSON object only.';
     const userContext = 'Bounded fixture input.';
     const result = await createModelPort({ fetchImpl: localTlsFetch }).complete({
-      provider: preset.adapterKind, providerPresetId: preset.id, endpoint, modelId,
+      provider: investigationModelProviderForPreset(preset), providerPresetId: preset.id, endpoint, modelId,
       apiKey: 'fixture-provider-key', systemInstruction, userContext,
       maxOutputTokens: 16, signal: AbortSignal.timeout(2_000),
     });
 
-    const suffix = preset.adapterKind === 'anthropic_messages' ? 'messages' : 'chat/completions';
+    const suffix = preset.adapterKind === 'anthropic' ? 'messages' : 'chat/completions';
     const base = endpoint.href.endsWith('/') ? endpoint.href : `${endpoint.href}/`;
     const expectedUrl = new URL(suffix, base);
     const request = recorded[0];
@@ -129,6 +129,8 @@ describe('hosted investigator provider adapters (local HTTPS fixtures; not live-
       expect(JSON.parse(request?.body ?? '')).toEqual({
         model: modelId, messages: [{ role: 'system', content: systemInstruction }, { role: 'user', content: userContext }],
         [preset.maxTokensField]: 16, stream: false,
+        ...(preset.supportsJsonObjectMode && [preset.defaultModelId, ...preset.suggestedModelIds].some(suggestedModelId => suggestedModelId === modelId)
+          ? { response_format: { type: 'json_object' } } : {}),
       });
       expect(request?.body).not.toContain('fixture-provider-key');
     }
