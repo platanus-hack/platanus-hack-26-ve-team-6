@@ -136,12 +136,15 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect(await response.json()).toEqual(page);
     expect(list).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, limit: 10, subjectType: 'alert', subjectId: applicationId });
 
+    list.mockRejectedValueOnce(new BackendError('forbidden', 'No tienes acceso a este espacio.', 403));
+    expect((await handle(new Request(`${path}`))).status).toBe(403);
+
     expect((await handle(new Request(`${path}?limit=51`))).status).toBe(400);
     expect((await handle(new Request(`${path}?unknown=value`))).status).toBe(400);
-    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledTimes(2);
     auth.identity = async () => null;
     expect((await handle(new Request(`${path}`))).status).toBe(401);
-    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledTimes(2);
   });
   it('records report downloads only after the authenticated workspace service accepts them', async () => {
     const { services, auth } = ports();
