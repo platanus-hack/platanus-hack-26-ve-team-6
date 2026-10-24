@@ -1,5 +1,5 @@
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -33,11 +33,44 @@ describe('git adapters', () => {
     expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on:\n  pull_request_target:\n'}], true)).not.toThrow();
   });
 
+  it('evaluates push inclusion and exclusion filters against the proposed owned branch', () => {
+    const workflow=(filter:string)=>[{path:'.github/workflows/ci.yml',content:`on:\n  push:\n    ${filter}\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo safe`}];
+    const branch='gotchu/aaaaaaaaaaaaaaaa';
+    expect(() => assertAutomationSafe(workflow('branches-ignore: [main]'))).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe(workflow('branches: [gotchu/a*]'))).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe(workflow('branches: [main]'))).not.toThrow();
+    expect(() => assertAutomationSafe(workflow('branches-ignore: ["gotchu/**"]'))).not.toThrow();
+    expect(() => assertAutomationSafe(workflow('branches: ["gotchu/**", "!gotchu/a*"]'),false,branch)).not.toThrow();
+    expect(() => assertAutomationSafe(workflow('branches: ["gotchu/**", "!gotchu/b*"]'),false,branch)).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe(workflow('branches-ignore: ["gotchu/**"]'),false,branch)).not.toThrow();
+    expect(() => assertAutomationSafe(workflow('branches-ignore: [main]'),false,branch)).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe(workflow('branches-ignore: ["!gotchu/**"]'),false,branch)).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe(workflow('branches: ["gotchu/[ab]*"]'),false,branch)).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe(workflow('branches: ["gotchu/**", "!gotchu/**"]'))).toThrow(GitAdapterError);
+  });
+
+  it('checks secret expressions throughout pull request workflows', () => {
+    const workflow=(extra:string)=>[{path:'.github/workflows/ci.yml',content:`on: pull_request\n${extra}\njobs:\n  check:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo safe`}];
+    for (const value of [
+      'env:\n  TOKEN: "${{ secrets.NPM_TOKEN }}"',
+      'env:\n  TOKEN: "${{ SeCrEtS [ \'NPM_TOKEN\' ] }}"',
+      'env:\n  TOKEN: "${{ toJSON(secrets) }}"',
+      'env:\n  TOKEN: "${{ secrets[inputs.name] }}"',
+      'env:\n  TOKEN: "${{ secrets.NPM_TOKEN"',
+    ]) expect(() => assertAutomationSafe(workflow(value))).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: pull_request\njobs:\n  check:\n    steps:\n      - run: echo "${{ secrets[format(\'TOKEN_{0}\', inputs.name)] }}"'}])).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: pull_request\njobs:\n  check:\n    env:\n      "${{ secrets.NPM_TOKEN }}": value'}])).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe(workflow('env:\n  TOKEN: "${{ secrets.GITHUB_TOKEN }}"'))).not.toThrow();
+    expect(() => assertAutomationSafe(workflow('env:\n  TOKEN: "${{ SeCrEtS [ \'GITHUB_TOKEN\' ] }}"'))).not.toThrow();
+    expect(() => assertAutomationSafe(workflow('env:\n  TOKEN: "${{ secrets.GITHUB_TOKEN }}"'),true)).not.toThrow();
+  });
+
   it('publishes one local PR equivalent on duplicate delivery and refuses a moved base', async () => {
     const repo=await localRepo(); const adapter=await createLocalGitAdapter(repo.root);
     const input={actionHash:'b'.repeat(64),baseBranch:'main',baseSha:repo.base,files:[{path:'src/fix.txt',content:'fixed'}]};
     const published=await adapter.publishCommit(input);
     expect(await adapter.publishCommit(input)).toEqual(published);
+    expect(command(repo.root,'--git-dir',repo.bare,'show',`${published.commitSha}:src/fix.txt`)).toBe('fixed');
     const evidenceSummary={rescan:'passed',suite:'passed',regression:'passed',runnerIsolation:'verified'} as const;
     const first=await adapter.openOrFindPullRequest({branch:published.branch,commitSha:published.commitSha,actionHash:input.actionHash,baseBranch:'main',baseSha:repo.base,evidenceSummary});
     const second=await adapter.openOrFindPullRequest({branch:published.branch,commitSha:published.commitSha,actionHash:input.actionHash,baseBranch:'main',baseSha:repo.base,evidenceSummary});
@@ -48,6 +81,35 @@ describe('git adapters', () => {
     await expect(adapter.publishCommit(input)).rejects.toMatchObject({code:'conflict'});
     await adapter.closePullRequest(first.number);
     expect(await adapter.getPullRequest(first.number)).toMatchObject({state:'closed'});
+  });
+
+  it('never follows tracked symlinks outside the local repository when publishing', async () => {
+    const ancestorRepo=await localRepo();
+    const ancestorSentinel=join(ancestorRepo.root,'outside-ancestor.txt');
+    await writeFile(ancestorSentinel,'unchanged');
+    await symlink(ancestorRepo.root,join(ancestorRepo.root,'seed','src'));
+    command(join(ancestorRepo.root,'seed'),'add','src');
+    command(join(ancestorRepo.root,'seed'),'-c','user.name=Test','-c','user.email=test@localhost','commit','-m','tracked ancestor symlink');
+    command(join(ancestorRepo.root,'seed'),'push',ancestorRepo.bare,'main');
+    const ancestorBase=command(join(ancestorRepo.root,'seed'),'rev-parse','HEAD');
+    const ancestorAdapter=await createLocalGitAdapter(ancestorRepo.root);
+    const ancestorPublish=ancestorAdapter.publishCommit({actionHash:'c'.repeat(64),baseBranch:'main',baseSha:ancestorBase,files:[{path:'src/outside-ancestor.txt',content:'overwritten'}]});
+    await expect(ancestorPublish).rejects.toThrow();
+    expect(await readFile(ancestorSentinel,'utf8')).toBe('unchanged');
+
+    const leafRepo=await localRepo();
+    const leafSentinel=join(leafRepo.root,'outside-leaf.txt');
+    await writeFile(leafSentinel,'unchanged');
+    await mkdir(join(leafRepo.root,'seed','src'));
+    await symlink(leafSentinel,join(leafRepo.root,'seed','src','link.txt'));
+    command(join(leafRepo.root,'seed'),'add','src/link.txt');
+    command(join(leafRepo.root,'seed'),'-c','user.name=Test','-c','user.email=test@localhost','commit','-m','tracked leaf symlink');
+    command(join(leafRepo.root,'seed'),'push',leafRepo.bare,'main');
+    const leafBase=command(join(leafRepo.root,'seed'),'rev-parse','HEAD');
+    const leafAdapter=await createLocalGitAdapter(leafRepo.root);
+    const leafPublish=await leafAdapter.publishCommit({actionHash:'d'.repeat(64),baseBranch:'main',baseSha:leafBase,files:[{path:'src/link.txt',content:'safe replacement'}]});
+    expect(await readFile(leafSentinel,'utf8')).toBe('unchanged');
+    expect(command(leafRepo.root,'--git-dir',leafRepo.bare,'show',`${leafPublish.commitSha}:src/link.txt`)).toBe('safe replacement');
   });
 
   it('zod rejects a malformed GitHub repository response', async () => {
