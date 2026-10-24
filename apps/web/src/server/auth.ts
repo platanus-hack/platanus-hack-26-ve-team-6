@@ -141,7 +141,7 @@ export function createAuthService(settings: AuthSettings | null): AuthService {
       const headers = validateOrigin(request);
       const bounded = request.method === 'POST'
         ? new Request(request.url, { method: 'POST', headers, body: new Uint8Array(await readBoundedBody(request, 16_384)), signal: request.signal })
-        : new Request(request, { headers });
+        : new Request(request.url, { method: request.method, headers, signal: request.signal });
       const response = await Auth(bounded, config);
       // Auth.js may return an immutable redirect response.
       const responseHeaders = new Headers(response.headers);
