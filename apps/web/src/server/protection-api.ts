@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import {
   customerScopeSchema, runtimeProtectionConfigSchema, runtimeProtectionDetectionSchema,
-  runtimeProtectionUpdateSchema,
+  runtimeProtectionUpdatePayloadSchema, runtimeProtectionUpdateSchema,
 } from '@gotchu/contracts';
 import type { Backend, Identity } from '@gotchu/backend';
 import { HttpError, json, readBoundedBody } from './http.js';
@@ -17,7 +17,7 @@ export async function handleProtectionApi(request: Request, identity: Identity, 
     const scope = customerScopeSchema.parse({ organizationId: parts[3], applicationId: parts[5] });
     if (request.method === 'GET') return json(runtimeProtectionConfigSchema.parse(await service.get(identity, scope)));
     if (request.method === 'PUT') {
-      const update = runtimeProtectionUpdateSchema.omit({ organizationId: true, applicationId: true }).parse(await body(request));
+      const update = runtimeProtectionUpdatePayloadSchema.parse(await body(request));
       const input = runtimeProtectionUpdateSchema.parse({ ...scope, ...update });
       return json(runtimeProtectionConfigSchema.parse(await service.update(identity, input)));
     }
