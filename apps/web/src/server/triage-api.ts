@@ -1,4 +1,4 @@
-import { evidenceRequestResponseSchema, triageIncidentDetailSchema, triageIncidentSchema, updateIncidentStatusSchema } from '@gotchu/contracts';
+import { evidenceRequestResponseSchema, triageIncidentDetailSchema, triageIncidentSchema, updateIncidentStatusSchema, triageProbeRouteSettingsSchema, triageProbeRouteInputSchema } from '@gotchu/contracts';
 import type { Backend, Identity } from '@gotchu/backend';
 import { HttpError, readBoundedBody } from './http.js';
 
@@ -6,6 +6,12 @@ export async function handleTriageApi(request: Request, identity: Identity, serv
   const segment = parts[6];
   if (segment !== 'incidents') return null;
   if (parts.length === 7 && request.method === 'GET') return triageIncidentSchema.array().max(500).parse(await service.list(identity,scope));
+  if (parts.length === 8 && parts[7] === 'probe-route' && request.method === 'GET') return triageProbeRouteSettingsSchema.parse(await service.getProbeRoute(identity,scope));
+  if (parts.length === 8 && parts[7] === 'probe-route' && request.method === 'PUT') {
+    const input = triageProbeRouteInputSchema.omit({ organizationId:true, applicationId:true }).parse(await readJson(request));
+    await service.declareProbeRoute(identity,{...scope,...input});
+    return triageProbeRouteSettingsSchema.parse(await service.getProbeRoute(identity,scope));
+  }
   const incidentId = parts[7];
   if (!incidentId) throw new HttpError(404,'not_found','Incidente no encontrado.');
   if (parts.length === 8 && request.method === 'GET') return triageIncidentDetailSchema.parse(await service.get(identity,{...scope,incidentId}));
