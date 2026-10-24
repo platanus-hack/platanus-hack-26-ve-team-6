@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { setRecoveryState } from '@gotchu/database';
+import { setRecoveryState, type Transaction } from '@gotchu/database';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
 import { createBackend, type Proposal } from '../src/index.js';
 import { eligibilityFixture, proposalFixture } from './proposal-fixtures.js';
@@ -55,6 +55,7 @@ live('workspace invitations and membership lifecycle on real Postgres', () => {
   it('binds invites to normalized email, rejects revoked/expired/reused tokens and consumes concurrent acceptance once', async () => {
     const invite = await api.members.invite({ userId: f.a.userId }, { organizationId: f.a.organizationId, email: '  JOINER@example.test ', role: 'operator' });
     const mismatchUser = `credentials:${randomUUID()}`;
+    await expect(api.members.accept({ userId: mismatchUser }, null, { token: invite.token })).rejects.toMatchObject({ code: 'invitation_email_unavailable' });
     await expect(api.members.accept({ userId: mismatchUser }, 'other@example.test', { token: invite.token })).rejects.toMatchObject({ code: 'invitation_email_mismatch' });
     const acceptedUsers = [`credentials:${randomUUID()}`, `oidc:${randomUUID()}`];
     const attempts = await Promise.allSettled(acceptedUsers.map(userId => api.members.accept({ userId }, 'joiner@example.test', { token: invite.token })));
@@ -105,15 +106,15 @@ live('workspace invitations and membership lifecycle on real Postgres', () => {
     const userId = f.a.userId; const factorId = randomUUID(); const proof = randomUUID(); const proofId = randomUUID();
     const epoch = await f.admin.query('SELECT recovery_epoch FROM gotchu.platform_state WHERE singleton');
     await f.admin.query('INSERT INTO gotchu.step_up_user_factors(user_id,id,credential_id,public_key,label) VALUES($1,$2,$3,$4,$5)', [userId,factorId,randomUUID(),Buffer.from([1,2,3]),'fixture']);
-    await f.admin.query(`INSERT INTO gotchu.step_up_proofs(organization_id,id,user_id,proof_hash,action_hash,recovery_epoch,authenticated_at,expires_at,factor_id)
-      VALUES($1,$2,$3,$4,$5,$6,clock_timestamp(),clock_timestamp()+interval '3 minutes',$7)`, [f.a.organizationId,proofId,userId,digest(proof),'a'.repeat(64),epoch.rows[0]?.recovery_epoch,factorId]);
+    await f.admin.query(`INSERT INTO gotchu.step_up_proofs(organization_id,id,user_id,proof_hash,action_hash,recovery_epoch,authenticated_at,expires_at,factor_id,factor_count,factor_ids)
+      VALUES($1,$2,$3,$4,$5,$6,clock_timestamp(),clock_timestamp()+interval '3 minutes',$7,1,ARRAY[$7]::uuid[])`, [f.a.organizationId,proofId,userId,digest(proof),'a'.repeat(64),epoch.rows[0]?.recovery_epoch,factorId]);
     await f.admin.query(`INSERT INTO gotchu.step_up_challenges(organization_id,id,user_id,purpose,action_hash,challenge,recovery_epoch,expires_at)
       VALUES($1,$2,$3,'assert',$4,$5,$6,clock_timestamp()+interval '2 minutes')`, [f.a.organizationId,randomUUID(),userId,'a'.repeat(64),randomUUID()+'-challenge-string-long-enough',epoch.rows[0]?.recovery_epoch]);
     const proposal = proposalFixture(f.a);
     const prepared = await api.proposals.create({ organizationId: f.a.organizationId, proposal });
     const approvalProof = randomUUID();
-    await f.admin.query(`INSERT INTO gotchu.step_up_proofs(organization_id,id,user_id,proof_hash,action_hash,recovery_epoch,authenticated_at,expires_at,factor_id)
-      VALUES($1,$2,$3,$4,$5,$6,clock_timestamp(),clock_timestamp()+interval '3 minutes',$7)`, [f.a.organizationId,randomUUID(),userId,digest(approvalProof),prepared.actionHash,epoch.rows[0]?.recovery_epoch,factorId]);
+    await f.admin.query(`INSERT INTO gotchu.step_up_proofs(organization_id,id,user_id,proof_hash,action_hash,recovery_epoch,authenticated_at,expires_at,factor_id,factor_count,factor_ids)
+      VALUES($1,$2,$3,$4,$5,$6,clock_timestamp(),clock_timestamp()+interval '3 minutes',$7,1,ARRAY[$7]::uuid[])`, [f.a.organizationId,randomUUID(),userId,digest(approvalProof),prepared.actionHash,epoch.rows[0]?.recovery_epoch,factorId]);
     const approval = await api.proposals.approve({ userId }, { organizationId: f.a.organizationId, proposalId: prepared.proposalId, actionHash: prepared.actionHash, stepUpProof: approvalProof });
     await api.members.remove({ userId: anotherOwner }, { organizationId: f.a.organizationId, userId });
     try {
@@ -152,5 +153,25 @@ live('workspace invitations and membership lifecycle on real Postgres', () => {
     await held; await removal;
     expect((await ordinaryRead).map(member => member.userId)).not.toContain(target);
     await expect(api.customers.listApplications({ userId: target }, { organizationId: f.a.organizationId })).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
+  it('returns a typed lock-timeout when authorization cannot acquire the shared membership lock', async () => {
+    const database = {
+      ...f.databases.gotchu_api,
+      tenant: <T>(organizationId: string, work: (tx: Transaction) => Promise<T>) =>
+        f.databases.gotchu_api.tenant(organizationId, async tx => {
+          await tx.query("SET LOCAL lock_timeout='100ms'");
+          return work(tx);
+        }),
+    };
+    const shortTimeoutApi = createBackend({ database });
+    await f.admin.query('BEGIN');
+    try {
+      await f.admin.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`workspace-member:${f.a.organizationId}:${f.a.userId}`]);
+      await expect(shortTimeoutApi.members.list({ userId: f.a.userId }, { organizationId: f.a.organizationId }))
+        .rejects.toMatchObject({ code: 'membership_lock_timeout', status: 503 });
+    } finally {
+      await f.admin.query('ROLLBACK');
+    }
   });
 });
