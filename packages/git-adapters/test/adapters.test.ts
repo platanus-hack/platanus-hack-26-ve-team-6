@@ -5,15 +5,16 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { assertAutomationSafe, assertWorkflowPatchSafe, createGitHubAppAdapter, createLocalGitAdapter, deterministicBranch, GitAdapterError, type PullRequest } from '../src/index.js';
+import { assertAutomationSafe, assertWorkflowPatchSafe, computeGitTreeSha, computeGitTreeShaAfterPatch, createGitHubAppAdapter, createLocalGitAdapter, deterministicBranch, GitAdapterError, inspectWorkflowPolicy, verifyPublishedTree, type PullRequest } from '../src/index.js';
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(dir => rm(dir,{recursive:true,force:true}))); });
 function command(cwd:string,...args:string[]) { const result=spawnSync('git',args,{cwd,encoding:'utf8'}); if(result.status!==0) throw new Error(result.stderr); return result.stdout.trim(); }
 async function localRepo() {
   const root=await mkdtemp(join(tmpdir(),'gotchu-adapter-')); dirs.push(root); const seed=join(root,'seed'); await mkdir(seed);
-  command(seed,'init','-b','main'); command(seed,'-c','user.name=Test','-c','user.email=test@localhost','commit','--allow-empty','-m','base');
-  const bare=join(root,'repository.git'); command(root,'clone','--bare',seed,bare); return {root,bare,base:command(seed,'rev-parse','HEAD')};
+  command(seed,'init','-b','main'); await mkdir(join(seed,'src')); await writeFile(join(seed,'README.md'),'base readme\n'); await writeFile(join(seed,'src','unchanged.ts'),'export const unchanged = true;\n');
+  command(seed,'add','--all'); command(seed,'-c','user.name=Test','-c','user.email=test@localhost','commit','-m','base');
+  const bare=join(root,'repository.git'); command(root,'clone','--bare',seed,bare); return {root,bare,seed,base:command(seed,'rev-parse','HEAD')};
 }
 
 describe('git adapters', () => {
@@ -30,7 +31,68 @@ describe('git adapters', () => {
     expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: pull_request\njobs:\n  test:\n    steps:\n      - run: echo ${{ secrets.NPM_TOKEN }}'}])).toThrow(GitAdapterError);
     expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: ['}])).toThrow(GitAdapterError);
     expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: pull_request\njobs:\n  test:\n    steps:\n      - run: echo ${{ secrets.GITHUB_TOKEN }}'}])).not.toThrow();
-    expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on:\n  pull_request_target:\n'}], true)).not.toThrow();
+    expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on:\n  pull_request_target:\n'}], [{path:'.github/workflows/ci.yml',rule:'pull_request_target'}])).not.toThrow();
+    expect(() => assertAutomationSafe([{path:'.github/workflows/other.yml',content:'on:\n  pull_request_target:\n'}], [{path:'.github/workflows/ci.yml',rule:'pull_request_target'}])).toThrow(GitAdapterError);
+  });
+
+  it('reports each workflow rule with its path', () => {
+    const cases = [
+      ['on: [', 'invalid_yaml'],
+      ['- not-a-workflow-document', 'invalid_document'],
+      ['on: pull_request_target', 'pull_request_target'],
+      ['on: push', 'push_without_branch_filter'],
+      ['on:\n  push:\n    branches: ["gotchu/**"]', 'push_to_gotchu_branch'],
+      ['on: pull_request\njobs:\n  test:\n    steps:\n      - run: echo ${{ secrets.NPM_TOKEN }}', 'forbidden_pull_request_secret'],
+    ] as const;
+    for (const [content, rule] of cases) expect(inspectWorkflowPolicy([{ path: '.github/workflows/ci.yml', content }])).toContainEqual({ path: '.github/workflows/ci.yml', rule });
+  });
+
+  it('computes the same candidate tree as git and verifies a published PR tree', async () => {
+    const files = [{ path: 'src/fix.txt', content: 'fixed\n' }, { path: 'bin/tool', content: 'tool\n', mode: '100755' as const }];
+    const repo = await localRepo();
+    const treeRoot = await mkdtemp(join(tmpdir(), 'gotchu-tree-reference-')); dirs.push(treeRoot);
+    command(treeRoot, 'init', '--quiet');
+    for (const file of files) { const target = join(treeRoot, file.path); await mkdir(join(target, '..'), { recursive: true }); await writeFile(target, file.content, { mode: file.mode === '100755' ? 0o755 : 0o644 }); }
+    command(treeRoot, 'add', '--all');
+    const expected = command(treeRoot, 'write-tree');
+    expect(await computeGitTreeSha(files)).toBe(expected);
+    const adapter = await createLocalGitAdapter(repo.root);
+    const baseSha = repo.base;
+    const artifactTreeSha = computeGitTreeShaAfterPatch(await adapter.readTree(baseSha), files);
+    const published = await adapter.publishCommit({ actionHash: 'e'.repeat(64), baseBranch: 'main', baseSha, files });
+    expect(await adapter.readTreeSha(published.commitSha)).toBe(artifactTreeSha);
+    expect(await verifyPublishedTree({ adapter, headCommitSha: published.commitSha, artifactTreeSha })).toBe(true);
+    expect(await verifyPublishedTree({ adapter, headCommitSha: published.commitSha, artifactTreeSha: 'f'.repeat(40) })).toBe(false);
+  });
+
+  it('overlays a patch onto a complete base tree and matches a real Git tree object', async () => {
+    const repo=await localRepo(); const adapter=await createLocalGitAdapter(repo.root);
+    const baseTree=await adapter.readTree(repo.base);
+    const patch=[{path:'src/unchanged.ts',content:'export const unchanged = false;\n'},{path:'src/new.ts',content:'export const added = true;\n'}];
+    const candidate=await mkdtemp(join(tmpdir(),'gotchu-tree-overlay-')); dirs.push(candidate);
+    await mkdir(join(candidate,'src'),{recursive:true});
+    await writeFile(join(candidate,'README.md'),'base readme\n');
+    await writeFile(join(candidate,'src','unchanged.ts'),patch[0]!.content);
+    await writeFile(join(candidate,'src','new.ts'),patch[1]!.content);
+    command(candidate,'init','--quiet'); command(candidate,'add','--all');
+    const expected=command(candidate,'write-tree');
+    expect(computeGitTreeShaAfterPatch(baseTree,patch)).toBe(expected);
+    expect(await adapter.readTreeSha(repo.base)).toBe(baseTree.treeSha);
+    expect(() => computeGitTreeShaAfterPatch({...baseTree,truncated:true},patch)).toThrow(GitAdapterError);
+  });
+
+  it('reads workflow files from the approved local base commit and reports the exact policy rule', async () => {
+    const root=await mkdtemp(join(tmpdir(),'gotchu-workflow-inspection-')); dirs.push(root);
+    const seed=join(root,'seed'); await mkdir(join(seed,'.github','workflows'),{recursive:true});
+    await writeFile(join(seed,'.github','workflows','unsafe.yml'),'on: pull_request_target\n');
+    command(seed,'init','-b','main'); command(seed,'add','--all'); command(seed,'-c','user.name=Test','-c','user.email=test@localhost','commit','-m','workflow');
+    command(root,'clone','--bare',seed,join(root,'repository.git'));
+    const adapter=await createLocalGitAdapter(root);
+    const base=command(seed,'rev-parse','HEAD');
+    await expect(adapter.inspectAutomation(base)).resolves.toEqual([{path:'.github/workflows/unsafe.yml',rule:'pull_request_target'}]);
+    const input={actionHash:'a'.repeat(64),baseBranch:'main',baseSha:base,files:[{path:'src/fix.ts',content:'fixed\n'}]};
+    await expect(adapter.publishCommit(input)).rejects.toMatchObject({code:'repository_automation_unsafe'});
+    await expect(adapter.publishCommit({...input,workflowExceptions:[{path:'.github/workflows/unsafe.yml',rule:'pull_request_target'}]})).resolves.toMatchObject({branch:'gotchu/aaaaaaaaaaaaaaaa'});
   });
 
   it('evaluates push inclusion and exclusion filters against the proposed owned branch', () => {
@@ -138,6 +200,27 @@ describe('git adapters', () => {
 });
 
 const live = process.env.GOTCHU_TEST_GITHUB === '1' ? describe : describe.skip;
+const readerCredentialsPath=process.env.GOTCHU_TEST_GITHUB_READER_APP;
+live('real provider checks: GitHub App Reader sandbox', () => {
+  it('reads the sandbox repository workflows without writing to GitHub', async () => {
+    if(!readerCredentialsPath) throw new Error('GOTCHU_TEST_GITHUB_READER_APP is required for the read-only GitHub check');
+    const raw: unknown=JSON.parse(await readFile(readerCredentialsPath,'utf8'));
+    const credentials=z.object({
+      id:z.union([z.string(),z.number()]).transform(String).optional(), appId:z.union([z.string(),z.number()]).transform(String).optional(),
+      app_id:z.union([z.string(),z.number()]).transform(String).optional(),
+      installationId:z.union([z.string(),z.number()]).transform(String).optional(), installation_id:z.union([z.string(),z.number()]).transform(String).optional(),
+      privateKeyPem:z.string().optional(), privateKey:z.string().optional(), private_key:z.string().optional(),
+    }).passthrough().parse(raw);
+    const appId=credentials.id??credentials.appId??credentials.app_id;
+    const privateKeyPem=credentials.privateKeyPem??credentials.privateKey??credentials.private_key;
+    const installationId=credentials.installationId??credentials.installation_id??process.env.GOTCHU_TEST_GITHUB_READER_INSTALLATION_ID;
+    if(!appId||!privateKeyPem||!installationId) throw new Error('Reader App credentials are missing required fields');
+    const adapter=createGitHubAppAdapter({appId,installationId,privateKeyPem,owner:'0bkevin',repository:'gotchu-pr-sandbox'});
+    const target=await adapter.resolveTarget('0bkevin/gotchu-pr-sandbox');
+    const base=await adapter.readHead(target.baseBranch);
+    await expect(adapter.inspectAutomation(base)).resolves.toEqual([]);
+  },30_000);
+});
 const liveCredentialsPath=process.env.GOTCHU_TEST_GITHUB_WRITER_APP;
 live('real provider checks: GitHub App writer sandbox', () => {
   it('publishes one exact branch and PR, reconciles timeout, rejects a moved base, and cleans up', async () => {
