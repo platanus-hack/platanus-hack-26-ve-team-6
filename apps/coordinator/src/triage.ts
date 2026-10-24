@@ -19,11 +19,15 @@ export function buildCorrelationInput(input:{now:Date;observations:readonly Obse
   const baselines=[...baselineRows.values()].flatMap(row=>{const errorRate=average(row.error),latencyMs=average(row.latency),requestRate=average(row.requests),resourceUtilization=average(row.resource);return errorRate!==undefined&&latencyMs!==undefined&&requestRate!==undefined&&resourceUtilization!==undefined?[{service:'application',environment:'application',errorRate,latencyMs,requestRate,resourceUtilization,authFailures:0}]:[];});
   return correlationWindowInputSchema.parse({window:{startedAt,endedAt},...(input.context?{context:input.context}:{}),signals,providerStatuses:[],probes:[],baselines,anomalies:[]});
 }
+export function hasCorrelationEvidence(input:CorrelationWindowInput) {
+  return input.signals.length>0||input.providerStatuses.length>0||input.probes.length>0;
+}
 
 export async function evaluateTriage(tx:Transaction,scope:{organizationId:string;applicationId:string},now=new Date()) {
   const observations=await tx.query<{id:string;body:unknown;accepted_at:Date;created_at:Date}>(`SELECT id,body,created_at AS accepted_at,created_at FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2 AND created_at>clock_timestamp()-interval '7 days' ORDER BY created_at DESC LIMIT 500`,[scope.organizationId,scope.applicationId]);
   const context=await loadContext(tx,scope);
   const input=buildCorrelationInput({now,context,observations:observations.rows.map(row=>{const body=operationObservationSchema.parse(row.body);return {id:row.id,body:{kind:body.kind,observedAt:body.observedAt,metrics:body.metrics},acceptedAt:row.accepted_at.toISOString()};})});
+  if(!hasCorrelationEvidence(input))return;
   const first=correlate(input,{now,rulesVersion:'triage.rules.v1'});
   const environment=input.context?.environment??'production';
   const active=await tx.query<{id:string;last_evidence_at:Date;revision_body:unknown}>(`SELECT i.id,i.last_evidence_at,r.body AS revision_body FROM gotchu.triage_incidents i LEFT JOIN LATERAL(SELECT body FROM gotchu.triage_revisions WHERE organization_id=i.organization_id AND application_id=i.application_id AND incident_id=i.id ORDER BY revision DESC LIMIT 1)r ON true WHERE i.organization_id=$1 AND i.application_id=$2 AND i.environment=$3 AND i.status<>'closed' AND i.last_evidence_at>clock_timestamp()-interval '2 hours' ORDER BY i.last_evidence_at DESC LIMIT 1`,[scope.organizationId,scope.applicationId,environment]);

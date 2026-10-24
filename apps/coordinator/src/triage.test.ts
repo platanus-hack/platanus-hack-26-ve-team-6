@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCorrelationInput } from './triage.js';
+import { buildCorrelationInput,hasCorrelationEvidence } from './triage.js';
 
 describe('triage input adapter',()=>{
   it('keeps absent feeds absent and omits a baseline without enough stored history',()=>{
@@ -13,10 +13,12 @@ describe('triage input adapter',()=>{
     expect(input.providerStatuses).toEqual([]);
     expect(input.probes).toEqual([]);
     expect(input.context).toBeUndefined();
+    expect(hasCorrelationEvidence(input)).toBe(true);
   });
   it('retains verified and declared context facts without upgrading declarations',()=>{
     const input=buildCorrelationInput({now:new Date('2026-10-24T12:00:00.000Z'),observations:[],context:{environment:'production',service:'api',deployments:[{service:'api',releaseId:'r2',commit:null,deployedAt:'2026-10-24T11:00:00.000Z',state:'declared'}],dependencies:[{service:'api',provider:'cloudflare',component:null,region:null,state:'declared'}]}});
     expect(input.context?.deployments[0]?.state).toBe('declared');
     expect(input.context?.dependencies[0]?.state).toBe('declared');
+    expect(hasCorrelationEvidence(input)).toBe(false);
   });
 });
