@@ -1,5 +1,6 @@
 import { mkdir, readFile, chown, lstat, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
@@ -84,6 +85,20 @@ const stderr = Buffer.concat(outputs.stderr).toString('utf8');
 const artifactPolicy = { roots: ['test-results', 'coverage'], maxCount: 10, maxBytes: 256 * 1024 };
 const artifacts = [];
 let artifactBytes = 0;
+async function readArtifact(path, maximum) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of createReadStream(path, { highWaterMark: 64 * 1024 })) {
+    size += chunk.length;
+    if (size > maximum) {
+      const error = new Error('Artifact byte limit exceeded');
+      error.code = 'ARTIFACT_LIMIT';
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, size);
+}
 async function collectArtifacts(directory, relative = '') {
   for (const entry of (await readdir(directory)).sort()) {
     const path = relative ? `${relative}/${entry}` : entry;
@@ -93,13 +108,14 @@ async function collectArtifacts(directory, relative = '') {
     if (stat.isSymbolicLink()) throw new Error(`Artifact symlinks are not allowed: ${path}`);
     if (stat.isDirectory()) await collectArtifacts(fullPath, path);
     else if (stat.isFile()) {
-      const bytes = await readFile(fullPath);
-      artifactBytes += bytes.length;
-      if (artifacts.length >= artifactPolicy.maxCount || artifactBytes > artifactPolicy.maxBytes) {
+      const remainingBytes = artifactPolicy.maxBytes - artifactBytes;
+      if (artifacts.length >= artifactPolicy.maxCount || stat.size > remainingBytes) {
         const error = new Error('Artifact count or byte limit exceeded');
         error.code = 'ARTIFACT_LIMIT';
         throw error;
       }
+      const bytes = await readArtifact(fullPath, remainingBytes);
+      artifactBytes += bytes.length;
       artifacts.push({ path, sizeBytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), contentBase64: bytes.toString('base64') });
     }
   }

@@ -16,7 +16,7 @@
   "rootfs": {
     "baseImage": "docker.io/library/node:24-bookworm-slim@sha256:2dd9a4f758e173b65fee15388f7706af6fb01ef50cf7a2c0538711d67a6981ae",
     "nodeVersion": "24.22.1",
-    "sha256": "73bf08f5adc7019356af3009637b33c1f8988feb3bd405f8f02f0f768f0f4046"
+    "sha256": "6747c8f0d6ab4faf1a890b043ea2f39fa795a2684a998c0f709e3412179dd329"
   },
   "semgrepResearch": {
     "version": "1.179.0",
