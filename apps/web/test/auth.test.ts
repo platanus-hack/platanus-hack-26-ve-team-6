@@ -1,5 +1,6 @@
 import { encode } from '@auth/core/jwt';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { authSettings, createAuthService, type AuthSettings } from '../src/server/auth.js';
 
 const settings: AuthSettings = {
@@ -55,5 +56,36 @@ describe('Auth.js Request/Response integration', () => {
     expect(authSettings({})).toBeNull();
     expect((await createAuthService(null).handle(new Request(`${settings.origin}/api/auth/session`))).status).toBe(503);
     expect(() => authSettings({ AUTH_SECRET: settings.secret, AUTH_GITHUB_ID: 'id', AUTH_GITHUB_SECRET: 'secret', PUBLIC_APP_URL: 'http://public.example' })).toThrow('HTTPS');
+  });
+
+  it('supports generic OIDC without a GitHub account and exposes no client secret', async () => {
+    const configured = authSettings({ PUBLIC_APP_URL: settings.origin, AUTH_SECRET: settings.secret, AUTH_OIDC_ISSUER: 'https://identity.example.test/realm', AUTH_OIDC_CLIENT_ID: 'fixture-client', AUTH_OIDC_CLIENT_SECRET: 'fixture-secret' });
+    expect(configured).not.toBeNull();
+    const response = await createAuthService(configured).handle(new Request(`${settings.origin}/api/auth/providers`));
+    expect(response.status).toBe(200);
+    const payload: unknown = await response.json();
+    expect(JSON.stringify(payload)).toContain('oidc-');
+    expect(JSON.stringify(payload)).not.toContain('github');
+    expect(JSON.stringify(payload)).not.toContain('fixture-secret');
+    expect(() => authSettings({ AUTH_SECRET: settings.secret, AUTH_OIDC_ISSUER: 'http://identity.example.test', AUTH_OIDC_CLIENT_ID: 'id', AUTH_OIDC_CLIENT_SECRET: 'secret' })).toThrow('HTTPS');
+  });
+
+  it('does not preserve sessions from an identity provider that was removed', async () => {
+    const configured = authSettings({ PUBLIC_APP_URL: settings.origin, AUTH_SECRET: settings.secret, AUTH_OIDC_ISSUER: 'https://identity.example.test', AUTH_OIDC_CLIENT_ID: 'fixture-client', AUTH_OIDC_CLIENT_SECRET: 'fixture-secret' });
+    const identity = await createAuthService(configured).identity(new Request(`${settings.origin}/api/v1/applications`, { headers: { cookie: await sessionCookie() } }));
+    expect(identity).toBeNull();
+  });
+
+  it('requires a new identity namespace when the OIDC issuer changes', async () => {
+    const environment = { PUBLIC_APP_URL: settings.origin, AUTH_SECRET: settings.secret, AUTH_OIDC_CLIENT_ID: 'fixture-client', AUTH_OIDC_CLIENT_SECRET: 'fixture-secret' };
+    const old = createAuthService(authSettings({ ...environment, AUTH_OIDC_ISSUER: 'https://first.example.test' }));
+    const replacement = createAuthService(authSettings({ ...environment, AUTH_OIDC_ISSUER: 'https://replacement.example.test' }));
+    const providers = z.record(z.string(), z.object({ id: z.string() }).passthrough()).parse(await (await old.handle(new Request(`${settings.origin}/api/auth/providers`))).json());
+    const provider = Object.values(providers)[0];
+    if (!provider) throw new Error('OIDC fixture provider missing');
+    const token = await encode({ secret: settings.secret, salt: cookieName, token: { sub: `${provider.id}:same-subject` } });
+    const request = new Request(`${settings.origin}/api/v1/applications`, { headers: { cookie: `${cookieName}=${token}` } });
+    expect((await old.identity(request))?.userId).toBe(`${provider.id}:same-subject`);
+    expect(await replacement.identity(request)).toBeNull();
   });
 });

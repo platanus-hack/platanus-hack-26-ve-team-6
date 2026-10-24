@@ -1,15 +1,23 @@
 import { Auth, type AuthConfig } from '@auth/core';
+import { createHash } from 'node:crypto';
 import type { JWT } from '@auth/core/jwt';
 import GitHub from '@auth/core/providers/github';
 import { z } from 'zod';
 import { HttpError, json, readBoundedBody } from './http.js';
 
-export interface AuthSettings {
+interface AuthBase {
   origin: string;
   secret: string;
-  githubClientId: string;
-  githubClientSecret: string;
 }
+const oidcSettingsSchema = z.object({
+  issuer: z.url().refine((value) => { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash; }, 'OIDC issuer must use HTTPS without credentials or query parameters'),
+  clientId: z.string().min(1).max(256), clientSecret: z.string().min(1).max(4_096), name: z.string().min(1).max(80),
+}).strict();
+type OidcSettings = z.infer<typeof oidcSettingsSchema>;
+export type AuthSettings = AuthBase & (
+  { githubClientId: string; githubClientSecret: string; oidc?: OidcSettings }
+  | { oidc: OidcSettings; githubClientId?: never; githubClientSecret?: never }
+);
 
 export interface SessionIdentity { userId: string; cookies: string[] }
 export interface AuthService {
@@ -19,17 +27,37 @@ export interface AuthService {
 }
 
 export function authSettings(env: NodeJS.ProcessEnv = process.env): AuthSettings | null {
-  if (!env.AUTH_SECRET || !env.AUTH_GITHUB_ID || !env.AUTH_GITHUB_SECRET) return null;
+  const oidc = env.AUTH_OIDC_ISSUER || env.AUTH_OIDC_CLIENT_ID || env.AUTH_OIDC_CLIENT_SECRET
+    ? oidcSettingsSchema.parse({ issuer: env.AUTH_OIDC_ISSUER, clientId: env.AUTH_OIDC_CLIENT_ID, clientSecret: env.AUTH_OIDC_CLIENT_SECRET, name: env.AUTH_OIDC_NAME ?? 'Workspace sign-in' }) : undefined;
+  const github = env.AUTH_GITHUB_ID && env.AUTH_GITHUB_SECRET ? { githubClientId: env.AUTH_GITHUB_ID, githubClientSecret: env.AUTH_GITHUB_SECRET } : undefined;
+  if (!env.AUTH_SECRET || !github && !oidc) return null;
   const secret = z.string().min(32).parse(env.AUTH_SECRET);
   const url = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000');
   if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('PUBLIC_APP_URL must be an origin');
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) {
     throw new Error('PUBLIC_APP_URL must use HTTPS outside local development');
   }
-  return { origin: url.origin, secret, githubClientId: env.AUTH_GITHUB_ID, githubClientSecret: env.AUTH_GITHUB_SECRET };
+  const base = { origin: url.origin, secret };
+  if (github) return { ...base, ...github, ...(oidc ? { oidc } : {}) };
+  if (oidc) return { ...base, oidc };
+  return null;
 }
 
 export function createAuthConfig(settings: AuthSettings): AuthConfig {
+  const providers: AuthConfig['providers'] = [];
+  const providerIds: string[] = [];
+  if (settings.githubClientId && settings.githubClientSecret) {
+    providers.push(GitHub({ clientId: settings.githubClientId, clientSecret: settings.githubClientSecret, authorization: { params: { scope: 'read:user user:email' } } }));
+    providerIds.push('github');
+  }
+  if (settings.oidc) {
+    const oidc = oidcSettingsSchema.parse(settings.oidc);
+    // Replacing an issuer/client must not map another identity into old memberships.
+    const id = `oidc-${createHash('sha256').update(JSON.stringify([oidc.issuer, oidc.clientId])).digest('hex').slice(0, 24)}`;
+    providers.push({ id, name: oidc.name, type: 'oidc', issuer: oidc.issuer, clientId: oidc.clientId, clientSecret: oidc.clientSecret,
+      authorization: { params: { scope: 'openid profile email' } }, checks: ['pkce', 'state', 'nonce'] });
+    providerIds.push(id);
+  }
   return {
     basePath: '/api/auth',
     secret: settings.secret,
@@ -37,14 +65,11 @@ export function createAuthConfig(settings: AuthSettings): AuthConfig {
     trustHost: true,
     useSecureCookies: settings.origin.startsWith('https:'),
     session: { strategy: 'jwt', maxAge: 900 },
-    providers: [GitHub({
-      clientId: settings.githubClientId,
-      clientSecret: settings.githubClientSecret,
-      authorization: { params: { scope: 'read:user user:email' } },
-    })],
+    providers,
     callbacks: {
       jwt: async ({ token, account }) => {
         if (account) token.sub = `${account.provider}:${account.providerAccountId}`;
+        if (!providerIds.some((id) => token.sub?.startsWith(`${id}:`))) return {};
         // OAuth access and refresh tokens are never copied into the session JWT.
         const claims: JWT = {};
         if (token.sub !== undefined) claims.sub = token.sub;
