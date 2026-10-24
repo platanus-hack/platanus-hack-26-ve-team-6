@@ -43,3 +43,5 @@ The repository contains customer-flow integration coverage in `test/integration/
 Earlier product decisions and the subsequent correction that the customer application is the product are preserved in the [definition interview](docs/definition-interview.md#current-user-correction-actual-customer-application-in-development).
 
 See [monitoring, alerts and correction setup](docs/operations.md) for the working paths, evidence boundaries and admission limits. In-app alerts do not imply delivered email, continuous third-party repository-source auditing, proven exploitation or completed production recovery.
+
+The [autonomous defense and differentiation plan](docs/plan-defensa-autonoma.md) audits the remaining gaps and defines staged work for application-impact triage, independently validated corrections, authorized PRs and delivery, and later response capabilities. It is a roadmap, not a list of available features.

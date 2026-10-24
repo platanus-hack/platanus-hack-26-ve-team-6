@@ -6,6 +6,8 @@ The current product is an authenticated local application for source/public HTTP
 
 The fictional vulnerable/corrected application is a regression fixture only. The customer flow does not depend on a demo seed, fixture tenant, or fixture revision. The development runtime is local only; AWS is the planned primary hosting target, and no cloud deployment has occurred.
 
+For the detailed next-stage backlog, dependencies, acceptance checks, and evidence-based comparison with Snyk/Aikido, see the [autonomous defense and differentiation plan](plan-defensa-autonoma.md). Its proposed capabilities remain pending; this document records implemented behavior and release gates.
+
 ## Implemented customer path
 
 | Area | Present behavior | Current boundary |
