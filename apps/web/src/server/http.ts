@@ -11,6 +11,9 @@ export function json(body: unknown, status = 200, extraHeaders?: HeadersInit): R
 }
 
 export function errorResponse(error: unknown): Response {
+  if (error instanceof Error && 'code' in error && error.code === 'P0001' && error.message === 'monitor_work_in_progress') {
+    return json({ error: { code: 'monitor_work_in_progress', message: 'Wait for active monitoring work to settle before changing this application.' } }, 409);
+  }
   if (error instanceof HttpError) return json({ error: { code: error.code, message: error.message } }, error.status);
   // Domain errors may cross package boundaries; expose only a bounded public code/message.
   if (error instanceof Error && error.name === 'BackendError' && 'status' in error && typeof error.status === 'number'

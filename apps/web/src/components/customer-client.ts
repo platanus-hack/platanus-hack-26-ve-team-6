@@ -206,3 +206,4 @@ export const customerApi = {
   },
   job: (organizationId: string, applicationId: string, jobId: string) => request(`${organizationPath(organizationId)}/jobs/${encodeURIComponent(jobId)}`, customerJobSchema),
 };
+export { request as customerRequest };

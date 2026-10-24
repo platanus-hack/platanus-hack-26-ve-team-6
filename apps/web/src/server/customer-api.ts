@@ -7,6 +7,8 @@ import {
   type CustomerWorkspace, type CustomerApplication, type CustomerTarget, type CustomerEnrollment,
   type CustomerSourceSummary, type CustomerReportSummary, type CustomerAssessmentReport,
   telemetryIntegrationSchema, telemetryConnectionSchema,
+  monitorConfigInputSchema, monitorConfigSchema, operationCoverageSchema, operationAlertSchema,
+  operationPlanSchema, operationPlanKindSchema, operationPlanBindingSchema, operationPlanStepSchema, operationReadinessSchema,
 } from '@gotchu/contracts';
 import type { Identity, Backend } from '@gotchu/backend';
 import type { AuthService } from './auth.js';
@@ -15,6 +17,8 @@ import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } fr
 
 export interface CustomerServices {
   telemetry?: Backend['telemetry'];
+  operations?: Backend['operations'];
+  repositoryCatalog?: (identity: Identity, scope: { organizationId: string; applicationId: string }) => Promise<Array<{ key: string; label: string }>>;
   listWorkspaces(identity: Identity): Promise<CustomerWorkspace[]>;
   createWorkspace(identity: Identity, value: z.infer<typeof customerCreateWorkspaceSchema>): Promise<CustomerWorkspace>;
   listApplications(identity: Identity, value: { organizationId: string }): Promise<CustomerApplication[]>;
@@ -95,6 +99,48 @@ export function createCustomerApi(options: {
         }
       }
       const scope = parse(scopeSchema, { organizationId, applicationId: parts[5] });
+      if (['monitoring', 'alerts', 'plans', 'repositories'].includes(parts[6] ?? '')) {
+        const operations = services.operations;
+        if (!operations) throw new HttpError(503, 'monitoring_not_configured', 'La vigilancia operativa no está configurada.');
+        if (parts.length === 7 && parts[6] === 'repositories' && request.method === 'GET') {
+          await operations.getConfig(identity, scope);
+          return send(z.array(z.object({ key: z.string().max(128), label: z.string().max(200) }).strict()).max(100).parse(await services.repositoryCatalog?.(identity, scope) ?? []));
+        }
+        if (parts.length === 7 && parts[6] === 'monitoring') {
+          if (request.method === 'GET') return send(operationCoverageSchema.parse(await operations.getCoverage(identity, scope)));
+          if (request.method === 'PUT') {
+            const value = parse(z.object(monitorConfigInputSchema.shape).omit({ organizationId: true, applicationId: true }).strict(), await body(request));
+            return send(monitorConfigSchema.parse(await operations.configure(identity, { ...scope, ...value })));
+          }
+        }
+        if (parts.length === 7 && parts[6] === 'alerts' && request.method === 'GET') return send(z.array(operationAlertSchema).max(100).parse(await operations.listAlerts(identity, scope)));
+        if (parts.length === 8 && parts[6] === 'alerts' && request.method === 'PATCH') {
+          const value = parse(z.object({ state: z.enum(['acknowledged', 'resolved']), resolution: z.string().min(1).max(2000).optional() }).strict(), await body(request));
+          return send(operationAlertSchema.parse(await operations.updateAlert(identity, { ...scope, alertId: parse(uuid, parts[7]), state: value.state, ...(value.resolution === undefined ? {} : { resolution: value.resolution }) })));
+        }
+        if (parts.length === 7 && parts[6] === 'plans') {
+          if (request.method === 'GET') return send(z.array(operationPlanSchema).max(100).parse(await operations.listPlans(identity, scope)));
+          if (request.method === 'POST') {
+            const value = parse(z.object({ kind: operationPlanKindSchema, observationIds: z.array(uuid).min(1).max(20) }).strict(), await body(request));
+            return send(operationPlanSchema.parse(await operations.createPlan(identity, { ...scope, ...value })), 201);
+          }
+        }
+        if (parts.length >= 9 && parts[6] === 'plans' && request.method === 'POST') {
+          const fields = z.object({ revision: operationPlanBindingSchema.shape.revision, actionHash: operationPlanBindingSchema.shape.actionHash });
+          if (parts.length === 10 && parts[8] === 'steps') {
+            const value = parse(fields.extend({ attestation: z.string().min(1).max(2000) }).strict(), await body(request));
+            return send(operationPlanSchema.parse(await operations.attestStep(identity, { ...scope, planId: parse(uuid, parts[7]), key: parse(operationPlanStepSchema.shape.key, parts[9]), ...value })));
+          }
+          if (parts.length === 9) {
+            const value = parse(fields.strict(), await body(request));
+            const binding = { ...scope, planId: parse(uuid, parts[7]), ...value };
+            if (parts[8] === 'prepare') return send(operationPlanSchema.parse(await operations.requestPreparation(identity, binding)));
+            if (parts[8] === 'readiness') return send(operationReadinessSchema.parse(await operations.checkReadiness(identity, binding)));
+            if (parts[8] === 'execute') return send(await operations.requestExecution(identity, binding));
+          }
+        }
+        throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
+      }
       if (parts.length === 6 && request.method === 'PATCH') {
         const value = parse(z.object({ name: customerApplicationSchema.shape.name.optional(), archived: z.boolean().optional() }).strict().refine(value => value.name !== undefined || value.archived !== undefined), await body(request));
         return send(customerApplicationSchema.parse(await services.updateApplication(identity, { ...scope, ...value })));

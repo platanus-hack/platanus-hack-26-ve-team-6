@@ -70,7 +70,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
-  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, telemetry: web.telemetry, job: (identity, value) => web.web.getJob(identity, value) } : null,
+  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, telemetry: web.telemetry, operations: web.operations, job: (identity, value) => web.web.getJob(identity, value) } : null,
     ...(accounts ? { localAccounts: accounts } : {}),
     registrationEnabled: Boolean(accounts) && auth.enabled && env.NODE_ENV === 'development' && env.GOTCHU_ALLOW_LOCAL_REGISTRATION === 'true',
     providers: publicAuthProviders(settings),
