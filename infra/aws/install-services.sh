@@ -53,7 +53,7 @@ const services = {
     ...common, GOTCHU_SERVICE_ENTRY: '/opt/gotchu/app/apps/web/.output/server/index.mjs',
     PORT: '3000', NITRO_PORT: '3000', HOST: '127.0.0.1', NITRO_HOST: '127.0.0.1',
     NITRO_SSL_CERT: '/etc/gotchu/web.crt', NITRO_SSL_KEY: '/etc/gotchu/web.key',
-    PUBLIC_APP_URL: 'https://gotchu.kevinbravo.com', GOTCHU_AUTH_MODE: 'self_host', AUTH_SECRET: required('AUTH_SECRET'),
+    PUBLIC_APP_URL: 'https://gotchu.kevinbravo.com', GOTCHU_AUTH_MODE: 'public', AUTH_SECRET: required('AUTH_SECRET'),
     GOTCHU_API_DATABASE_URL: database('GOTCHU_API'), GOTCHU_INGEST_DATABASE_URL: database('GOTCHU_INGEST'),
     GOTCHU_EVENT_CREDENTIAL_DIRECTORY: '/var/lib/gotchu-web/event-credentials',
   },
