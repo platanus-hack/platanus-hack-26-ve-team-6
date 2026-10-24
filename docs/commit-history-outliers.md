@@ -2,13 +2,13 @@
 
 ## Threshold summary
 
-- `41` commits exceed 300 authored changed lines. Every one is listed below and marked `auth>300` in the chronological inventory.
+- `42` commits exceed 300 authored changed lines. Every one is listed below and marked `auth>300` in the chronological inventory.
 - `8` commits exceed 1,000 raw changed lines.
 - `5` commits exceed 1,000 authored changed lines.
 - `0` binary files changed in the measured history.
 - The largest authored change is 2,955 lines in `bb7c955342bd` (`feat(monitoring): add bounded read adapters`).
 
-The fixture-path correction restores 186 authored lines across two otherwise sub-threshold commits: 171 in `99dbfa939c9b` (demo target implementation) and 15 in `bda7955dc8d1` (validator harness). The threshold counts and large-authored rows below remain unchanged.
+The fixture-path correction restores 186 authored lines across two otherwise sub-threshold commits: 171 in `99dbfa939c9b` (demo target implementation) and 15 in `bda7955dc8d1` (validator harness). The pre-merge continuation adds one new row above the 300-authored-line threshold below.
 
 ## Raw outliers with excluded-file contributions
 
@@ -69,6 +69,7 @@ The `9e4bf...` and `8dae20...` commits fall below 300 authored lines (4 and 254)
 | `5d5c35f05f84` | docs: plan evidence-based triage and verified defensive actions | 3 | 429 / 0 / 429 | 429 / 0 / 429 | — |
 | `755aba3ef069` | feat(triage): measure precision, recall and abstention per scenario | 3 | 316 / 0 / 316 | 316 / 0 / 316 | — |
 | `748843c0c235` | test(triage): rebuild independent tuning and holdout corpus | 4 | 646 / 82 / 728 | 646 / 82 / 728 | — |
+| `e797c16d00cc` | fix(validator): quarantine on first uncertain cleanup | 3 | 314 / 9 / 323 | 314 / 9 / 323 | — |
 
 ## Recent milestone: `8a7a43cfd07d30da52f59d9bdfe49e78d2752ce2..8c03aca79c9d60aa750f72818611131f86d55bfe`
 
@@ -101,3 +102,7 @@ This exclusive-left, inclusive-right range contains 20 commits. Maximum raw chan
 ## Continuation through fixed endpoint `e2fe67e692117726a27951b58b03f20cf9001561`
 
 The exclusive-left, inclusive-right range `8c03aca79c9d60aa750f72818611131f86d55bfe..e2fe67e692117726a27951b58b03f20cf9001561` contains **23 commits** (355 reachable total). Raw and authored totals are both **1,586 added, 141 deleted, 1,727 changed lines**; no excluded lockfile, generated, or fixture-data paths changed in this range. The maximum is **283 lines** raw and authored, in root commit `67864482f37a` (`test(scanner): verify production TLS scan persistence`). No continuation commit exceeds 300 authored lines or 1,000 raw/authored lines. The six ledger commits in this range are listed with their root ancestry SHAs in [part 4](commit-history-004.md).
+
+## Pre-merge continuation through fixed endpoint `7cbf3ed6cf977c55a17517f92c8d2ddecefa1816`
+
+The exclusive-left, inclusive-right range `e2fe67e692117726a27951b58b03f20cf9001561..7cbf3ed6cf977c55a17517f92c8d2ddecefa1816` contains **18 commits** (373 reachable total). Raw and authored totals are **1,217 added, 134 deleted, 1,351 changed lines**; no lockfile, generated, fixture-data, or binary paths changed in this range. The range begins with ledger commit `15518302316b` and contains 17 focused corrections. Its sole commit above 300 authored lines is `e797c16d00cc` at **323 lines** (314 additions, 9 deletions), a test-heavy cleanup-quarantine exception. None exceeds 1,000 raw or authored lines. The oldest 728-line corpus rebuild remains the largest commit in the exact 234-commit original-main range `5d5c35f05f84..7cbf3ed6cf97`; that range has no commit above 1,000 lines. The continuation rows use root ancestry SHAs in [part 5](commit-history-005.md). Its fixed inventory endpoint is the product correction `7cbf3ed6cf977c55a17517f92c8d2ddecefa1816`; later documentation commits are intentionally excluded.

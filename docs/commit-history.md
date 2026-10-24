@@ -2,14 +2,15 @@
 
 ## Fixed baseline and continuation
 
-The original ledger remains fixed at `8c03aca79c9d60aa750f72818611131f86d55bfe` and contains **332 commits**. Its rows are unchanged in [part 1](commit-history-001.md), [part 2](commit-history-002.md), and [part 3](commit-history-003.md). The continuation adds every commit reachable after that baseline through fixed endpoint `e2fe67e692117726a27951b58b03f20cf9001561`: **23 commits**, bringing the measured history to **355 commits**. The continuation rows are in [part 4](commit-history-004.md); they use the root ancestry’s cherry-picked SHAs.
+The original ledger remains fixed at `8c03aca79c9d60aa750f72818611131f86d55bfe` and contains **332 commits**. Its rows are unchanged in [part 1](commit-history-001.md), [part 2](commit-history-002.md), and [part 3](commit-history-003.md). The continuation adds every commit reachable after that baseline through fixed endpoint `7cbf3ed6cf977c55a17517f92c8d2ddecefa1816`: **41 commits**, bringing the measured history to **373 commits**. Parts 4 and 5 use the root ancestry’s cherry-picked SHAs.
 
-The 355 rows are split into these chronological files:
+The 373 rows are split into these chronological files:
 
 - [Commits 1–111](commit-history-001.md): `9b1624f052b9` through `952e3c17f21b`.
 - [Commits 112–222](commit-history-002.md): `906fda570933` through `950eebb1221f`.
 - [Commits 223–332](commit-history-003.md): `df2d71385cba` through `8c03aca79c9d`.
 - [Commits 333–355](commit-history-004.md): `9a7d08bd8b19` through `e2fe67e69211`.
+- [Commits 356–373](commit-history-005.md): `15518302316b` through `7cbf3ed6cf97`.
 
 Large changes and the recent milestone are summarized in [the outlier and continuation review](commit-history-outliers.md).
 
@@ -31,14 +32,29 @@ Large changes and the recent milestone are summarized in [the outlier and contin
 |---|---:|---:|---:|
 | Original baseline through `8c03aca79c9d` | 332 | 51,778 / 3,044 / 54,822 | 45,782 / 2,845 / 48,627 |
 | Continuation `8c03aca79c9d..e2fe67e69211` | 23 | 1,586 / 141 / 1,727 | 1,586 / 141 / 1,727 |
-| Combined through `e2fe67e69211` | 355 | 53,364 / 3,185 / 56,549 | 47,368 / 2,986 / 50,354 |
+| Pre-merge continuation `e2fe67e69211..7cbf3ed6cf97` | 18 | 1,217 / 134 / 1,351 | 1,217 / 134 / 1,351 |
+| Combined through `7cbf3ed6cf97` | 373 | 54,581 / 3,319 / 57,900 | 48,585 / 3,120 / 51,705 |
 
-Thresholds are strict. The original baseline has **41** commits over 300 authored lines, **8** over 1,000 raw lines, and **5** over 1,000 authored lines. The continuation has **0** commits over any of those thresholds. Combined through the endpoint, the counts remain **41**, **8**, and **5** respectively. The largest continuation commit is 283 lines; see the continuation summary in the outlier review.
+Thresholds are strict. The original baseline has **41** commits over 300 authored lines, **8** over 1,000 raw lines, and **5** over 1,000 authored lines. The earlier 23-commit continuation had none over those thresholds. The latest 18-commit continuation has **1** over 300 authored lines and none over 1,000 raw or authored lines: `e797c16d00cc` is a test-heavy cleanup-quarantine exception at **323 authored lines**. Combined through the endpoint, the counts are **42**, **8**, and **5** respectively. The largest commit in the original 234-commit PR range remains the older 728-line corpus rebuild; no commit in that range exceeds 1,000 lines. See the [outlier review](commit-history-outliers.md).
+
+## Navigating the pre-merge corrections
+
+The focused code and evidence behind this continuation are grouped here for review:
+
+- **Customer scope, local origin, and routes:** `839e885d976e` scopes the member panel to its workspace in [customer-dashboard.tsx](../apps/web/src/components/customer-dashboard.tsx); `2bba49a7e9fa` keeps the loopback runtime available without WebAuthn in [runtime.ts](../apps/web/src/server/runtime.ts); `b595e02f974e` matches environment routes to client paths in [context-api.ts](../apps/web/src/server/context-api.ts).
+- **Probe settings and bounded triage context:** `baa3474c57fe` maps probe settings to the API DTO in [backend triage](../packages/backend/src/triage.ts); `4307ea9d261b`, `b649e6be9ca2`, and `5eaf5ff464f6` bound customer identifiers and structured/deployment context in [triage inputs](../packages/triage/src/inputs.ts) and [coordinator triage](../apps/coordinator/src/triage.ts).
+- **Git containment and workflow guards:** `d3dd480b281d`, `15f330fefe42`, `0176bc8175cc`, `cbf352ad54c2`, and `7cbf3ed6cf97` harden local publish containment and workflow/branch checks in [git-adapters](../packages/git-adapters/src/index.ts), with regressions in [adapter tests](../packages/git-adapters/test/adapters.test.ts).
+- **Validator/runner provenance and cleanup:** `a488fff4243d`, `e797c16d00cc`, and `336e761186bb` cover staged-input resolution, uncertain cleanup quarantine, and referenced setup files in [validator](../apps/validator/src/validator.ts); `9b92710e3d52` binds dependency evidence to host verification in [firecracker.ts](../packages/runner/src/firecracker.ts) and [vm-output.ts](../packages/runner/src/vm-output.ts).
+- **Runtime image packaging:** `464f19dbc42c` adds the triage package to the runtime images and smoke checks in [Dockerfile](../Dockerfile) and [infra-check.mjs](../scripts/infra-check.mjs).
+
+The corresponding review, package, local-database, and browser evidence is in [the validation record](validation.md#pre-merge-corrections-and-focused-verification--2026-10-24).
 
 ## Future commit discipline
 
 Keep each focused commit near 300 authored changed lines or fewer, consistent with `AGENTS.md`. Split larger work by layer where that keeps each step coherent, and explain exceptional commits in their message body. The measured earlier milestone contains 20 commits with a maximum of 288 raw and 288 authored changed lines; this is a measured result for that range, not a claim that the full history stayed below the target.
 
-## Closing note
+## Integration plan
 
-The continuation’s fixed measurement endpoint is `e2fe67e692117726a27951b58b03f20cf9001561`. The ledger update commits that add part 4 and revise this index and the outlier page follow that endpoint and are intentionally not recursively included.
+The exact original-main range `5d5c35f05f84..7cbf3ed6cf97` contains 234 commits. After hosted CI passes, the planned integration is a normal fast-forward of `main`, preserving those commit SHAs. GitHub [limits rebase-and-merge to 100 commits](https://docs.github.com/en/repositories/creating-and-managing-repositories/repository-limits#rebase-limits), so it cannot apply to this full range. No rewrite, force-push, squash, or merge has occurred.
+
+The fixed measurement endpoint is the product correction `7cbf3ed6cf977c55a17517f92c8d2ddecefa1816`. The documentation commits that add part 5 and revise this index and the outlier review follow that endpoint and are intentionally excluded from the ledger.
