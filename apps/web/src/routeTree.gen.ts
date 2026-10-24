@@ -13,6 +13,10 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as ApiReadyRouteImport } from './routes/api.ready'
+import { Route as VariantesIndexRouteImport } from './routes/variantes.index'
+import { Route as VariantesARouteImport } from './routes/variantes.a'
+import { Route as VariantesBRouteImport } from './routes/variantes.b'
+import { Route as VariantesCRouteImport } from './routes/variantes.c'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiCustomerSplatRouteImport } from './routes/api.customer.$'
 import { Route as ApiDemoSplatRouteImport } from './routes/api.demo.$'
@@ -36,6 +40,26 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
 const ApiReadyRoute = ApiReadyRouteImport.update({
   id: '/api/ready',
   path: '/api/ready',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VariantesIndexRoute = VariantesIndexRouteImport.update({
+  id: '/variantes/',
+  path: '/variantes/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VariantesARoute = VariantesARouteImport.update({
+  id: '/variantes/a',
+  path: '/variantes/a',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VariantesBRoute = VariantesBRouteImport.update({
+  id: '/variantes/b',
+  path: '/variantes/b',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VariantesCRoute = VariantesCRouteImport.update({
+  id: '/variantes/c',
+  path: '/variantes/c',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -64,6 +88,10 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/api/health': typeof ApiHealthRoute
   '/api/ready': typeof ApiReadyRoute
+  '/variantes/a': typeof VariantesARoute
+  '/variantes/b': typeof VariantesBRoute
+  '/variantes/c': typeof VariantesCRoute
+  '/variantes/': typeof VariantesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/customer/$': typeof ApiCustomerSplatRoute
   '/api/demo/$': typeof ApiDemoSplatRoute
@@ -74,6 +102,10 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/api/health': typeof ApiHealthRoute
   '/api/ready': typeof ApiReadyRoute
+  '/variantes/a': typeof VariantesARoute
+  '/variantes/b': typeof VariantesBRoute
+  '/variantes/c': typeof VariantesCRoute
+  '/variantes': typeof VariantesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/customer/$': typeof ApiCustomerSplatRoute
   '/api/demo/$': typeof ApiDemoSplatRoute
@@ -85,6 +117,10 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/api/health': typeof ApiHealthRoute
   '/api/ready': typeof ApiReadyRoute
+  '/variantes/a': typeof VariantesARoute
+  '/variantes/b': typeof VariantesBRoute
+  '/variantes/c': typeof VariantesCRoute
+  '/variantes/': typeof VariantesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/customer/$': typeof ApiCustomerSplatRoute
   '/api/demo/$': typeof ApiDemoSplatRoute
@@ -97,6 +133,10 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/api/health'
     | '/api/ready'
+    | '/variantes/a'
+    | '/variantes/b'
+    | '/variantes/c'
+    | '/variantes/'
     | '/api/auth/$'
     | '/api/customer/$'
     | '/api/demo/$'
@@ -107,6 +147,10 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/api/health'
     | '/api/ready'
+    | '/variantes/a'
+    | '/variantes/b'
+    | '/variantes/c'
+    | '/variantes'
     | '/api/auth/$'
     | '/api/customer/$'
     | '/api/demo/$'
@@ -117,6 +161,10 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/api/health'
     | '/api/ready'
+    | '/variantes/a'
+    | '/variantes/b'
+    | '/variantes/c'
+    | '/variantes/'
     | '/api/auth/$'
     | '/api/customer/$'
     | '/api/demo/$'
@@ -128,6 +176,10 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiReadyRoute: typeof ApiReadyRoute
+  VariantesARoute: typeof VariantesARoute
+  VariantesBRoute: typeof VariantesBRoute
+  VariantesCRoute: typeof VariantesCRoute
+  VariantesIndexRoute: typeof VariantesIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCustomerSplatRoute: typeof ApiCustomerSplatRoute
   ApiDemoSplatRoute: typeof ApiDemoSplatRoute
@@ -162,6 +214,34 @@ declare module '@tanstack/react-router' {
       path: '/api/ready'
       fullPath: '/api/ready'
       preLoaderRoute: typeof ApiReadyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/variantes/': {
+      id: '/variantes/'
+      path: '/variantes'
+      fullPath: '/variantes/'
+      preLoaderRoute: typeof VariantesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/variantes/a': {
+      id: '/variantes/a'
+      path: '/variantes/a'
+      fullPath: '/variantes/a'
+      preLoaderRoute: typeof VariantesARouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/variantes/b': {
+      id: '/variantes/b'
+      path: '/variantes/b'
+      fullPath: '/variantes/b'
+      preLoaderRoute: typeof VariantesBRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/variantes/c': {
+      id: '/variantes/c'
+      path: '/variantes/c'
+      fullPath: '/variantes/c'
+      preLoaderRoute: typeof VariantesCRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -200,6 +280,10 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiReadyRoute: ApiReadyRoute,
+  VariantesARoute: VariantesARoute,
+  VariantesBRoute: VariantesBRoute,
+  VariantesCRoute: VariantesCRoute,
+  VariantesIndexRoute: VariantesIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCustomerSplatRoute: ApiCustomerSplatRoute,
   ApiDemoSplatRoute: ApiDemoSplatRoute,
