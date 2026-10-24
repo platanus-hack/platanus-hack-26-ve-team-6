@@ -224,7 +224,7 @@ This follow-up records the focused corrections after the earlier evidence above.
 
 ### Review
 
-The original broad pre-merge review found 13 unique confirmed P2 defects across web/context, triage, Git adapters, validator, and runner behavior. Focused code corrections resolved those findings. An independent Astra Git-adapter review initially caught a mismatch for `?` in branch globs; final commit `7cbf3ed` rejects that unsupported pattern. The final confirmation was **GO**, with 26 in-memory assertions passing. A separate validator/runner confirmation was **GO** for probe registry cleanup and isolation, scalar/array/JSON/nested setup paths, and host/guest digest handling. Earlier focused fix reviews had no remaining blockers; none of these reviews is a broad release certification.
+The original broad pre-merge review found 13 unique confirmed P2 defects across web/context, triage, Git adapters, validator, and runner behavior. Focused code corrections resolved those findings. An independent Astra Git-adapter review initially caught a mismatch for `?` in branch globs; final commit `7cbf3ed` rejects that unsupported pattern. The final confirmation was **GO**, with 26 in-memory assertions passing. A separate validator/runner confirmation was **GO** for input registry cleanup and isolation, scalar/array/JSON/nested setup paths, and host/guest digest handling. Earlier focused fix reviews had no remaining blockers; none of these reviews is a broad release certification.
 
 ### Builds and tests
 
@@ -233,7 +233,7 @@ The original broad pre-merge review found 13 unique confirmed P2 defects across 
 | Root `pnpm build` and `pnpm typecheck` | Passed on `9b92710`; the final Git-adapter guard package build also passed on `7cbf3ed`. |
 | Concurrent `pnpm test` attempt | The initial attempt hit the 5-second harness timeout during customer-assessment lifecycle child startup. It did not pass. The same isolated test passed in 1.19 seconds; no test was relaxed. |
 | `pnpm -r --workspace-concurrency=1 --sort --if-present test` | The full ordinary workspace test suite passed on `7cbf3ed`. |
-| Web, backend, triage, and coordinator packages | Web's 26 customer API tests, typecheck, and build passed. Backend and triage typechecks and the identifier test passed. Coordinator's four unit tests, typecheck, build, and dependency build passed. |
+| Web, backend, triage, and coordinator packages | Web's 26 runtime/customer API tests, typecheck, and build passed. Backend and triage typechecks and the identifier test passed. Coordinator's four unit tests, typecheck, build, and dependency build passed. |
 | Disposable PostgreSQL backend harness | 14 database and 133 backend tests passed, including strict probe DTO GET/PUT behavior and tenant checks. |
 | Disposable PostgreSQL/Redis coordinator harness | Seven files and 25 tests passed, including 101 deployments and 200-character identifiers. |
 | Validator and runner | Builds, typechecks, and unit suites passed. Nine injected-runner quarantine tests passed against an isolated real PostgreSQL harness. No real VM was run and no VM gate was enabled. |
@@ -244,7 +244,7 @@ The GitHub live-infrastructure attempt initially failed at coordinator startup b
 
 ### Browser and persistent local PostgreSQL
 
-Using the normal UI and persistent local PostgreSQL, an isolated owner account, guest account, and workspaces A and B were created; a one-use invitation was generated and accepted. Before the workspace-key fix, A's removal dialog remained open after switching to B; it was cancelled, and PostgreSQL confirmed both memberships remained. After the fix, switching A to B cleared the dialog and invite field while both membership rows remained. Removing the guest from A through the UI returned 200; PostgreSQL confirmed A's membership row was removed while the guest remained a viewer in B. The desktop UI was visually inspected at 1280×800 with no console errors.
+Using the normal UI and persistent local PostgreSQL, an isolated owner account, guest account, and workspaces A and B were created; two one-use invitations, one for each workspace, were generated and accepted by the same guest. Before the workspace-key fix, A's removal dialog remained open after switching to B; it was cancelled, and PostgreSQL confirmed both memberships remained. After the fix, switching A to B cleared the dialog and invite field while both membership rows remained. Removing the guest from A through the UI returned 200; PostgreSQL confirmed A's membership row was removed while the guest remained a viewer in B. The desktop UI was visually inspected at 1280×800 with no console errors.
 
 Local development was safely restarted with `pnpm dev:stop` and `pnpm dev:start`; the app became ready on port 3000. No production deployment, provider operation, or customer-code execution occurred. No emails, tokens, credentials, UUIDs, or local artifact paths are recorded here.
 

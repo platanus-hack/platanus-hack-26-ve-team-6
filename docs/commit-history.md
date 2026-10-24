@@ -55,6 +55,6 @@ Keep each focused commit near 300 authored changed lines or fewer, consistent wi
 
 ## Integration plan
 
-The exact original-main range `5d5c35f05f84..7cbf3ed6cf97` contains 234 commits. After hosted CI passes, the planned integration is a normal fast-forward of `main`, preserving those commit SHAs. GitHub [limits rebase-and-merge to 100 commits](https://docs.github.com/en/repositories/creating-and-managing-repositories/repository-limits#rebase-limits), so it cannot apply to this full range. No rewrite, force-push, squash, or merge has occurred.
+The exact original-main range `5d5c35f05f84..7cbf3ed6cf97` contains 234 commits. After hosted CI passes, the planned integration is a normal fast-forward of `main`, preserving those commit SHAs. GitHub [limits rebase-and-merge to 100 commits](https://docs.github.com/en/repositories/creating-and-managing-repositories/repository-limits#rebase-limits), so it cannot apply to this full range. At the fixed endpoint, no rewrite, force-push, squash, or merge had occurred.
 
 The fixed measurement endpoint is the product correction `7cbf3ed6cf977c55a17517f92c8d2ddecefa1816`. The documentation commits that add part 5 and revise this index and the outlier review follow that endpoint and are intentionally excluded from the ledger.
