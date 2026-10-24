@@ -17,7 +17,7 @@ function schedule() {
 }
 function track(event: PointerEvent) {
   const target = event.target instanceof Element ? event.target : null;
-  sample = { x: event.clientX, y: event.clientY, focus: Boolean(target?.closest('[data-lens-focus]')) };
+  sample = { x: event.clientX, y: event.clientY, focus: Boolean(target?.closest('[data-catch]')) };
   schedule();
 }
 function leave(event: PointerEvent) {
@@ -51,7 +51,7 @@ const LOOK_SPRING = { duration: 0.5, bounce: 0.15 };
 
 /**
  * Springs pointing from the element's centre toward the pointer, each in [-1, 1].
- * `focus` is 1 while the pointer rests on an element marked `data-lens-focus`.
+ * `focus` is 1 while the pointer rests on an element marked `data-catch`.
  * Settles to rest under reduced motion or while the element is off screen.
  */
 export function useFacing(target: RefObject<HTMLElement | null>, reach = 560) {

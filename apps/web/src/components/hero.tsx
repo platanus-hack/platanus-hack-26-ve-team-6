@@ -21,7 +21,7 @@ export function Hero() {
       <p className="g-lockup"><GotchuMark size={34} />Revisa lo que importa</p>
       <p className="g-hero-lead">Sube una versión de tu código o autoriza tu dominio por DNS. Recibe hallazgos con su evidencia y lo que no se pudo comprobar.</p>
       <div className="g-hero-actions">
-        <a className="g-button g-button-ink" href="/dashboard" data-lens-focus>Revisar mi aplicación <UiIcon name="arrow" /></a>
+        <a className="g-button g-button-ink" href="/dashboard" data-catch>Revisar mi aplicación <UiIcon name="arrow" /></a>
         <a className="g-secondary-link" href="#codigo">Cómo funciona <UiIcon name="chevron" /></a>
       </div>
     </div>

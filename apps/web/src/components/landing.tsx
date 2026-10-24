@@ -60,7 +60,7 @@ export function LandingPage() {
         <button ref={menuButton} className="g-menu-button" type="button" aria-expanded={menuOpen} aria-controls="gotchu-nav" onKeyDown={event => { if (event.key === 'Escape') closeMenu(); }} onClick={() => setMenuOpen(!menuOpen)}><UiIcon name={menuOpen ? 'close' : 'grid'} />{menuOpen ? 'Cerrar' : 'Menú'}</button>
         <nav id="gotchu-nav" className={menuOpen ? 'g-nav is-open' : 'g-nav'} aria-label="Navegación principal" onKeyDown={event => { if (event.key === 'Escape') { setMenuOpen(false); menuButton.current?.focus(); } }}>
           <a href="#codigo" onClick={closeMenu}>Cómo funciona</a><a href="#perspectivas" onClick={closeMenu}>Alcance</a><a href="#preguntas" onClick={closeMenu}>Preguntas</a>
-          <a className="g-button g-button-small" href="/dashboard" data-lens-focus>Abrir Gotchu <UiIcon name="arrow" /></a>
+          <a className="g-button g-button-small" href="/dashboard" data-catch>Abrir Gotchu <UiIcon name="arrow" /></a>
         </nav>
       </div>
     </header>
@@ -103,7 +103,7 @@ export function LandingPage() {
       <section className="g-closing g-card g-card-magenta" aria-labelledby="closing-title">
         <WordmarkRows rows={5} />
         <h2 id="closing-title">La próxima decisión.<br /><span>Con la evidencia a mano.</span></h2>
-        <a className="g-button g-button-ink" href="/dashboard" data-lens-focus>Empezar mi revisión <UiIcon name="arrow" /></a>
+        <a className="g-button g-button-ink" href="/dashboard" data-catch>Empezar mi revisión <UiIcon name="arrow" /></a>
       </section>
     </main>
     <footer className="g-footer">
