@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { BackendError, hashProposal, type Backend } from '@gotchu/backend';
+import { actionV2Schema } from '@gotchu/contracts';
 import { proposalFixture } from '../../../packages/backend/test/proposal-fixtures.js';
 import { createBackendExecutionLedger } from '../src/index.js';
 
@@ -20,6 +21,12 @@ function fixture() {
 }
 
 describe('backend adapter boundary; injected backend fixtures (no Postgres)', () => {
+  it('accepts the v2 claim shape at the boundary and refuses it before any adapter can act', async () => {
+    const f = fixture();
+    const action = actionV2Schema.parse({ version: 2, kind: 'provider_response', capabilityId: 'provider.response', organizationId: f.request.organizationId, applicationId: f.claim.proposal.applicationId, policyVersion: 'policy-v2', target: { kind: 'environment', environmentId: randomUUID(), name: 'production' }, provider: 'cloudflare', response: 'rate_limit', evidence: [{ id: randomUUID(), sha256: 'a'.repeat(64), kind: 'report' }] });
+    f.executions.claim.mockResolvedValueOnce({ ...f.claim, proposal: action });
+    await expect(f.ledger.claim(f.request)).rejects.toMatchObject({ code: 'no_adapter' });
+  });
   it('requires the complete backend proposal, not just the executor subset', async () => {
     const f = fixture();
     f.executions.claim.mockResolvedValueOnce({ ...f.claim, proposal: { ...f.claim.proposal, evidence: [] } });
@@ -57,6 +64,7 @@ describe('backend adapter boundary; injected backend fixtures (no Postgres)', ()
     ['writes_frozen', 'approval_rejected'], ['approval_expired', 'approval_rejected'], ['stale_epoch', 'approval_rejected'],
     ['forbidden', 'approval_rejected'], ['not_found', 'approval_rejected'],
     ['verification_unavailable', 'ledger_unavailable'], ['execution_corrupt', 'ledger_unavailable'],
+    ['no_adapter', 'no_adapter'],
   ])('maps %s to %s and retains its cause', async (code, expected) => {
     const f = fixture();
     const cause = new BackendError(code, 'Test fixture rejection');
