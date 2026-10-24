@@ -18,8 +18,9 @@ async function responseWithin<T>(work: Promise<T>, milliseconds: number): Promis
     return await Promise.race([work,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('runner_timeout')),milliseconds);})]);
   } finally { if(timer) clearTimeout(timer); }
 }
-export function createScannerServer(options: {secret:Uint8Array;runner?:ScannerRunner}) {
+export function createScannerServer(options: {secret:Uint8Array;runner?:ScannerRunner;now?:()=>number}) {
   checkSecret(options.secret); const secret=Buffer.from(options.secret); const runner=options.runner??createCustomerAssessmentRunner();
+  const now=options.now??Date.now;
   const used=new Map<string,number>(); let active=false; let fault=false;
   type Readiness = Awaited<ReturnType<ScannerRunner['readiness']>>;
   let readinessCache: {until:number;state:Readiness} | undefined;
@@ -34,11 +35,11 @@ export function createScannerServer(options: {secret:Uint8Array;runner?:ScannerR
     if(fault) return Promise.resolve(unavailable);
     if(readinessResponse) return readinessResponse;
     if(active) return Promise.resolve(unavailable);
-    if(readinessCache && readinessCache.until>Date.now()) return Promise.resolve(readinessCache.state);
+    if(readinessCache && readinessCache.until>now()) return Promise.resolve(readinessCache.state);
     active=true;
     const work=Promise.resolve().then(()=>runner.readiness());
     // The response can time out, but only settlement of the underlying probe frees admission.
-    work.then(state=>{readinessCache={until:Date.now()+30000,state};readinessResponse=undefined;release();},error=>{readinessResponse=undefined;release(error);});
+    work.then(state=>{readinessCache={until:now()+30000,state};readinessResponse=undefined;release();},error=>{readinessResponse=undefined;release(error);});
     readinessResponse=responseWithin(work,40000).catch(()=>unavailable);
     return readinessResponse;
   }
@@ -52,8 +53,9 @@ export function createScannerServer(options: {secret:Uint8Array;runner?:ScannerR
     active=true; let workOwnsSlot=false;
     try {
       const bytes=await body(req);
-      if(!verifyScannerSignature(secret,timestamp,signature,bytes)){send(res,401,{error:'invalid_signature'});return;}
-      const now=Date.now();for(const [key,expires] of used)if(expires<now)used.delete(key);
+      const receivedAt=now();
+      if(!verifyScannerSignature(secret,timestamp,signature,bytes,receivedAt)){send(res,401,{error:'invalid_signature'});return;}
+      for(const [key,expires] of used)if(expires<receivedAt)used.delete(key);
       if(used.has(signature)){send(res,409,{error:'replay'});return;}
       if(used.size>=1000){send(res,429,{error:'replay_capacity'});return;}
       used.set(signature,(Number(timestamp)+61)*1000);
