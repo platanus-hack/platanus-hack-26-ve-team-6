@@ -1,0 +1,11 @@
+import { readFile } from 'node:fs/promises';
+import { createCustomerAssessmentRunner, createOsvAdapter } from '@gotchu/customer-assessment';
+import { createScannerServer } from './server.js';
+if (process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') throw new Error('This entry point is local development only; production TLS hosting remains a release gate');
+const path=process.env.GOTCHU_SCANNER_SECRET_FILE;if(!path)throw new Error('GOTCHU_SCANNER_SECRET_FILE is required');
+const port=Number(process.env.GOTCHU_SCANNER_PORT??4400);if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('Invalid scanner port');
+const secret=await readFile(path);if(secret.length>1024)throw new Error('Secret file too large');
+const runner=createCustomerAssessmentRunner(process.env.GOTCHU_SCANNER_OSV==='1'?{advisory:createOsvAdapter()}:{});
+const server=createScannerServer({secret,runner});
+server.listen(port,'127.0.0.1',()=>{console.log(`Scanner PID ${process.pid} listening on 127.0.0.1:${port}`);});
+for(const signal of ['SIGINT','SIGTERM'] as const)process.once(signal,()=>{server.close();server.closeIdleConnections();});
