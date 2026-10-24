@@ -1,8 +1,12 @@
 import { z } from 'zod';
 import { customerScopeSchema } from './customer-assessment.js';
-import { investigationProviderPresetIdSchema, investigationProviderCatalog } from './investigation-providers.js';
+import { investigationProviderPresetIdSchema } from './investigation-providers.js';
+import type { InvestigationAdapterKind } from './investigation-providers.js';
 
 export const modelProviderSchema = z.enum(['openai_compatible', 'anthropic_messages']);
+export function investigationModelProviderForPreset(preset: { adapterKind: InvestigationAdapterKind }): z.infer<typeof modelProviderSchema> {
+  return preset.adapterKind === 'anthropic' ? 'anthropic_messages' : 'openai_compatible';
+}
 export const investigationDataScopeSchema = z.enum([
   'application_context',
   'finding_details',
@@ -89,20 +93,17 @@ export const investigationActionSchema = z.object({ status: z.enum(['accepted', 
 export const investigationResumeRequestSchema = customerScopeSchema.extend({ jobId: z.uuid() }).strict();
 export const investigationCancelRequestSchema = investigationResumeRequestSchema;
 
-export const investigationModelSuggestions = Object.freeze(Object.fromEntries(
-  investigationProviderCatalog.map(preset => [preset.id, { modelId: preset.defaultModelId, suggestedModelIds: preset.suggestedModelIds }]),
-));
-
 export const investigationModelProbeResultSchema = z.object({
   status: z.enum(['succeeded', 'failed']),
   reason: z.enum([
     'invalid_api_key', 'access_denied', 'billing_or_credits', 'model_or_endpoint_not_found',
     'rate_limited', 'request_rejected', 'provider_unavailable', 'network_error',
-    'invalid_response', 'missing_usage', 'model_output_invalid', 'budget_exhausted', 'probe_unavailable',
+    'invalid_response', 'missing_usage', 'model_output_invalid', 'budget_exhausted', 'unsafe_endpoint', 'probe_unavailable',
   ]).nullable(),
   inputTokens: z.number().int().nonnegative().nullable(),
   outputTokens: z.number().int().nonnegative().nullable(),
 }).strict();
+export const investigationModelProbeRequestSchema = z.object({ organizationId: z.uuid(), requestId: z.uuid() }).strict();
 
 export type InvestigationDataScope = z.infer<typeof investigationDataScopeSchema>;
 export type InvestigationSubject = z.infer<typeof investigationSubjectSchema>;
