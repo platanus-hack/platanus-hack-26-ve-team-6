@@ -7,7 +7,7 @@
 .g-wrap { width: min(1480px, 100%); margin-inline: auto; padding-inline: clamp(20px, 4.2vw, 68px); }
 .g-lockup { display: flex; align-items: center; gap: 14px; color: var(--gc-canvas) !important; font: 700 clamp(1.1rem, 1.6vw, 1.5rem)/1.05 var(--gc-font-display); text-transform: uppercase; letter-spacing: .01em; }
 
-.g-hero { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 24px 40px; align-items: center; padding-top: 128px; }
+.g-hero { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 24px 40px; align-items: center; padding-top: 104px; }
 .g-hero-copy { min-width: 0; }
 .g-hero-scope { display: flex; align-items: center; gap: 10px; color: var(--gc-silver) !important; }
 .g-hero h1 { margin-top: 30px !important; font: 700 clamp(2.4rem, 4.3vw, 4.6rem)/1.08 var(--gc-font-display); letter-spacing: -.025em; text-transform: uppercase; }
@@ -37,7 +37,7 @@
 .g-hero-bottom svg { color: var(--gc-paper); }
 
 .g-signal-band { display: grid; grid-template-columns: repeat(4, 1fr); background: linear-gradient(100deg, var(--gc-accent) 0%, var(--gc-accent) 55%, var(--gc-action) 100%); }
-.g-signal-band a { position: relative; display: flex; align-items: center; justify-content: center; gap: 22px; min-height: 84px; color: var(--gc-canvas); font: 700 clamp(1.1rem, 2.3vw, 2rem)/1 var(--gc-font-display); text-transform: uppercase; letter-spacing: .01em; overflow: hidden; }
+.g-signal-band a { position: relative; display: flex; align-items: center; justify-content: center; gap: 22px; min-height: 84px; color: var(--gc-canvas); font: 700 clamp(1.2rem, 2.3vw, 2rem)/1 var(--gc-font-display); text-transform: uppercase; letter-spacing: .01em; overflow: hidden; }
 .g-signal-band a + a { border-left: 1px solid #19192355; }
 .g-signal-band a::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--gc-canvas); transform: scaleX(0); transform-origin: left; transition: transform 260ms var(--gc-ease); }
 .g-signal-band a > span { font: 400 .8em/1 var(--gc-font-body); transition: transform 200ms var(--gc-ease); }
@@ -61,7 +61,7 @@
   .g-signal-band a:nth-child(n + 3) { border-top: 1px solid #19192355; }
 }
 @media (max-width: 760px) {
-  .g-hero { padding-top: 96px; gap: 32px; }
+  .g-hero { padding-top: 88px; gap: 32px; }
   .g-hero h1 { font-size: clamp(2rem, 9.6vw, 3rem); }
   .g-hero-art { height: 380px; }
   .g-art-index, .g-art-axis { display: none; }

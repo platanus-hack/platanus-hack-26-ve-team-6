@@ -45,7 +45,7 @@ export function Hero() {
         <div className="g-hero-ascii"><AsciiMark paused={paused} /></div>
         <div className="g-art-status">
           <div><p className="g-mono"><span className="g-square" aria-hidden="true" />Alcance autorizado</p><p>De la instantánea al informe.</p></div>
-          <button className="g-art-pause" type="button" aria-pressed={paused} aria-label={paused ? 'Reanudar animación' : 'Pausar animación'} onClick={() => setPaused(!paused)}>{paused ? '▶' : 'Ⅱ'}</button>
+          <button className="g-art-pause" type="button" aria-pressed={paused} aria-label={paused ? 'Reanudar animación' : 'Pausar animación'} onClick={() => setPaused(!paused)}><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">{paused ? <path d="M3 1.5v11l9-5.5z" fill="currentColor" /> : <path d="M3 1.5h3v11H3zM8 1.5h3v11H8z" fill="currentColor" />}</svg></button>
         </div>
       </div>
       <div className="g-hero-bottom g-mono">
