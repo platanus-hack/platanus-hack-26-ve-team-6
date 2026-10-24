@@ -5,6 +5,7 @@ import { prepareCorrectionRequestSchema, type PrepareCorrectionResponse, type Re
 import { buildRecipeRecommendations, correctionResponseForQueuedScan, prepareCandidatePatch, RecipeBoundaryError } from '@gotchu/scenarios/server';
 import { audit, authorize, BackendError, canonicalJson, identitySchema, parse, sha256, type BaseDependencies, type Identity } from './core.js';
 import { createCustomerService } from './customers.js';
+import { createValidationService, enqueueValidation } from './validations.js';
 
 export const correctionReportScopeSchema = customerScopeSchema.extend({ reportId: z.uuid() }).strict();
 export const prepareCorrectionInputSchema = correctionReportScopeSchema.extend(prepareCorrectionRequestSchema.shape).strict();
@@ -76,7 +77,11 @@ function transactionDatabase(database: Database, organizationId: string, tx: Tra
 }
 
 export function createCorrectionService(deps: BaseDependencies) {
+  const validations = createValidationService(deps);
   return {
+    validationStatus(identity: Identity, input: { organizationId: string; applicationId: string; candidateSourceId: string }) {
+      return validations.getStatus(identity, input);
+    },
     async recommendations(identity: Identity, input: CorrectionReportScope): Promise<ReportRecommendationsResponse> {
       const actor = parse(identitySchema, identity); const scope = parse(correctionReportScopeSchema, input);
       return deps.database.tenant(scope.organizationId, async tx => {
@@ -96,6 +101,7 @@ export function createCorrectionService(deps: BaseDependencies) {
           recipeId: value.recipeId, findingId: value.findingId, expectedSourceDigest: value.expectedSourceDigest,
         }));
         if (preparation.status === 'blocked') throw new BackendError(preparation.reason, 'Correction preparation is blocked: ' + preparation.reason, 409);
+        if (!preparation.scope.sourceSnapshotId || !preparation.scope.sourceDigest) throw new BackendError('source_unavailable', 'Independent validation requires the original source snapshot', 409);
         const idempotencyKey = `correction:${preparation.patchHash}`;
         // Replay precedes source/assessment admission, even if a completed candidate was later deleted.
         const prior = await tx.query<{ job_id: string; input: unknown; payload: unknown; source_id: string | null; target_id: string | null }>(`SELECT r.job_id,r.input,r.source_id,r.target_id,j.payload
@@ -116,11 +122,16 @@ export function createCorrectionService(deps: BaseDependencies) {
         const source = await customers.uploadSource(actor, { ...scope, snapshot: preparation.candidateSourceSnapshot, authorized: true });
         if (source.digest !== preparation.candidateSourceDigest) scopeMismatch();
         const job = await customers.queue(actor, { ...scope, mode: 'internal', sourceSnapshotId: source.id, targetId: null, idempotencyKey });
+        const validationRunId = await enqueueValidation(tx, {
+          organizationId: value.organizationId, applicationId: value.applicationId, candidateSourceId: source.id,
+          baseSourceId: preparation.scope.sourceSnapshotId, targetFindingId: preparation.findingId, baseDigest: preparation.scope.sourceDigest,
+          candidateDigest: source.digest, patchDigest: preparation.patchHash,
+        });
         await audit(tx, value.organizationId, actor.userId, 'correction.prepared', source.id, {
           applicationId: value.applicationId, reportId: value.reportId, recipeId: preparation.recipeId, recipeVersion: preparation.recipeVersion,
           findingId: preparation.findingId, originalSourceId: preparation.scope.sourceSnapshotId, sourceId: source.id, jobId: job.jobId,
           sourceDigest: preparation.scope.sourceDigest, candidateSourceDigest: source.digest, patchHash: preparation.patchHash,
-          path: preparation.path, originalFileSha256: preparation.originalFileSha256, candidateFileSha256: sha256(preparation.afterBytes),
+          path: preparation.path, originalFileSha256: preparation.originalFileSha256, candidateFileSha256: sha256(preparation.afterBytes), validationRunId,
         });
         return correctionResponseForQueuedScan(preparation, source.id, job.jobId);
       });

@@ -69,6 +69,7 @@ live('private corrections on real PostgreSQL with synthetic scanner evidence', (
       (SELECT count(*)::int FROM gotchu.customer_requests WHERE organization_id=$1) AS requests,
       (SELECT count(*)::int FROM gotchu.jobs WHERE organization_id=$1) AS jobs,
       (SELECT count(*)::int FROM gotchu.outbox WHERE organization_id=$1) AS outbox,
+      (SELECT count(*)::int FROM gotchu.validation_runs WHERE organization_id=$1) AS validations,
       (SELECT count(*)::int FROM gotchu.audit_records WHERE organization_id=$1) AS audits`, [organizationId]);
     return result.rows[0];
   }
@@ -81,6 +82,7 @@ live('private corrections on real PostgreSQL with synthetic scanner evidence', (
     const prepared = await api.corrections.prepare(c.identity, c.selection);
     expect(prepared.patchHash).toBe(preparation.patchHash);
     expect(Object.keys(prepared).sort()).toEqual(['changes', 'jobId', 'patchHash', 'sourceId']);
+    expect((await api.corrections.validationStatus(c.identity, { ...c.scope, candidateSourceId: prepared.sourceId }))?.run).toMatchObject({ state: 'inconclusive', reason: 'suite_not_configured', patchDigest: prepared.patchHash });
     const sources = await f.admin.query('SELECT id,body,digest FROM gotchu.customer_sources WHERE organization_id=$1 ORDER BY created_at', [c.scope.organizationId]);
     expect(sources.rows).toHaveLength(2);
     expect(sources.rows.find(row => row.id === c.source?.id)?.body).toEqual(c.snapshot);
