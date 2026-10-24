@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { AssessmentAnalysis, AssessmentComparison } from '@gotchu/contracts';
 import { ComparisonPresence, ComparisonSummary, ComparisonVerification, ExternalHttpsEvidence } from '../src/components/customer-report-components.js';
-import { comparisonCounts, comparisonPresence, comparisonVerification, exploitabilityLabel, perspectiveStatus } from '../src/components/customer-report-model.js';
+import { comparisonCounts, comparisonPresence, comparisonVerification, coverageCapabilityLabel, exploitabilityLabel, perspectiveStatus, reportInputLabel } from '../src/components/customer-report-model.js';
 
 const timestamp = '2026-10-24T12:00:00.000Z';
 const checksum = 'a'.repeat(64);
@@ -107,5 +107,12 @@ describe('customer report presentation', () => {
     expect(exploitabilityLabel('unknown')).toBe('Desconocida');
     expect(exploitabilityLabel('not_demonstrated')).toBe('No demostrada');
     expect(exploitabilityLabel('demonstrated_in_fixture')).toContain('fixture');
+  });
+  it('labels image reports and shows the profile coverage without turning unknown into clean', () => {
+    expect(reportInputLabel({ mode: 'internal', subject: { sourceSnapshotId: null, sourceDigest: null, targetId: null, targetVersion: null, origin: null, containerImageId: null, containerImageDigest: 'a'.repeat(64), containerImageReference: null } })).toBe('Imagen de contenedor');
+    expect(coverageCapabilityLabel('container_image_os_cves')).toContain('CVE de paquetes del sistema operativo');
+    expect(coverageCapabilityLabel('container_image_language_cves')).toContain('CVE de paquetes de lenguaje');
+    expect(coverageCapabilityLabel('container_image_java_cves')).toContain('cobertura desconocida');
+    expect(coverageCapabilityLabel('capability_without_label')).toBe('capability_without_label');
   });
 });

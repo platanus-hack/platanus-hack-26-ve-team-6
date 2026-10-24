@@ -8,6 +8,8 @@ import {
   customerEnrollmentSchema,
   customerReportSummarySchema,
   customerSourceSummarySchema,
+  customerContainerImageSummarySchema,
+  CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
   customerTargetSchema,
   customerWorkspaceSchema,
   customerQueueSchema,
@@ -59,6 +61,7 @@ const workspaceListSchema = z.array(customerWorkspaceSchema);
 const applicationListSchema = z.array(customerApplicationSchema);
 const targetListSchema = z.array(customerTargetSchema);
 const sourceListSchema = z.array(customerSourceSummarySchema);
+const containerImageListSchema = z.array(customerContainerImageSummarySchema);
 const reportListSchema = z.array(customerReportSummarySchema);
 const csrfSchema = z.object({ csrfToken: z.string().min(1) }).passthrough();
 const registeredAccountSchema = z.object({ id: z.string().min(1).max(256) }).strict();
@@ -83,7 +86,7 @@ export class CustomerApiError extends Error {
   }
 }
 
-async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit = {}, expectedStatus?: number): Promise<T> {
+async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit = {}, expectedStatus?: number, timeoutMs = 20_000): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -91,7 +94,7 @@ async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit 
       credentials: 'same-origin',
       redirect: 'error',
       cache: 'no-store',
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     if (error instanceof Error && error.name === 'TimeoutError') {
@@ -224,6 +227,20 @@ export const customerApi = {
     const input = customerSourceSummarySchema.pick({ organizationId: true, applicationId: true, id: true }).parse({ organizationId, applicationId, id: sourceId });
     return request(`${applicationPath(input.organizationId, input.applicationId)}/sources/${encodeURIComponent(input.id)}`, deletedSourceSchema, { method: 'DELETE' });
   },
+  containerImages: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/container-images`, containerImageListSchema),
+  uploadContainerImage: (input: { organizationId: string; applicationId: string; file: File; label: string; authorized: true }) => {
+    const scope = customerContainerImageSummarySchema.pick({ organizationId: true, applicationId: true }).parse(input);
+    const label = z.string().trim().min(1).max(200).parse(input.label);
+    if (input.file.size < 1 || input.file.size > CUSTOMER_MAX_CONTAINER_IMAGE_BYTES) throw new CustomerApiError(413, 'payload_too_large', 'El archivo de imagen debe ocupar como máximo 8 MiB.');
+    const params = new URLSearchParams({ label, authorized: 'true' });
+    return request(`${applicationPath(scope.organizationId, scope.applicationId)}/container-images?${params}`, customerContainerImageSummarySchema, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-tar' }, body: input.file,
+    }, 201, 60_000);
+  },
+  deleteContainerImage: (organizationId: string, applicationId: string, imageId: string) => {
+    const input = customerContainerImageSummarySchema.pick({ organizationId: true, applicationId: true, id: true }).parse({ organizationId, applicationId, id: imageId });
+    return request(`${applicationPath(input.organizationId, input.applicationId)}/container-images/${encodeURIComponent(input.id)}`, z.undefined(), { method: 'DELETE' });
+  },
   reports: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/reports`, reportListSchema),
   report: (organizationId: string, applicationId: string, reportId: string) => request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(reportId)}`, customerAssessmentReportSchema),
   decisionRecords(organizationId: string, query: { limit?: number; cursor?: string; subjectType?: string; subjectId?: string; from?: string; to?: string } = {}) {
@@ -303,7 +320,7 @@ export const customerApi = {
     const path=`${applicationPath(input.organizationId,input.applicationId)}/workflow-exceptions/${encodeURIComponent(input.id)}?repositoryLinkId=${encodeURIComponent(input.repositoryLinkId)}&version=${input.version}`;
     return request(path,z.object({removed:z.literal(true)}).strict(),{method:'DELETE'});
   },
-  queue: (input: { organizationId: string; applicationId: string; mode: AssessmentMode; sourceSnapshotId: string | null; targetId: string | null }) => {
+  queue: (input: { organizationId: string; applicationId: string; mode: AssessmentMode; sourceSnapshotId: string | null; targetId: string | null; inputKind?: 'source_snapshot' | 'container_image'; containerImage?: { kind: 'archive'; imageId: string } | { kind: 'registry'; reference: string } | null }) => {
     const { organizationId, applicationId, ...selection } = input;
     const validated = customerQueueSchema.parse({ ...input, idempotencyKey: crypto.randomUUID() });
     const idempotencyKey = validated.idempotencyKey;

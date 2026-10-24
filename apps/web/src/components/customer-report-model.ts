@@ -1,4 +1,32 @@
-import type { AssessmentAnalysis, AssessmentComparison } from '@gotchu/contracts';
+import type { AssessmentAnalysis, AssessmentComparison, CustomerAssessmentReport } from '@gotchu/contracts';
+
+const coverageLabels: Record<string, string> = {
+  semgrep: 'Semgrep · SAST (JavaScript/TypeScript, Python, Go y Java)',
+  gitleaks: 'Gitleaks · detección de secretos',
+  trivy: 'Trivy · configuración de Kubernetes, Terraform y Dockerfile',
+  trivy_kubernetes: 'Trivy · Kubernetes',
+  trivy_terraform: 'Trivy · Terraform',
+  trivy_dockerfile: 'Trivy · Dockerfile',
+  container_image_trivy_profile: 'Perfil Trivy · vulnerabilidades de imagen',
+  container_image_os_cves: 'Trivy · CVE de paquetes del sistema operativo',
+  container_image_language_cves: 'Trivy · CVE de paquetes de lenguaje',
+  container_image_java_cves: 'Trivy · CVE de paquetes Java (cobertura desconocida)',
+  container_image_vulnerability_database: 'Base de datos CVE de Trivy',
+  container_image_finding_limit: 'Límite de observaciones de imagen',
+};
+
+export function reportInputLabel(report: Pick<CustomerAssessmentReport, 'mode' | 'subject'>) {
+  if (report.subject.containerImageDigest) return 'Imagen de contenedor';
+  switch (report.mode) {
+    case 'internal': return 'Código fuente';
+    case 'external': return 'HTTPS autorizado';
+    case 'both': return 'Código + HTTPS';
+  }
+}
+
+export function coverageCapabilityLabel(capability: string) {
+  return coverageLabels[capability] ?? capability;
+}
 
 export function comparisonPresence(item: AssessmentComparison) {
   const hasInternal = item.internalFindingIds.length > 0;

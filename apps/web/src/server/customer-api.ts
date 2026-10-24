@@ -4,8 +4,10 @@ import {
   customerEnrollTargetSchema, customerTargetIdSchema, customerUploadSourceSchema, customerQueueSchema,
   customerWorkspaceSchema, customerApplicationSchema, customerTargetSchema, customerEnrollmentSchema,
   customerSourceSummarySchema, customerReportSummarySchema, customerAssessmentReportSchema, CUSTOMER_MAX_SOURCE_BYTES,
+  CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, customerContainerImageSummarySchema, customerContainerImageUploadMetadataSchema,
   type CustomerWorkspace, type CustomerApplication, type CustomerTarget, type CustomerEnrollment,
   type CustomerSourceSummary, type CustomerReportSummary, type CustomerAssessmentReport,
+  type CustomerContainerImageSummary,
   telemetryIntegrationSchema, telemetryConnectionSchema,
   monitorConfigInputSchema, monitorConfigSchema, operationCoverageSchema, operationAlertSchema,
   operationPlanSchema, operationPlanKindSchema, operationPlanBindingSchema, operationPlanStepSchema, operationReadinessSchema,
@@ -62,6 +64,9 @@ export interface CustomerServices {
   listSources(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerSourceSummary[]>;
   uploadSource(identity: Identity, value: z.infer<typeof customerUploadSourceSchema>): Promise<CustomerSourceSummary>;
   deleteSource(identity: Identity, value: { organizationId: string; applicationId: string; sourceSnapshotId: string }): Promise<unknown>;
+  listContainerImages(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerContainerImageSummary[]>;
+  uploadContainerImage(identity: Identity, value: { organizationId: string; applicationId: string; label: string; authorized: true }, bytes: Uint8Array): Promise<CustomerContainerImageSummary>;
+  deleteContainerImage(identity: Identity, value: { organizationId: string; applicationId: string; imageId: string }): Promise<unknown>;
   listReports(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerReportSummary[]>;
   getReport(identity: Identity, value: { organizationId: string; applicationId: string; reportId: string }): Promise<CustomerAssessmentReport>;
   recordReportDownload(identity: Identity, value: { organizationId: string; applicationId: string; reportId: string }): Promise<void>;
@@ -301,9 +306,30 @@ export function createCustomerApi(options: {
             return send(customerSourceSummarySchema.parse(await services.uploadSource(identity, { ...scope, ...value })), 201);
           }
         }
+        if (parts[6] === 'container-images') {
+          if (request.method === 'GET') return send(z.array(customerContainerImageSummarySchema).max(20).parse(await services.listContainerImages(identity, scope)));
+          if (request.method === 'POST') {
+            const mime = request.headers.get('content-type')?.split(';')[0]?.trim();
+            if (!['application/x-tar', 'application/octet-stream', 'application/vnd.oci.image.layout.v1.tar'].includes(mime ?? '')) {
+              throw new HttpError(415, 'content_type', 'Sube un archivo tar OCI o Docker con un tipo de contenido admitido.');
+            }
+            const metadata = parse(customerContainerImageUploadMetadataSchema, {
+              label: url.searchParams.get('label'), authorized: url.searchParams.get('authorized') === 'true' ? true : undefined,
+            });
+            const archive = await readBoundedBody(request, CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, 30_000);
+            return send(customerContainerImageSummarySchema.parse(await services.uploadContainerImage(identity, { ...scope, ...metadata }, archive)), 201);
+          }
+        }
         if (parts[6] === 'reports' && request.method === 'GET') return send(z.array(customerReportSummarySchema).max(50).parse(await services.listReports(identity, scope)));
         if (parts[6] === 'assessments' && request.method === 'POST') {
-          const value = parse(z.object({ mode: customerAssessmentReportSchema.shape.mode, sourceSnapshotId: uuid.nullable(), targetId: uuid.nullable() }).strict(), await body(request));
+          const value = parse(z.object({
+            mode: customerAssessmentReportSchema.shape.mode, sourceSnapshotId: uuid.nullable(), targetId: uuid.nullable(),
+            inputKind: z.enum(['source_snapshot', 'container_image']).optional(),
+            containerImage: z.discriminatedUnion('kind', [
+              z.object({ kind: z.literal('archive'), imageId: uuid }).strict(),
+              z.object({ kind: z.literal('registry'), reference: z.string().max(512) }).strict(),
+            ]).nullable().optional(),
+          }).strict(), await body(request));
           const input = parse(customerQueueSchema, { ...scope, ...value, idempotencyKey: request.headers.get('idempotency-key') });
           return send(z.object({ jobId: uuid }).strict().parse(await services.queue(identity, input)), 202);
         }
@@ -336,6 +362,12 @@ export function createCustomerApi(options: {
       }
       if (parts.length === 8 && parts[6] === 'sources' && request.method === 'DELETE') {
         await services.deleteSource(identity, { ...scope, sourceSnapshotId: parse(uuid, parts[7]) });
+        headers.set('Cache-Control', 'private, no-store');
+        headers.set('X-Content-Type-Options', 'nosniff');
+        return new Response(null, { status: 204, headers });
+      }
+      if (parts.length === 8 && parts[6] === 'container-images' && request.method === 'DELETE') {
+        await services.deleteContainerImage(identity, { ...scope, imageId: parse(uuid, parts[7]) });
         headers.set('Cache-Control', 'private, no-store');
         headers.set('X-Content-Type-Options', 'nosniff');
         return new Response(null, { status: 204, headers });

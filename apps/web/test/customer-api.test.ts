@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { BackendError } from '@gotchu/backend';
@@ -11,7 +12,7 @@ const applicationId = randomUUID();
 const userId = `credentials:${randomUUID()}`;
 function ports() {
   const unused = async (): Promise<never> => { throw new Error('Unexpected service invocation'); };
-  const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listReports: unused, getReport: unused, recordReportDownload: unused, queue: unused, job: unused };
+  const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listContainerImages: unused, uploadContainerImage: unused, deleteContainerImage: unused, listReports: unused, getReport: unused, recordReportDownload: unused, queue: unused, job: unused };
   const auth: AuthService = { enabled: true, handle: async () => new Response(), identity: async () => ({ userId, cookies: ['authjs.session-token=refreshed; Path=/; HttpOnly'] }), accountEmail: async () => null };
   return { services, auth };
 }
@@ -177,6 +178,37 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect((await handle(request('register', { email: 'person@example.com', password: 'a long passphrase for fixture' }))).status).toBe(403);
     const oversized = new Request(`${origin}/api/customer/workspaces/${organizationId}/applications/${applicationId}/sources`, { method: 'POST', headers: { origin, 'content-type': 'application/json', 'content-length': '99999999' }, body: '{}' });
     expect((await handle(oversized)).status).toBe(413);
+  });
+  it('accepts a bounded raw image archive only through the authenticated, authorized upload route', async () => {
+    const { services, auth } = ports();
+    const imageId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const archive = new Uint8Array([0x1f, 0x8b, 0x08, 0x00]);
+    const upload = vi.fn(async (
+      _identity: Parameters<CustomerServices['uploadContainerImage']>[0],
+      input: Parameters<CustomerServices['uploadContainerImage']>[1],
+      bytes: Parameters<CustomerServices['uploadContainerImage']>[2],
+    ) => ({
+      organizationId: input.organizationId, applicationId: input.applicationId, id: imageId,
+      digest: 'a'.repeat(64), label: input.label, size: bytes.byteLength, createdAt,
+    }));
+    services.uploadContainerImage = upload;
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `workspaces/${organizationId}/applications/${applicationId}/container-images?label=customer.tar&authorized=true`;
+    const response = await handle(new Request(`${origin}/api/customer/${path}`, {
+      method: 'POST', headers: { origin, 'content-type': 'application/x-tar' }, body: archive,
+    }));
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({
+      organizationId, applicationId, id: imageId, digest: 'a'.repeat(64), label: 'customer.tar', size: archive.byteLength, createdAt,
+    });
+    expect(upload).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, label: 'customer.tar', authorized: true }, Buffer.from(archive));
+
+    const invalidType = await handle(new Request(`${origin}/api/customer/${path}`, {
+      method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: '{}',
+    }));
+    expect(invalidType.status).toBe(415);
+    expect(upload).toHaveBeenCalledTimes(1);
   });
   it('reports invalid backend output as a server error rather than a successful empty result', async () => {
     const { services, auth } = ports(); services.job = async () => ({ id: randomUUID(), secret: 'must not be exposed' });

@@ -2,15 +2,18 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
+  CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
   customerSourceFileSchema,
   customerSourceSnapshotSchema,
   customerOriginSchema,
+  customerPublicImageReferenceSchema,
   customerScanProfileSchema,
   customerScopeSchema,
   type AssessmentMode,
   type CustomerAssessmentReport,
   type CustomerReportSummary,
   type CustomerSourceSummary,
+  type CustomerContainerImageSummary,
   type CustomerTarget,
   type CustomerWorkspace,
 } from '@gotchu/contracts';
@@ -20,7 +23,7 @@ import { ProtectionPanel } from './protection-panel';
 import { NotificationsPanel } from './notifications-panel';
 import { ReportRecommendations } from './report-recommendations';
 import { ComparisonPresence, ComparisonSummary, ComparisonVerification, ExternalHttpsEvidence } from './customer-report-components';
-import { exploitabilityLabel } from './customer-report-model';
+import { coverageCapabilityLabel, exploitabilityLabel, reportInputLabel } from './customer-report-model';
 import { ContextPanel } from './context-panel';
 import { IncidentList } from './incident-card';
 import { StepUpPanel } from './step-up-panel';
@@ -322,6 +325,40 @@ function SourceEnrollment({ organizationId, applicationId, sources, canManage, o
   </section>;
 }
 
+function ContainerImageEnrollment({ organizationId, applicationId, images, canManage, onChanged }: { organizationId: string; applicationId: string; images: CustomerContainerImageSummary[]; canManage: boolean; onChanged: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [authorized, setAuthorized] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const upload = useMutation({
+    mutationFn: () => {
+      if (!file || file.size < 1 || file.size > CUSTOMER_MAX_CONTAINER_IMAGE_BYTES) throw new Error('El archivo debe ocupar entre 1 byte y 8 MiB.');
+      return customerApi.uploadContainerImage({ organizationId, applicationId, file, label: file.name.slice(0, 200) || 'imagen.tar', authorized: true });
+    },
+    onSuccess: () => { setFile(null); setAuthorized(false); setError(null); onChanged(); },
+    onError: caught => setError(readableError(caught)),
+  });
+  const remove = useMutation({
+    mutationFn: (imageId: string) => customerApi.deleteContainerImage(organizationId, applicationId, imageId),
+    onSuccess: () => { setError(null); onChanged(); },
+    onError: caught => setError(readableError(caught)),
+  });
+  const fileError = file && (file.size < 1 || file.size > CUSTOMER_MAX_CONTAINER_IMAGE_BYTES)
+    ? `El límite por archivo es ${Math.ceil(CUSTOMER_MAX_CONTAINER_IMAGE_BYTES / (1024 * 1024))} MiB.` : null;
+  return <section className="customer-card">
+    <div className="customer-card-heading"><div><span className="customer-eyebrow">ALCANCE DE CONTENEDOR</span><h2>Imagen de contenedor</h2></div><span className="customer-status customer-status-muted">No se ejecuta</span></div>
+    <p className="customer-card-copy">Guarda un archivo <code>docker save</code> u OCI para evaluar sus paquetes sin iniciar la imagen. El análisis de CVE requiere una base Trivy preparada y fijada.</p>
+    {images.length > 0 && <div className="customer-source-list"><strong>Archivos de imagen disponibles</strong>{images.map(image => <div key={image.id}><span>{image.label} · {(image.size / (1024 * 1024)).toFixed(2)} MiB · SHA-256 <code>{image.digest.slice(0, 12)}…</code><small>{date(image.createdAt)}</small></span>{canManage && <button className="customer-link-button customer-danger-link" disabled={remove.isPending} onClick={() => { if (window.confirm(`¿Eliminar el archivo de imagen «${image.label}»? Esta acción no se puede deshacer.`)) remove.mutate(image.id); }}>Eliminar</button>}</div>)}</div>}
+    {canManage ? <form className="customer-form customer-source-form" onSubmit={event => { event.preventDefault(); setError(null); upload.mutate(); }}>
+      <label htmlFor="container-image-file">Archivo OCI o Docker guardado</label><input id="container-image-file" className="customer-file-input" type="file" accept=".tar,application/x-tar,application/octet-stream" onChange={event => { setFile(event.target.files?.[0] ?? null); setAuthorized(false); setError(null); }} />
+      <p className="customer-field-note">Límite: 8 MiB. Sólo se guarda el archivo y su digest; no se extrae en el servidor ni se ejecuta.</p>
+      {file && <div className="customer-source-preview"><strong>{file.name}</strong><span>{(file.size / (1024 * 1024)).toFixed(2)} MiB</span>{fileError && <p className="customer-form-error" role="alert">{fileError}</p>}</div>}
+      <label className="customer-checkbox"><input type="checkbox" checked={authorized} onChange={event => setAuthorized(event.target.checked)} required /><span>Confirmo que tengo derecho a compartir esta imagen para evaluarla.</span></label>
+      {error && <p className="customer-form-error" role="alert">{error}</p>}
+      <button className="customer-button customer-button-primary" disabled={!file || !authorized || Boolean(fileError) || upload.isPending}>{upload.isPending ? 'Validando y subiendo…' : 'Guardar imagen'}</button>
+    </form> : <div className="customer-empty-inline">Una persona propietaria u operadora puede compartir una imagen autorizada.</div>}
+  </section>;
+}
+
 function ReportView({ report, summary, userId, organizationId, applicationId, canManage, archived, onCorrectionQueued }: {
   report: CustomerAssessmentReport;
   summary?: CustomerReportSummary;
@@ -342,7 +379,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
   const originSections = (['internal', 'external'] as const).map(origin => ({ origin, analysis: report[origin] }));
 
   return <div className="customer-report-detail">
-    <div className="customer-report-title"><div><span className="customer-eyebrow">INFORME DE EVALUACIÓN</span><h2>{report.applicationName}</h2><p>{modeLabels[report.mode]} · {date(report.finishedAt)}</p></div><button className="customer-button" disabled={downloading} onClick={async () => {
+    <div className="customer-report-title"><div><span className="customer-eyebrow">INFORME DE EVALUACIÓN</span><h2>{report.applicationName}</h2><p>{reportInputLabel(report)} · {date(report.finishedAt)}</p></div><button className="customer-button" disabled={downloading} onClick={async () => {
       setDownloading(true); setDownloadError(null);
       try { await customerApi.recordReportDownload(organizationId, applicationId, report.id); downloadReport(report); }
       catch (error) { setDownloadError(readableError(error)); }
@@ -351,6 +388,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
     {downloadError && <p className="customer-form-error" role="alert">{downloadError}</p>}
     <div className="customer-report-subject">
       {report.subject.sourceSnapshotId && <div><span>Instantánea de código</span><strong>{summary?.subject.sourceDigest?.slice(0, 16) ?? report.subject.sourceDigest?.slice(0, 16)}…</strong></div>}
+      {report.subject.containerImageDigest && <div><span>Digest de imagen {report.subject.containerImageReference ? 'pública' : 'subida'}</span><strong>{report.subject.containerImageDigest.slice(0, 24)}…</strong>{report.subject.containerImageReference && <small>{report.subject.containerImageReference}</small>}</div>}
       {report.subject.origin && <div><span>Origen HTTPS autorizado</span><strong>{report.subject.origin}</strong></div>}
       {report.subject.targetVersion !== null && <div><span>Versión de autorización</span><strong>{report.subject.targetVersion}</strong></div>}
       <div><span>Perfil</span><strong>Observación · {report.actionsPerformed.length} acciones</strong></div>
@@ -370,7 +408,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
         </details>;
       })}</div>}
     </section>
-    <ReportRecommendations
+    {report.subject.containerImageDigest ? <section className="customer-report-section"><div className="customer-section-heading"><div><span className="customer-eyebrow">ACTUALIZACIÓN</span><h3>Cómo corregir las CVE de la imagen</h3></div></div><p>Actualiza los paquetes en el Dockerfile o manifiestos de construcción, crea una nueva imagen y vuelve a evaluarla. Este informe no modifica ni reconstruye imágenes.</p></section> : <ReportRecommendations
       key={`${userId}:${organizationId}:${applicationId}:${report.id}`}
       userId={userId}
       organizationId={organizationId}
@@ -383,9 +421,9 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
       canManage={canManage}
       archived={archived}
       onQueued={onCorrectionQueued}
-    />
+    />}
     <section className="customer-report-section customer-coverage"><div className="customer-section-heading"><div><span className="customer-eyebrow">COBERTURA</span><h3>Qué se evaluó</h3></div></div>
-      <div className="customer-analysis-grid">{originSections.map(({ origin, analysis }) => <article className="customer-analysis-card" key={origin}><div className="customer-card-heading"><h4>{sourceLabels[origin]}</h4><span className="customer-status customer-status-muted">{analysis ? analysisLabels[analysis.status] : 'No solicitado'}</span></div>{analysis ? <><p>{analysis.tool.name} · v{analysis.tool.version}</p><ul>{analysis.coverage.map(item => <li key={item.capability}><span><strong>{item.capability}</strong><small>{item.detail}</small></span><span className="customer-status customer-status-muted">{coverageLabels[item.state]}</span></li>)}</ul>{analysis.limitations.length > 0 && <details className="customer-analysis-limits"><summary>Límites del perfil ({analysis.limitations.length})</summary><ul>{analysis.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></details>}</> : <p>Esta perspectiva no se solicitó para este informe.</p>}</article>)}</div>
+      <div className="customer-analysis-grid">{originSections.map(({ origin, analysis }) => <article className="customer-analysis-card" key={origin}><div className="customer-card-heading"><h4>{report.subject.containerImageDigest && origin === 'internal' ? 'Imagen' : sourceLabels[origin]}</h4><span className="customer-status customer-status-muted">{analysis ? analysisLabels[analysis.status] : 'No solicitado'}</span></div>{analysis ? <><p>{analysis.tool.name} · v{analysis.tool.version}</p><ul>{analysis.coverage.map(item => <li key={item.capability}><span><strong>{coverageCapabilityLabel(item.capability)}</strong><small>{item.detail}</small></span><span className="customer-status customer-status-muted">{coverageLabels[item.state]}</span></li>)}</ul>{analysis.limitations.length > 0 && <details className="customer-analysis-limits"><summary>Límites del perfil ({analysis.limitations.length})</summary><ul>{analysis.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></details>}</> : <p>Esta perspectiva no se solicitó para este informe.</p>}</article>)}</div>
     </section>
     {report.limitations.length > 0 && <section className="customer-report-section"><div className="customer-section-heading"><div><span className="customer-eyebrow">CONTEXTO</span><h3>Límites del informe</h3></div></div><ul className="customer-report-limitations">{report.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></section>}
   </div>;
@@ -400,31 +438,47 @@ function downloadReport(report: CustomerAssessmentReport) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-function AssessmentForm({ organizationId, applicationId, sources, targets, canManage, archived, onQueued }: { organizationId: string; applicationId: string; sources: CustomerSourceSummary[]; targets: CustomerTarget[]; canManage: boolean; archived: boolean; onQueued: (jobId: string) => void }) {
+function AssessmentForm({ organizationId, applicationId, sources, images, targets, canManage, archived, onQueued }: { organizationId: string; applicationId: string; sources: CustomerSourceSummary[]; images: CustomerContainerImageSummary[]; targets: CustomerTarget[]; canManage: boolean; archived: boolean; onQueued: (jobId: string) => void }) {
   const [mode, setMode] = useState<AssessmentMode>('external');
+  const [inputKind, setInputKind] = useState<'source_snapshot' | 'container_image'>('source_snapshot');
   const [sourceSnapshotId, setSourceSnapshotId] = useState('');
+  const [imageSource, setImageSource] = useState<'archive' | 'registry'>('archive');
+  const [imageId, setImageId] = useState('');
+  const [registryReference, setRegistryReference] = useState('');
   const [targetId, setTargetId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const verifiedTargets = targets.filter(target => target.status === 'verified' && target.expiresAt && Date.parse(target.expiresAt) > Date.now());
+  const usesImage = mode === 'internal' && inputKind === 'container_image';
+  const parsedRegistryReference = customerPublicImageReferenceSchema.safeParse(registryReference.trim());
+  const hasImage = imageSource === 'archive' ? images.some(image => image.id === imageId) : parsedRegistryReference.success;
   const queue = useMutation({
-    mutationFn: () => customerApi.queue({ organizationId, applicationId, mode, sourceSnapshotId: mode === 'external' ? null : sourceSnapshotId || null, targetId: mode === 'internal' ? null : targetId || null }),
+    mutationFn: () => customerApi.queue({
+      organizationId, applicationId, mode,
+      sourceSnapshotId: mode === 'external' || usesImage ? null : sourceSnapshotId || null,
+      targetId: mode === 'internal' ? null : targetId || null,
+      ...(usesImage ? { inputKind: 'container_image' as const, containerImage: imageSource === 'archive'
+        ? { kind: 'archive' as const, imageId }
+        : { kind: 'registry' as const, reference: customerPublicImageReferenceSchema.parse(registryReference.trim()) } } : {}),
+    }),
     onSuccess: result => { setError(null); onQueued(result.jobId); },
     onError: caught => setError(readableError(caught)),
   });
-  const needsSource = mode !== 'external';
+  const needsSource = mode !== 'external' && !usesImage;
   const needsTarget = mode !== 'internal';
   const hasSource = sources.some(source => source.id === sourceSnapshotId);
   const hasTarget = verifiedTargets.some(target => target.id === targetId);
-  const ready = (!needsSource || hasSource) && (!needsTarget || hasTarget);
+  const ready = (!needsSource || hasSource) && (!needsTarget || hasTarget) && (!usesImage || hasImage);
 
   return <section className="customer-card customer-assessment-card">
     <div className="customer-card-heading"><div><span className="customer-eyebrow">NUEVA EVALUACIÓN</span><h2>Define el alcance</h2></div><span className="customer-status customer-status-muted">Observación</span></div>
-    <p className="customer-card-copy">Elige sólo las perspectivas que autorizas. La evaluación externa funciona sin código fuente y el análisis interno no ejecuta archivos.</p>
+    <p className="customer-card-copy">Elige sólo las perspectivas que autorizas. El análisis de código y de imágenes no ejecuta archivos ni inicia contenedores.</p>
     <form className="customer-form customer-assessment-form" onSubmit={event => { event.preventDefault(); setError(null); queue.mutate(); }}>
-      <label htmlFor="assessment-mode">Perspectivas</label><select id="assessment-mode" value={mode} onChange={event => { setMode(event.target.value as AssessmentMode); setError(null); }} disabled={queue.isPending}><option value="external">HTTPS autorizado (sin código)</option><option value="internal">Código fuente</option><option value="both">Código + HTTPS</option></select>
+      <label htmlFor="assessment-mode">Perspectiva</label><select id="assessment-mode" value={mode} onChange={event => { const nextMode = event.target.value as AssessmentMode; setMode(nextMode); if (nextMode !== 'internal') setInputKind('source_snapshot'); setError(null); }} disabled={queue.isPending}><option value="external">HTTPS autorizado (sin código)</option><option value="internal">Análisis interno</option><option value="both">Código + HTTPS</option></select>
+      {mode === 'internal' && <><label htmlFor="assessment-input-kind">Tipo de activo interno</label><select id="assessment-input-kind" value={inputKind} onChange={event => setInputKind(event.target.value as 'source_snapshot' | 'container_image')} disabled={queue.isPending}><option value="source_snapshot">Código fuente</option><option value="container_image">Imagen de contenedor</option></select></>}
+      {usesImage && <><label htmlFor="assessment-image-source">Origen de la imagen</label><select id="assessment-image-source" value={imageSource} onChange={event => setImageSource(event.target.value as 'archive' | 'registry')} disabled={queue.isPending}><option value="archive">Archivo Docker/OCI guardado</option><option value="registry">Referencia de registro público</option></select>{imageSource === 'archive' ? <><label htmlFor="assessment-image-archive">Archivo guardado</label><select id="assessment-image-archive" value={imageId} onChange={event => setImageId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una imagen subida</option>{images.map(image => <option key={image.id} value={image.id}>{image.label} · {image.digest.slice(0, 12)}…</option>)}</select></> : <><label htmlFor="assessment-image-reference">Referencia pública con digest</label><input id="assessment-image-reference" value={registryReference} onChange={event => setRegistryReference(event.target.value)} disabled={queue.isPending} maxLength={512} placeholder="docker.io/library/alpine@sha256:…" /><p className="customer-field-note">Sólo docker.io, ghcr.io, quay.io, public.ecr.aws y gcr.io, siempre con digest SHA-256. No se aceptan etiquetas mutables ni credenciales.</p>{registryReference && !parsedRegistryReference.success && <p className="customer-form-error" role="alert">Usa un registro público admitido y una referencia completa fijada por digest.</p>}</>}</>}
       {needsSource && <><label htmlFor="assessment-source">Instantánea de código</label><select id="assessment-source" value={sourceSnapshotId} onChange={event => setSourceSnapshotId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una instantánea</option>{sources.map(source => <option key={source.id} value={source.id}>{source.revision} · {source.fileCount} archivos · {date(source.createdAt)}</option>)}</select></>}
       {needsTarget && <><label htmlFor="assessment-target">Origen HTTPS verificado</label><select id="assessment-target" value={targetId} onChange={event => setTargetId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona un origen verificado</option>{verifiedTargets.map(target => <option key={target.id} value={target.id}>{target.origin} · {scanProfileLabels[target.scanProfile ?? 'root']}{(target.scanProfile ?? 'root') === 'public_surface' ? ' · máx. 10 GET' : ''} · vence {target.expiresAt ? date(target.expiresAt) : '—'}</option>)}</select></>}
-      {!ready && <p className="customer-field-note">{needsTarget && !hasTarget ? 'Verifica primero un dominio HTTPS autorizado. ' : ''}{needsSource && !hasSource ? 'Sube primero una instantánea de código.' : ''}</p>}
+      {!ready && <p className="customer-field-note">{needsTarget && !hasTarget ? 'Verifica primero un dominio HTTPS autorizado. ' : ''}{needsSource && !hasSource ? 'Sube primero una instantánea de código. ' : ''}{usesImage && !hasImage ? imageSource === 'archive' ? 'Sube primero un archivo de imagen.' : 'Escribe una referencia pública fijada por digest.' : ''}</p>}
       {error && <p className="customer-form-error" role="alert">{error}</p>}
       <button className="customer-button customer-button-primary" disabled={!canManage || archived || !ready || queue.isPending}>{queue.isPending ? 'Guardando evaluación…' : 'Iniciar evaluación'}</button>
       {archived && <p className="customer-field-note">Reactiva esta aplicación antes de iniciar otra evaluación.</p>}
@@ -478,6 +532,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     if (!organizationId || !applicationId) throw new Error('Selecciona una aplicación.');
     return customerApi.sources(organizationId, applicationId);
   }, retry: false });
+  const images = useQuery({ queryKey: ['customer-data', userId, 'container-images', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
+    if (!organizationId || !applicationId) throw new Error('Selecciona una aplicación.');
+    return customerApi.containerImages(organizationId, applicationId);
+  }, retry: false });
   const reports = useQuery({ queryKey: ['customer-data', userId, 'reports', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
     if (!organizationId || !applicationId) throw new Error('Selecciona una aplicación.');
     return customerApi.reports(organizationId, applicationId);
@@ -502,6 +560,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     for (const queryKey of [
       ['customer-data', userId, 'applications', organizationId], ['customer-data', userId, 'targets', organizationId, applicationId],
       ['customer-data', userId, 'sources', organizationId, applicationId], ['customer-data', userId, 'reports', organizationId, applicationId],
+      ['customer-data', userId, 'container-images', organizationId, applicationId],
     ]) queryClient.invalidateQueries({ queryKey }).catch(caught => setPageError(readableError(caught)));
   };
   const signOut = useMutation({
@@ -575,15 +634,15 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
         : applications.isPending ? <Loading label="Cargando aplicaciones…" />
         : applications.error ? <ErrorNotice message={readableError(applications.error)} retry={() => { applications.refetch().catch(caught => setPageError(readableError(caught))); }} />
         : !selectedApplication ? <Onboarding userId={userId} initialOrganizationId={organizationId} canManage={canManage} onWorkspaceCreated={() => undefined} onScanQueued={(scope, jobId) => { setSelectedApplicationId(scope.applicationId); setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />
-        : page === 'overview' && sources.data?.length === 0 && applicationReports.length === 0 && !activeJob ? <Onboarding userId={userId} initialOrganizationId={organizationId} initialApplicationId={selectedApplication.applicationId} canManage={canManage} onWorkspaceCreated={() => undefined} onScanQueued={(scope, jobId) => { setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />
+        : page === 'overview' && sources.data?.length === 0 && images.data?.length === 0 && applicationReports.length === 0 && !activeJob ? <Onboarding userId={userId} initialOrganizationId={organizationId} initialApplicationId={selectedApplication.applicationId} canManage={canManage} onWorkspaceCreated={() => undefined} onScanQueued={(scope, jobId) => { setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />
         : <>
           <div className="customer-page-heading"><div><span className="customer-eyebrow">{workspace?.name} · {selectedApplication.name}</span><h1>{page === 'overview' ? 'Seguridad de tus aplicaciones' : pageTitle}</h1><p>{page === 'overview' ? 'Evalúa únicamente los activos que tu equipo autoriza y revisa cada conclusión con su evidencia.' : page === 'applications' ? 'Administra el alcance externo y las instantáneas de código de esta aplicación.' : page === 'operations' ? 'Vigila esta aplicación, revisa señales y prepara pasos consultivos según la evidencia vigente.' : 'Historial de evaluaciones e informes con cobertura, observaciones y evidencia.'}</p></div>{selectedApplication.archived && <span className="customer-status customer-status-muted">Aplicación archivada</span>}</div>
 
-          {targets.isPending || sources.isPending || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance de la aplicación…" /> : (targets.error || sources.error || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
+          {targets.isPending || sources.isPending || images.isPending || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance de la aplicación…" /> : (targets.error || sources.error || images.error || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? images.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
             {page === 'overview' && <>
               {activeJob && <JobStatusBanner purpose={activeJob.purpose} job={jobResult} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} />}
               <div className="customer-overview-grid"><section className="customer-welcome-card"><span className="customer-eyebrow">ALCANCE CONTROLADO</span><h2>{selectedApplication.name}</h2><p>El análisis HTTPS puede funcionar sin acceso al repositorio. El modo combinado requiere tanto una instantánea autorizada como un dominio verificado.</p><div className="customer-overview-stats"><div><strong>{sources.data?.length ?? 0}</strong><span>Instantáneas</span></div><div><strong>{targets.data?.filter(target => target.status === 'verified').length ?? 0}</strong><span>Orígenes verificados</span></div><div><strong>{applicationReports.length}</strong><span>Informes</span></div></div><button className="customer-button customer-button-secondary" onClick={() => setPage('applications')}>Configurar alcance</button></section>
-                <AssessmentForm key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} />
+                <AssessmentForm key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} images={images.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} />
               </div>
               {applicationReports.length > 0 && <section className="customer-card customer-next-actions"><div><span className="customer-eyebrow">SIGUIENTE PASO</span><h2>Convierte el informe en trabajo claro</h2><p>Revisa las recomendaciones, comprueba incidentes y configura vigilancia desde esta aplicación.</p></div><button className="customer-button customer-button-primary" onClick={() => { setSelectedReportId(applicationReports[0]?.id ?? null); setPage('reports'); }}>Ver recomendaciones</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Ver incidentes</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Configurar vigilancia</button></section>}
               <section className="customer-card customer-recent-card"><div className="customer-card-heading"><div><span className="customer-eyebrow">ACTIVIDAD RECIENTE</span><h2>Informes</h2></div><button className="customer-link-button" onClick={() => setPage('reports')}>Ver historial →</button></div>{applicationReports.length === 0 ? <div className="customer-empty-inline">Todavía no hay informes para esta aplicación. Define el alcance e inicia una evaluación cuando esté listo.</div> : <ReportList reports={applicationReports.slice(0, 4)} selectedId={visibleReportId} select={id => { setSelectedReportId(id); setPage('reports'); }} />}</section>
@@ -593,7 +652,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
               <section className="customer-card customer-applications-card"><div className="customer-card-heading"><div><span className="customer-eyebrow">APLICACIONES</span><h2>Activos de {workspace?.name}</h2></div>{canManage && <ApplicationCreate organizationId={organizationId} disabled={false} onCreated={id => { setSelectedApplicationId(id); applications.refetch().catch(caught => setPageError(readableError(caught))); }} />}</div>
                 <div className="customer-application-grid">{(applications.data ?? []).map(application => <button className={application.applicationId === applicationId ? 'customer-application-card is-selected' : 'customer-application-card'} key={application.applicationId} onClick={() => { setSelectedApplicationId(application.applicationId); setSelectedReportId(null); }}><span className="customer-app-icon">▦</span><span><strong>{application.name}</strong><small>{application.archived ? 'Archivada' : 'Activa'} · Añadida {date(application.createdAt)}</small></span><span className="customer-app-role">{application.applicationId === applicationId ? 'Seleccionada' : 'Abrir'}</span></button>)}</div>
               </section>
-              <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /></div>
+              <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><ContainerImageEnrollment key={`${organizationId}:${selectedApplication.applicationId}:images`} organizationId={organizationId} applicationId={selectedApplication.applicationId} images={images.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /></div>
               <GitHubRepositoryPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:github`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} onScanQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPage('overview'); setNotice('La instantánea de GitHub está guardada y la primera evaluación se ejecuta en segundo plano.'); refreshApplicationData(); }} />
               <ContextPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} analyzedDigest={applicationReports[0]?.subject.sourceDigest ?? null} />
               <ApprovalPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:actions`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} isOwner={workspace?.role === 'owner'} />
@@ -605,7 +664,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
             {page === 'operations' && <><IncidentList organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} /><ProtectionPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:protection`} scope={{ organizationId, applicationId: selectedApplication.applicationId }} canManage={canManage && !selectedApplication.archived} /><OperationsPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} /><NotificationsPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:notifications`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} /></>}
 
           {page === 'reports' && <>
-            {report.data && <section className="customer-card customer-next-actions"><div><span className="customer-eyebrow">INFORME DISPONIBLE</span><h2>¿Qué quieres hacer ahora?</h2><p>Las recomendaciones y su cobertura aparecen dentro del informe. Incidentes y vigilancia están en el área operativa.</p></div><button className="customer-button customer-button-primary" onClick={() => document.getElementById('recommendations-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Ver recomendaciones</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Ver incidentes</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Configurar vigilancia</button></section>}
+            {report.data && <section className="customer-card customer-next-actions"><div><span className="customer-eyebrow">INFORME DISPONIBLE</span><h2>¿Qué quieres hacer ahora?</h2><p>{report.data.subject.containerImageDigest ? 'Actualiza y vuelve a construir la imagen a partir de la evidencia del informe.' : 'Las recomendaciones y su cobertura aparecen dentro del informe.'} Incidentes y vigilancia están en el área operativa.</p></div>{!report.data.subject.containerImageDigest && <button className="customer-button customer-button-primary" onClick={() => document.getElementById('recommendations-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Ver recomendaciones</button>}<button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Ver incidentes</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Configurar vigilancia</button></section>}
             {activeJob && activeJob.organizationId === organizationId && activeJob.applicationId === selectedApplication.applicationId && <JobStatusBanner purpose={activeJob.purpose} job={jobResult} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} />}
             <div className="customer-report-layout"><section className="customer-card customer-report-history"><div className="customer-card-heading"><div><span className="customer-eyebrow">HISTORIAL</span><h2>{applicationReports.length} informes</h2></div></div>{applicationReports.length === 0 ? <div className="customer-empty-inline">Los informes aparecerán aquí cuando termine una evaluación.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} select={setSelectedReportId} />}</section><section className="customer-card customer-report-card">{report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>}</section></div>
           </>}
@@ -618,7 +677,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
 }
 
 function ReportList({ reports, selectedId, select }: { reports: CustomerReportSummary[]; selectedId: string | null; select: (id: string) => void }) {
-  return <ul className="customer-report-list">{reports.map(report => <li key={report.id}><button className={selectedId === report.id ? 'is-selected' : ''} onClick={() => select(report.id)}><span className="customer-report-icon">▤</span><span className="customer-report-row-title"><strong>{modeLabels[report.mode]}</strong><small>{date(report.finishedAt)} · {report.findingCount} observaciones</small></span><span className="customer-report-app">{report.applicationName}</span><span aria-hidden="true">›</span></button></li>)}</ul>;
+  return <ul className="customer-report-list">{reports.map(report => <li key={report.id}><button className={selectedId === report.id ? 'is-selected' : ''} onClick={() => select(report.id)}><span className="customer-report-icon">▤</span><span className="customer-report-row-title"><strong>{report.subject.containerImageDigest ? 'Imagen de contenedor' : modeLabels[report.mode]}</strong><small>{date(report.finishedAt)} · {report.findingCount} observaciones</small></span><span className="customer-report-app">{report.applicationName}</span><span aria-hidden="true">›</span></button></li>)}</ul>;
 }
 
 function JobStatusBanner({ purpose, job, error, retry }: { purpose: 'assessment' | 'correction'; job: CustomerJob | undefined; error: string | null; retry: () => void }) {
