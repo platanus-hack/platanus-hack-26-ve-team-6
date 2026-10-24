@@ -103,6 +103,26 @@ ensure_scanner_secret() {
   [[ -f "$path" && ! -L "$path" && "$(wc -c <"$path")" -eq 32 ]] || fail 'El secreto del scanner debe ser un archivo regular de 32 bytes.' 2
   chmod 600 "$path"
 }
+ensure_scanner_tls() {
+  local gateway="$1" cert="$state_dir/scanner.crt" key="$state_dir/scanner.key" cert_public key_public tmp_cert="${state_dir}/.scanner.crt.$$" tmp_key="${state_dir}/.scanner.key.$$"
+  if [[ -f "$cert" && ! -L "$cert" && -f "$key" && ! -L "$key" ]] \
+    && openssl x509 -in "$cert" -noout -checkhost host.docker.internal >/dev/null 2>&1 \
+    && openssl x509 -in "$cert" -noout -checkip "$gateway" >/dev/null 2>&1 \
+    && openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null 2>&1 \
+    && openssl x509 -in "$cert" -noout -ext basicConstraints 2>/dev/null | grep -q 'CA:TRUE'; then
+    cert_public="$(openssl x509 -in "$cert" -pubkey -noout | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
+    key_public="$(openssl pkey -in "$key" -pubout -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
+    if [[ -n "$cert_public" && "$cert_public" == "$key_public" ]]; then chmod 600 "$cert" "$key"; return; fi
+  fi
+  (umask 077; openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
+    -keyout "$tmp_key" -out "$tmp_cert" -subj '/CN=host.docker.internal' \
+    -addext 'basicConstraints=critical,CA:TRUE' \
+    -addext 'keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign,cRLSign' \
+    -addext 'extendedKeyUsage=serverAuth' \
+    -addext "subjectAltName=DNS:host.docker.internal,IP:${gateway}") || fail 'No se pudo crear el certificado TLS privado del scanner.'
+  chmod 600 "$tmp_cert" "$tmp_key"
+  mv -f -- "$tmp_cert" "$cert"; mv -f -- "$tmp_key" "$key"
+}
 compose_ready() {
   local user db redis_password; user="$(env_value POSTGRES_USER)"; db="$(env_value POSTGRES_DB)"; redis_password="$(env_value REDIS_PASSWORD)"
   for _ in $(seq 1 90); do
@@ -117,14 +137,21 @@ scanner_running() {
   args="$(ps -p "$pid" -o args= 2>/dev/null || true)"; [[ "$args" == *"apps/scanner/dist/main.js"* && "$args" == *"$root"* ]]
 }
 start_scanner() {
-  scanner_running && return 0
   command -v pnpm >/dev/null 2>&1 || fail 'Se requiere pnpm 11 y Node.js 24 para el scanner local.' 2
-  local port gateway; port="$(env_value SCANNER_HOST_PORT)"; gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
+  local port gateway fingerprint current; port="$(env_value SCANNER_HOST_PORT)"; gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
   [[ "$gateway" =~ ^[0-9.]+$ ]] || fail 'No se pudo identificar la puerta de enlace de Docker para conectar el coordinator con el scanner.'
+  ensure_scanner_tls "$gateway"
+  fingerprint="$(sha256sum "$state_dir/scanner.crt" "$state_dir/scanner.key" | sha256sum | cut -d' ' -f1)"
+  if scanner_running; then
+    current="$(cat "$state_dir/scanner.tls-fingerprint" 2>/dev/null || true)"
+    [[ "$current" == "$fingerprint" ]] && return 0
+    stop_scanner
+  fi
   node -e 'process.exit(Number(process.versions.node.split(".")[0])===24?0:1)' || fail 'Gotchu requiere Node.js 24 para el scanner local.' 2
   (umask 077; touch "$state_dir/scanner.log")
-  GOTCHU_SCANNER_SECRET_FILE="$state_dir/scanner.secret" GOTCHU_SCANNER_PORT="$port" GOTCHU_SCANNER_HOST="$gateway" GOTCHU_SCANNER_OSV=1 NODE_ENV=development nohup node "$root/apps/scanner/dist/main.js" >>"$state_dir/scanner.log" 2>&1 </dev/null &
+  GOTCHU_SCANNER_SECRET_FILE="$state_dir/scanner.secret" GOTCHU_SCANNER_PORT="$port" GOTCHU_SCANNER_HOST="$gateway" GOTCHU_SCANNER_TLS_CERT_FILE="$state_dir/scanner.crt" GOTCHU_SCANNER_TLS_KEY_FILE="$state_dir/scanner.key" GOTCHU_SCANNER_OSV=1 NODE_ENV=development nohup node "$root/apps/scanner/dist/main.js" >>"$state_dir/scanner.log" 2>&1 </dev/null &
   printf '%s\n' "$!" >"$state_dir/scanner.pid"; chmod 600 "$state_dir/scanner.pid"
+  printf '%s\n' "$fingerprint" >"$state_dir/scanner.tls-fingerprint"; chmod 600 "$state_dir/scanner.tls-fingerprint"
 }
 wait_http() {
   node - "$1" "$2" <<'NODE'
@@ -157,7 +184,7 @@ up() {
   "${compose[@]}" up -d postgres redis; compose_ready
   INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" bash "$root/scripts/infra-db-bootstrap.sh"
   start_scanner; local port gateway; port="$(env_value SCANNER_HOST_PORT)"; gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
-  wait_http "http://${gateway}:${port}/readyz" scanner
+  NODE_EXTRA_CA_CERTS="$state_dir/scanner.crt" wait_http "https://${gateway}:${port}/readyz" scanner
   "${compose[@]}" --profile web --profile coordinator build web coordinator
   local coordinator_image="${project}-coordinator:latest"
   "${compose[@]}" --profile web --profile coordinator config --format json | node "$root/scripts/infra-check.mjs" "$coordinator_image"

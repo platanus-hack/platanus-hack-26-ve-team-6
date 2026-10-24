@@ -160,8 +160,9 @@ services:
       NODE_ENV: development
       GOTCHU_COORDINATOR_DATABASE_URL: postgresql://${GOTCHU_COORDINATOR_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_COORDINATOR_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
       GOTCHU_REDIS_URL: redis://:${REDIS_PASSWORD:?run scripts/infra-local-setup.sh first}@redis:6379
-      GOTCHU_SCANNER_ORIGIN: http://host.docker.internal:${SCANNER_HOST_PORT:-4400}
+      GOTCHU_SCANNER_ORIGIN: https://host.docker.internal:${SCANNER_HOST_PORT:-4400}
       GOTCHU_SCANNER_SECRET_FILE: /run/secrets/scanner.secret
+      GOTCHU_SCANNER_CA_FILE: /run/secrets/scanner.crt
       GOTCHU_CUSTOMER_DISCOVERY: ${GOTCHU_CUSTOMER_DISCOVERY:-false}
       GOTCHU_ORGANIZATION_IDS: ${GOTCHU_ORGANIZATION_IDS:-}
       GOTCHU_WORKER_URL: ${GOTCHU_WORKER_URL:-}
@@ -190,6 +191,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ${GOTCHU_STATE_DIR:-../.gotchu}/scanner.secret:/run/secrets/scanner.secret:ro
+      - ${GOTCHU_STATE_DIR:-../.gotchu}/scanner.crt:/run/secrets/scanner.crt:ro
     mem_limit: 768m
     cpus: 1.0
     ports:

@@ -52,7 +52,7 @@ El perfil Semgrep fijado en 1.90.0 está permitido sólo para desarrollo/pruebas
 ## Seguridad y exposición
 
 - Por defecto, los puertos publicados se enlazan a `127.0.0.1`. No cambies el bind de Compose para exponerlos directamente.
-- Mantén `${state_dir:-.gotchu}` privado: `.env`, el secreto HMAC del scanner y registros viven ahí con permisos `0600`; el directorio usa `0700`. No lo subas a Git ni compartas enlaces de configuración.
+- Mantén `${state_dir:-.gotchu}` privado: `.env`, el secreto HMAC, la clave TLS local del scanner y registros viven ahí con permisos `0600`; el directorio usa `0700`. El coordinator confía en el certificado local sólo para la conexión HTTPS al scanner. No subas estos archivos a Git ni compartas enlaces de configuración.
 - El primer arranque sólo permite credenciales locales para Auth.js. OIDC/GitHub no es obligatorio. Las contraseñas usan el hash scrypt existente y los límites actuales de autenticación.
 - `GOTCHU_PUBLIC_URL` se debe configurar con un origen HTTPS si se accede a través de un proxy reverso. El proxy debe terminar TLS, autenticar la gestión del host, limitar tamaños y tiempos de petición y reenviar únicamente a `127.0.0.1:3000`. Edita `.gotchu/.env` y recrea web con `./gotchu up` después de cambiarlo. Gotchu no termina TLS y no afirma que esta topología esté endurecida para producción.
 - La evaluación externa sólo debe apuntar a un origen cuya autorización tenga el cliente. Las acciones de proveedor, ejecución de código cliente, respuesta automática y recuperación permanecen deshabilitadas.
