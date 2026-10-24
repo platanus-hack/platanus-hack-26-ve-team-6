@@ -13,6 +13,10 @@ const MAX_WINDOW_EVENTS = 10_000;
 // CASE guards the cast even when PostgreSQL reorders query predicates.
 const eventTimeSql = "CASE WHEN pg_input_is_valid(payload->>'occurredAt','timestamptz') THEN (payload->>'occurredAt')::timestamptz END";
 const payloadSchema = z.object({ incidentId: z.uuid(), evidenceIds: z.array(z.uuid()).min(1).max(20) }).strict();
+const projectionPayloadSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('assessment_observation'), reportId: z.uuid() }).strict(),
+  z.object({ kind: z.literal('triage_evaluation'), windowBucket: z.number().int().nonnegative() }).strict(),
+]);
 export interface Investigator {
   investigate(input: { organizationId: string; applicationId: string; runId: string; deadline: Date; evidenceIds: readonly string[] }): Promise<InvestigationResult>;
 }
@@ -41,7 +45,6 @@ async function aggregate(dependencies: CoordinatorDependencies, claim: JobClaim)
       AND pg_input_is_valid(payload->>'occurredAt','timestamptz') IS TRUE`, [organizationId, applicationId, jobId]);
     const current = input.rows.map((row) => securityEventSchema.parse(row.payload));
     const operationalProjection = await observeRuntime(dependencies.database, tx, claim, current);
-    await evaluateTriage(tx,{organizationId,applicationId});
     const auth = current.filter((event) => event.type === 'auth.login_failed' || event.type === 'auth.login_succeeded');
     if (auth.length === 0) {
       await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', incidents: 0, quarantinedTimestamps: quarantined, operationalProjection } });
@@ -198,9 +201,10 @@ export async function processDurableJob(dependencies: CoordinatorDependencies, r
     else if (envelope.kind === 'notification') await dependencies.database.tenant(envelope.organizationId, async tx => {
       const current = await tx.query("SELECT id FROM gotchu.jobs WHERE organization_id=$1 AND id=$2 AND state='running' AND lease_token=$3 AND lease_until>clock_timestamp() FOR UPDATE", [envelope.organizationId, envelope.id, claim.leaseToken]);
       if (!current.rowCount) throw new BackendError('stale_lease', 'Observation projection requires a current job claim', 409);
-      const payload = z.object({ kind: z.literal('assessment_observation'), reportId: z.uuid() }).strict().parse(claim.payload);
+      const payload = projectionPayloadSchema.parse(claim.payload);
       try {
-        await observeAssessment(backendInTransaction(dependencies.database, envelope.organizationId, tx), tx, { organizationId: envelope.organizationId, applicationId: envelope.applicationId, reportId: payload.reportId });
+        if(payload.kind==='assessment_observation') await observeAssessment(backendInTransaction(dependencies.database, envelope.organizationId, tx), tx, { organizationId: envelope.organizationId, applicationId: envelope.applicationId, reportId: payload.reportId });
+        else await evaluateTriage(tx,{organizationId:envelope.organizationId,applicationId:envelope.applicationId});
         await completeJob(tx, { organizationId: envelope.organizationId, jobId: envelope.id, leaseToken: claim.leaseToken });
       } catch (error) {
         // Expired evidence, archived scope and full storage cannot improve through transport retries.

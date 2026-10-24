@@ -9,6 +9,7 @@ import {
 } from '@gotchu/contracts';
 import type { Transaction } from '@gotchu/database';
 import { audit, authorize, BackendError, canonicalJson, parse, sha256, type BaseDependencies, type Identity } from './core.js';
+import { enqueue } from './jobs.js';
 
 type Scope = z.infer<typeof customerScopeSchema>;
 const writes = ['owner', 'operator'] as const;
@@ -204,6 +205,8 @@ export function createOperationsService(deps: BaseDependencies) {
         const body = parse(operationObservationSchema, { ...fields, id: observationId, verification: 'trusted_observation', fresh: true });
         await tx.query('INSERT INTO gotchu.operation_observations(organization_id,application_id,id,idempotency_key,content_hash,body,basis,expires_at) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)', [value.organizationId, value.applicationId, observationId, value.idempotencyKey, contentHash, JSON.stringify(body), JSON.stringify(basis), value.expiresAt]);
         if (alertId) await tx.query('INSERT INTO gotchu.operation_alerts(organization_id,application_id,id,observation_id) VALUES($1,$2,$3,$4)', [value.organizationId, value.applicationId, alertId, observationId]);
+        const windowBucket = Math.floor(now / 300_000);
+        await enqueue(tx,{organizationId:value.organizationId,applicationId:value.applicationId,id:randomUUID(),kind:'notification',idempotencyKey:`triage:${value.applicationId}:${windowBucket}`,payload:{kind:'triage_evaluation',windowBucket}});
         return { observationId, alertId };
       });
     },
