@@ -35,7 +35,7 @@ scripts/infra-compose-validate.sh
 scripts/infra-live-check.sh
 ```
 
-The `test:postgres` package scripts each launch an isolated temporary PostgreSQL container and require Docker. `infra-live-check.sh` starts and removes its own local Docker project. The default Compose stack runs Postgres and Redis only; the application profiles are intentionally fail-closed placeholders.
+Build the workspace before running the isolated suites: their imports use built package exports. The `test:postgres` package scripts each launch an isolated temporary PostgreSQL container and require Docker. `infra-live-check.sh` starts and removes its own local Docker project. The default Compose stack runs Postgres and Redis only; the application profiles are intentionally fail-closed placeholders.
 
 ## Current boundary
 

@@ -88,7 +88,7 @@ If a worker saved a validated terminal checkpoint and the coordinator stopped be
 
 The run gateway validates the capability and rechecks scope and budgets against Postgres. It stores bounded, sanitized checkpoints with optimistic versioning. It can serve HTTPS directly and fails closed on non-loopback plaintext outside development or test. Local HTTP/TLS fixtures exercise the transport, but there is no production certificate provisioning or deployed TLS path.
 
-Investigation limits in the code cap a run at four model calls, eight additional read-tool calls, and five active minutes. The model operation is intentionally unavailable: without a configured provider adapter, requests return `503`; the live pipeline test expects the run to finish as unavailable with no model calls or spend. Deterministic event processing remains separate from model investigation.
+Investigation limits in the code cap a run at four model calls, eight additional read-tool calls, and five active minutes. The agent also has provisional token and currency guardrails. Authoritative per-run token and spend accounting must be implemented at the provider gateway before enabling models; the existing backend tracks call counts, reservations, and an organization spend ceiling. The model operation is intentionally unavailable: requests return `503`; the live pipeline test expects the run to finish as unavailable with no model calls or spend. Deterministic event processing remains separate from model investigation.
 
 ### Proposals and executor ledger
 
