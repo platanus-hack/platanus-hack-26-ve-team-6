@@ -234,3 +234,14 @@
 @media (prefers-reduced-motion: reduce) {
   .customer-report-list button, .customer-report-tab { transition: none; }
 }
+
+/* Dependency table: the artifact and origin cells carry long mono text, so give them room instead of a 110px sliver. */
+.customer-dependency-table th:nth-child(4), .customer-dependency-table td:nth-child(4) { min-width: 200px; }
+.customer-dependency-table th:nth-child(7), .customer-dependency-table td:nth-child(7), .customer-dependency-table th:nth-child(10), .customer-dependency-table td:nth-child(10) { min-width: 260px; }
+.customer-dependency-table td details { margin-top: 6px; }
+.customer-dependency-table td summary { cursor: pointer; font: 600 12.5px/1.5 var(--mono); }
+.customer-dependency-table td details p { margin: 6px 0; font-size: 14px; line-height: 1.6; }
+
+/* Card titles in my panels carry their label after the title, not as a kicker above it. */
+.customer-license-policy-panel > .customer-card-heading > div, .customer-decision-history > .customer-card-heading > div { display: flex; flex-direction: column-reverse; }
+.customer-license-policy-panel > .customer-card-heading .customer-eyebrow, .customer-decision-history > .customer-card-heading .customer-eyebrow { margin: 6px 0 0; }
