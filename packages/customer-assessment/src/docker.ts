@@ -61,6 +61,7 @@ export function createDockerScanners(): ScannerAdapter {
       try{return await pending;}finally{pending=undefined;}
     },
     async run(name,source,parentSignal) {
+      if (name === 'semgrep' && process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') throw new Error('development_scanner_profile_not_allowed');
       customerSourceSnapshotSchema.parse({revision:source.revision,files:source.files});
       const profile = profiles[name]; const id = `gotchu-scan-${randomUUID()}`;
       const directory = await mkdtemp(join(tmpdir(),'gotchu-scanner-'));
