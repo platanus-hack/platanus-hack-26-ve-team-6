@@ -577,6 +577,9 @@ async function start() {
       GOTCHU_COORDINATOR_HOST: '127.0.0.1',
       GOTCHU_ORGANIZATION_IDS: '',
       GOTCHU_CUSTOMER_DISCOVERY: 'true',
+      GOTCHU_MONITORING_ENABLED: 'true',
+      GOTCHU_MONITORING_OSV: 'true',
+      ...(process.env.GOTCHU_MONITORING_CONFIG_FILE ? { GOTCHU_MONITORING_CONFIG_FILE: process.env.GOTCHU_MONITORING_CONFIG_FILE } : {}),
       GOTCHU_COORDINATOR_DATABASE_URL: urls.coordinator,
       GOTCHU_REDIS_URL: redisUrl(infra),
       GOTCHU_SCANNER_ORIGIN: `http://127.0.0.1:${ports.scanner}`,
@@ -592,6 +595,7 @@ async function start() {
       GOTCHU_API_DATABASE_URL: urls.api,
       GOTCHU_INGEST_DATABASE_URL: urls.ingest,
       GOTCHU_LOCAL_AUTH_ENABLED: 'true',
+      ...(process.env.GOTCHU_MONITORING_CONFIG_FILE ? { GOTCHU_MONITORING_CONFIG_FILE: process.env.GOTCHU_MONITORING_CONFIG_FILE } : {}),
       GOTCHU_ALLOW_LOCAL_REGISTRATION: 'true',
       GOTCHU_EVENT_CREDENTIAL_DIRECTORY: join(directory, 'event-credentials'),
     });

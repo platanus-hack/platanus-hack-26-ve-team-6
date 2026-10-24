@@ -12,6 +12,8 @@ import { dispatchOutbox } from './jobs.js';
 import { createHttpInvestigator } from './investigator.js';
 import { reconcileDurableDeliveries } from './delivery.js';
 import { createCoordinatorTransport } from './transport.js';
+import { runMonitoringWork } from './monitoring.js';
+import { createConfiguredMonitoringAdapters } from './monitoring-adapters.js';
 
 function report(event: string, error?: unknown) {
   console.error(JSON.stringify({ event, type: error instanceof Error ? error.name : 'unknown', ...(error instanceof z.ZodError ? { fields: error.issues.map((issue) => issue.path.join('.')) } : {}) }));
@@ -54,10 +56,20 @@ async function main() {
   const dependencies = { database, backend, ...(investigator ? { investigator } : {}), ...(assessmentRunner ? { assessmentRunner } : {}), ...(customerAssessmentRunner ? { customerAssessmentRunner } : {}) };
   const transport = createCoordinatorTransport({ redisUrl: config.redisUrl, organizationIds: config.organizationIds, dependencies, report });
   const stop = new AbortController();
+  const monitoringEnabled = process.env.GOTCHU_MONITORING_ENABLED === 'true';
+  const monitoringAdapters = createConfiguredMonitoringAdapters({ ...(process.env.GOTCHU_MONITORING_CONFIG_FILE ? { configFile: process.env.GOTCHU_MONITORING_CONFIG_FILE } : {}), advisories: process.env.GOTCHU_MONITORING_OSV === 'true' });
+  let monitoringTask: Promise<void> | undefined;
   const loop = (async () => {
     let lastReconciliation = 0;
     while (!stop.signal.aborted) {
       try {
+        if (monitoringEnabled && !monitoringTask) {
+          const due = await backend.operations.claimDue({ limit: 1 });
+          const work = due[0];
+          if (work) monitoringTask = runMonitoringWork({ database, backend, adapters: monitoringAdapters }, work, stop.signal)
+            .catch(error => { if (!stop.signal.aborted) report('monitoring_run_degraded', error); })
+            .finally(() => { monitoringTask = undefined; });
+        }
         if (customerDiscovery) {
           const pending = await backend.customers.pendingOrganizations({ limit: 100 });
           const current = [...new Set([...config.organizationIds, ...pending])];
@@ -84,7 +96,7 @@ async function main() {
     void Promise.all([database.checkHealth(), transport.checkHealth()]).then(() => {
       const ready = discoveryHealthy && (allowedOrganizations.size > 0 || customerDiscovery);
       response.writeHead(ready ? 200 : 503, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ status: ready ? 'ready' : 'unassigned', assignedOrganizations: allowedOrganizations.size, investigatorConfigured: Boolean(investigator), customerDiscovery, customerScannerConfigured: Boolean(customerAssessmentRunner) }));
+      response.end(JSON.stringify({ status: ready ? 'ready' : 'unassigned', assignedOrganizations: allowedOrganizations.size, investigatorConfigured: Boolean(investigator), customerDiscovery, customerScannerConfigured: Boolean(customerAssessmentRunner), scheduledMonitoring: monitoringEnabled }));
     }).catch((error: unknown) => {
       report('coordinator_not_ready', error); response.writeHead(503); response.end('{"status":"unavailable"}');
     });
@@ -93,6 +105,7 @@ async function main() {
   const shutdown = async () => {
     stop.abort();
     await loop;
+    await monitoringTask;
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     try { await transport.close(); }
     finally { await Promise.all([database.close(), controlledTarget?.close()]); }
