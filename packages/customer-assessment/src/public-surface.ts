@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { customerRunInputSchema } from '@gotchu/contracts';
-import { analysis, evidence, finish, sha256 } from './common.js';
+import { analysis, evidence, finding, finish, sha256 } from './common.js';
 import { createHttpsPageProbe, type HttpsOptions } from './https.js';
+import { deriveHttpResponseFindings } from './response-findings.js';
 
 const customerTargetSchema = customerRunInputSchema.shape.target.unwrap();
 export const publicSurfaceTargetSchema = customerTargetSchema.extend({ scanProfile: z.literal('public_surface') }).strict();
@@ -330,14 +331,24 @@ export async function assessPublicSurface(target: PublicSurfaceTarget, signal: A
     'This is not a company-wide asset inventory. Subdomains, other ports, non-HTTPS services, JavaScript-generated routes, authenticated routes, query-based routes, API methods, and redirect destinations remain unknown.',
     'No response bodies, cookies, authorization headers, redirect locations, or customer credentials are retained. HTTP status and selected response headers apply only to the requested path.',
   );
+  let completeResponseCount = 0;
   for (const item of result.entrypoints) {
     if (item.status === null || !item.tlsVerified) continue;
-    evidence(a, 'http_response', `${parsedTarget.origin}${item.path}`, {
+    const id = evidence(a, 'http_response', `${parsedTarget.origin}${item.path}`, {
       profile: result.profile, targetId: parsedTarget.id, targetVersion: parsedTarget.version,
       path: item.path, discoveredBy: item.discoveredBy, status: item.status, headers: item.headers,
       tlsVerified: item.tlsVerified, bodyBytes: item.bodyBytes, incomplete: item.incomplete,
     }, { name: 'node:https', version: process.versions.node }, item.observedAt);
+    if (item.incomplete === null) completeResponseCount++;
+    for (const responseFinding of deriveHttpResponseFindings({
+      location: `${parsedTarget.origin}${item.path}`, status: item.status, headers: item.headers,
+      tlsVerified: item.tlsVerified, incomplete: item.incomplete, evidenceId: id,
+    })) finding(a, responseFinding);
   }
+  const unknownResponseCount = result.entrypoints.filter(item =>
+    item.status === null || !item.tlsVerified || item.incomplete !== null,
+  ).length + result.unrequestedEntrypoints;
+  const responseHeaderCoverageComplete = completeResponseCount > 0 && unknownResponseCount === 0;
   const pathsWithResponses = new Set(result.entrypoints.filter(item => item.status !== null && item.tlsVerified).map(item => item.path));
   const missingKnown = KNOWN_PATHS.filter(item => !pathsWithResponses.has(item.path)).map(item => item.path);
   const rootObserved = pathsWithResponses.has('/');
@@ -346,6 +357,7 @@ export async function assessPublicSurface(target: PublicSurfaceTarget, signal: A
   a.coverage.push(
     { capability: 'public_surface_origin', state: rootObserved ? 'inspected' : 'unavailable', detail: rootObserved ? `Observed the verified HTTPS origin. ${coverageDetail(result)}` : `The root response could not be verified. ${coverageDetail(result)}` },
     { capability: 'public_surface_known_paths', state: allKnownObserved ? 'inspected' : 'unavailable', detail: allKnownObserved ? `Received TLS-verified HTTP responses from the fixed known paths. ${coverageDetail(result)}` : `Known paths without a TLS-verified HTTP response: ${missingKnown.join(', ')}. ${coverageDetail(result)}` },
+    { capability: 'public_surface_response_headers', state: responseHeaderCoverageComplete ? 'inspected' : 'unavailable', detail: `Derived path-specific findings from ${completeResponseCount} complete TLS-verified HTTP responses. ${unknownResponseCount} attempted or queued responses have unknown header coverage; no header absence is inferred for incomplete, failed, or unrequested paths.` },
     { capability: 'same_origin_link_discovery', state: discoveryComplete ? 'inspected' : 'unavailable', detail: `${coverageDetail(result)} Only parseable HTML anchors, robots.txt Sitemap directives, and sitemap loc entries were considered.` },
     { capability: 'authenticated_routes', state: 'unsupported', detail: 'No credentials or authenticated requests were used. A 401/403 response does not establish the behavior or completeness of protected routes.' },
     { capability: 'subdomains_and_non_https_services', state: 'unsupported', detail: 'No subdomain enumeration, alternate port checks, non-HTTPS checks, or company-wide asset discovery were performed.' },
