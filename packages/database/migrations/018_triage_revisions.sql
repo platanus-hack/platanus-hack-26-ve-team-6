@@ -29,8 +29,6 @@ CREATE POLICY tenant_scope ON gotchu.triage_revisions USING(organization_id=gotc
 REVOKE ALL ON gotchu.triage_incidents,gotchu.triage_revisions FROM PUBLIC;
 GRANT SELECT ON gotchu.triage_incidents,gotchu.triage_revisions TO gotchu_api,gotchu_coordinator;
 GRANT UPDATE(status,updated_at) ON gotchu.triage_incidents TO gotchu_api;
-CREATE POLICY tenant_scope ON gotchu.triage_incidents USING(organization_id=gotchu.tenant_id()) WITH CHECK(organization_id=gotchu.tenant_id());
-CREATE POLICY tenant_scope ON gotchu.triage_revisions USING(organization_id=gotchu.tenant_id()) WITH CHECK(organization_id=gotchu.tenant_id());
 CREATE FUNCTION gotchu.triage_insert_revision(p_org uuid,p_app uuid,p_incident uuid,p_revision uuid,p_environment text,p_started timestamptz,p_ended timestamptz,p_body jsonb,p_evidence jsonb) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE current_incident gotchu.triage_incidents; latest gotchu.triage_revisions; next_revision integer;
