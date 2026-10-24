@@ -79,6 +79,7 @@ E2FSPROGS_FAKE_TIME=1700000000 node "${PACKAGE_DIR}/scripts/normalize-rootfs.mjs
 ROOTFS_SHA="$(sha256sum "${ROOTFS}" | cut -d ' ' -f 1)"
 ROOTFS_CACHE="${CACHE_DIR}/rootfs-${ROOTFS_SHA}.ext4"
 if [[ ! -f "${ROOTFS_CACHE}" ]]; then ln "${ROOTFS}" "${ROOTFS_CACHE}" 2>/dev/null || true; fi
+echo "${ROOTFS_SHA}  ${ROOTFS_CACHE}" | sha256sum --check --status || { echo "Cached rootfs digest path contains different or corrupted data; refusing to replace it" >&2; exit 1; }
 echo "Built rootfs SHA-256: ${ROOTFS_SHA} (${ROOTFS_CACHE})"
 OLD_ROOTFS_SHA="$(read_lock 'rootfs.sha256')"
 if [[ "${PIN_IMAGES}" == "--pin" ]]; then
