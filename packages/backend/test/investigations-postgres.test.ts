@@ -20,7 +20,7 @@ live('material investigations on real PostgreSQL', () => {
     const evidenceId = randomUUID();
     const incidentId = randomUUID();
     await api.investigationModels.configure(identity, {
-      organizationId: f.a.organizationId, provider: 'openai_compatible', endpoint: 'http://localhost:11434/v1', modelId: 'fixture-model',
+      organizationId: f.a.organizationId, providerPresetId: 'openai', modelId: 'gpt-5.4',
       consentToExternalProcessing: true, dataScopes: ['runtime_summaries'], inputPriceMicroUsdPerMillionTokens: 0,
       outputPriceMicroUsdPerMillionTokens: 0, organizationBudgetCents: 100, organizationTokenBudget: 10_000,
     });
@@ -51,5 +51,55 @@ live('material investigations on real PostgreSQL', () => {
 
     await expect(api.investigations.list({ userId: f.b.userId }, { organizationId: f.a.organizationId, applicationId: f.a.applicationId }))
       .rejects.toMatchObject({ code: 'forbidden' });
+  });
+
+  it('keeps connection testing server-enforced for Owners', async () => {
+    const viewer = `viewer:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'viewer')", [f.a.organizationId, viewer]);
+    await expect(api.investigationModels.testConnection({ userId: viewer }, { organizationId: f.a.organizationId }))
+      .rejects.toMatchObject({ code: 'forbidden', status: 403 });
+    await expect(api.investigationModels.testConnection({ userId: f.a.userId }, { organizationId: f.a.organizationId }))
+      .resolves.toEqual({ status: 'failed', reason: 'probe_unavailable', inputTokens: null, outputTokens: null });
+  });
+
+  it('checks Owner access before storing a submitted provider key', async () => {
+    const viewer = `viewer:${randomUUID()}`;
+    const storedSecrets: Uint8Array[] = [];
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'viewer')", [f.a.organizationId, viewer]);
+    const apiWithSecrets = createBackend({ database: f.databases.gotchu_api, modelSecrets: {
+      get: async () => new Uint8Array(),
+      put: async (_reference, secret) => { storedSecrets.push(secret); },
+      delete: async () => {},
+    } });
+    await expect(apiWithSecrets.investigationModels.configure({ userId: viewer }, {
+      organizationId: f.a.organizationId, providerPresetId: 'openai', modelId: 'gpt-5.4', apiKey: 'provider-key',
+      consentToExternalProcessing: true, dataScopes: ['runtime_summaries'], inputPriceMicroUsdPerMillionTokens: 0,
+      outputPriceMicroUsdPerMillionTokens: 0, organizationBudgetCents: 100, organizationTokenBudget: 10_000,
+    })).rejects.toMatchObject({ code: 'forbidden', status: 403 });
+    expect(storedSecrets).toHaveLength(0);
+  });
+
+  it('does not reuse a saved key after the Owner switches provider presets', async () => {
+    const storedSecrets = new Map<string, Uint8Array>();
+    const apiWithSecrets = createBackend({ database: f.databases.gotchu_api, modelSecrets: {
+      get: async reference => storedSecrets.get(reference) ?? new Uint8Array(),
+      put: async (reference, secret) => { storedSecrets.set(reference, secret); },
+      delete: async reference => { storedSecrets.delete(reference); },
+    } });
+    const identity = { userId: f.a.userId };
+    await apiWithSecrets.investigationModels.configure(identity, {
+      organizationId: f.a.organizationId, providerPresetId: 'openai', modelId: 'gpt-5.4', apiKey: 'provider-key',
+      consentToExternalProcessing: true, dataScopes: ['runtime_summaries'], inputPriceMicroUsdPerMillionTokens: 0,
+      outputPriceMicroUsdPerMillionTokens: 0, organizationBudgetCents: 100, organizationTokenBudget: 10_000,
+    });
+    expect(storedSecrets.size).toBe(1);
+    const switched = await apiWithSecrets.investigationModels.configure(identity, {
+      organizationId: f.a.organizationId, providerPresetId: 'anthropic', modelId: 'claude-sonnet-5-5',
+      consentToExternalProcessing: true, dataScopes: ['runtime_summaries'], inputPriceMicroUsdPerMillionTokens: 0,
+      outputPriceMicroUsdPerMillionTokens: 0, organizationBudgetCents: 100, organizationTokenBudget: 10_000,
+    });
+    expect(switched.providerPresetId).toBe('anthropic');
+    expect(switched.apiKeyConfigured).toBe(false);
+    expect(storedSecrets.size).toBe(0);
   });
 });
