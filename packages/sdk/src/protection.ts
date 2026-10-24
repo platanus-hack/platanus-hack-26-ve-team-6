@@ -78,6 +78,7 @@ export function createGotchuGuard(options: GuardOptions) {
   let fetchedAt = 0;
   let refresh: Promise<void> | null = null;
   let flushing: Promise<void> | null = null;
+  let lastFlushSucceeded = true;
 
   function fallbackPolicy(): RuntimeProtectionPolicy {
     const issuedAt = nowIso();
@@ -150,13 +151,14 @@ export function createGotchuGuard(options: GuardOptions) {
   }
 
   async function flush(): Promise<void> {
-    if (flushing) return flushing;
+    if (flushing) return flushing.then(() => lastFlushSucceeded && events.length ? flush() : undefined);
     if (!events.length) return;
     const batchEvents = events.splice(0, queueLimit);
     const batch: EventBatchInput = eventBatchSchema.parse({ applicationId, events: batchEvents });
     flushing = sendEventBatch({ baseUrl: baseUrl.origin, integrationId, secret: options.secret, batch, signal: AbortSignal.timeout(3_000) }, { fetch: controlFetch })
-      .then(() => undefined)
+      .then(() => { lastFlushSucceeded = true; })
       .catch(() => {
+        lastFlushSucceeded = false;
         const room = Math.max(0, queueLimit - events.length);
         events.unshift(...batchEvents.slice(0, room));
         droppedEvents += batchEvents.length - room;
