@@ -4,6 +4,9 @@ from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+import sys
+
+sys.dont_write_bytecode = True
 
 spec = importlib.util.spec_from_file_location('release_archive', Path(__file__).with_name('release-archive.py'))
 module = importlib.util.module_from_spec(spec)

@@ -16,15 +16,15 @@ printf '{"commit":"%s","nodeMajor":24,"platform":"linux","arch":"x64"}\n' "$(git
 cd "$stage"
 pnpm --filter '@gotchu/web...' --filter '@gotchu/coordinator...' --filter '@gotchu/scanner...' --filter '@gotchu/database...' \
   install --prod --frozen-lockfile --ignore-scripts
-node --input-type=module <<'NODE'
-import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
-for (const service of ['web', 'coordinator', 'scanner']) {
-  const require = createRequire(`${process.cwd()}/apps/${service}/package.json`);
-  for (const name of Object.keys(require('./package.json').dependencies).filter(name => name.startsWith('@gotchu/'))) {
-    await import(pathToFileURL(require.resolve(name)).href);
-  }
+for service in web coordinator scanner; do
+  (cd "apps/$service"; node --input-type=module <<'NODE'
+import { readFile } from 'node:fs/promises';
+const { dependencies } = JSON.parse(await readFile('package.json', 'utf8'));
+for (const name of Object.keys(dependencies).filter(name => name.startsWith('@gotchu/'))) {
+  await import(name);
 }
 NODE
+  )
+done
 tar -czf "$output" .
 sha256sum "$output"
