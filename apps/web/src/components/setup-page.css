@@ -1,0 +1,17 @@
+/* First-run setup: facts as a ruled list beside the form. Shared page chrome lives in public-legal.css. */
+.setup-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px); gap: clamp(32px, 6vw, 96px); align-items: start; max-width: 1400px; margin: 0 auto; }
+.setup-grid h1 { margin: 0 0 clamp(20px, 3vw, 32px); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(28px, 3.2vw, 44px); font-weight: 700; line-height: 1.02; letter-spacing: -.015em; text-transform: uppercase; text-wrap: balance; }
+.setup-facts { max-width: 62ch; margin: 0; padding: 0; list-style: none; border-bottom: 1px solid var(--border); }
+.setup-facts li { padding: 14px 0 14px 26px; position: relative; border-top: 1px solid var(--border); font-size: 16px; line-height: 1.55; }
+.setup-facts li::before { content: ''; position: absolute; left: 0; top: 1.3em; width: 8px; height: 8px; background: var(--brand); transform: rotate(45deg); }
+.setup-grid form { display: grid; gap: 10px; padding-top: 16px; border-top: 2px solid var(--foreground); }
+.setup-grid label { font-size: 14px; font-weight: 600; }
+.setup-grid input { width: 100%; min-height: 34px; padding: 6px 12px; border: 1px solid var(--input); border-radius: 8px; background: var(--background); color: var(--foreground); font: inherit; font-size: 15px; }
+.setup-grid small { color: var(--muted-foreground); font: 400 12.5px/1.55 var(--mono); }
+.setup-grid [role='alert'] { margin: 0; padding-left: 14px; border-left: 2px solid var(--destructive); color: var(--destructive); font-size: 14px; line-height: 1.55; }
+.setup-grid button { min-height: 48px; margin-top: 10px; padding: 8px 22px; border: 1px solid transparent; border-radius: 8px; background: var(--primary); color: var(--primary-foreground); font: 600 16px/1 'Gotchu Text', sans-serif; cursor: pointer; transition: translate 160ms var(--ease), scale 160ms var(--ease), box-shadow 160ms var(--ease); }
+.setup-grid button:hover:not(:disabled) { translate: -2px -2px; box-shadow: 4px 4px 0 var(--brand); }
+.setup-grid button:active:not(:disabled) { scale: .97; }
+.setup-grid button:disabled { cursor: not-allowed; opacity: .5; }
+@media (max-width: 899px) { .setup-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .setup-grid button { transition: none; } }
