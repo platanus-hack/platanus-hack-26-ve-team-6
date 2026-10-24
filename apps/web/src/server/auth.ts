@@ -29,6 +29,7 @@ export interface AuthService {
   enabled: boolean;
   handle(request: Request): Promise<Response>;
   identity(request: Request): Promise<SessionIdentity | null>;
+  accountEmail(userId: string): Promise<string | null>;
 }
 
 export function authSettings(env: NodeJS.ProcessEnv = process.env, localAccounts?: LocalAccounts, invalidateStepUpSession?: (userId: string) => Promise<void>): AuthSettings | null {
@@ -130,6 +131,7 @@ export function createAuthService(settings: AuthSettings | null): AuthService {
     enabled: false,
     handle: async () => json({ error: { code: 'auth_not_configured', message: 'Sign-in is not configured' } }, 503),
     identity: async () => { throw new HttpError(503, 'auth_not_configured', 'Sign-in is not configured'); },
+    accountEmail: async () => null,
   };
   const config = createAuthConfig(settings);
   const validateOrigin = (request: Request) => {
@@ -162,6 +164,7 @@ export function createAuthService(settings: AuthSettings | null): AuthService {
       if (!session.success) return null;
       return { userId: session.data.user.id, cookies: response.headers.getSetCookie() };
     },
+    accountEmail: async userId => settings.localAccounts ? settings.localAccounts.accountEmail(userId) : null,
   };
 }
 

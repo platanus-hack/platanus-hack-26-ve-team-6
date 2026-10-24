@@ -98,7 +98,8 @@ export function createCustomerApi(options: {
         || /^\/api\/customer\/workspaces\/[^/]+\/(members|invitations)(\/|$)/.test(url.pathname);
       if (memberPath) {
         if (!services.members) throw new HttpError(503, 'members_not_configured', 'La gestión de miembros no está configurada.');
-        const email = 'email' in session && typeof session.email === 'string' ? session.email : null;
+        const isAccept = url.pathname === '/api/customer/invitations/accept' && request.method === 'POST';
+        const email = isAccept ? await options.auth.accountEmail(session.userId) : null;
         const response = await handleMembersApi(request, identity, email, services.members, options.origin);
         if (response) {
           for (const cookie of session.cookies) response.headers.append('set-cookie', cookie);

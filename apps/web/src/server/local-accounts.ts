@@ -24,6 +24,7 @@ async function verifyPassword(password: string, encoded: string) {
 export interface LocalAccounts {
   register(input: unknown): Promise<{ id: string }>;
   authenticate(input: unknown): Promise<{ id: string; email: string; credentialEpoch: number } | null>;
+  accountEmail(userId: string): Promise<string | null>;
   reauthenticate(userId: string, password: string): Promise<boolean | null>;
   epoch(id: string): Promise<number | null>;
 }
@@ -77,6 +78,13 @@ export function createLocalAccounts(database: Database): LocalAccounts {
         const valid = await verifyPassword(value.password, encoded);
         return valid && record ? { id: record.id, email: value.email, credentialEpoch: record.epoch } : null;
       });
+    },
+    accountEmail: async userId => {
+      const subject = /^credentials:([0-9a-f-]{36})$/.exec(userId)?.[1];
+      if (!subject || !z.uuid().safeParse(subject).success) return null;
+      const result = await database.tenant(systemScope, tx => tx.query<{ email: string | null }>('SELECT gotchu.auth_lookup_email($1) AS email', [subject]));
+      const email = result.rows[0]?.email;
+      return email ? z.email().parse(email).toLowerCase() : null;
     },
     reauthenticate: async (userId, password) => {
       const subject = /^credentials:([0-9a-f-]{36})$/.exec(userId)?.[1];

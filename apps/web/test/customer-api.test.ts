@@ -11,7 +11,7 @@ const userId = `credentials:${randomUUID()}`;
 function ports() {
   const unused = async (): Promise<never> => { throw new Error('Unexpected service invocation'); };
   const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listReports: unused, getReport: unused, queue: unused, job: unused };
-  const auth: AuthService = { enabled: true, handle: async () => new Response(), identity: async () => ({ userId, cookies: ['authjs.session-token=refreshed; Path=/; HttpOnly'] }) };
+  const auth: AuthService = { enabled: true, handle: async () => new Response(), identity: async () => ({ userId, cookies: ['authjs.session-token=refreshed; Path=/; HttpOnly'] }), accountEmail: async () => null };
   return { services, auth };
 }
 function request(path: string, payload?: unknown, headers: HeadersInit = {}) {
@@ -132,7 +132,8 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
       revokeInvitation: vi.fn(async () => undefined), accept, changeRole: vi.fn(async () => undefined), remove: vi.fn(async () => undefined), leave: vi.fn(async () => undefined),
     };
     services.members = members;
-    auth.identity = async () => Object.assign({ userId, cookies: ['session=refreshed; HttpOnly'] }, { email: 'MEMBER@example.test' });
+    auth.identity = async () => ({ userId, cookies: ['session=refreshed; HttpOnly'] });
+    auth.accountEmail = vi.fn(async () => 'MEMBER@example.test');
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
     const read = await handle(new Request(`${origin}/api/customer/workspaces/${organizationId}/members`));
     expect(read.status).toBe(200);
@@ -152,6 +153,9 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect(accepted.headers.get('cache-control')).toBe('private, no-store');
     expect(await accepted.json()).toEqual({ organizationId, role: 'viewer' });
     expect(accept).toHaveBeenCalledExactlyOnceWith({ userId }, 'MEMBER@example.test', { token });
+    expect(auth.accountEmail).toHaveBeenCalledTimes(2);
+    expect(auth.accountEmail).toHaveBeenNthCalledWith(1, userId);
+    expect(auth.accountEmail).toHaveBeenNthCalledWith(2, userId);
   });
 
   it('deletes with no request body and returns an empty private 204 with refreshed session cookies', async () => {

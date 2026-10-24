@@ -1,5 +1,12 @@
 -- Membership changes invalidate workspace-bound authorization state only.
 -- Authentication factors and recovery codes belong to users across workspaces.
+CREATE FUNCTION gotchu.auth_lookup_email(p_id uuid) RETURNS text
+LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
+  SELECT lower(a.email) FROM gotchu.local_accounts a WHERE a.id=p_id AND NOT a.disabled
+$$;
+REVOKE ALL ON FUNCTION gotchu.auth_lookup_email(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION gotchu.auth_lookup_email(uuid) TO gotchu_api;
+
 CREATE OR REPLACE FUNCTION gotchu.lock_membership(p_organization uuid,p_user text) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE result text;

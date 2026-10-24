@@ -61,7 +61,7 @@ live('operational alerts through signed intake, Postgres and actual BullMQ deliv
       const pressure = present(alerts.find(a => a.observation.kind === 'traffic_pressure'));
       expect(pressure.observation.metrics).toMatchObject({ requestCount: 30, errorCount: 30, latencyP95Ms: 1800 });
       const origin = 'http://localhost:3000';
-      const http = createCustomerApi({ origin, registrationEnabled: false, providers: [], auth: { enabled: true, handle: async () => new Response(), identity: async () => ({ ...app.identity, cookies: ['session=renewed; HttpOnly'] }) },
+      const http = createCustomerApi({ origin, registrationEnabled: false, providers: [], auth: { enabled: true, handle: async () => new Response(), identity: async () => ({ ...app.identity, cookies: ['session=renewed; HttpOnly'] }), accountEmail: async () => null },
         services: { ...api.customers, operations: api.operations, job: (identity, value) => api.web.getJob(identity, value) } });
       for (const state of ['acknowledged', 'resolved']) {
         const response = await http(new Request(`${origin}/api/customer/workspaces/${app.scope.organizationId}/applications/${app.scope.applicationId}/alerts/${pressure.id}`, {

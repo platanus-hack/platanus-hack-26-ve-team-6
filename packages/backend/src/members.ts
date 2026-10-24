@@ -108,7 +108,7 @@ export function createMemberService(deps: BaseDependencies) {
     },
     async accept(identity: Identity, accountEmail: string | null, input: z.input<typeof acceptInvitationSchema>) {
       const actor = principal(identity); const value = parse(acceptInvitationSchema, input);
-      if (!accountEmail) throw new BackendError('invitation_rejected', 'La invitación no se pudo aceptar con esta cuenta.', 403);
+      if (!accountEmail) throw new BackendError('invitation_email_unavailable', 'Esta cuenta no tiene un correo disponible para aceptar invitaciones.', 403);
       const email = z.email().parse(accountEmail).toLowerCase();
       return tenant('00000000-0000-0000-0000-000000000000', async tx => {
         const invitation = await tx.query<{ organization_id: string | null }>('SELECT gotchu.workspace_invitation_organization($1) AS organization_id', [sha256(value.token)]);
