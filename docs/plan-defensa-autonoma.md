@@ -273,14 +273,14 @@ Trabajo:
 
 Trabajo:
 
-- [ ] Mantener consulta de avisos aunque el commit no cambie; ampliar formatos sólo con parsers probados. Modelar nombre/ecosistema, versión exacta, directas/transitivas y origen de paquete; generar inventario/SBOM exportable mediante formato abierto elegido.
-- [ ] Para dependencias priorizadas, obtener el artefacto exacto del registro y verificar integridad. El Git `main` del mantenedor puede diferir de la versión distribuida; conservar esa limitación y su correspondencia de commit cuando se pueda verificar.
-- [ ] Extracción segura con límites de archivo/tamaño/descompresión, paths y enlaces; sin hooks de instalación. Analizar código/configuración de ese artefacto en el runner y registrar dependencia/versión, sin prometer revisar ilimitadamente todo árbol transitivo.
-- [ ] Añadir análisis de importación/uso y, cuando proceda, reproducción en laboratorio. “No se encontró una ruta” sigue siendo desconocido si el análisis es parcial, dinámico o incompatible.
+- [x] Consultar avisos en cada evaluación aunque el commit no cambie; inventariar nombre/ecosistema, versión, relación directa/transitiva y origen desde los lockfiles admitidos; exportar CycloneDX. Formatos no reconocidos siguen desconocidos.
+- [x] Para hasta tres dependencias vulnerables priorizadas por evaluación, obtener el tarball npm de la versión exacta y comprobar SHA-512 contra el lockfile antes de extraer. Git `main` no se compara; el informe registra esa limitación.
+- [x] Extraer tarballs con topes de tamaño, descompresión, ratio, archivos y rutas; rechazar enlaces y tipos no admitidos; no ejecutar hooks. Semgrep y Gitleaks analizan archivos admitidos del artefacto y los hallazgos se atribuyen a `paquete@versión`.
+- [x] Analizar estáticamente imports, `require` y usos de símbolos en JavaScript/TypeScript cuando OSV los aporta. `not_found_static` no significa inalcanzable; código dinámico, parseo fallido, dependencias transitivas sin ruta demostrada y falta de símbolos permanecen desconocidos/importados.
 - [ ] Evaluar un adaptador CRS antes de integrarlo: lenguajes, harnesses, licencia, requerimientos, datos salientes y coste. [Buttercup](https://github.com/trailofbits/buttercup) ofrece un punto de estudio en C/Java con harnesses OSS-Fuzz; no es un sustituto directo del motor Node/TS ni exige adoptar su stack completo.
 - [ ] Separar evidencia de CVE conocida, sospecha nueva y reproducción. Añadir tratamiento privado y divulgación coordinada para problemas nuevos, sin publicar exploits automáticamente.
 
-**Aceptación:** paquete exacto distinto de upstream; dependencia transitiva afectada; checksum incorrecto; archivo malicioso; runtime dinámico desconocido; mismo source con advisory nuevo; reproducción base/candidato. Cualquier promesa sobre coste/cobertura del CRS requiere benchmark local propio.
+**Aceptación cubierta por esta entrega:** dependencia transitiva con ruta del lockfile, checksum alterado, archivo con traversal/enlace/ratio excesivo, resolución dinámica y mismo source con nuevo advisory. Son pruebas unitarias y de persistencia; la prueba optativa usa npm y los scanners locales reales. No se compara Git upstream, no se reproduce una vulnerabilidad ni se prueba aislamiento VM en este flujo. Cualquier promesa sobre coste/cobertura del CRS requiere benchmark local propio.
 
 ### D13 — Endurecimiento, capacidad y recuperación guiada
 
@@ -364,6 +364,7 @@ Las entidades ya implementadas y las propuestas pendientes se distinguen aquí:
 - **Triage:** revisión de incidente con hipótesis, impacto observado, contradicciones, evidencia, freshness y versión de reglas.
 - **Corrección:** candidato con source/report/finding, receta, base/tree/patch, integridad y perfil de validación.
 - **Validación (implementada localmente):** `validation_runs`, suites versionadas por repositorio, attestations Ed25519 inmutables por tipo, proyección pública de “reanálisis objetivo” y “suite”, y worker con rol/lease/quarantine propios. El perfil sigue fijo a `node24-npm-test`; no hay fuzzing ni perfiles adicionales.
+- **Artefacto de dependencia (D12, parcial):** los informes incluyen alcance estático, integridad y análisis del contenido npm acotado; `customer_dependency_artifact_analyses` (migración 043) persiste el resumen por tenant y paquete/versión con RLS. El cuerpo completo y sus evidencias siguen sujetos al informe y sus límites; no se ejecuta el código del paquete.
 - **Acción v2:** unión discriminada para PR de dependencia, patch admitido, merge, deploy y respuesta de proveedor; cada variante exige sus propios campos y capacidad.
 
 El flujo objetivo es candidato → validación → propuesta elegible → aprobación exacta → ejecución → comprobación de resultado. Estados alternativos explícitos: rechazado, obsoleto, expirado, cancelado, fallido, inconcluso y pendiente de reconciliación. No comprimir todas las etapas en `success` ni inferirlas de un checkbox.
