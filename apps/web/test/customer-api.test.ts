@@ -165,3 +165,39 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect(unavailable.status).toBe(503); expect(await unavailable.json()).toMatchObject({ error: { code: 'operation_execution_unavailable' } });
   });
 });
+
+describe('authenticated context inventory HTTP adapter', () => {
+  it('uses the session identity, validates response contracts, and restricts repositories to the operator catalog', async () => {
+    const { services, auth } = ports();
+    const inventory = { environments: [], services: [], repositoryLinks: [], deployments: [], dependencies: [], origins: [] };
+    const createRepositoryLink = vi.fn(async () => undefined);
+    services.context = {
+      list: async () => inventory,
+      createEnvironment: async () => undefined,
+      updateEnvironment: async () => undefined,
+      archiveEnvironment: async () => undefined,
+      createService: async () => undefined,
+      updateService: async () => undefined,
+      createRepositoryLink,
+      revokeRepositoryLink: async () => undefined,
+      createDeployment: async () => undefined,
+      createDependency: async () => undefined,
+      createOriginCandidate: async () => undefined,
+    };
+    services.repositoryCatalog = vi.fn(async () => [{ key: 'repo-main', label: 'Repositorio principal' }]);
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const prefix = `workspaces/${organizationId}/applications/${applicationId}/context`;
+    const response = await handle(new Request(`${origin}/api/customer/${prefix}`));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(inventory);
+    const repoRequest = (repositoryKey: string) => new Request(`${origin}/api/customer/${prefix}/repositories`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ repositoryKey, defaultBranch: 'main' }) });
+    expect((await handle(repoRequest('outside-catalog'))).status).toBe(400);
+    expect(createRepositoryLink).not.toHaveBeenCalled();
+    expect((await handle(repoRequest('repo-main'))).status).toBe(500);
+    expect(services.repositoryCatalog).toHaveBeenCalledWith({ userId }, { organizationId, applicationId });
+    const deployment = new Request(`${origin}/api/customer/${prefix}/deployments`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ environmentId: randomUUID(), serviceId: randomUUID(), releaseId: 'release-1', deployedAt: new Date().toISOString(), state: 'verified' }) });
+    expect((await handle(deployment)).status).toBe(400);
+    const originCandidate = new Request(`${origin}/api/customer/${prefix}/origins`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ environmentId: randomUUID(), origin: 'https://example.com', discoverySource: 'customer_inventory', ownership: 'verified' }) });
+    expect((await handle(originCandidate)).status).toBe(400);
+  });
+});

@@ -15,6 +15,7 @@ import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, report
 import type { AuthService } from './auth.js';
 import { localRegistrationSchema, type LocalAccounts } from './local-accounts.js';
 import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } from './http.js';
+import { handleContextApi } from './context-api.js';
 
 export interface CustomerServices {
   corrections?: {
@@ -22,6 +23,7 @@ export interface CustomerServices {
     prepare(identity: Identity, input: PrepareCorrectionRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<PrepareCorrectionResponse>;
   };
   telemetry?: Backend['telemetry'];
+  context?: Backend['context'];
   operations?: Backend['operations'];
   repositoryCatalog?: (identity: Identity, scope: { organizationId: string; applicationId: string }) => Promise<Array<{ key: string; label: string }>>;
   listWorkspaces(identity: Identity): Promise<CustomerWorkspace[]>;
@@ -84,6 +86,14 @@ export function createCustomerApi(options: {
       const headers = new Headers();
       for (const cookie of session.cookies) headers.append('set-cookie', cookie);
       const send = (value: unknown, status = 200) => json(value, status, headers);
+      if (url.pathname.includes('/context')) {
+        if (!services.context) throw new HttpError(503, 'context_not_configured', 'El inventario de contexto no está configurado.');
+        const contextResponse = await handleContextApi(request, identity, services.context, services.repositoryCatalog);
+        if (contextResponse) {
+          for (const cookie of session.cookies) contextResponse.headers.append('set-cookie', cookie);
+          return contextResponse;
+        }
+      }
       if (url.pathname === '/api/customer/workspaces') {
         if (request.method === 'GET') return send(z.array(customerWorkspaceSchema).max(100).parse(await services.listWorkspaces(identity)));
         if (request.method === 'POST') return send(customerWorkspaceSchema.parse(await services.createWorkspace(identity, parse(customerCreateWorkspaceSchema, await body(request)))), 201);
