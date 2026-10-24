@@ -30,8 +30,28 @@ export function compare(internal: AssessmentAnalysis | null, external: Assessmen
     const group = groups.get(f.correlationKey) ?? { internal: [], external: [] };
     group[f.origin].push(f.id); groups.set(f.correlationKey, group);
   }
-  // Source deployment equivalence and matching opposite-side coverage are not established.
-  return [...groups].map(([key, g]) => ({ key, classification: g.internal.length && g.external.length ? 'both' : 'unverified', internalFindingIds: g.internal, externalFindingIds: g.external, explanation: 'Independent evidence grouped by rule; deployment equivalence, opposite-side absence and exploitability remain unknown.' }));
+  return [...groups].map(([key, group]) => {
+    const hasBoth = group.internal.length > 0 && group.external.length > 0;
+    const other = group.internal.length > 0 ? external : internal;
+    const explanation = hasBoth
+      ? key === 'http:content-security-policy'
+        ? 'Source contains a Helmet CSP-disabling configuration indication; independent HTTPS responses omit CSP. These observations concern the same control. Shared deployment, route association, causal relationship, issue identity and exploitability are unverified.'
+        : 'Findings from both analyses share a correlation key. This grouping does not establish deployment equivalence, issue identity, or exploitability.'
+      : other === null
+        ? 'The other analysis was not requested. This finding is unverified against that side and does not establish absence, deployment equivalence, or exploitability.'
+        : other.status === 'unavailable'
+          ? 'The other analysis was unavailable. This finding is unverified against that side and does not establish absence, deployment equivalence, or exploitability.'
+          : other.status === 'partial'
+            ? 'The other analysis was partial and recorded no matching finding. This does not establish absence, deployment equivalence, or exploitability.'
+            : 'The other analysis completed without a matching finding. This does not establish absence, deployment equivalence, or exploitability.';
+    return {
+      key,
+      classification: hasBoth ? 'both' : 'unverified',
+      internalFindingIds: group.internal,
+      externalFindingIds: group.external,
+      explanation,
+    };
+  });
 }
 /** Cancellation stops new work; callers retain ownership until started work and cleanup settle. */
 export async function bounded<T>(work: Promise<T> | (() => Promise<T>), signal: AbortSignal): Promise<T> {
