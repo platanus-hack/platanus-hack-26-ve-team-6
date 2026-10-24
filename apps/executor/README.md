@@ -1,6 +1,6 @@
 # Independent executor integration contract
 
-`@gotchu/executor` exports `createExecutor`, `ExecutionLedgerPort`, `ProviderAdapter`, runtime schemas, and the explicit `customerCodeExecutionEnabled = false` gate. The coordinator owns trusted queue claiming and may invoke the executor with a durable execution job. The executor does not run in an HTTP request handler, accept user identity headers, or receive model output as authorization.
+`@gotchu/executor` exports `createExecutor`, `createBackendExecutionLedger`, `ExecutionLedgerPort`, `ProviderAdapter`, runtime schemas, and the explicit `customerCodeExecutionEnabled = false` gate. The coordinator owns trusted queue claiming and may invoke the executor with a durable execution job. The executor does not run in an HTTP request handler, accept user identity headers, or receive model output as authorization.
 
 ## Input and exact claim
 
@@ -20,16 +20,30 @@ No role, MFA timestamp, expiry, proposal body, provider target, or user ID is ac
 
 The executor parses the returned claim and proposal fields again, then requires its organization, application, approval, exact action hash, and `proposal.baseCommit` to match the durable job. A stale resource version or hash mismatch stops before provider I/O. `assertWritable({ organizationId, executionId, claimToken })` maps to `backend.executions.assertWritable` and runs immediately before each provider write, including an allowed retry.
 
-## Typed ledger adapter requirements
+## Concrete backend ledger adapter
 
-The executor's port intentionally returns `unknown` for values that cross the adapter boundary; it validates each claim, stored execution, reconciliation result, and provider verification with Zod. The trusted adapter should use the exported complete `proposalSchema` from `@gotchu/backend` before mapping the backend claim to this port.
+```ts
+import { createDatabase } from '@gotchu/database';
+import { createBackend } from '@gotchu/backend';
+import { createBackendExecutionLedger, createExecutor } from '@gotchu/executor';
 
-The backend adapter should map stale-head/policy/artifact rejections to `ExecutionLedgerError('stale_proposal')`, so the executor reports a stale proposal explicitly. The current backend contract also needs two small read/reconciliation operations for complete retry handling:
+const database = createDatabase({ connectionString: executorRuntimeUrl, role: 'gotchu_executor' });
+const backend = createBackend({ database });
+const ledger = createBackendExecutionLedger(backend.executions);
+const executor = createExecutor({ ledger }); // Disabled: no production provider adapter.
+// The process owns database.close() during shutdown.
+```
 
-- `findByApproval({ organizationId, approvalId })` returns the existing durable execution identity and state, including `executionId`, `claimToken`, `actionHash`, recovery epoch, and the backend-validated proposal. The adapter maps the backend's `already_claimed` error to `ExecutionLedgerError('already_claimed')` and uses this restricted executor lookup.
-- `resolveUncertain(...)` updates a previously terminal `uncertain` record after read-only provider reconciliation and independent verification. It can only settle `succeeded` or `failed`; it never authorizes another write.
+This server-only adapter requires the backend instance with its isolated executor login. Every execution method explicitly checks the trusted `database.role`; `createDatabase` verifies that the runtime login belongs to only that service role. The existing table grants and FORCE RLS remain in force. Never send this adapter, execution records, or claim tokens through a public route. No migration or additional SQL privilege is required.
 
-The current `backend.executions.claim` is single-use, and `finish` records `succeeded | failed | uncertain` without automatic reclaim. A duplicate job never creates a second provider write. It reconciles the existing execution ID and returns the observed state. The parent adapter must provide those lookup/resolution operations before enabling a live provider adapter.
+The port intentionally returns `unknown` across the adapter boundary. The adapter validates the complete exported backend `proposalSchema`, recomputes its epoch-bound action hash, and derives organization/application identity from that proposal and approval identity from the validated request. The executor also validates its claim, stored execution, reconciliation result, and provider verification. Jobs use lowercase UUIDs: the adapter rejects non-normalized organization/approval spellings before claiming because the executor compares strings. Backend ledger methods normalize valid UUID spellings for database identity checks without changing hashed proposal bodies.
+
+Stale head, policy, artifacts, failed eligibility, and invalidation map to `ExecutionLedgerError('stale_proposal')`; expired/rejected authority maps to `approval_rejected`; unavailable verification or malformed stored data fails closed as `ledger_unavailable`. Both `approval_used` and `already_claimed` map to the existing-record path.
+
+- `findByApproval({ organizationId, approvalId })` returns the exact tenant/approval's existing execution, or `undefined`. It includes identity, claim token, hash, recovery epoch, validated proposal, state, and optional provider reference. Invalidated/expired proposals remain readable for reconciliation. A second approval of the same action never aliases the first approval's execution: it cannot publish and requires operator investigation if its own lookup is empty.
+- `resolveUncertain({ organizationId, executionId, claimToken, outcome, providerReference? })` locks and updates only a matching `uncertain` execution to `succeeded | failed`. Success requires a nonblank provider reference from independent verification. It is a trusted recording operation: the executor must first reconcile and independently verify the provider; the database does not itself contact the provider. An identical terminal observation is a no-op, while a conflicting outcome/reference is rejected. The update and reconciliation audit commit together.
+
+`claim` consumes approval once; `finish` records `succeeded | failed | uncertain` without reclaim. Duplicate deliveries reconcile and never publish again. Consumed approvals enter reconciliation even while recovery is frozen. Recording observations never advances the recovery epoch, unfreezes writes, returns a record to `claimed`, or reissues approval. Unknown provider observations remain uncertain.
 
 ## Provider adapter
 
@@ -47,4 +61,16 @@ Customer-code execution has no implementation and stays disabled until a disposa
 
 ## Validation limits
 
-The Vitest suite injects fake ledger/provider ports to exercise orchestration, duplicate delivery, stale versions, uncertain outcomes, reconcile-before-retry, and provider verification. It does not prove the Postgres execution ledger or live provider behavior; the backend's Postgres checks and a separately validated real adapter remain required.
+```sh
+pnpm --filter @gotchu/contracts --filter @gotchu/database --filter @gotchu/backend --sort build
+pnpm --filter @gotchu/executor build
+pnpm --filter @gotchu/executor typecheck
+pnpm --filter @gotchu/executor test
+pnpm --filter @gotchu/executor test:postgres
+```
+
+Typecheck covers both actual source and tests under the root strict TypeScript settings. There is no package lint script. `test` runs unit fixtures and explicitly skips the live suite unless `GOTCHU_TEST_DATABASE_URL` points to an operator connection for a disposable `gotchu_test_*` database.
+
+`test:postgres` uses the database package's isolated fixture/provisioning/migration harness. Like the backend runner, it starts a disposable `postgres:17-alpine` container on a random loopback port with random credentials and temporary storage, then removes it. It tests `createExecutor` through this concrete adapter and real Postgres: exact concurrent/repeated delivery, uncertain settlement, tenant/hash/application/version rejection, expiry and stale eligibility, forged tokens, a second approval for the same action, and frozen recovery. The backend suite additionally tests restricted roles, corrupt records, invalid states, terminal fencing, and concurrent/idempotent settlement.
+
+These are real persistence and authorization checks with a clearly labeled in-memory provider and injected MFA/eligibility fixtures. They do not prove live GitHub behavior, actual MFA, model calls, scanner attestations, or VM isolation. Production provider/customer-code execution remains disabled; a separately validated live adapter and verifier remain release gates.
