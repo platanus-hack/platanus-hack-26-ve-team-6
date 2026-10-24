@@ -1,22 +1,22 @@
 # `@gotchu/runner`
 
-Per-job Firecracker microVM runner for future isolated validation. The product path remains closed while the jailer-backed host sandbox is incomplete and independently unvalidated.
+Per-job Firecracker microVM runner for future isolated validation. Firecracker now starts inside a user systemd scope and a bwrap namespace with no host network or home mount, but the product gate remains closed until the sandbox self-test and end-to-end guest protocol pass.
 
 ## Threat model
 
 The input archive and everything inside it are hostile. A profile can run project tests and package scripts as guest UID 1000. The runner must assume that package installation, test code, and their output are malicious. Each job gets a fresh rootfs copy, a separate writable scratch block device, and a read-only input block device. The VM is configured without a network device. The guest has no host directory, Docker socket, database, Redis, cloud metadata route, integration credential, or secret mount.
 
-The API exposes one fixed profile, `node24-npm-test`; callers cannot choose an argv or shell command. It attempts `npm ci --ignore-scripts --offline` and then `npm test`. Package lifecycle scripts are suppressed during installation; test scripts still execute as untrusted guest code. No network fetch phase or npm cache-image builder is implemented yet, so projects requiring uncached dependencies fail closed during `npm ci`. A future fetch phase must resolve exact lockfile integrity on the host, then provide a read-only cache object to the guest.
+The API exposes one fixed profile, `node24-npm-test`; callers cannot choose an argv or shell command. The host fetch phase accepts only HTTPS tarballs under the configured npm registry and verifies lockfile sha512 integrity without extracting packages. Tarballs are supplied on a read-only cache disk; the guest seeds npm's cache, then runs `npm ci --offline --ignore-scripts` and `npm test`. Package lifecycle scripts are suppressed during installation; test scripts still execute as untrusted guest code. The VM has no network device.
 
 The host validates the archive before boot: input size, gzip expansion, compression ratio, file count, tar checksums, duplicate names, traversal, absolute paths, links and special files are bounded or rejected. Results are length-prefixed serial frames, parsed as unknown data and validated against a runtime schema. The guest can forge its own claims, so results are untrusted evidence for D05; successful exit alone is not independent validation.
 
 ## Gate status and limits
 
-`checkRunnerGate()` checks KVM access, the pinned Firecracker archive and extracted binaries, guest kernel/rootfs hashes, and the jailer policy file. It returns an explicit closed reason if any prerequisite is missing. Network `allowlist` is always rejected because host tap creation and egress filtering are not implemented. There is no Docker or host-process fallback.
+`checkRunnerGate()` currently checks KVM access, the pinned Firecracker archive and binaries, guest kernel/rootfs hashes, and the sandbox configuration. It still requires the jailer identity and remains closed because a passing end-to-end host sandbox self-test is not yet recorded. Network `allowlist` is always rejected because host tap creation and egress filtering are not implemented. There is no Docker or host-process fallback.
 
-The checked-in sandbox policy deliberately sets `executionEnabled` to `false`. The adapter currently boots a real VM only through a private test helper; the customer-facing `runJob` refuses to execute while the gate is closed. Even after opening that gate, the design needs a root-owned jailer launch, cgroup PID enforcement, crash/host-loss reconciliation, an exact offline package-cache path and independent isolation review. The current tests do not establish production isolation, capacity, cost, AWS availability or VM escape resistance.
+The checked-in sandbox policy deliberately sets `executionEnabled` to `false`. The customer-facing `runJob` refuses to execute while the gate is closed. The bwrap namespace and user systemd scope are a development-host alternative; the jailer remains the preferred production launch path where its root-managed identity and cgroup controls are available. The current live suite still has failures in the guest result protocol, so no self-test or customer execution is enabled.
 
-Firecracker supplies a VM boundary, but the current direct test harness does not exercise the jailer. `test:vm` is only a real-KVM development check of the guest/device behavior and cleanup. It must never be reported as proof that customer execution is enabled.
+Firecracker supplies the guest boundary. bwrap removes host network access and the host home from the VMM namespace; systemd applies memory, task and CPU limits to its scope. These controls do not provide a root-owned jailer identity, full resource isolation from the host kernel, protection against kernel or Firecracker escapes, crash/host-loss reconciliation, or production capacity guarantees. `test:vm` is a real-KVM development check and must never be reported as proof that customer execution is enabled.
 
 ## Image preparation
 
