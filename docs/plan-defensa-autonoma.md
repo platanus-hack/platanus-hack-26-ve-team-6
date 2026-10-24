@@ -185,10 +185,14 @@ Trabajo:
 
 - [x] Implementar enrolamiento, desafío y verificación de segundo factor mediante `@simplewebauthn/server` y `@simplewebauthn/browser`, con recuperación de un solo uso y revocación ligada a otra aserción o código. Auth.js proporciona sesiones, no esta garantía automáticamente. Referencia: [WebAuthn](https://www.w3.org/TR/webauthn-3/).
 - [x] Emitir prueba opaca, breve, de un uso, vinculada a usuario, organización y hash de acción. Mantener controles actuales de rol, autenticación reciente, caducidad y recovery epoch.
-- [x] Revalidar membresía y estado antes de aprobar y antes de escribir. Sin hook de cierre de sesión, los desafíos y pruebas vencen en dos minutos; rol revocado o epoch distinto invalida el consumo.
+- [x] Revalidar membresía y estado antes de aprobar y antes de escribir. El cierre de sesión invalida los desafíos y pruebas pendientes; ambos vencen además en dos minutos. Un rol revocado o epoch distinto invalida el consumo.
+- [x] Round 2: factores y códigos de recuperación globales por usuario, protegidos por RLS y el contexto validado de sesión/organización. El primer factor exige reautenticación de contraseña local; las cuentas sin contraseña local no pueden usar bootstrap. Añadir otro factor requiere una prueba WebAuthn reciente para el hash fijo de enrolamiento o un código de recuperación de un uso. El desafío conserva la autorización y el conjunto exacto de factores, que se vuelve a comprobar bajo advisory lock al terminar.
+- [x] Invalida desafíos y pruebas pendientes al cerrar sesión mediante `events.signOut`; el vencimiento de dos minutos sigue como segunda barrera. El API de step-up conserva las cookies de sesión renovadas.
 - [ ] Presentar efecto, alcance, coste posible, diff seguro, pruebas y límites; diferenciar aprobar PR, merge y deploy. Una sesión OAuth o una casilla de checklist no equivale a aprobación de acción con MFA.
 
 **Aceptación:** ceremonia real en navegador y ledger PostgreSQL: CSRF/origen, replay, desafío equivocado, actionHash cambiado, caducidad, dos consumos concurrentes, rol revocado, factor perdido y recuperación. No usar el fixture `StepUpVerifier` como evidencia de MFA real.
+
+La migración 017 descarta expresamente las tablas de la migración 015, que no se desplegaron; desafíos y pruebas siguen ligados a usuario, organización, hash exacto y recovery epoch. La verificación de enrolamiento de segunda llave y los controles de recuperación se mantienen en la prueba CDP opt-in, contra Postgres desechable y la biblioteca WebAuthn real.
 
 ### D08 — Artefactos, verificador independiente y servicio executor
 
