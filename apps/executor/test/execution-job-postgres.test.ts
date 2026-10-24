@@ -57,8 +57,8 @@ live('durable v2 execution jobs on real Postgres and Redis; injected validation,
     const snapshotSha256 = sha256(canonicalJson(snapshot));
     const patchSha256 = sha256(canonicalJson(patchFiles));
     const repositoryKey = `sandbox:${sourceId}`;
-    await f.admin.query(`INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access,write_access,state,source)
-      VALUES($1,$2,$3,$4,'main','granted','granted','verified','operator')`, [f.a.organizationId,f.a.applicationId,repositoryLinkId,repositoryKey]);
+    await f.admin.query(`INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access,write_access,state,source,writer_installation_id,writer_verified_at,writer_verified_commit)
+      VALUES($1,$2,$3,$4,'main','granted','granted','verified','operator','174788477',clock_timestamp(),$5)`, [f.a.organizationId,f.a.applicationId,repositoryLinkId,repositoryKey,'a'.repeat(40)]);
     await f.admin.query('INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor) VALUES($1,$2,$3,$4,$5::jsonb,$6)', [f.a.organizationId,f.a.applicationId,sourceId,snapshotSha256,JSON.stringify(snapshot),f.a.userId]);
     const policyVersion = present(actionPolicyVersion('repository.source_patch_pr'));
     const action: ActionV2 = {
@@ -123,7 +123,8 @@ live('durable v2 execution jobs on real Postgres and Redis; injected validation,
         return pullRequest;
       },
       async verify(value) {
-        if (!pullRequest || value.pullRequest.url !== pullRequest.url || value.action.expectedTreeSha !== input.expectedTreeSha) throw new Error('exact provider effect was not present');
+        if (!pullRequest || value.pullRequest.url !== pullRequest.url
+          || value.action.kind !== 'source_patch_pull_request' || value.action.expectedTreeSha !== input.expectedTreeSha) throw new Error('exact provider effect was not present');
         if (input.failAfter === 'verify' && !failures.has('verify')) { failures.add('verify'); throw new GitAdapterError('unknown_outcome'); }
         return 'verified';
       },

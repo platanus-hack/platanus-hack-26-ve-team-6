@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { BackendError, hashActionV2, type ExecutionArtifact } from '@gotchu/backend';
+import { BackendError, dependencyCommitMessage, expectedDependencyCommitSha, hashActionV2, sha256, type ExecutionArtifact } from '@gotchu/backend';
 import type { ActionV2 } from '@gotchu/contracts';
-import { GitAdapterError, type PullRequest } from '@gotchu/git-adapters';
+import { computeGitTreeSha, GitAdapterError, type PullRequest } from '@gotchu/git-adapters';
 import { describe, expect, it, vi } from 'vitest';
-import { createActionExecutor, type ActionExecutionLedger, type ActionProvider } from '../src/action-execution.js';
+import { createActionExecutor, expectedActionTreeSha, type ActionExecutionLedger, type ActionProvider } from '../src/action-execution.js';
 
 function fixture(options: { crashAfterBranch?: boolean; crashAfterPullRequest?: boolean; revoked?: boolean; staleBase?: boolean; unknown?: boolean; closedPullRequest?: boolean; verifyUnknown?: boolean } = {}) {
   const organizationId = randomUUID();
@@ -82,6 +82,33 @@ function fixture(options: { crashAfterBranch?: boolean; crashAfterPullRequest?: 
 }
 
 describe('independent v2 action executor', () => {
+  it('accepts only the exact two-file npm candidate and its deterministic commit digest', async () => {
+    const organizationId=randomUUID();
+    const applicationId=randomUUID();
+    const candidateId=randomUUID();
+    const baseCommit='1'.repeat(40);
+    const packageJson=JSON.stringify({name:'fixture',dependencies:{lodash:'4.17.21'}})+'\n';
+    const integrity=`sha512-${Buffer.alloc(64,7).toString('base64')}`;
+    const packageLock=JSON.stringify({lockfileVersion:3,requires:true,packages:{'':{dependencies:{lodash:'4.17.21'}},'node_modules/lodash':{name:'lodash',version:'4.17.21',integrity}}})+'\n';
+    const files=[
+      {path:'package.json',mode:'100644' as const,content:packageJson},
+      {path:'package-lock.json',mode:'100644' as const,content:packageLock},
+    ];
+    const treeSha=await computeGitTreeSha(files);
+    const commitMessage=dependencyCommitMessage({packageName:'lodash',fromVersion:'4.17.20',toVersion:'4.17.21'});
+    const action:ActionV2={version:2,kind:'dependency_pull_request',capabilityId:'repository.dependency_pr',organizationId,applicationId,
+      policyVersion:'gotchu-dependency-pr-v1',target:{kind:'repository',repositoryLinkId:randomUUID(),repositoryKey:'github:owner/repo',branch:'main'},
+      baseCommit,candidateCommit:expectedDependencyCommitSha(treeSha,baseCommit,commitMessage),changes:[{name:'lodash',from:'4.17.20',to:'4.17.21'}],
+      advisoryIds:['GHSA-xxxx-yyyy-zzzz'],lockfileSha256:sha256(packageLock),patchSha256:'b'.repeat(64),rescanAttestationId:randomUUID(),
+      suiteAttestationId:randomUUID(),evidence:[{id:candidateId,sha256:'a'.repeat(64),kind:'dependency_candidate'}]};
+    const artifact:ExecutionArtifact={baseCommit,files:files.map(file=>({path:file.path,mode:file.mode,contentBase64:Buffer.from(file.content).toString('base64'),sha256:sha256(file.content)})),
+      candidateTreeSha:treeSha,treeSha,treeComplete:true,unsupportedReason:null,commitMessage,snapshotSha256:'a'.repeat(64),patchSha256:action.patchSha256,
+      artifactSha256:'c'.repeat(64),sizeBytes:Buffer.byteLength(packageJson)+Buffer.byteLength(packageLock)};
+    expect(expectedActionTreeSha(action,artifact)).toBe(treeSha);
+    expect(expectedActionTreeSha(action,{...artifact,commitMessage:'unapproved message'})).toBeNull();
+    expect(expectedActionTreeSha(action,{...artifact,files:artifact.files.filter(file=>file.path!=='package-lock.json')})).toBeNull();
+  });
+
   it('publishes once, records every stage, verifies GitHub, and reconciles duplicate delivery read-only', async () => {
     const f = fixture();
     expect(await f.executor.execute(f.request)).toMatchObject({ status:'verified',providerReference:'https://github.com/owner/repo/pull/41' });
