@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { access } from 'node:fs/promises';
@@ -71,6 +71,10 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
   });
   it('registers, enrolls, asserts, and consumes the exact revocation proof', async () => {
     const failures: string[] = [];
+    let assertionRequest: unknown;
+    let assertionProof: string | null = null;
+    page.on('request', request => { if (request.url().endsWith('/api/customer/step-up/assertions') && request.method() === 'POST') assertionRequest = request.postDataJSON(); });
+    page.on('response', async response => { if (response.url().endsWith('/api/customer/step-up/assertions') && response.ok()) { const payload: unknown = await response.json(); if (isRecord(payload) && typeof payload.proof === 'string') assertionProof = payload.proof; } });
     page.on('response', async response => { if (response.url().includes('/api/customer/step-up/')) failures.push(`${response.status()} ${response.url()} ${await response.text().catch(() => '')}`); });
     const email = `step-up-${randomUUID()}@example.test`;
     const password = `Passphrase-${randomBytes(16).toString('hex')}`;
@@ -113,9 +117,28 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
     ]);
     if (enrollmentResult === 'error') throw new Error(`WebAuthn enrollment failed: ${await enrollmentError.innerText()}\n${failures.join('\n')}`);
     const recoveryCode = await recoveryHeading.locator('..').getByRole('listitem').first().innerText();
+    const factorList = await page.evaluate(async organizationId => {
+      const response = await fetch(`/api/customer/step-up/factors?organizationId=${organizationId}`);
+      return await response.json() as unknown;
+    }, organizationId);
+    const factorId = firstFactorId(factorList);
     await page.getByRole('button', { name: 'Ya los guardé' }).click();
     await page.getByRole('button', { name: 'Revocar', exact: true }).click();
     await page.getByText('No hay factores registrados.').waitFor({ timeout: 30_000 });
+    if (!assertionRequest || !assertionProof) throw new Error('The real WebAuthn assertion did not return its one-use proof.');
+    const actionHash = createHash('sha256').update(`gotchu:step-up:revoke:v1:${organizationId}:${factorId}`).digest('hex');
+    const challengeReplay = await page.evaluate(async assertion => {
+      const response = await fetch('/api/customer/step-up/assertions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(assertion) });
+      return { status: response.status, payload: await response.json() as unknown };
+    }, assertionRequest);
+    expect(challengeReplay.status).toBe(409);
+    expect(challengeReplay.payload).toMatchObject({ error: { code: 'step_up_challenge_invalid' } });
+    const proofReplay = await page.evaluate(async ({ organizationId, factorId, actionHash, proof }) => {
+      const response = await fetch(`/api/customer/step-up/factors/${factorId}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId, actionHash, proof }) });
+      return { status: response.status, payload: await response.json() as unknown };
+    }, { organizationId, factorId, actionHash, proof: assertionProof });
+    expect(proofReplay.status).toBe(403);
+    expect(proofReplay.payload).toMatchObject({ error: { code: 'step_up_proof_invalid' } });
     await page.getByText('¿Has perdido tu factor?').click();
     await page.getByLabel('Código de recuperación').fill(recoveryCode);
     await page.getByLabel('Nombre del nuevo factor').fill('Factor recuperado');
@@ -140,6 +163,11 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
   }, 120_000);
 });
 
+function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === 'object' && !Array.isArray(value)); }
+function firstFactorId(value: unknown) {
+  if (!Array.isArray(value) || !value[0] || typeof value[0] !== 'object' || !('id' in value[0]) || typeof value[0].id !== 'string') throw new Error('Factor list did not include a factor id');
+  return value[0].id;
+}
 function zAccount(value: unknown) {
   if (!value || typeof value !== 'object' || !('id' in value) || typeof value.id !== 'string') throw new Error('Registration returned an invalid account identity');
   return value.id;
