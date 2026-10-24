@@ -10,6 +10,8 @@ The initial detector is five failures per ten-minute account or IP window; these
 
 Postgres remains the delivery authority after Redis loss or retry exhaustion. Reconciliation recreates eligible transport records, while investigations with unsettled provider reservations require reconciliation rather than another model call. A terminal scoped checkpoint can complete a recovered job even after its original run deadline, provided the current job lease is valid and no reservation remains. Run and job finalization share one transaction.
 
+Recovery selects up to 100 eligible jobs per lane, visiting deterministic work first. An investigation backlog cannot consume the entire event-recovery batch.
+
 BullMQ uses `gotchu-deterministic-v1` with one worker slot and `gotchu-investigations-v1` with two independent worker slots per coordinator. Slow investigation HTTP calls cannot consume the deterministic slot. Both outbox publication and reconciliation route by job kind through `createCoordinatorTransport`; unsupported adapters still fail explicitly. Shutdown stops dispatch, drains both workers, and closes both queues and all owned Redis clients before the database.
 
 When upgrading from the shared `gotchu-jobs-v1` queue, stop the old coordinator before starting this version. Postgres reconciliation republishes unfinished jobs into their new lane, including already-delivered outbox intent, once any current durable lease expires. Old Redis records are not executable authority. These slot limits are per coordinator process, not a measured throughput or latency guarantee.

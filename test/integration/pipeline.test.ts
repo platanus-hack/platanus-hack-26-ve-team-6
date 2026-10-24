@@ -236,6 +236,20 @@ live('signed intake through durable delivery and isolated HTTP investigation', (
     expect((await f.admin.query('SELECT delivered_at FROM gotchu.outbox WHERE organization_id=$1 AND job_id=$2 AND delivered_at IS NOT NULL', [f.a.organizationId, jobId])).rowCount).toBe(1);
   });
 
+  it('reserves event reconciliation capacity behind a full investigation backlog', async () => {
+    await f.databases.gotchu_coordinator.tenant(f.a.organizationId, async (tx) => {
+      for (let index = 0; index < 101; index++) {
+        const id = randomUUID();
+        await enqueue(tx, { organizationId: f.a.organizationId, applicationId: f.a.applicationId, id, kind: 'investigation', idempotencyKey: id });
+      }
+    });
+    const accepted = await ingest(events(1, 'recovery-behind-backlog'));
+    const published: JobEnvelope[] = [];
+    await reconcileDurableDeliveries(f.databases.gotchu_coordinator, f.a.organizationId, async (envelope) => { published.push(envelope); });
+    expect(published[0]).toMatchObject({ id: accepted.jobId, kind: 'events.aggregate' });
+    expect(published.filter((envelope) => envelope.kind === 'investigation')).toHaveLength(100);
+  });
+
   it('accepts canonical UUID-equivalent queue identities and rejects mismatched durable intent', async () => {
     const accepted = await ingest(events(1)); const jobId = present(accepted.jobId);
     await expect(processDurableJob(dependencies, { version: 1, id: jobId.toUpperCase(), organizationId: f.a.organizationId.toUpperCase(), applicationId: f.a.applicationId.toUpperCase(), kind: 'events.aggregate' })).resolves.toMatchObject({ status: 'processed' });
