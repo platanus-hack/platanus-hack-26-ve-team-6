@@ -150,6 +150,23 @@ describe('license declarations and workspace policy', () => {
     expect(report.internal?.evidence[0]?.excerpt).toContain('"sourceFile":"package-lock.json"');
     expect(report.internal?.evidence[0]?.excerpt).toContain('"licenseSource":"registry"');
   });
+
+  it('counts deduplicated exact versions once for bounded OSV coverage', async () => {
+    const lock = JSON.stringify({ lockfileVersion: 3, packages: { '': { dependencies: { alpha: '^1.0.0' } }, 'node_modules/alpha': { version: '1.2.3', license: 'MIT' } } });
+    const query = vi.fn(async (packages: ReadonlyArray<{ name: string; version: string }>) => {
+      expect(packages).toEqual([{ name: 'alpha', version: '1.2.3' }]);
+      return [{ ids: [], complete: true }];
+    });
+    const report = await createCustomerAssessmentRunner({ scanners: absentScanners, advisory: { query } }).run(input([
+      { path: 'one/package-lock.json', content: lock },
+      { path: 'two/package-lock.json', content: lock },
+    ]));
+    const coverage = new Map(report.internal?.coverage.map(item => [item.capability, item.state]));
+    expect(report.internal?.dependencyInventory?.components).toHaveLength(2);
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0]?.[0]).toEqual([{ name: 'alpha', version: '1.2.3' }]);
+    expect(coverage.get('dependency_advisories')).toBe('inspected');
+  });
 });
 
 describe('CycloneDX 1.5 output', () => {

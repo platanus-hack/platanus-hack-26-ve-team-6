@@ -251,7 +251,7 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
     const advisoryPackages = uniquePackages.slice(0, 200);
     const matches = await bounded(() => advisory.query(advisoryPackages.map(({ name, version }) => ({ name, version })), signal), signal);
     if (matches.length !== advisoryPackages.length) throw new Error('advisory_count');
-    let incomplete = locked.inventory.length > advisoryPackages.length || matches.some(match => !match.complete);
+    let incomplete = uniquePackages.length > advisoryPackages.length || matches.some(match => !match.complete);
     for (let index = 0; index < matches.length; index++) {
       const match = matches[index]; const pkg = advisoryPackages[index]; if (!match || !pkg) continue;
       for (const id of match.ids) {
