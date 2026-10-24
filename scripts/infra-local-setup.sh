@@ -28,6 +28,7 @@ trap 'rm -f "$tmp_file"' EXIT
   printf 'WEB_HOST_PORT=%s\n' "${GOTCHU_WEB_PORT:-3000}"
   printf 'COORDINATOR_HOST_PORT=%s\n' "${GOTCHU_COORDINATOR_PORT:-3003}"
   printf 'SCANNER_HOST_PORT=%s\n' "${GOTCHU_SCANNER_PORT:-4400}"
+  printf 'EXECUTOR_HOST_PORT=%s\n' "${GOTCHU_EXECUTOR_PORT:-3004}"
   printf 'PUBLIC_APP_URL=%s\n' "${GOTCHU_PUBLIC_URL:-http://localhost:${GOTCHU_WEB_PORT:-3000}}"
   printf 'GOTCHU_AUTH_MODE=%s\n' "${GOTCHU_AUTH_MODE:-development}"
   printf 'GOTCHU_CUSTOMER_DISCOVERY=%s\n' "${GOTCHU_CUSTOMER_DISCOVERY:-false}"
@@ -46,6 +47,8 @@ trap 'rm -f "$tmp_file"' EXIT
   printf 'GOTCHU_RUN_CAPABILITY_PUBLIC_KEY=\n'
   printf 'GOTCHU_EXECUTOR_DB_USERNAME=gotchu_executor_login\n'
   printf 'GOTCHU_EXECUTOR_DB_PASSWORD=%s\n' "$(openssl rand -hex 32)"
+  printf 'GOTCHU_EXECUTOR_ENABLED=false\n'
+  printf 'GOTCHU_GITHUB_WRITER_INSTALLATION_ID=\n'
 } > "$tmp_file"
 
 chmod 600 "$tmp_file"

@@ -50,6 +50,11 @@ ensure_state() {
     (umask 077; printf '%s\n' 'gotchu-self-host-state-v1' >"$state_marker")
   fi
   mkdir -p -- "$state_dir/github"
+  if [[ ! -e "$state_dir/monitoring-repositories.json" ]]; then
+    (umask 077; printf '%s\n' '{"repositoryRoot":"/run/repos","repositories":[]}' >"$state_dir/monitoring-repositories.json")
+  fi
+  [[ -f "$state_dir/monitoring-repositories.json" && ! -L "$state_dir/monitoring-repositories.json" ]] || fail 'El catálogo de repositorios debe ser un archivo regular.' 2
+  chmod 600 "$state_dir/monitoring-repositories.json"
   chmod 700 "$state_dir" "$state_dir/github"; chmod 600 "$state_marker"
 }
 check_docker() {
@@ -74,7 +79,7 @@ ensure_free_ports() {
   node - "$@" <<'NODE'
 const net = require('node:net');
 const ports = process.argv.slice(2).map(Number);
-const labels = ['GOTCHU_WEB_PORT', 'GOTCHU_COORDINATOR_PORT', 'GOTCHU_SCANNER_PORT', 'GOTCHU_POSTGRES_PORT', 'GOTCHU_REDIS_PORT'];
+const labels = ['GOTCHU_WEB_PORT', 'GOTCHU_COORDINATOR_PORT', 'GOTCHU_SCANNER_PORT', 'GOTCHU_POSTGRES_PORT', 'GOTCHU_REDIS_PORT', 'GOTCHU_EXECUTOR_PORT'];
 let index = 0;
 function next() {
   if (index === ports.length) return process.exit(0);
@@ -91,11 +96,11 @@ read_setup_environment() {
     chmod 600 "$env_file"
     return
   fi
-  local web_port="${GOTCHU_WEB_PORT:-3000}" coordinator_port="${GOTCHU_COORDINATOR_PORT:-3003}" scanner_port="${GOTCHU_SCANNER_PORT:-4400}" postgres_port="${GOTCHU_POSTGRES_PORT:-55432}" redis_port="${GOTCHU_REDIS_PORT:-56379}"
-  for port in "$web_port" "$coordinator_port" "$scanner_port" "$postgres_port" "$redis_port"; do [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Los puertos configurados deben estar entre 1024 y 65535.' 2; done
-  ensure_free_ports "$web_port" "$coordinator_port" "$scanner_port" "$postgres_port" "$redis_port"
+  local web_port="${GOTCHU_WEB_PORT:-3000}" coordinator_port="${GOTCHU_COORDINATOR_PORT:-3003}" scanner_port="${GOTCHU_SCANNER_PORT:-4400}" postgres_port="${GOTCHU_POSTGRES_PORT:-55432}" redis_port="${GOTCHU_REDIS_PORT:-56379}" executor_port="${GOTCHU_EXECUTOR_PORT:-3004}"
+  for port in "$web_port" "$coordinator_port" "$scanner_port" "$postgres_port" "$redis_port" "$executor_port"; do [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Los puertos configurados deben estar entre 1024 y 65535.' 2; done
+  ensure_free_ports "$web_port" "$coordinator_port" "$scanner_port" "$postgres_port" "$redis_port" "$executor_port"
   ensure_state
-  GOTCHU_ENV_FILE="$env_file" GOTCHU_AUTH_MODE=self_host GOTCHU_CUSTOMER_DISCOVERY=true GOTCHU_WEB_PORT="$web_port" GOTCHU_COORDINATOR_PORT="$coordinator_port" GOTCHU_SCANNER_PORT="$scanner_port" GOTCHU_POSTGRES_PORT="$postgres_port" GOTCHU_REDIS_PORT="$redis_port" GOTCHU_PUBLIC_URL="${GOTCHU_PUBLIC_URL:-http://localhost:${web_port}}" bash "$root/scripts/infra-local-setup.sh" >/dev/null
+  GOTCHU_ENV_FILE="$env_file" GOTCHU_AUTH_MODE=self_host GOTCHU_CUSTOMER_DISCOVERY=true GOTCHU_WEB_PORT="$web_port" GOTCHU_COORDINATOR_PORT="$coordinator_port" GOTCHU_SCANNER_PORT="$scanner_port" GOTCHU_POSTGRES_PORT="$postgres_port" GOTCHU_REDIS_PORT="$redis_port" GOTCHU_EXECUTOR_PORT="$executor_port" GOTCHU_PUBLIC_URL="${GOTCHU_PUBLIC_URL:-http://localhost:${web_port}}" bash "$root/scripts/infra-local-setup.sh" >/dev/null
 }
 ensure_scanner_secret() {
   local path="$state_dir/scanner.secret"
@@ -139,8 +144,35 @@ app_entry() {
     web) printf '%s' "$root/apps/web/.output/server/index.mjs" ;;
     coordinator) printf '%s' "$root/apps/coordinator/dist/main.js" ;;
     scanner) printf '%s' "$root/apps/scanner/dist/main.js" ;;
+    executor) printf '%s' "$root/apps/executor/dist/main.js" ;;
     *) return 1 ;;
   esac
+}
+executor_enabled() {
+  local value="${GOTCHU_EXECUTOR_ENABLED:-}"
+  if [[ -z "$value" ]]; then value="$(optional_env_value GOTCHU_EXECUTOR_ENABLED)"; fi
+  [[ -z "$value" || "$value" == false ]] && return 1
+  [[ "$value" == true ]] || fail 'GOTCHU_EXECUTOR_ENABLED debe ser true o false.' 2
+  return 0
+}
+require_executor_setup() {
+  local installation_id mode
+  installation_id="$(optional_env_value GOTCHU_GITHUB_WRITER_INSTALLATION_ID)"
+  [[ "$installation_id" =~ ^[0-9]{1,20}$ ]] || fail 'Configura GOTCHU_GITHUB_WRITER_INSTALLATION_ID para activar el executor.' 2
+  [[ -f "$state_dir/github-writer-app.json" && ! -L "$state_dir/github-writer-app.json" ]] || fail 'Falta el archivo privado github-writer-app.json.' 2
+  mode="$(stat -c '%a' "$state_dir/github-writer-app.json")"
+  (( (8#$mode & 077) == 0 )) || fail 'El archivo github-writer-app.json debe ser privado (modo 0600 o más restrictivo).' 2
+  [[ -f "$state_dir/monitoring-repositories.json" && ! -L "$state_dir/monitoring-repositories.json" ]] || fail 'Configura el catálogo de repositorios permitido antes de activar el executor.' 2
+}
+executor_ready() {
+  node --input-type=module - "$(optional_env_value EXECUTOR_HOST_PORT)" <<'NODE'
+const port = Number(process.argv[2] || 3004);
+try {
+  const response = await fetch(`http://127.0.0.1:${port}/health/ready`, { signal: AbortSignal.timeout(2000) });
+  const body = await response.json();
+  process.exit(response.ok && body.status === 'ready' ? 0 : 1);
+} catch { process.exit(1); }
+NODE
 }
 app_pid() { [[ -f "$state_dir/$1.pid" && ! -L "$state_dir/$1.pid" ]] && cat "$state_dir/$1.pid" || true; }
 app_process_matches() {
@@ -191,7 +223,17 @@ start_app() {
       redis_connection_url="$(redis_url "$(env_value REDIS_PASSWORD)" "$(env_value REDIS_HOST_PORT)")"
       environment+=("PORT=$port" "GOTCHU_COORDINATOR_HOST=127.0.0.1" "GOTCHU_CUSTOMER_DISCOVERY=true" "GOTCHU_ORGANIZATION_IDS=" \
         "GOTCHU_COORDINATOR_DATABASE_URL=$database_url" "GOTCHU_REDIS_URL=$redis_connection_url" "GOTCHU_SCANNER_ORIGIN=https://127.0.0.1:$(env_value SCANNER_HOST_PORT)" \
-        "GOTCHU_SCANNER_SECRET_FILE=$state_dir/scanner.secret" "GOTCHU_SCANNER_CA_FILE=$state_dir/scanner.crt")
+        "GOTCHU_SCANNER_SECRET_FILE=$state_dir/scanner.secret" "GOTCHU_SCANNER_CA_FILE=$state_dir/scanner.crt" \
+        "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json")
+      ;;
+    executor)
+      local database_url redis_connection_url
+      database_url="$(postgres_url "$(env_value GOTCHU_EXECUTOR_DB_USERNAME)" "$(env_value GOTCHU_EXECUTOR_DB_PASSWORD)" "$(env_value POSTGRES_HOST_PORT)" "$(env_value POSTGRES_DB)")"
+      redis_connection_url="$(redis_url "$(env_value REDIS_PASSWORD)" "$(env_value REDIS_HOST_PORT)")"
+      environment+=("PORT=$port" "GOTCHU_EXECUTOR_DATABASE_URL=$database_url" "GOTCHU_REDIS_URL=$redis_connection_url" \
+        "GOTCHU_GITHUB_WRITER_APP_FILE=$state_dir/github-writer-app.json" \
+        "GOTCHU_GITHUB_WRITER_INSTALLATION_ID=$(env_value GOTCHU_GITHUB_WRITER_INSTALLATION_ID)" \
+        "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json")
       ;;
     web)
       local api_url ingest_url github_app_file github_credentials_file webauthn_rp_id
@@ -213,7 +255,8 @@ start_app() {
         "GOTCHU_GITHUB_READER_INSTALLATION_ID=$(optional_env_value GOTCHU_GITHUB_READER_INSTALLATION_ID)" \
         "GOTCHU_EVENT_SIGNING_KEYS_JSON=$(optional_env_value GOTCHU_EVENT_SIGNING_KEYS_JSON)" \
         "GOTCHU_DNS_SERVERS_JSON=$(optional_env_value GOTCHU_DNS_SERVERS_JSON)" \
-        "GOTCHU_EVENT_CREDENTIAL_DIRECTORY=$state_dir/event-credentials")
+        "GOTCHU_EVENT_CREDENTIAL_DIRECTORY=$state_dir/event-credentials" \
+        "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json")
       [[ -z "$webauthn_rp_id" ]] || environment+=("GOTCHU_WEBAUTHN_RP_ID=$webauthn_rp_id")
       ;;
   esac
@@ -277,7 +320,8 @@ up() {
   "${compose[@]}" up -d postgres redis; compose_ready
   INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" bash "$root/scripts/infra-db-bootstrap.sh"
   ensure_scanner_tls
-  stop_app web; stop_app coordinator; stop_app scanner
+  if executor_enabled; then require_executor_setup; fi
+  stop_app executor; stop_app web; stop_app coordinator; stop_app scanner
   local scanner_port coordinator_port web_port; scanner_port="$(env_value SCANNER_HOST_PORT)"; coordinator_port="$(env_value COORDINATOR_HOST_PORT)"; web_port="$(env_value WEB_HOST_PORT)"
   start_app scanner "$scanner_port"
   NODE_EXTRA_CA_CERTS="$state_dir/scanner.crt" wait_http "https://127.0.0.1:${scanner_port}/readyz" scanner
@@ -288,6 +332,12 @@ up() {
   [[ "$probe_output" == scanner_ready ]] || fail 'El coordinator no confirmó la disponibilidad del scanner.'
   start_app web "$web_port"
   wait_http "$(env_value PUBLIC_APP_URL)/api/ready" web
+  if executor_enabled; then
+    local executor_port
+    executor_port="$(optional_env_value EXECUTOR_HOST_PORT)"; executor_port="${executor_port:-3004}"
+    start_app executor "$executor_port"
+    wait_http "http://127.0.0.1:${executor_port}/health/ready" executor
+  fi
   printf 'Gotchu listo en %s (%ss desde ./gotchu up).\n' "$(env_value PUBLIC_APP_URL)" "$(($(date +%s)-started))"
   printf '%s\n' 'Semgrep 1.182.0 está fijado por digest; la cobertura es parcial y no demuestra que la aplicación sea segura.'
   setup_link
@@ -304,15 +354,17 @@ status() {
       printf 'coordinator → scanner: inaccesible (%s)\n' "$probe_code"
     fi
   fi
+  if executor_enabled; then
+    if app_running executor && executor_ready; then printf '%s\n' 'executor: listo en loopback'; else printf '%s\n' 'executor: habilitado pero no listo'; fi
+  else printf '%s\n' 'executor: desactivado; las escrituras externas siguen cerradas.'; fi
   printf '%s\n' 'validator: no disponible; requiere Linux, /dev/kvm, bwrap y sesión systemd de usuario.'
   if [[ -f "$state_dir/github/reader-app.json" ]]; then printf '%s\n' 'GitHub Reader App: archivo de credenciales presente; permisos de escritura no están configurados.'; else printf '%s\n' 'GitHub Reader App: no configurada; ejecuta ./gotchu github setup.'; fi
-  printf '%s\n' 'executor y escrituras a proveedores: no disponibles.'
 }
 logs() {
   local service="${1:-}"
-  if [[ "$service" =~ ^(web|coordinator|scanner)$ ]]; then [[ -f "$state_dir/$service.log" ]] && tail -n 200 -f "$state_dir/$service.log" || fail "No hay registro de ${service}." 2; return; fi
-  [[ -z "$service" || "$service" =~ ^(postgres|redis)$ ]] || fail 'Servicio inválido. Usa web, coordinator, scanner, postgres o redis.' 2
-  if [[ -n "$service" ]]; then "${compose[@]}" logs --tail 200 -f "$service"; else tail -n 200 -f "$state_dir/web.log" "$state_dir/coordinator.log" "$state_dir/scanner.log"; fi
+  if [[ "$service" =~ ^(web|coordinator|scanner|executor)$ ]]; then [[ -f "$state_dir/$service.log" ]] && tail -n 200 -f "$state_dir/$service.log" || fail "No hay registro de ${service}." 2; return; fi
+  [[ -z "$service" || "$service" =~ ^(postgres|redis)$ ]] || fail 'Servicio inválido. Usa web, coordinator, scanner, executor, postgres o redis.' 2
+  if [[ -n "$service" ]]; then "${compose[@]}" logs --tail 200 -f "$service"; else tail -n 200 -f "$state_dir/web.log" "$state_dir/coordinator.log" "$state_dir/scanner.log" "$state_dir/executor.log"; fi
 }
 read_backup_passphrase() {
   [[ -t 0 ]] || fail 'La frase de paso se solicita de forma interactiva para no exponerla en argumentos o variables de entorno.' 2
@@ -457,7 +509,7 @@ restore() (
 down() {
   check_docker; [[ -f "$env_file" ]] || { printf '%s\n' 'Gotchu ya está detenido.'; return; }
   require_managed_state; require_private_env
-  stop_app web; stop_app coordinator; stop_app scanner
+  stop_app executor; stop_app web; stop_app coordinator; stop_app scanner
   "${compose[@]}" --profile web --profile coordinator down; printf '%s\n' 'Servicios detenidos; se conservaron datos y secretos.'
 }
 reset() {
@@ -465,7 +517,7 @@ reset() {
   require_managed_state; require_private_env
   printf 'Esto elimina workspaces, informes, fuentes y credenciales de %s. Escribe RESET para continuar: ' "$project"
   local answer; read -r answer; [[ "$answer" == RESET ]] || fail 'Reinicio cancelado.' 2
-  check_docker; stop_app web; stop_app coordinator; stop_app scanner
+  check_docker; stop_app executor; stop_app web; stop_app coordinator; stop_app scanner
   "${compose[@]}" --profile web --profile coordinator down --volumes --remove-orphans; rm -rf -- "$state_dir"; printf 'Datos locales eliminados. Las copias cifradas del directorio %s se conservaron.\n' "${state_dir}.backups"
 }
 doctor() {
