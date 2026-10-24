@@ -12,6 +12,14 @@ async function main() {
     runner,
   });
 
+  // Warm the parser profiles before admitting requests so startup cannot run two probe sets.
+  try {
+    const state = await runner.readiness();
+    console.log(JSON.stringify({ event: 'scanner_readiness_checked', ...state }));
+  } catch (error: unknown) {
+    console.error(JSON.stringify({ event: 'scanner_readiness_failed', type: error instanceof Error ? error.name : 'unknown' }));
+  }
+
   await new Promise<void>((resolve, reject) => {
     const onError = (error: Error) => reject(error);
     server.once('error', onError);
@@ -22,10 +30,6 @@ async function main() {
   });
 
   console.log(JSON.stringify({ event: 'scanner_started', host: config.host, port: config.port, tls: Boolean(config.tls) }));
-  void runner.readiness().then(
-    (state) => console.log(JSON.stringify({ event: 'scanner_readiness_checked', ...state })),
-    (error: unknown) => console.error(JSON.stringify({ event: 'scanner_readiness_failed', type: error instanceof Error ? error.name : 'unknown' })),
-  );
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       server.close();
