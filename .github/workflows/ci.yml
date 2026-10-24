@@ -55,5 +55,7 @@ jobs:
         run: pnpm --filter @gotchu/gateway test:postgres
       - name: Verify independent executor retry and reconciliation ledger against Postgres
         run: pnpm --filter @gotchu/executor test:postgres
-      - name: Verify signed intake, Redis recovery, lease fencing and concurrent detection
+      - name: Verify assessment delivery fencing and reserved monitoring capacity
+        run: pnpm --filter @gotchu/coordinator test:live
+      - name: Verify signed intake, recovery and real controlled source/HTTP assessments
         run: pnpm test:integration
