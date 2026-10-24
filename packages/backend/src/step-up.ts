@@ -20,6 +20,31 @@ const digest = (value: string | Buffer) => createHash('sha256').update(value).di
 const opaque = (size = 32) => randomBytes(size).toString('base64url');
 const scryptCode = (code: string, salt: Buffer) => new Promise<Buffer>((resolve, reject) => scrypt(code, salt, 32, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (error, value) => error ? reject(error) : resolve(value)));
 
+export function createWebAuthnStepUpVerifier(deps: Pick<BaseDependencies, 'database' | 'clock'>): StepUpVerifier {
+  const clock = deps.clock ?? systemClock;
+  return {
+    async verify(input) {
+      const value = parse(z.object({ proof: z.string().min(32).max(128), userId: z.string().min(1).max(256), organizationId: idSchema, actionHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(), input);
+      const result = await deps.database.tenant(value.organizationId, async tx => {
+        const consumed = await tx.query<{ id: string; user_id: string; action_hash: string; recovery_epoch: string; authenticated_at: Date; expires_at: Date; factor_id: string }>(
+          `UPDATE gotchu.step_up_proofs SET consumed_at=$4 WHERE organization_id=$1 AND proof_hash=$2 AND user_id=$3 AND action_hash=$5 AND consumed_at IS NULL AND expires_at>$4 RETURNING id,user_id,action_hash,recovery_epoch,authenticated_at,expires_at,factor_id`,
+          [value.organizationId, digest(value.proof), value.userId, clock.now(), value.actionHash]);
+        const proof = consumed.rows[0];
+        if (!proof) throw new BackendError('step_up_proof_invalid', 'La verificación venció, ya se utilizó o no corresponde a esta acción.', 403);
+        const role = await tx.query('SELECT gotchu.lock_membership($1,$2) AS role', [value.organizationId, value.userId]);
+        if (!['owner', 'operator'].includes(String(role.rows[0]?.role))) return new BackendError('forbidden', 'El permiso de organización ya no permite esta acción.', 403);
+        const epoch = await tx.query('SELECT * FROM gotchu.lock_authorization_state()');
+        if (String(epoch.rows[0]?.recovery_epoch) !== String(proof.recovery_epoch)) return new BackendError('stale_epoch', 'La autorización cambió desde la verificación.', 409);
+        const factor = await tx.query('SELECT 1 FROM gotchu.step_up_factors WHERE organization_id=$1 AND user_id=$2 AND id=$3 AND revoked_at IS NULL', [value.organizationId, value.userId, proof.factor_id]);
+        if (!factor.rowCount) return new BackendError('step_up_factor_revoked', 'El factor de seguridad fue revocado.', 403);
+        return proof;
+      });
+      if (result instanceof BackendError) throw result;
+      return { proofId: result.id, userId: result.user_id, organizationId: value.organizationId, actionHash: result.action_hash, authenticatedAt: result.authenticated_at, expiresAt: result.expires_at, method: 'webauthn' };
+    },
+  };
+}
+
 export interface StepUpOptions { rpID: string; origin: string; rpName?: string }
 export function createWebAuthnStepUpService(deps: BaseDependencies & { webAuthn: StepUpOptions }) {
   if (deps.database.role !== 'gotchu_api') throw new Error('WebAuthn step-up requires the restricted API database role');
@@ -74,27 +99,7 @@ export function createWebAuthnStepUpService(deps: BaseDependencies & { webAuthn:
       if (consumed.rowCount !== 1) throw new BackendError('recovery_code_invalid', 'El código de recuperación ya se utilizó.', 403);
     });
   }
-  const verifier: StepUpVerifier = {
-    async verify(input) {
-      const value = parse(z.object({ proof: z.string().min(32).max(128), userId: z.string().min(1).max(256), organizationId: idSchema, actionHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(), input);
-      const result = await deps.database.tenant(value.organizationId, async tx => {
-        const consumed = await tx.query<{ id: string; user_id: string; action_hash: string; recovery_epoch: string; authenticated_at: Date; expires_at: Date; factor_id: string }>(
-          `UPDATE gotchu.step_up_proofs SET consumed_at=$4 WHERE organization_id=$1 AND proof_hash=$2 AND user_id=$3 AND action_hash=$5 AND consumed_at IS NULL AND expires_at>$4 RETURNING id,user_id,action_hash,recovery_epoch,authenticated_at,expires_at,factor_id`,
-          [value.organizationId, digest(value.proof), value.userId, clock.now(), value.actionHash]);
-        const proof = consumed.rows[0];
-        if (!proof) throw new BackendError('step_up_proof_invalid', 'La verificación venció, ya se utilizó o no corresponde a esta acción.', 403);
-        const role = await tx.query('SELECT gotchu.lock_membership($1,$2) AS role', [value.organizationId, value.userId]);
-        if (!['owner', 'operator'].includes(String(role.rows[0]?.role))) return new BackendError('forbidden', 'El permiso de organización ya no permite esta acción.', 403);
-        const epoch = await tx.query('SELECT * FROM gotchu.lock_authorization_state()');
-        if (String(epoch.rows[0]?.recovery_epoch) !== String(proof.recovery_epoch)) return new BackendError('stale_epoch', 'La autorización cambió desde la verificación.', 409);
-        const factor = await tx.query('SELECT 1 FROM gotchu.step_up_factors WHERE organization_id=$1 AND user_id=$2 AND id=$3 AND revoked_at IS NULL', [value.organizationId, value.userId, proof.factor_id]);
-        if (!factor.rowCount) return new BackendError('step_up_factor_revoked', 'El factor de seguridad fue revocado.', 403);
-        return proof;
-      });
-      if (result instanceof BackendError) throw result;
-      return { proofId: result.id, userId: result.user_id, organizationId: value.organizationId, actionHash: result.action_hash, authenticatedAt: result.authenticated_at, expiresAt: result.expires_at, method: 'webauthn' };
-    },
-  };
+  const verifier = createWebAuthnStepUpVerifier(deps);
 
   return {
     verifier,
