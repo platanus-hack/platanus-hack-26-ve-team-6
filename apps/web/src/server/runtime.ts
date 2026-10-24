@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { createApi, type ApiOperation } from './api.js';
 import { authSettings, createAuthService, type AuthService } from './auth.js';
 import { HttpError } from './http.js';
+import { bindDemoAssessmentServices, createDemoAssessmentApi } from './demo.js';
 
 function credentialStore(value: string | undefined): CredentialStore | undefined {
   if (!value) return undefined;
@@ -56,8 +57,10 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const credentials = credentialStore(env.GOTCHU_EVENT_SIGNING_KEYS_JSON);
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
+  const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
   return {
     handle,
+    handleDemo,
     async readiness() {
       const check = async (database: typeof apiDatabase) => {
         if (!database) return false;
