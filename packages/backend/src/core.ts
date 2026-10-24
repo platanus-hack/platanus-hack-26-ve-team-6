@@ -11,7 +11,7 @@ export const identitySchema = z.object({ userId: z.string().min(1).max(256) }).s
 export const roleSchema = z.enum(['owner', 'operator', 'viewer']);
 export type MembershipRole = z.infer<typeof roleSchema>;
 export class BackendError extends Error {
-  constructor(public readonly code: string, message: string, public readonly status = 400) { super(message); this.name = 'BackendError'; }
+  constructor(public readonly code: string, message: string, public readonly status = 400, options?: ErrorOptions) { super(message, options); this.name = 'BackendError'; }
 }
 export function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input);
