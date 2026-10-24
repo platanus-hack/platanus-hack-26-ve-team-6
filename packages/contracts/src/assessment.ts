@@ -119,8 +119,8 @@ export const assessmentReportSchema = z.object({
     const hasInternal = comparison.internalFindingIds.length > 0;
     const hasExternal = comparison.externalFindingIds.length > 0;
     if (comparison.classification === 'both' && !(hasInternal && hasExternal)
-      || comparison.classification === 'internal_only' && !(hasInternal && !hasExternal && report.external?.status !== 'unavailable' && report.external !== null)
-      || comparison.classification === 'external_only' && !(!hasInternal && hasExternal && report.internal?.status !== 'unavailable' && report.internal !== null)) {
+      || comparison.classification === 'internal_only' && !(hasInternal && !hasExternal && report.external?.status === 'completed')
+      || comparison.classification === 'external_only' && !(!hasInternal && hasExternal && report.internal?.status === 'completed')) {
       context.addIssue({ code: 'custom', message: 'Comparison classification is not supported by inspected analyses' });
     }
   }

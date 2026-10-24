@@ -29,6 +29,16 @@ describe('assessment evidence and permission boundaries', () => {
     expect(assessmentReportSchema.safeParse({ ...value, comparison: [{ ...value.comparison[0], classification: 'both' }] }).success).toBe(false);
     expect(assessmentReportSchema.safeParse({ ...value, comparison: [] }).success).toBe(false);
   });
+  it('requires a completed opposite analysis for a one-sided classification', () => {
+    const value = fixture();
+    const report = { ...value, mode: 'both', external: { ...value.internal, origin: 'external', findings: [], evidence: [] }, comparison: [{ ...value.comparison[0], classification: 'internal_only' }] };
+    expect(assessmentReportSchema.safeParse(report).success).toBe(false);
+    expect(assessmentReportSchema.safeParse({ ...report, external: { ...report.external, status: 'completed' } }).success).toBe(true);
+    const external = { ...value.internal, origin: 'external', findings: value.internal.findings.map((finding) => ({ ...finding, origin: 'external' })), evidence: value.internal.evidence.map((entry) => ({ ...entry, origin: 'external' })) };
+    const inverse = { ...value, mode: 'both', external, internal: { ...value.internal, findings: [], evidence: [] }, comparison: [{ ...value.comparison[0], classification: 'external_only', internalFindingIds: [], externalFindingIds: value.comparison[0]?.internalFindingIds }] };
+    expect(assessmentReportSchema.safeParse(inverse).success).toBe(false);
+    expect(assessmentReportSchema.safeParse({ ...inverse, internal: { ...inverse.internal, status: 'completed' } }).success).toBe(true);
+  });
   it('does not allow source observations in an external-only report or actions in observation mode', () => {
     const value = fixture();
     expect(assessmentReportSchema.safeParse({ ...value, mode: 'external' }).success).toBe(false);
