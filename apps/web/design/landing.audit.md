@@ -1,35 +1,25 @@
 # Landing validation
 
-Scope: public `/` and local design context only. Customer/demo presentation, backend, permissions and authentication are unchanged relative to `origin/main`.
+Scope: public `/` and local design context only. Customer/demo presentation, backend, permissions and authentication are unchanged.
 
 ## Sources and editorial review
 
-- Product claims checked against README, `docs/architecture.md`, customer assessment contracts and `customer-dashboard.tsx`.
+- Product claims checked against `packages/contracts/src/assessment.ts` (severity, confidence and coverage enums, `responseMode: 'observation'`, empty `actionsPerformed`), `customer-dashboard.tsx` and `docs/architecture.md`.
 - Copy distinguishes source snapshots, explicitly authorized HTTPS and combined evidence. No monitoring, automatic fixes, whole-site crawl, execution of uploaded code or guaranteed security is advertised.
-- The previous sculpture was removed. Three authored assets are reproducible with `python3 scripts/generate-landing-assets.py`; no Apple/Churupitos artwork, AIRNT or initial loader is included.
-- No visible artwork explanations, mock-analysis captions, invented scanner results, metrics or testimonials.
+- The landing ships no raster or SVG artwork files; the mark, ASCII render, pictograms and grid are authored in components. No reference-site assets, AIRNT or loader are included. Goldman ships with its OFL license.
+- No artwork explanations, mock-analysis captions, invented scanner results, metrics or testimonials.
 
 ## Verification exercised
 
-- Monorepo `pnpm build`, `pnpm typecheck` and `pnpm test` passed at `6bbafff`: 265 tests passed; 99 infrastructure-dependent cases were skipped by their normal configuration. These skipped cases are not live-infrastructure evidence.
-- After integrating the Codex visual refinement: web typecheck, all 48 web tests, the production web build and all 14 Playwright desktop/mobile cases passed again at `7b1029a`.
-- The browser cases include axe checks, pointer tilt/reset, native scrolling through all chapters, ARIA tabs with pointer/keyboard, mobile menu/Escape, FAQ, CTA destinations, a 320px reduced-motion viewport and server-rendered content without JavaScript. Test projections do not replace real-device testing.
-- Impeccable detector returned `[]` for the final landing TSX, CSS and lens component.
-- Real desktop/mobile screenshots were inspected after integration. The story and scope states were exercised while recording a Chromium walkthrough; the screenshots in `screenshots/` are actual renders.
-
-## Collaborator and final refinements
-
-Codex `gpt-5.6-terra` at high reasoning supplied a read-only patch after Bubblewrap proved unavailable on this host. Parent reviewed/applied the exact file changes and regenerated the assets. The patch adds an optical reflection and glass rim, separates the source/origin planes, softens pointer tilt to ±6°/±4°, and initializes/reapplies the transform when motion preferences change. The collaborator did not edit the worktree or independently execute browser validation. Requested Astra model IDs were rejected by this account; no Astra contribution is claimed.
-
-## Product-capability expansion
-
-The repeated lens in the scroll story was replaced with `ProductFlow`, using actual customer UI concepts: supported source formats, revision and SHA-256; TXT authorization at `_gotchu.<domain>`; report severity/confidence, evidence/tool/checksum, coverage, comparison and JSON export. Supporting rows expose workspace/application organization and queued-job/report history. No invented finding, verification result or download is displayed.
-
-Sources: `customer-dashboard.tsx:162–211` (DNS), `231–289` (source), `293–334` (report/export), and `docs/architecture.md:41–75`. The final capability expansion passed 48 web tests, web typecheck/build and 16 desktop/mobile browser cases. All three product panels were also rendered at 1280px, 390px and 320px with no panel/page overflow or browser errors; representative renders were inspected. Impeccable reported `[]` after the radius scale was aligned.
+- Web typecheck, 48 web unit tests and the production web build passed.
+- Playwright: 16 desktop/mobile cases passed, 2 skipped by design (pointer following and the pinned stage are desktop-only). Cases cover axe WCAG 2.2 AA, canvas redraw on pointer move and on primary-action hover, the GOTCHU wipe and report panel, chapters, ARIA tabs with pointer/keyboard, menu/Escape, FAQ, CTA destinations, reduced motion at 320px and no-JavaScript content.
+- Impeccable detector: no quality antipatterns on the landing components.
+- Impeccable finish review: two full rounds plus verdict passes; final disposition `ship` for the scored fixes (kickers, FAQ face, flash takeover and wipe, settled stage frame, workflow and journey pictogram scale, closing line break, contract seed). Renders are in `screenshots/`.
 
 ## Remaining limits
 
-- Build succeeds with upstream bundler warnings about preserved `use client` directives and chunk debug names; these were not suppressed.
-- Chromium coverage is local; no Safari/Firefox matrix, hardware GPU benchmark, production deployment or cloud scanner-readiness claim is made.
-- Motion intentionally remains bounded and nonessential; reduced-motion and touch do not require following or dragging the object to use the page.
-- Commercial AIRNT licensing and buyer-specialization research remain open; neither blocks this landing using the licensed self-hosted Oxanium font.
+- `review-animations` (Emil Kowalski) is user-invoked and was not run.
+- The translucent header reads plum over magenta fields; noted by the reviewer as pre-existing, not changed.
+- `tokens.css` still carries retired tokens used by `ui.css` (Oxanium face, 4/6px radii, status colours).
+- Chromium coverage is local; no Safari/Firefox matrix, real-device GPU benchmark or deployment claim is made.
+- Commercial AIRNT licensing and buyer-specialization research remain open.
