@@ -102,12 +102,12 @@
           <div class="arrow" aria-hidden="true">→</div>
           <article class="node ready">
             <h3>BullMQ + Redis</h3>
-            <p>Job delivery; reconciled against Postgres</p>
+            <p>Separate deterministic and investigation queues; reconciled against Postgres</p>
           </article>
           <div class="arrow" aria-hidden="true">→</div>
           <article class="node ready">
             <h3>Coordinator consumer</h3>
-            <p>Aggregates events; launches bounded investigation</p>
+            <p>One deterministic slot; two investigation slots per coordinator</p>
           </article>
         </div>
 
@@ -182,8 +182,8 @@
       <h2 id="infra-title">Infrastructure status</h2>
       <div class="infra">
         <article class="node ready">
-          <h3>Compose data services</h3>
-          <p>Local Postgres and Redis run with persistent volumes. App profiles fail closed until wired to runnable images.</p>
+          <h3>Local Compose runtime</h3>
+          <p>Persistent Postgres/Redis and real nonroot web/coordinator images. Gateway, agent, executor, and scanner profiles remain disabled.</p>
         </article>
         <article class="node gate">
           <h3>Pulumi / DigitalOcean</h3>

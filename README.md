@@ -16,14 +16,11 @@ Use Node 24 and pnpm 11 as declared in the root manifest.
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm build:packages
-pnpm build
-pnpm typecheck
-pnpm test
 pnpm check
+pnpm test:integration
 ```
 
-`pnpm check` runs workspace build, typecheck, and unit tests. It does not run the live infrastructure pipeline. `pnpm test:integration` starts isolated temporary Postgres and Redis containers and exercises signed intake, outbox delivery/recovery, aggregation, tenant isolation, and the investigation HTTP path. It requires Docker and must be run separately; a passing mocked test is not a live infrastructure check.
+`pnpm check` builds and typechecks the workspace, then runs package tests. `pnpm test:integration` separately starts temporary Postgres and Redis containers and exercises signed intake, outbox delivery/recovery, aggregation, tenant isolation, and the investigation HTTP path. It requires Docker. See the [verification record](docs/validation.md) for commands actually run and their limits.
 
 Other useful commands from the package manifests and infrastructure scripts:
 
@@ -35,7 +32,7 @@ scripts/infra-compose-validate.sh
 scripts/infra-live-check.sh
 ```
 
-Build the workspace before running the isolated suites: their imports use built package exports. The `test:postgres` package scripts each launch an isolated temporary PostgreSQL container and require Docker. `infra-live-check.sh` starts and removes its own local Docker project. The default Compose stack runs Postgres and Redis only; the application profiles are intentionally fail-closed placeholders.
+Build the workspace before running the isolated suites: their imports use built package exports. The `test:postgres` package scripts each launch an isolated temporary PostgreSQL container and require Docker. `infra-live-check.sh` builds and probes the real web/coordinator images in its own temporary project. Default Compose starts Postgres and Redis; optional web and coordinator profiles run the applications. Gateway, agent, executor, and scanner profiles remain disabled. See [local runtime setup](infra/README.md).
 
 ## Current boundary
 

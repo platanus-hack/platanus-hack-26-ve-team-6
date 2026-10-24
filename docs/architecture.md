@@ -27,7 +27,7 @@ flowchart LR
   subgraph durable[Durable job path]
     pg[(Postgres · source of truth)]
     coordinator[@gotchu/coordinator]
-    queue[BullMQ on Redis · delivery transport]
+    queue[BullMQ on Redis · separate delivery lanes]
   end
 
   subgraph investigation[Bounded investigation]
@@ -76,7 +76,7 @@ The route layer delegates to `@gotchu/backend`, keeping domain decisions out of 
 
 Postgres is authoritative for accepted events, job intent, outbox delivery state, incidents, proposals, run budgets and checkpoints, and executor ledger records. Runtime roles are separated for the web API, event intake, coordinator/gateway, and executor. A valid event batch and its outbox job are committed together before the API acknowledges the event.
 
-The coordinator polls and leases committed outbox entries, enqueues job IDs in BullMQ, and reconciles missing, failed, or completed Redis deliveries against Postgres. Redis is transport, not the record of accepted work. Consumers claim durable jobs in Postgres and check the queue envelope against stored tenant and application scope before processing.
+The coordinator polls and leases committed outbox entries, enqueues job IDs in BullMQ, and reconciles missing, failed, or completed Redis deliveries against Postgres. One deterministic processing slot and two investigation slots use separate queues per coordinator, so slow investigations cannot consume event-processing capacity. Outbox publication and reconciliation share the same routing. Consumers claim durable jobs in Postgres and check the queue envelope against stored tenant and application scope before processing.
 
 The event contract rejects year-zero timestamps before persistence. If legacy rows contain timestamps that PostgreSQL cannot parse, aggregation quarantines those rows from detector windows, retains the original events, and marks detection coverage degraded. This keeps malformed stored data from poisoning later valid event aggregation.
 
@@ -96,7 +96,7 @@ The backend has typed proposal and approval contracts and persists exact action 
 
 ### Local and cloud infrastructure
 
-Docker Compose starts local Postgres and Redis. Web, coordinator, gateway, worker, executor, and scanner profiles are placeholders that fail closed until runnable container entrypoints and images are wired. The default Compose stack is not an application deployment.
+Docker Compose starts local Postgres and Redis. Optional web and coordinator profiles build and run the real applications as nonroot users with read-only roots, resource limits, and loopback-published ports. The live check verifies persistence, repeatable restricted-role bootstrap, readiness, outbound GitHub TLS, graceful shutdown, and complete test-project cleanup. Gateway, worker, executor, and scanner profiles still exit unavailable. Public TLS ingress and restricted provider egress remain deployment gates; see [the local runtime](../infra/README.md).
 
 The Pulumi TypeScript program defines a DigitalOcean VPC, firewalls, droplets, and a private Space. Its resource-policy tests use mocks. No DigitalOcean deployment has been made, and the program does not install the application services or provide a VM sandbox.
 
