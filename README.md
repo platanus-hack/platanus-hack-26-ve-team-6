@@ -46,11 +46,15 @@ Gotchu responde a esa pregunta. Revisa el código fuente, el origen HTTPS o los 
 
 Abre `/dashboard` y elige **Crear una cuenta**. Cada cuenta nueva crea su propio espacio de trabajo aislado. El runbook de producción está en [infra/aws](infra/aws/README.md).
 
-![Producción en AWS Lightsail: Caddy, web, coordinator, PostgreSQL, Redis y scanner en un servidor, con backups cifrados en S3](docs/diagrams/arquitectura-produccion.svg)
+<p align="center">
+  <img src="docs/diagrams/arquitectura-produccion.svg" alt="Producción en AWS Lightsail: Caddy, web, coordinator, PostgreSQL, Redis y scanner en un servidor, con backups cifrados en S3" width="900">
+</p>
 
 ## Cómo funciona
 
-![Flujo de Gotchu en seis pasos: espacio de trabajo, código fuente, origen HTTPS, evaluación, reporte y corrección](docs/diagrams/flujo-evaluacion.svg)
+<p align="center">
+  <img src="docs/diagrams/flujo-evaluacion.svg" alt="Flujo de Gotchu en seis pasos: espacio de trabajo, código fuente, origen HTTPS, evaluación, reporte y corrección" width="900">
+</p>
 
 | Paso | Qué hace Gotchu |
 |---|---|
@@ -75,7 +79,9 @@ Abre `/dashboard` y elige **Crear una cuenta**. Cada cuenta nueva crea su propio
 
 ## Qué no afirma Gotchu
 
-![Cómo leer un reporte: confirmado, indicio y desconocido, con severidad, confianza y explotabilidad](docs/diagrams/reporte-evidencia.svg)
+<p align="center">
+  <img src="docs/diagrams/reporte-evidencia.svg" alt="Cómo leer un reporte: confirmado, indicio y desconocido, con severidad, confianza y explotabilidad" width="900">
+</p>
 
 - Una coincidencia no prueba que el código esté desplegado.
 - Un paquete vulnerable no prueba que el código vulnerable se pueda alcanzar.
