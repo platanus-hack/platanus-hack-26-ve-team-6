@@ -1,4 +1,4 @@
-import { createActionVerifier, createBackend, createModelEndpointValidator, createValidationService, readPinnedRootfsDigest, type Backend, type CredentialStore } from '@gotchu/backend';
+import { createActionVerifier, createBackend, createModelEndpointValidator, createValidationService, issueModelProbeToken, readPinnedRootfsDigest, type Backend, type CredentialStore, type ModelProbeClient } from '@gotchu/backend';
 import { createDatabase } from '@gotchu/database';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -16,6 +16,61 @@ import { createFileModelSecretStore, createFileNotificationSecretStore } from '@
 import { resolve } from 'node:path';
 import { createGitHubRepositoryReader, createLocalGitRepositoryReader, loadMonitoringRepositoryCatalog } from '@gotchu/monitoring';
 import { isIP } from 'node:net';
+import { investigationModelProbeResultSchema } from '@gotchu/contracts';
+
+function gatewayModelProbeClient(env: NodeJS.ProcessEnv): ModelProbeClient | undefined {
+  const gatewayUrl = env.GOTCHU_GATEWAY_URL;
+  const encodedSecret = env.GOTCHU_GATEWAY_MODEL_PROBE_SECRET;
+  if (!gatewayUrl || !encodedSecret) return undefined;
+  const endpoint = new URL(gatewayUrl);
+  if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== '/' ||
+    (endpoint.protocol !== 'https:' && !(env.NODE_ENV !== 'production' && ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)))) {
+    throw new Error('GOTCHU_GATEWAY_URL must be an HTTPS origin (loopback HTTP is allowed in development)');
+  }
+  const secret = Buffer.from(z.string().regex(/^[A-Za-z0-9_-]+$/).parse(encodedSecret), 'base64url');
+  if (secret.byteLength < 32 || secret.toString('base64url') !== encodedSecret) throw new Error('GOTCHU_GATEWAY_MODEL_PROBE_SECRET must be at least 32 bytes encoded as unpadded base64url');
+  const probeUrl = new URL('/internal/v1/model-probes', endpoint);
+  return {
+    async probe(input) {
+      const issuedAt = Math.floor(Date.now() / 1_000);
+      const token = issueModelProbeToken(secret, { version: 1, organizationId: input.organizationId,
+        requestId: input.requestId, issuedAt, expiresAt: issuedAt + 30 });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 35_000);
+      try {
+        const response = await fetch(probeUrl, {
+          method: 'POST', signal: controller.signal, redirect: 'error',
+          headers: { authorization: `GatewayProbe ${token}`, 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify(input), cache: 'no-store',
+        });
+        if (!response.ok || response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
+          await response.body?.cancel();
+          throw new Error('model_probe_gateway_unavailable');
+        }
+        const length = response.headers.get('content-length');
+        if (length && Number(length) > 4_096) { await response.body?.cancel(); throw new Error('model_probe_response_invalid'); }
+        if (!response.body) throw new Error('model_probe_response_invalid');
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let size = 0;
+        try {
+          while (true) {
+            const part = await reader.read();
+            if (part.done) break;
+            size += part.value.byteLength;
+            if (size > 4_096) { await reader.cancel(); throw new Error('model_probe_response_invalid'); }
+            chunks.push(part.value);
+          }
+        } finally { reader.releaseLock(); }
+        const bytes = new Uint8Array(size);
+        let offset = 0;
+        for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+        const raw: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+        return investigationModelProbeResultSchema.parse(raw);
+      } finally { clearTimeout(timeout); }
+    },
+  };
+}
 
 function credentialStore(value: string | undefined): CredentialStore | undefined {
   if (!value) return undefined;
@@ -119,6 +174,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const notificationSecrets=notificationSecretDirectory?createFileNotificationSecretStore(notificationSecretDirectory):undefined;
   const modelSecretDirectory=env.GOTCHU_MODEL_SECRET_DIRECTORY??(env.NODE_ENV==='production'?undefined:resolve('.local/dev/model-secrets'));
   const modelSecrets=modelSecretDirectory?createFileModelSecretStore(modelSecretDirectory):undefined;
+  const modelProbeClient = gatewayModelProbeClient(env);
   const validationService = apiDatabase ? createValidationService({ database: apiDatabase }) : undefined;
   const actionVerifier = apiDatabase ? createActionVerifier({ database: apiDatabase, pinnedRootfsDigest: readPinnedRootfsDigest(), repository: {
     async readHead(scope) {
@@ -148,7 +204,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   }, validationFacts: {
     getFacts: input => validationService?.getValidationFacts(input) ?? Promise.resolve(null),
   } }) : undefined;
-  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), customerDnsVerifier: createCustomerDnsVerifier(dnsServers), webhookValidator: createNotificationWebhookValidator(dnsServers), modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true' }), ...(notificationSecrets ? { notificationSecrets } : {}), ...(modelSecrets ? { modelSecrets } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), customerDnsVerifier: createCustomerDnsVerifier(dnsServers), webhookValidator: createNotificationWebhookValidator(dnsServers), modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true' }), ...(notificationSecrets ? { notificationSecrets } : {}), ...(modelSecrets ? { modelSecrets } : {}), ...(modelProbeClient ? { modelProbeClient } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
   const stepUp = web?.stepUp;
   const settings = authSettings(env, accounts, stepUp ? userId => stepUp.invalidateSession(userId) : undefined);
   const auth = createAuthService(settings);

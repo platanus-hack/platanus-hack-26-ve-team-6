@@ -16,7 +16,7 @@ import {
   dependencyFixPreparationRequestSchema, dependencyFixPreparationResponseSchema,
   type DependencyFixPreparationRequest, type DependencyFixPreparationResponse,
   licensePolicySchema, workspaceLicensePolicySchema,
-  configureInvestigationModelSchema, investigationModelSettingsSchema,
+  configureInvestigationModelSchema, investigationModelProbeResultSchema, investigationModelSettingsSchema,
   investigationActionSchema, investigationRunSchema, investigationSubjectSchema,
   workspaceRetentionPolicyInputSchema, workspaceRetentionPolicySchema,
 } from '@gotchu/contracts';
@@ -247,6 +247,11 @@ export function createCustomerApi(options: {
           return send(investigationModelSettingsSchema.parse(await modelSettings.configure(identity, { organizationId, ...value })));
         }
         if (request.method === 'DELETE') return send(investigationModelSettingsSchema.parse(await modelSettings.disable(identity, { organizationId })));
+      }
+      if (parts.length === 6 && parts[4] === 'investigation-model' && parts[5] === 'test' && request.method === 'POST') {
+        const modelSettings = services.investigationModels;
+        if (!modelSettings) throw new HttpError(503, 'investigation_model_not_configured', 'La configuración del modelo no está disponible.');
+        return send(investigationModelProbeResultSchema.parse(await modelSettings.testConnection(identity, { organizationId })));
       }
       if (parts.length === 5 && parts[4] === 'license-policy') {
         if (request.method === 'GET') {

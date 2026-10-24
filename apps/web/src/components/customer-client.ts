@@ -36,6 +36,7 @@ import {
   validationPublicProjectionSchema,
   configureInvestigationModelSchema,
   investigationModelSettingsSchema,
+  investigationModelProbeResultSchema,
   investigationRunSchema,
   investigationSubjectSchema,
   investigationActionSchema,
@@ -248,6 +249,7 @@ export const customerApi = {
     return request(`${organizationPath(organizationId)}/investigation-model`, investigationModelSettingsSchema, { method: 'PUT', ...jsonBody(input) });
   },
   disableInvestigationModel: (organizationId: string) => request(`${organizationPath(organizationId)}/investigation-model`, investigationModelSettingsSchema, { method: 'DELETE' }),
+  testInvestigationModel: (organizationId: string) => request(`${organizationPath(organizationId)}/investigation-model/test`, investigationModelProbeResultSchema, { method: 'POST', ...jsonBody({}) }, undefined, 40_000),
   investigations: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/investigations`, z.array(investigationRunSchema).max(50)),
   requestInvestigation: (organizationId: string, applicationId: string, subject: InvestigationSubject) => {
     const value = investigationSubjectSchema.parse(subject);
