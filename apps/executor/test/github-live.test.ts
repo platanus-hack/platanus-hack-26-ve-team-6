@@ -6,7 +6,7 @@ import { Queue, QueueEvents, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { actionV2Schema, customerSourceSnapshotSchema, type ActionV2, type JobEnvelope, type ValidationEvidence } from '@gotchu/contracts';
-import { createCustomerAssessmentRunner, createNpmArtifactAdapter, createNpmArtifactScanner, createOsvAdapter, type ScannerAdapter } from '@gotchu/customer-assessment';
+import { createCustomerAssessmentRunner, createNpmArtifactAdapter, createNpmArtifactScanner, createNpmLicenseAdapter, createOsvAdapter, type ScannerAdapter } from '@gotchu/customer-assessment';
 import { setRecoveryState } from '@gotchu/database';
 import { computeGitTreeSha, computeGitTreeShaAfterPatch, createGitHubAppAdapter, deterministicBranch, GitAdapterError, type PullRequestAdapter } from '@gotchu/git-adapters';
 import { actionPolicyVersion, canonicalJson, createActionVerifier, createBackend, createNpmRegistryAdapter, hashActionV2, readPinnedRootfsDigest, sha256, type VerifiedStepUp } from '@gotchu/backend';
@@ -334,7 +334,7 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
     const job=present(await createBackend({database:f.databases.gotchu_coordinator}).jobs.claim({organizationId:f.a.organizationId,jobId:request.jobId}));
     const input=await createBackend({database:f.databases.gotchu_coordinator}).customers.getRequest({organizationId:f.a.organizationId,applicationId:f.a.applicationId,jobId:request.jobId,leaseToken:job.leaseToken});
     const scanner=createCustomerAssessmentRunner({scanners:fixtureScanners,advisory:createOsvAdapter(),
-      artifacts:createNpmArtifactAdapter(createNpmArtifactScanner(fixtureScanners))});
+      artifacts:createNpmArtifactAdapter(createNpmArtifactScanner(fixtureScanners)),licenses:createNpmLicenseAdapter()});
     const report=await scanner.run(input);
     await createBackend({database:f.databases.gotchu_coordinator}).customers.recordResult({input,report,leaseToken:job.leaseToken});
     const reportContext={organizationId:f.a.organizationId,applicationId:f.a.applicationId,reportId:report.id};

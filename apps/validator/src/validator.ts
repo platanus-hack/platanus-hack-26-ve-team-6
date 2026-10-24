@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { customerAssessmentReportSchema, customerRunInputSchema, customerSourceSnapshotSchema, scoreIndependentRescan, validationEvidenceSchema, validationLimitsSchema, validationSuiteDefinitionSchema, type ValidationEvidence, type ValidationRun } from '@gotchu/contracts';
-import { createCustomerAssessmentRunner, createOsvAdapter } from '@gotchu/customer-assessment';
+import { createCustomerAssessmentRunner, createDockerScanners, createNpmArtifactAdapter, createNpmArtifactScanner, createNpmLicenseAdapter, createOsvAdapter } from '@gotchu/customer-assessment';
 import { createFirecrackerRunner, checkRunnerGate, runnerJobSchema, runnerPackageRoot, runnerResultSchema, type RunnerResult } from '@gotchu/runner';
 import type { Database } from '@gotchu/database';
 import { scoreValidation } from '@gotchu/backend';
@@ -13,7 +13,13 @@ import { createValidationInputRegistry } from './input-registry.js';
 import { rescanCoverage, suiteModifiedByCandidate, validationAdmissionReason } from './validation-rules.js';
 
 const leaseMs = 300_000;
-const scanner = createCustomerAssessmentRunner({ advisory: createOsvAdapter() });
+const scanners = createDockerScanners();
+const scanner = createCustomerAssessmentRunner({
+  scanners,
+  advisory: createOsvAdapter(),
+  artifacts: createNpmArtifactAdapter(createNpmArtifactScanner(scanners)),
+  licenses: createNpmLicenseAdapter(),
+});
 const suiteResultSchema = z.object({ passed: z.number().int().nonnegative(), failed: z.number().int().nonnegative(), skipped: z.number().int().nonnegative(), regression: z.enum(['failed_for_target', 'passed']).optional() }).strict();
 const dependencyAllowlistSchema = z.array(z.object({ name: z.string().min(1).max(214), section: z.enum(['dependencies', 'devDependencies', 'optionalDependencies']), version: z.string().max(100) }).strict()).max(20);
 const imageLockSchema = z.object({ firecracker: z.object({ binarySha256: z.string().regex(/^[a-f0-9]{64}$/) }).passthrough(), kernel: z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/) }).passthrough(), rootfs: z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/) }).passthrough() }).passthrough();
