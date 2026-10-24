@@ -56,7 +56,7 @@ Cloudflare, Railway y PostgreSQL son un primer recorrido concreto para validar, 
 5. **No hay escritura real de repositorio, PR, merge, deploy, contención o migración.** El executor no tiene adaptador de proveedor ni proceso consumidor de producción. Los planes operativos devuelven `ready: false`; marcar pasos es una declaración del usuario. Fuentes: [executor](../apps/executor/src/execution.ts), [planes](../packages/backend/src/operations.ts).
 6. **El agente no investiga automáticamente todo hallazgo.** Las herramientas actuales de la investigación están centradas en evidencia y eventos de autenticación; faltan contexto de fuente, topología y contratos de nuevas investigaciones.
 7. **La evaluación profunda de dependencias, phishing, deepfakes y campañas de influencia no está implementada.** Son capacidades distintas y necesitan entradas, pruebas y permisos propios.
-8. **Quedan requisitos operativos:** notificaciones externas, miembros/invitaciones, retención automática, producción de identidad/TLS, actualización del scanner, restauración y capacidad medida. La infraestructura AWS está definida y probada con mocks, sin despliegue real.
+8. **Quedan requisitos operativos:** notificaciones externas, miembros/invitaciones, borrado permanente, cuotas visibles, producción de identidad/TLS, actualización del scanner, restauración y capacidad medida. La infraestructura AWS está definida y probada con mocks, sin despliegue real.
 
 ## 4. Reglas de implementación y de producto
 
@@ -307,7 +307,7 @@ Tres capacidades independientes, apoyadas en D01/D03 y ejecutadas mediante D07�
 
 Trabajo:
 
-- [ ] Implementar retención y borrado reconciliados con jobs, evidencias, propuestas, aprobaciones y ejecuciones. Fuente borrada invalida candidatos que ya no pueden verificarse; no duplicar source completo en jobs, auditoría o prompts persistidos.
+- [ ] Completar el borrado y la retención reconciliados con jobs, evidencias, propuestas, aprobaciones y ejecuciones, incluyendo borrado permanente de aplicaciones/espacios de trabajo con Owner y step-up reciente. **Parcial implementado:** retención configurable por espacio para instantáneas, imágenes, informes, observaciones, ejecuciones, entregas y eventos de protección; un job durable del coordinator purga por lotes, conserva fuentes aún usadas y consume aprobaciones/pruebas e invalida propuestas cuyos candidatos pierden su fuente. Las auditorías de purga guardan sólo conteos y no copian source. Pruebas Postgres reales cubren defaults/roles, fuente en uso y rechazo de aprobación obsoleta; falta la eliminación permanente y ampliar cobertura de purga a cada categoría.
 - [ ] Resolver límites de retención antes de llamar al monitoreo continuo: hoy 1.000 runs/app detienen programación; 2.000 observaciones/app, 100 nuevas/día y 100 planes/app son cuotas finitas. Mostrar consumo y degradación y probar que una proyección sin cupo no bloquea detecciones aceptadas.
 - [x] Entrega externa básica por SMTP/webhook sustituible: prueba de contacto, outbox durable, idempotencia estable, retry acotado, estado de entrega y dead letter; webhook HTTPS con firma y defensa SSRF. La entrega no equivale a lectura humana y una caída completa del coordinador retrasa la salida externa.
 - [ ] Añadir verificación de destinatarios, rotación de secretos, escalamiento y watchdog independiente; probar recuperación y disponibilidad con proveedores externos.
