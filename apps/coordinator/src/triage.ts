@@ -155,7 +155,7 @@ export async function evaluateTriage(tx: Transaction, scope: { organizationId: s
     WHERE organization_id=$1 AND application_id=$2 AND created_at>clock_timestamp()-interval '7 days' ORDER BY created_at DESC LIMIT 500`, [scope.organizationId, scope.applicationId]);
   const structured = await tx.query<{ kind: string; payload: unknown }>(`SELECT kind,payload FROM gotchu.triage_inputs
     WHERE organization_id=$1 AND application_id=$2 AND observed_at>clock_timestamp()-interval '7 days' ORDER BY observed_at DESC LIMIT 300`, [scope.organizationId, scope.applicationId]);
-  const context = await loadContext(tx, scope);
+  const loadedContext = await loadContext(tx, scope);
   const serviceRows = await tx.query<{ name: string; environment: string }>(`SELECT s.name,e.name AS environment FROM gotchu.application_services s
     JOIN gotchu.application_environments e ON e.organization_id=s.organization_id AND e.application_id=s.application_id AND e.id=s.environment_id
     WHERE s.organization_id=$1 AND s.application_id=$2 AND NOT e.archived`, [scope.organizationId, scope.applicationId]);
@@ -198,7 +198,8 @@ export async function evaluateTriage(tx: Transaction, scope: { organizationId: s
       ...(eventAt ? { eventAt } : {}),
       ...(service && environment ? { service, environment } : {}), ...(release ? { release } : {}), ...(route ? { route } : {}) };
   });
-  const input = buildCorrelationInput({ now, context, providerStatuses: structured.rows.filter(row => row.kind === 'provider_status').map(row => row.payload),
+  const input = buildCorrelationInput({ now, context: loadedContext.context, anomalies: loadedContext.anomalies,
+    providerStatuses: structured.rows.filter(row => row.kind === 'provider_status').map(row => row.payload),
     probes: structured.rows.filter(row => row.kind === 'https_probe').map(row => row.payload), observations: metricObservations });
   if (!hasCorrelationEvidence(input)) return;
   const first = correlate(input, { now, rulesVersion: 'triage.rules.v1' });
@@ -215,19 +216,27 @@ export async function evaluateTriage(tx: Transaction, scope: { organizationId: s
     randomUUID(), environment, revision.impact.window.startedAt, revision.impact.window.endedAt, JSON.stringify(revision), JSON.stringify(evidenceRefs)]);
 }
 
-async function loadContext(tx: Transaction, scope: { organizationId: string; applicationId: string }): Promise<CorrelationWindowInput['context']> {
+async function loadContext(tx: Transaction, scope: { organizationId: string; applicationId: string }): Promise<{
+  context: CorrelationWindowInput['context']; anomalies: string[];
+}> {
   const result = await tx.query<{ environment: string | null; deployments: unknown; dependencies: unknown }>(`SELECT
     (SELECT name FROM gotchu.application_environments WHERE organization_id=$1 AND application_id=$2 AND archived=false ORDER BY CASE kind WHEN 'production' THEN 0 ELSE 1 END,created_at LIMIT 1) AS environment,
-    coalesce((SELECT jsonb_agg(jsonb_build_object('service',s.name,'releaseId',d.release_id,'commit',d.commit_sha,'deployedAt',to_char(d.deployed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),'state',d.state) ORDER BY d.deployed_at DESC)
+    coalesce((SELECT jsonb_agg(recent.payload ORDER BY recent.deployed_at DESC,recent.id DESC) FROM (
+      SELECT d.id,d.deployed_at,jsonb_build_object('service',s.name,'releaseId',d.release_id,'commit',d.commit_sha,'deployedAt',to_char(d.deployed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),'state',d.state) AS payload
       FROM gotchu.application_deployments d JOIN gotchu.application_services s ON s.organization_id=d.organization_id AND s.application_id=d.application_id AND s.id=d.service_id
-      WHERE d.organization_id=$1 AND d.application_id=$2 AND d.environment_id=(SELECT id FROM gotchu.application_environments WHERE organization_id=$1 AND application_id=$2 AND archived=false ORDER BY CASE kind WHEN 'production' THEN 0 ELSE 1 END,created_at LIMIT 1)),'[]'::jsonb) AS deployments,
+      WHERE d.organization_id=$1 AND d.application_id=$2 AND d.environment_id=(SELECT id FROM gotchu.application_environments WHERE organization_id=$1 AND application_id=$2 AND archived=false ORDER BY CASE kind WHEN 'production' THEN 0 ELSE 1 END,created_at LIMIT 1)
+      ORDER BY d.deployed_at DESC,d.id DESC LIMIT 101) recent),'[]'::jsonb) AS deployments,
     coalesce((SELECT jsonb_agg(jsonb_build_object('service',s.name,'provider',d.provider,'component',d.component,'region',d.region,'state',d.state))
       FROM gotchu.application_dependencies d JOIN gotchu.application_services s ON s.organization_id=d.organization_id AND s.application_id=d.application_id AND s.id=d.service_id
       WHERE d.organization_id=$1 AND d.application_id=$2 AND d.environment_id=(SELECT id FROM gotchu.application_environments WHERE organization_id=$1 AND application_id=$2 AND archived=false ORDER BY CASE kind WHEN 'production' THEN 0 ELSE 1 END,created_at LIMIT 1)),'[]'::jsonb) AS dependencies`, [scope.organizationId, scope.applicationId]);
   const row = result.rows[0];
-  if (!row) return undefined;
-  const deployments = Array.isArray(row.deployments) ? row.deployments : [];
+  if (!row) return { context: undefined, anomalies: [] };
+  const availableDeployments = Array.isArray(row.deployments) ? row.deployments : [];
+  const deployments = availableDeployments.slice(0, 100);
+  const anomalies = availableDeployments.length > 100
+    ? ['Deployment context is incomplete: one or more recent deployments were omitted at the 100-record triage limit.'] : [];
   const dependencies = Array.isArray(row.dependencies) ? row.dependencies : [];
-  if (row.environment === null && deployments.length === 0 && dependencies.length === 0) return undefined;
-  return correlationWindowInputSchema.shape.context.parse({ ...(row.environment ? { environment: row.environment } : {}), service: 'application', deployments, dependencies });
+  if (row.environment === null && deployments.length === 0 && dependencies.length === 0) return { context: undefined, anomalies };
+  const context = correlationWindowInputSchema.shape.context.parse({ ...(row.environment ? { environment: row.environment } : {}), service: 'application', deployments, dependencies });
+  return { context, anomalies };
 }
