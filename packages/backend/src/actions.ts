@@ -1,6 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import { actionV2Schema, type ActionV2 } from '@gotchu/contracts';
+import { createHash, randomUUID } from 'node:crypto';
+import { actionV2Schema, customerSourceSnapshotSchema, type ActionV2 } from '@gotchu/contracts';
 import type { Transaction } from '@gotchu/database';
+import { computeGitTreeSha, type PatchFile, type WorkflowPolicyException } from '@gotchu/git-adapters';
 import { z } from 'zod';
 import { audit, authorize, BackendError, canonicalJson, parse, sha256, systemClock, type BaseDependencies, type Identity } from './core.js';
 import { APPROVAL_TTL_MS, STEP_UP_MAX_AGE_MS, assertStepUp, verifiedStepUpSchema, type StepUpVerifier } from './proposals.js';
@@ -9,12 +10,14 @@ import { enqueue } from './jobs.js';
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
 const actionHashSchema = digest;
 const sourceRefSchema = z.object({ type: z.literal('correction_candidate'), candidateId: z.uuid() }).strict();
+const gitCommit = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
 const proposeSchema = z.object({ kind: z.literal('source_patch_pull_request'), sourceRef: sourceRefSchema }).strict();
 const actionRowSchema = z.object({ id: z.uuid(), actionHash: digest, action: actionV2Schema, state: z.enum(['proposed','eligible','ineligible','approved','expired','invalidated','executing','succeeded','failed','uncertain','reconciliation_required']), blockingReasons: z.array(z.string()), createdAt: z.date() }).strict();
 
-export type ActionEligibility = { eligible: boolean; blockingReasons: string[]; baseChanged?: boolean };
+export type ActionEligibility = { eligible: boolean; blockingReasons: string[]; baseChanged?: boolean; workflowExceptions?: readonly WorkflowPolicyException[] };
 export interface ActionVerifier {
   verify(action: ActionV2, context: { phase: 'proposal' | 'approval' | 'execution' }): Promise<ActionEligibility>;
+  prepareArtifact?(input: { organizationId: string; applicationId: string; repositoryKey: string; baseCommit: string; files: readonly PatchFile[] }): Promise<{ treeSha: string | null; unsupportedReason: string | null }>;
 }
 export interface ActionDependencies extends BaseDependencies { actionVerifier?: ActionVerifier; stepUpVerifier?: StepUpVerifier }
 
@@ -55,33 +58,70 @@ function publicReasons(blockingReasons: unknown, invalidationReason: string | nu
 }
 
 async function loadCandidate(tx: Transaction, scope: { organizationId: string; applicationId: string }, candidateId: string) {
-  const sourceResult = await tx.query<{ digest: string; deleted_at: Date | null }>(`SELECT digest,deleted_at FROM gotchu.customer_sources
+  const sourceResult = await tx.query<{ body: unknown; digest: string; deleted_at: Date | null }>(`SELECT body,digest,deleted_at FROM gotchu.customer_sources
     WHERE organization_id=$1 AND application_id=$2 AND id=$3`, [scope.organizationId, scope.applicationId, candidateId]);
   const source = sourceResult.rows[0];
   if (!source || source.deleted_at) throw new BackendError('candidate_unavailable', 'Private correction candidate is unavailable', 409);
   const auditResult = await tx.query<{ detail: unknown }>(`SELECT detail FROM gotchu.audit_records
     WHERE organization_id=$1 AND subject_id=$2 AND action='correction.prepared' ORDER BY created_at DESC LIMIT 1`, [scope.organizationId, candidateId]);
-  const detail = z.object({ recipeId: z.string().min(1).max(100), recipeVersion: z.string().min(1).max(100), findingId: z.string().min(1).max(256), patchHash: digest, candidateSourceDigest: digest, path: z.string().min(1).max(512) }).passthrough().safeParse(auditResult.rows[0]?.detail);
+  const detail = z.object({ recipeId: z.string().min(1).max(100), recipeVersion: z.string().min(1).max(100), findingId: z.string().min(1).max(256), patchHash: digest, candidateSourceDigest: digest, path: z.string().min(1).max(512), originalSourceId: z.uuid().optional(), sourceDigest: digest.optional() }).passthrough().safeParse(auditResult.rows[0]?.detail);
   if (!detail.success || detail.data.candidateSourceDigest !== source.digest) throw new BackendError('candidate_mismatch', 'Stored correction metadata does not match the private candidate', 409);
   const linkResult = await tx.query<{ id: string; repository_key: string; default_branch: string; state: string; revoked: boolean; write_access: string }>(`SELECT id,repository_key,default_branch,state,revoked,write_access FROM gotchu.application_repository_links
     WHERE organization_id=$1 AND application_id=$2 AND NOT revoked ORDER BY created_at,id LIMIT 2`, [scope.organizationId, scope.applicationId]);
   if (linkResult.rows.length !== 1) throw new BackendError('repository_link_ambiguous', 'Exactly one active repository link is required to resolve the action target', 409);
   const link = linkResult.rows[0];
   if (!link) throw new BackendError('repository_link_unavailable', 'Repository link is missing or revoked', 409);
+  const snapshot = parse(customerSourceSnapshotSchema, source.body);
+  if (sha256(canonicalJson(snapshot)) !== source.digest) throw new BackendError('candidate_mismatch', 'Stored correction snapshot failed its digest check', 409);
+  let patchFiles: PatchFile[] = [];
+  let artifactUnsupportedReason: string | null = 'source_snapshot_completeness_unknown';
+  if (detail.data.originalSourceId && detail.data.sourceDigest) {
+    const originalResult = await tx.query<{ body: unknown; digest: string; deleted_at: Date | null }>(`SELECT body,digest,deleted_at FROM gotchu.customer_sources
+      WHERE organization_id=$1 AND application_id=$2 AND id=$3`, [scope.organizationId, scope.applicationId, detail.data.originalSourceId]);
+    const original = originalResult.rows[0];
+    if (original && original.deleted_at === null && original.digest === detail.data.sourceDigest) {
+      const baseSnapshot = customerSourceSnapshotSchema.safeParse(original.body);
+      if (baseSnapshot.success && sha256(canonicalJson(baseSnapshot.data)) === original.digest && baseSnapshot.data.revision === snapshot.revision) {
+        const before = new Map(baseSnapshot.data.files.map(file => [file.path, file.content]));
+        const after = new Map(snapshot.files.map(file => [file.path, file.content]));
+        const removed = [...before.keys()].filter(path => !after.has(path));
+        const changed = snapshot.files.filter(file => before.get(file.path) !== file.content);
+        if (removed.length === 0 && changed.length === 1 && changed[0]?.path === detail.data.path) {
+          patchFiles = changed.map(file => ({ path: file.path, content: file.content, mode: '100644' as const }));
+          artifactUnsupportedReason = null;
+        } else {
+          artifactUnsupportedReason = 'artifact_patch_unsupported';
+        }
+      } else {
+        artifactUnsupportedReason = 'artifact_patch_unsupported';
+      }
+    } else {
+      artifactUnsupportedReason = 'artifact_patch_unsupported';
+    }
+  }
+  const baseCommit = parse(gitCommit, snapshot.revision);
   const action = parse(actionV2Schema, {
     version: 2, kind: 'source_patch_pull_request', capabilityId: 'repository.source_patch_pr', organizationId: scope.organizationId, applicationId: scope.applicationId,
     policyVersion: 'gotchu-action-policy-v2', target: { kind: 'repository', repositoryLinkId: link.id, repositoryKey: link.repository_key, branch: link.default_branch },
-    recipeId: detail.data.recipeId, recipeVersion: detail.data.recipeVersion, snapshotSha256: source.digest, patchSha256: detail.data.patchHash,
+    baseCommit, recipeId: detail.data.recipeId, recipeVersion: detail.data.recipeVersion, snapshotSha256: source.digest, patchSha256: detail.data.patchHash,
     findingIdentities: [detail.data.findingId], validationAttestationIds: [], evidence: [{ id: candidateId, sha256: source.digest, kind: 'private_correction_candidate' }],
   });
   const blockingReasons = [
     ...(link.state !== 'verified' ? ['vínculo de repositorio sin verificar'] : []),
     ...(link.write_access !== 'granted' ? ['permiso de escritura del repositorio no concedido'] : []),
-    'validaciones pendientes',
-    'validación en VM no disponible',
-    'sin adaptador de escritura',
   ];
-  return { action, path: detail.data.path, blockingReasons };
+  return { action, path: detail.data.path, snapshot, patchFiles, artifactUnsupportedReason, blockingReasons };
+}
+
+async function insertExecutionArtifact(tx: Transaction, scope: { organizationId: string; applicationId: string }, proposalId: string, action: Extract<ActionV2,{kind:'source_patch_pull_request'}>, patchFiles: readonly PatchFile[], unsupportedReason: string | null, treeSha: string | null) {
+  const files = patchFiles.map(file => ({ path: file.path, mode: file.mode ?? '100644', contentBase64: Buffer.from(file.content, 'utf8').toString('base64'), sha256: createHash('sha256').update(file.content, 'utf8').digest('hex') }));
+  const sizeBytes = patchFiles.reduce((total, file) => total + Buffer.byteLength(file.path, 'utf8') + Buffer.byteLength(file.content, 'utf8'), 0);
+  if (sizeBytes > 4_194_304) throw new BackendError('candidate_too_large', 'Candidate exceeds the stored publication size limit', 413);
+  const candidateTreeSha = await computeGitTreeSha(patchFiles);
+  const completeTreeSha = unsupportedReason === null ? treeSha : null;
+  const unsupported = completeTreeSha === null ? unsupportedReason ?? 'repository_tree_unavailable' : null;
+  await tx.query(`INSERT INTO gotchu.execution_artifacts(organization_id,application_id,proposal_id,candidate_source_id,base_commit,files,candidate_tree_sha,tree_sha,tree_complete,unsupported_reason,commit_message,snapshot_sha256,patch_sha256,artifact_sha256,size_bytes)
+    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [scope.organizationId,scope.applicationId,proposalId,action.evidence[0]?.id,action.baseCommit,JSON.stringify(files),candidateTreeSha,completeTreeSha,completeTreeSha !== null,unsupported,`Gotchu approved correction ${action.patchSha256.slice(0,16)}`,action.snapshotSha256,action.patchSha256,action.snapshotSha256,sizeBytes]);
 }
 
 export function createActionService(deps: ActionDependencies) {
@@ -128,30 +168,66 @@ export function createActionService(deps: ActionDependencies) {
     },
     async propose(identity: Identity, input: { organizationId: string; applicationId: string; kind: string; sourceRef: unknown }) {
       const value = parse(z.object({ organizationId: z.uuid(), applicationId: z.uuid(), ...proposeSchema.shape }).strict(), input);
+      const prepared = await deps.database.tenant(value.organizationId, async tx => {
+        await authorize(tx, value.organizationId, identity, ['owner', 'operator'], value.applicationId);
+        return await loadCandidate(tx, value, value.sourceRef.candidateId);
+      });
+      const preparedAction = prepared.action;
+      if (preparedAction.kind !== 'source_patch_pull_request') throw new BackendError('candidate_invalid', 'A source correction candidate must resolve to a source patch action', 409);
+      let treeSha: string | null = null;
+      let unsupportedReason = prepared.artifactUnsupportedReason;
+      if (!unsupportedReason && prepared.patchFiles.length && deps.actionVerifier?.prepareArtifact) {
+        try {
+          const tree = await deps.actionVerifier.prepareArtifact({
+            organizationId: preparedAction.organizationId, applicationId: preparedAction.applicationId,
+            repositoryKey: preparedAction.target.repositoryKey, baseCommit: preparedAction.baseCommit, files: prepared.patchFiles,
+          });
+          treeSha = tree.treeSha;
+          unsupportedReason = tree.unsupportedReason;
+        } catch {
+          unsupportedReason = 'repository_tree_unavailable';
+        }
+      } else if (!unsupportedReason) {
+        unsupportedReason = 'repository_tree_unavailable';
+      }
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, identity, ['owner', 'operator'], value.applicationId);
         const app = await tx.query<{ archived: boolean }>('SELECT archived FROM gotchu.applications WHERE organization_id=$1 AND id=$2 FOR UPDATE', [value.organizationId, value.applicationId]);
         if (!app.rows[0]) throw new BackendError('not_found', 'Application not found', 404);
         if (app.rows[0].archived) throw new BackendError('application_archived', 'Restore the application before proposing an action', 409);
-        const prepared = await loadCandidate(tx, value, value.sourceRef.candidateId);
+        const current = await loadCandidate(tx, value, value.sourceRef.candidateId);
+        if (current.action.kind !== 'source_patch_pull_request') throw new BackendError('candidate_invalid', 'A source correction candidate must resolve to a source patch action', 409);
+        if (canonicalJson(current.action) !== canonicalJson(preparedAction)
+          || canonicalJson(current.patchFiles) !== canonicalJson(prepared.patchFiles)
+          || current.artifactUnsupportedReason !== prepared.artifactUnsupportedReason
+          || current.action.snapshotSha256 !== preparedAction.snapshotSha256) {
+          throw new BackendError('candidate_changed', 'The stored correction candidate changed while its repository tree was being read', 409);
+        }
         const authorization = await tx.query<{ recovery_epoch: string }>('SELECT recovery_epoch FROM gotchu.lock_authorization_state()');
         const recoveryEpoch = String(authorization.rows[0]?.recovery_epoch ?? '');
-        const actionHash = hashActionV2(prepared.action, recoveryEpoch);
+        const actionHash = hashActionV2(current.action, recoveryEpoch);
         const prior = await tx.query<{ id: string }>('SELECT id FROM gotchu.proposals WHERE organization_id=$1 AND action_hash=$2', [value.organizationId, actionHash]);
         if (prior.rows[0]) return { proposalId: prior.rows[0].id, actionHash };
         const open = await tx.query<{ count: number }>(`SELECT count(*)::int AS count FROM gotchu.proposals WHERE organization_id=$1 AND application_id=$2 AND state NOT IN ('expired','invalidated','succeeded','failed')`, [value.organizationId, value.applicationId]);
         if ((open.rows[0]?.count ?? 0) >= 100) throw new BackendError('proposal_capacity', 'At most 100 open action proposals are allowed per application', 429);
         const id = randomUUID();
-        const state = deps.actionVerifier && !prepared.blockingReasons.length ? 'eligible' : 'ineligible';
-        const reasons = deps.actionVerifier ? prepared.blockingReasons : [...prepared.blockingReasons, 'validación en VM no disponible'];
-        const inserted = await tx.query('INSERT INTO gotchu.proposals(organization_id,application_id,id,action_hash,body,recovery_epoch,version,kind,capability_id,state,source_ref,blocking_reasons) VALUES($1,$2,$3,$4,$5::jsonb,$6,2,$7,$8,$9,$10::jsonb,$11::jsonb) ON CONFLICT(organization_id,action_hash) DO NOTHING RETURNING id', [value.organizationId,value.applicationId,id,actionHash,JSON.stringify(prepared.action),recoveryEpoch,prepared.action.kind,prepared.action.capabilityId,state,JSON.stringify(value.sourceRef),JSON.stringify(reasons)]);
+        const state = 'ineligible';
+        const writeCapability = await tx.query<{ adapter_available: boolean }>('SELECT adapter_available FROM gotchu.action_capabilities WHERE kind=$1', [current.action.kind]);
+        const reasons = [
+          ...current.blockingReasons,
+          ...(unsupportedReason ? [unsupportedReason] : []),
+          ...(writeCapability.rows[0]?.adapter_available ? [] : ['sin adaptador de escritura']),
+          ...(!deps.actionVerifier ? ['validation_verifier_unavailable'] : []),
+        ];
+        const inserted = await tx.query('INSERT INTO gotchu.proposals(organization_id,application_id,id,action_hash,body,recovery_epoch,version,kind,capability_id,state,source_ref,blocking_reasons) VALUES($1,$2,$3,$4,$5::jsonb,$6,2,$7,$8,$9,$10::jsonb,$11::jsonb) ON CONFLICT(organization_id,action_hash) DO NOTHING RETURNING id', [value.organizationId,value.applicationId,id,actionHash,JSON.stringify(current.action),recoveryEpoch,current.action.kind,current.action.capabilityId,state,JSON.stringify(value.sourceRef),JSON.stringify(reasons)]);
         if (!inserted.rowCount) {
           const prior = await tx.query<{ id: string }>('SELECT id FROM gotchu.proposals WHERE organization_id=$1 AND action_hash=$2', [value.organizationId, actionHash]);
           const existing = prior.rows[0];
           if (!existing) throw new BackendError('proposal_conflict', 'Idempotent action proposal disappeared', 409);
           return { proposalId: existing.id, actionHash };
         }
-        await audit(tx, value.organizationId, identity.userId, 'action.proposed', id, { actionHash, kind: prepared.action.kind, capabilityId: prepared.action.capabilityId });
+        await insertExecutionArtifact(tx, value, id, current.action, current.patchFiles, unsupportedReason, treeSha);
+        await audit(tx, value.organizationId, identity.userId, 'action.proposed', id, { actionHash, kind: current.action.kind, capabilityId: current.action.capabilityId });
         return { proposalId: id, actionHash };
       });
     },
@@ -173,7 +249,6 @@ export function createActionService(deps: ActionDependencies) {
         if (!deps.actionVerifier) reasons.push('validación en VM no disponible');
         if (!row.adapter_available) reasons.push('sin adaptador de escritura');
         if (action.kind === 'provider_response') reasons.push('sin adaptador de escritura');
-        if (action.kind === 'source_patch_pull_request' && action.validationAttestationIds.length === 0) reasons.push('validaciones pendientes');
         const verification = deps.actionVerifier ? await deps.actionVerifier.verify(action, { phase: 'proposal' }) : undefined;
         if (verification?.baseChanged) reasons.push('base cambió desde la propuesta');
         if (verification && !verification.eligible) reasons.push(...(verification.blockingReasons.length ? verification.blockingReasons : ['validaciones pendientes']));

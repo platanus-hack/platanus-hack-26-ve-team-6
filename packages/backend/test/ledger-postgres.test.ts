@@ -4,6 +4,7 @@ import { setRecoveryState } from '@gotchu/database';
 import type { ActionV2 } from '@gotchu/contracts';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
 import { BackendError, canonicalJson, createBackend, createWebAuthnStepUpVerifier, hashActionV2, proposalSchema, sha256, type ActionEligibility, type ProposalEligibility, type StepUpVerifier, type VerifiedStepUp } from '../src/index.js';
+import { createExecutionArtifactService } from '../src/execution-artifacts.js';
 import { eligibilityFixture, proposalFixture } from './proposal-fixtures.js';
 const live = liveUrl ? describe : describe.skip;
 live('real Postgres approval/execution ledger; injected test-only MFA and eligibility verifier', () => {
@@ -35,7 +36,7 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
     proofs.set(token, { proofId: token, userId: f.a.userId, organizationId: f.a.organizationId, actionHash, authenticatedAt: now, expiresAt: new Date(now.getTime() + 300_000), method: 'webauthn', ...patch });
     return token;
   }
-  const actionFixture = (): ActionV2 => ({ version: 2, kind: 'source_patch_pull_request', capabilityId: 'repository.source_patch_pr', organizationId: f.a.organizationId, applicationId: f.a.applicationId, policyVersion: 'policy-v2', target: { kind: 'repository', repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, recipeId: 'tls-certificate-verification', recipeVersion: '1', snapshotSha256: 'a'.repeat(64), patchSha256: 'b'.repeat(64), findingIdentities: ['finding-1'], validationAttestationIds: [randomUUID()], evidence: [{ id: randomUUID(), sha256: 'c'.repeat(64), kind: 'candidate' }] });
+  const actionFixture = (): ActionV2 => ({ version: 2, kind: 'source_patch_pull_request', capabilityId: 'repository.source_patch_pr', organizationId: f.a.organizationId, applicationId: f.a.applicationId, policyVersion: 'policy-v2', target: { kind: 'repository', repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, baseCommit: '1'.repeat(40), recipeId: 'tls-certificate-verification', recipeVersion: '1', snapshotSha256: 'a'.repeat(64), patchSha256: 'b'.repeat(64), findingIdentities: ['finding-1'], validationAttestationIds: [randomUUID()], evidence: [{ id: randomUUID(), sha256: 'c'.repeat(64), kind: 'candidate' }] });
   const dependencyActionFixture = (): ActionV2 => ({version:2,kind:'dependency_pull_request',capabilityId:'repository.dependency_pr',organizationId:f.a.organizationId,applicationId:f.a.applicationId,policyVersion:'policy-v2',target:{kind:'repository',repositoryLinkId:randomUUID(),repositoryKey:'catalog:key',branch:'main'},baseCommit:'a'.repeat(40),candidateCommit:'b'.repeat(40),changes:[{name:'safe-package',from:'1.0.0',to:'1.0.1'}],lockfileSha256:'c'.repeat(64),patchSha256:'d'.repeat(64),rescanAttestationId:randomUUID(),suiteAttestationId:randomUUID(),evidence:[{id:randomUUID(),sha256:'e'.repeat(64),kind:'candidate'}]});
   async function createV2(action = actionFixture()) {
     const state = await f.admin.query<{ recovery_epoch: string }>('SELECT recovery_epoch FROM gotchu.platform_state');
@@ -130,8 +131,8 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
   it('builds a source patch action only from stored candidate and context records and projects no private source content', async () => {
     const candidateId = randomUUID(); const repositoryLinkId = randomUUID();
     const privateMarker = 'PRIVATE_SOURCE_MUST_NOT_LEAK';
-    const body = { revision: 'candidate', files: [{ path: 'src/config.ts', content: privateMarker }] };
-    const candidateDigest = 'd'.repeat(64); const patchHash = 'e'.repeat(64);
+    const body = { revision: 'a'.repeat(40), files: [{ path: 'src/config.ts', content: privateMarker }] };
+    const candidateDigest = sha256(canonicalJson(body)); const patchHash = 'e'.repeat(64);
     await f.admin.query('INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor) VALUES($1,$2,$3,$4,$5::jsonb,$6)', [f.a.organizationId,f.a.applicationId,candidateId,candidateDigest,JSON.stringify(body),f.a.userId]);
     await f.admin.query('INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access,state) VALUES($1,$2,$3,$4,$5,$6,$7)', [f.a.organizationId,f.a.applicationId,repositoryLinkId,'catalog:service','main','granted','declared']);
     await f.admin.query('INSERT INTO gotchu.audit_records(organization_id,id,actor_id,action,subject_id,detail) VALUES($1,$2,$3,$4,$5,$6::jsonb)', [f.a.organizationId,randomUUID(),f.a.userId,'correction.prepared',candidateId,JSON.stringify({ recipeId: 'tls-certificate-verification', recipeVersion: '1.0.0', findingId: 'finding-identity', patchHash, candidateSourceDigest: candidateDigest, path: 'src/config.ts' })]);
@@ -139,6 +140,39 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
     const card = await api.actions.get(identity(), { organizationId: f.a.organizationId, applicationId: f.a.applicationId, proposalId: proposed.proposalId });
     expect(card).toMatchObject({ state: 'ineligible', target: { kind: 'repository', repositoryLinkId, repositoryKey: 'catalog:service', branch: 'main' }, diff: { path: 'src/config.ts' }, blockingReasons: expect.arrayContaining(['No hay un adaptador de escritura disponible. No se modificará ningún repositorio.']) });
     expect(JSON.stringify(card)).not.toContain(privateMarker);
+  });
+  it('stores exact source patch bytes atomically from the candidate snapshot', async () => {
+    const baseId = randomUUID(); const candidateId = randomUUID(); const repositoryLinkId = randomUUID();
+    const revision = 'a'.repeat(40);
+    const baseBody = { revision, files: [{ path: 'src/config.ts', content: 'const secure = false;\n' }] };
+    const candidateBody = { revision, files: [{ path: 'src/config.ts', content: 'const secure = true;\n' }] };
+    const sourceDigest = sha256(canonicalJson(baseBody)); const candidateDigest = sha256(canonicalJson(candidateBody)); const patchHash = 'e'.repeat(64);
+    await f.admin.query('INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor) VALUES($1,$2,$3,$4,$5::jsonb,$6),($1,$2,$7,$8,$9::jsonb,$6)', [f.a.organizationId,f.a.applicationId,baseId,sourceDigest,JSON.stringify(baseBody),f.a.userId,candidateId,candidateDigest,JSON.stringify(candidateBody)]);
+    await f.admin.query('UPDATE gotchu.application_repository_links SET revoked=true WHERE organization_id=$1 AND application_id=$2 AND NOT revoked', [f.a.organizationId,f.a.applicationId]);
+    await f.admin.query(`INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access,write_access,state,source)
+      VALUES($1,$2,$3,$4,'main','granted','granted','verified','operator')`, [f.a.organizationId,f.a.applicationId,repositoryLinkId,`catalog:${randomUUID()}`]);
+    await f.admin.query('INSERT INTO gotchu.audit_records(organization_id,id,actor_id,action,subject_id,detail) VALUES($1,$2,$3,$4,$5,$6::jsonb)', [f.a.organizationId,randomUUID(),f.a.userId,'correction.prepared',candidateId,JSON.stringify({ recipeId:'tls-certificate-verification',recipeVersion:'1.0.0',findingId:'finding-identity',patchHash,candidateSourceDigest:candidateDigest,path:'src/config.ts',originalSourceId:baseId,sourceDigest })]);
+
+    const makeApi = (treeSha: string) => createBackend({ database:f.databases.gotchu_api, actionVerifier: {
+      verify: async () => ({ eligible:false,blockingReasons:['validation_missing'] }),
+      prepareArtifact: async input => {
+        expect(input.files).toEqual([{ path:'src/config.ts',content:'const secure = true;\n',mode:'100644' }]);
+        return { treeSha,unsupportedReason:null };
+      },
+    } });
+    const sourceRef = { type:'correction_candidate' as const,candidateId };
+    await expect(makeApi('not-a-tree-sha').actions.propose(identity(), { organizationId:f.a.organizationId,applicationId:f.a.applicationId,kind:'source_patch_pull_request',sourceRef }))
+      .rejects.toThrow();
+    const absent = await f.admin.query('SELECT id FROM gotchu.proposals WHERE organization_id=$1 AND body->\'evidence\'->0->>\'id\'=$2', [f.a.organizationId,candidateId]);
+    expect(absent.rowCount).toBe(0);
+
+    const forgedRef = { ...sourceRef, files:[{ path:'src/config.ts',content:'caller controlled' }] };
+    await expect(api.actions.propose(identity(), { organizationId:f.a.organizationId,applicationId:f.a.applicationId,kind:'source_patch_pull_request',sourceRef:forgedRef }))
+      .rejects.toMatchObject({ code:'invalid_input' });
+    const proposed = await makeApi('d'.repeat(40)).actions.propose(identity(), { organizationId:f.a.organizationId,applicationId:f.a.applicationId,kind:'source_patch_pull_request',sourceRef });
+    const artifact = await createExecutionArtifactService(f.databases.gotchu_executor).readForExecutor({ organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposed.proposalId });
+    expect(artifact).toMatchObject({ baseCommit:revision,treeSha:'d'.repeat(40),treeComplete:true,unsupportedReason:null,snapshotSha256:candidateDigest,patchSha256:patchHash,artifactSha256:candidateDigest });
+    expect(Buffer.from(artifact.files[0]!.contentBase64,'base64').toString('utf8')).toBe('const secure = true;\n');
   });
   it('rejects forged caller timestamps, unissued proof, hash mismatch, and no trusted verifier', async () => {
     const p = await create();

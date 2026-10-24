@@ -8,7 +8,7 @@ const proposal = proposalFixture({ organizationId: randomUUID(), applicationId: 
 const now = new Date();
 const actionV2: ActionV2 = {
   version: 2, kind: 'source_patch_pull_request', capabilityId: 'repository.source_patch_pr', organizationId: randomUUID(), applicationId: randomUUID(), policyVersion: 'policy-v2',
-  target: { kind: 'repository', repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, recipeId: 'tls-certificate-verification', recipeVersion: '1',
+  target: { kind: 'repository', repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, baseCommit: '1'.repeat(40), recipeId: 'tls-certificate-verification', recipeVersion: '1',
   snapshotSha256: 'a'.repeat(64), patchSha256: 'b'.repeat(64), findingIdentities: ['finding-1'], validationAttestationIds: [randomUUID()], evidence: [{ id: randomUUID(), sha256: 'c'.repeat(64), kind: 'candidate' }],
 };
 describe('exact proposals and verifier contracts (unit fixtures, not live provider evidence)', () => {
