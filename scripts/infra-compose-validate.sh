@@ -17,3 +17,5 @@ fi
 cd "$repo_root"
 docker compose --profile '*' --env-file "$env_file" -f "$compose_file" config --quiet
 docker compose --profile '*' --env-file "$env_file" -f "$compose_file" config --format json | node scripts/infra-compose-policy.mjs
+
+docker compose --profile '*' --env-file "$env_file" -f "$compose_file" config --format json | node scripts/infra-check.mjs

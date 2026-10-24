@@ -205,6 +205,8 @@ NODE
 
 web_container="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" ps -q web)"
 coordinator_container="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" ps -q coordinator)"
+coordinator_image="$(docker inspect --format '{{.Image}}' "$coordinator_container")"
+docker compose -p "$project" --profile '*' --env-file "$env_file" -f "$compose_file" config --format json | node scripts/infra-check.mjs "$coordinator_image"
 web_user="$(docker inspect --format '{{.Config.User}}' "$web_container")"
 coordinator_user="$(docker inspect --format '{{.Config.User}}' "$coordinator_container")"
 if [[ "$web_user" != 1000:1000 || "$coordinator_user" != 1000:1000 ]]; then
