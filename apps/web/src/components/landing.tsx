@@ -14,9 +14,9 @@ const perspectives = [
   { id: 'both', label: 'Ambas', title: 'Coincidencias y diferencias, lado a lado.', description: 'Contrasta las señales de la instantánea con las del origen autorizado. Identifica coincidencias y diferencias sin perder su procedencia.', facts: ['Evaluación interna y externa', 'Comparación de hallazgos', 'Evidencia de cada perspectiva'], icon: 'report', pictogram: 'mark' },
 ] as const;
 const chapters = [
-  { title: 'Sube los archivos. Conserva la revisión.', text: 'Selecciona una carpeta y etiqueta la versión. Gotchu guarda una instantánea con su huella SHA-256 y revisa código, posibles secretos y dependencias según el perfil disponible.', detail: 'Instantánea', id: 'codigo' },
-  { title: 'Tu dominio. Tu autorización.', text: 'Registra un origen HTTPS, confirma que puedes evaluarlo y publica el registro TXT que te entrega Gotchu. La evaluación externa puede iniciarse sin subir código.', detail: 'Autorización DNS', id: 'https' },
-  { title: 'Cobertura, contraste y exportación.', text: 'Consulta qué se inspeccionó y qué quedó fuera, compara lo que vio cada perspectiva y conserva las limitaciones por escrito. Descarga el informe completo en JSON.', detail: 'Cobertura y contraste', id: 'evidencia' },
+  { title: 'Sube tu código. Nada se ejecuta.', text: 'Arrastra una carpeta y ponle nombre a la versión. Gotchu la guarda con su huella y busca patrones de riesgo, posibles secretos y dependencias con avisos conocidos, sin ejecutar una sola línea.', id: 'codigo' },
+  { title: 'Tu dominio. Tu permiso.', text: 'Demuestra que el dominio es tuyo con un registro DNS y Gotchu revisa lo que tu web responde. Para esto no necesitas compartir tu código.', id: 'https' },
+  { title: 'Todo queda por escrito.', text: 'Mira qué se revisó y qué no, compara lo que encontró cada mirada y llévate el informe completo en JSON.', id: 'evidencia' },
 ];
 const questions = [
   ['¿Tengo que compartir mi código?', 'No. Puedes evaluar únicamente un origen HTTPS autorizado. Para el análisis interno, cargas una instantánea del código que quieres revisar.'],
@@ -69,7 +69,7 @@ export function LandingPage() {
       <section ref={container} className="g-journey" aria-label="Cómo entra cada perspectiva">
         <BlueprintGrid />
         <div className="g-journey-inner g-container">
-          <div className="g-journey-visual"><ProductFlow step={active} /><div className="g-chapter-marker" aria-hidden="true">{chapters.map((chapter, index) => <span key={chapter.id} className={active === index ? 'is-current' : active > index ? 'is-done' : ''}><span />{chapter.detail}</span>)}</div></div>
+          <div className="g-journey-visual"><ProductFlow step={active} /><div className="g-chapter-marker" aria-hidden="true">{chapters.map((chapter, index) => <span key={chapter.id} className={active === index ? 'is-current' : active > index ? 'is-done' : ''}><span /></span>)}</div></div>
           <div className="g-chapters">{chapters.map((chapter, index) => <article key={chapter.id} id={chapter.id} data-chapter={index} className={active === index ? 'is-current' : ''}><h2>{chapter.title}</h2><p>{chapter.text}</p><ProductFlow step={index} className="g-mobile-flow" /></article>)}</div>
         </div>
       </section>

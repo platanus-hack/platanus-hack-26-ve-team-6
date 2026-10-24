@@ -17,15 +17,13 @@ export function ProductFlow({ step, className = '' }: { step: number; className?
       <h3>{sheet.title}</h3>
       {step === 0 ? <>
         <div className="g-file-formats" aria-label="Formatos admitidos"><code>JS / TS</code><code>JSON</code><code>YAML</code><code>TOML</code></div>
-        <dl className="g-flow-fields"><div><dt>Revisión</dt><dd>La versión que compartes</dd></div><div><dt>Huella SHA-256</dt><dd>Identifica los archivos analizados</dd></div></dl>
-        <footer>Sin ejecutar código ni instalar paquetes</footer>
+        <dl className="g-flow-fields"><div><dt>Versión</dt><dd>La que tú etiquetas</dd></div><div><dt>Huella SHA-256</dt><dd>Prueba exacta de lo revisado</dd></div></dl>
       </> : step === 1 ? <>
         <div className="g-dns-record"><span>Registro TXT</span><code>{'_gotchu.<dominio>'}</code></div>
-        <ol className="g-dns-steps"><li>Confirmas la autorización</li><li>Publicas el registro DNS</li><li>Gotchu comprueba el dominio</li></ol>
-        <footer>Autorización con vigencia y revocación</footer>
+        <ol className="g-dns-steps"><li>Confirmas que es tuyo</li><li>Publicas el registro</li><li>Gotchu lo comprueba</li></ol>
       </> : <>
-        <dl className="g-flow-fields"><div><dt>Cobertura</dt><dd>Inspeccionado, no solicitado, no compatible o no disponible</dd></div><div><dt>Contraste</dt><dd>Ambas perspectivas, solo código, solo HTTPS o sin contraste</dd></div><div><dt>Limitaciones</dt><dd>Lo que no se pudo comprobar, por escrito</dd></div></dl>
-        <footer>Informe completo exportable <code>JSON</code></footer>
+        <dl className="g-flow-fields"><div><dt>Cobertura</dt><dd>Lo revisado y lo que quedó fuera</dd></div><div><dt>Contraste</dt><dd>Lo que coincide entre código y web</dd></div><div><dt>Límites</dt><dd>Lo que no se pudo comprobar</dd></div></dl>
+        <footer>Descarga el informe completo <code>JSON</code></footer>
       </>}
     </div>
   </div>;
