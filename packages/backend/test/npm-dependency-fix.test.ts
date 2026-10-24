@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { OsvAdvisoryMetadata, CustomerSourceSnapshot } from '@gotchu/contracts';
 import { z } from 'zod';
-import { prepareNpmDependencyPatch, selectNpmFixVersion } from '../src/npm-dependency-fix.js';
+import { parseNpmAdvisoryEvidence, prepareNpmDependencyPatch, selectNpmFixVersion } from '../src/npm-dependency-fix.js';
 
 const lodashPackage = { ecosystem: 'npm', name: 'lodash' };
 function advisory(id: string, fixed: string, withdrawn?: string): OsvAdvisoryMetadata {
@@ -35,6 +35,20 @@ function source(manifest = JSON.stringify({ name: 'small-project', dependencies:
 }
 
 describe('npm dependency fix selection', () => {
+  it('accepts D12 versioned advisory evidence while preserving legacy evidence', () => {
+    const excerpt = (schemaVersion: number) => JSON.stringify({
+      schemaVersion,
+      id: 'GHSA-live',
+      package: { name: 'lodash', version: '4.17.20', location: 'package-lock.json:node_modules/lodash', relationship: 'direct' },
+      sourceDigest: 'a'.repeat(64),
+      advisory: advisory('GHSA-live', '4.17.21'),
+    });
+
+    expect(parseNpmAdvisoryEvidence(excerpt(1))?.id).toBe('GHSA-live');
+    expect(parseNpmAdvisoryEvidence(excerpt(2))?.id).toBe('GHSA-live');
+    expect(parseNpmAdvisoryEvidence(excerpt(3))).toBeUndefined();
+  });
+
   it('prefers the smallest patch release before a minor', () => {
     expect(selectNpmFixVersion({ name: 'lodash', fromVersion: '4.17.20', declaration: '^4.17.20', advisories: [advisory('GHSA-a', '4.17.21')], packument: packument(['4.17.21', '4.18.0']) }))
       .toEqual({ toVersion: '4.17.21' });

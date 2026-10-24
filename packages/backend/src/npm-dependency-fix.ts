@@ -270,7 +270,7 @@ export function parseNpmAdvisoryEvidence(excerpt: string, packageNameExpected?: 
   try {
     const value: unknown = JSON.parse(excerpt);
     const parsed = z.object({
-      schemaVersion: z.literal(1).optional(),
+      schemaVersion: z.union([z.literal(1), z.literal(2)]).optional(),
       id: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
       package: z.object({ name: packageName, version: z.string().max(100), location: z.string().min(1).max(1000), relationship: z.enum(['direct','transitive']) }).strict(),
       sourceDigest: z.string().regex(/^[a-f0-9]{64}$/),
