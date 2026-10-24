@@ -1,9 +1,10 @@
 import { z } from 'zod';
+import { posix } from 'node:path';
 import type { CustomerSourceSnapshot } from '@gotchu/contracts';
 
 const packageSchema = z.object({}).passthrough();
-const setupPathPattern = /(?:setupFiles(?:AfterEnv)?|setupFiles|setup)\s*[:=]\s*(?:\[([^\]]*)\]|['"]([^'"]+)['"])/g;
-const quotedPathPattern = /['"]([^'"]+)['"]/g;
+const setupPathPattern = /(?:(['"])(?:setupFilesAfterEnv|setupFiles|setup)\1|\b(?:setupFilesAfterEnv|setupFiles|setup)\b)\s*[:=]\s*(?:\[([^\]]{0,4096})\]|(['"])([^'"]{1,512})\3)/g;
+const quotedPathPattern = /(['"])([^'"]{1,512})\1/g;
 const testConfig = /^(?:vitest\.config\..+|jest\.config\..+|\.mocharc(?:\..+)?|\.avarc(?:\..+)?|ava\.config\..+|playwright\.config\..+|vite\.config\..+|tsconfig[^/]*\.json)$/;
 type DependencyChange = { name: string; section: 'dependencies' | 'devDependencies'; version: string };
 type SuiteIntegrityOptions = {
@@ -66,10 +67,17 @@ function packageChanged(baseFiles: ReadonlyMap<string, string>, candidateFiles: 
 function setupFiles(files: ReadonlyMap<string, string>): Set<string> {
   const paths = new Set<string>();
   for (const [configPath, content] of files) {
-    if (!testConfig.test(configPath)) continue;
+    const configName = configPath.split('/').at(-1);
+    if (!configName || !testConfig.test(configName)) continue;
     for (const match of content.matchAll(setupPathPattern)) {
-      const list = match[1] ?? match[2] ?? '';
-      for (const path of list.matchAll(quotedPathPattern)) paths.add(path[1]!.replace(/^\.\//, ''));
+      const references = match[2] === undefined
+        ? [match[4] ?? '']
+        : [...match[2].matchAll(quotedPathPattern)].map(reference => reference[2]!);
+      for (const reference of references) {
+        if (reference.includes('\\') || reference.startsWith('/') || /^[A-Za-z]:/.test(reference)) continue;
+        const path = posix.normalize(posix.join(posix.dirname(configPath), reference));
+        if (path !== '..' && !path.startsWith('../')) paths.add(path);
+      }
     }
   }
   return paths;

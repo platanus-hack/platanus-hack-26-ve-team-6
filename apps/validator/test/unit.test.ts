@@ -103,6 +103,36 @@ describe('validator evidence rules', () => {
     ] as const) expect(suiteModifiedByCandidate(base, changed(path, content), config), path).toBe(true);
     const setupBase = { ...base, files: [...base.files, { path: 'vitest.config.ts', content: "export default { test: { setupFiles: ['./helpers/setup.ts'] } }" }, { path: 'helpers/setup.ts', content: 'assert(true)' }] };
     expect(suiteModifiedByCandidate(setupBase, { ...setupBase, files: setupBase.files.map(file => file.path === 'helpers/setup.ts' ? { ...file, content: 'process.exit(0)' } : file) }, config)).toBe(true);
+
+    const scalarSetup = { ...base, files: [...base.files, { path: 'vitest.config.ts', content: "export default { test: { setupFiles: './helpers/setup.ts' } }" }, { path: 'helpers/setup.ts', content: 'assert(true)' }] };
+    expect(suiteModifiedByCandidate(scalarSetup, scalarSetup, config)).toBe(false);
+    expect(suiteModifiedByCandidate(scalarSetup, { ...scalarSetup, files: scalarSetup.files.map(file => file.path === 'helpers/setup.ts' ? { ...file, content: 'process.exit(0)' } : file) }, config)).toBe(true);
+
+    const arraySetup = { ...base, files: [...base.files,
+      { path: 'vitest.config.ts', content: "export default { test: { setupFiles: ['./helpers/first.ts', './helpers/second.ts'] } }" },
+      { path: 'helpers/first.ts', content: 'assert(true)' }, { path: 'helpers/second.ts', content: 'assert(true)' },
+    ] };
+    expect(suiteModifiedByCandidate(arraySetup, { ...arraySetup, files: arraySetup.files.map(file => file.path === 'helpers/second.ts' ? { ...file, content: 'process.exit(0)' } : file) }, config)).toBe(true);
+
+    const nestedSetup = { ...base, files: [...base.files,
+      { path: 'config/vitest.config.ts', content: "export default { test: { setupFilesAfterEnv: '../helpers/setup.ts' } }" },
+      { path: 'helpers/setup.ts', content: 'assert(true)' },
+    ] };
+    expect(suiteModifiedByCandidate(nestedSetup, { ...nestedSetup, files: nestedSetup.files.map(file => file.path === 'helpers/setup.ts' ? { ...file, content: 'process.exit(0)' } : file) }, config)).toBe(true);
+
+    const quotedRootSetup = { ...base, files: [...base.files,
+      { path: 'jest.config.json', content: '{"setupFiles":"./helpers/setup.ts"}' },
+      { path: 'helpers/setup.ts', content: 'assert(true)' },
+    ] };
+    expect(suiteModifiedByCandidate(quotedRootSetup, quotedRootSetup, config)).toBe(false);
+    expect(suiteModifiedByCandidate(quotedRootSetup, { ...quotedRootSetup, files: quotedRootSetup.files.map(file => file.path === 'helpers/setup.ts' ? { ...file, content: 'process.exit(0)' } : file) }, config)).toBe(true);
+
+    const quotedNestedSetup = { ...base, files: [...base.files,
+      { path: 'config/jest.config.json', content: '{"setupFilesAfterEnv":["../helpers/setup.ts"]}' },
+      { path: 'helpers/setup.ts', content: 'assert(true)' },
+    ] };
+    expect(suiteModifiedByCandidate(quotedNestedSetup, quotedNestedSetup, config)).toBe(false);
+    expect(suiteModifiedByCandidate(quotedNestedSetup, { ...quotedNestedSetup, files: quotedNestedSetup.files.map(file => file.path === 'helpers/setup.ts' ? { ...file, content: 'process.exit(0)' } : file) }, config)).toBe(true);
   });
 
   it('allows only explicitly targeted dependency version changes for dependency PRs', () => {
