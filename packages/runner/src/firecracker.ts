@@ -219,10 +219,7 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown Firecracker adapter failure';
-    const diagnostics = firecrackerStderr
-      ? `; Firecracker stderr: ${firecrackerStderr.slice(-220)}`
-      : serial.length > 0 ? `; Serial tail: ${Buffer.from(serial).toString('utf8').slice(-220)}` : '';
-    const reason = `${message.slice(0, 280)}${diagnostics}`;
+    const reason = message.slice(0, 512);
     if (timedOut) {
       outcome = runnerResultSchema.parse({
         status: 'timed_out', durationMs: Date.now() - started,
@@ -232,11 +229,13 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
     } else if (signal?.aborted) {
       outcome = runnerResultSchema.parse({
         status: 'infrastructure_failed', reason: 'Run cancelled by caller', durationMs: Date.now() - started,
+        ...(firecrackerStderr ? { firecrackerStderr } : {}),
         isolation: isolationEvidence(job, lock, imagesVerified, false),
       });
     } else {
       outcome = runnerResultSchema.parse({
         status: 'infrastructure_failed', reason: reason.slice(0, 512), durationMs: Date.now() - started,
+        ...(firecrackerStderr ? { firecrackerStderr } : {}),
         isolation: isolationEvidence(job, lock, imagesVerified, false),
       });
     }

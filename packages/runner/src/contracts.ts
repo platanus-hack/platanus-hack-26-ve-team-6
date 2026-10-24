@@ -87,6 +87,7 @@ export const runnerResultSchema = z.discriminatedUnion('status', [
   timed.extend({
     status: z.literal('infrastructure_failed'),
     reason: z.string().min(1).max(512),
+    firecrackerStderr: z.string().max(16 * 1024).optional(),
   }),
   timed.extend({
     status: z.literal('cleanup_uncertain'),
