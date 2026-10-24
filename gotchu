@@ -204,6 +204,7 @@ start_app() {
       environment+=("PORT=$port" "NITRO_PORT=$port" "HOST=127.0.0.1" "NITRO_HOST=127.0.0.1" "PUBLIC_APP_URL=$(env_value PUBLIC_APP_URL)" \
         "AUTH_SECRET=$(env_value AUTH_SECRET)" "GOTCHU_AUTH_MODE=self_host" "GOTCHU_API_DATABASE_URL=$api_url" "GOTCHU_INGEST_DATABASE_URL=$ingest_url" \
         "AUTH_GITHUB_ID=$(optional_env_value AUTH_GITHUB_ID)" "AUTH_GITHUB_SECRET=$(optional_env_value AUTH_GITHUB_SECRET)" \
+        "AUTH_GOOGLE_ID=$(optional_env_value AUTH_GOOGLE_ID)" "AUTH_GOOGLE_SECRET=$(optional_env_value AUTH_GOOGLE_SECRET)" \
         "AUTH_OIDC_ISSUER=$(optional_env_value AUTH_OIDC_ISSUER)" "AUTH_OIDC_CLIENT_ID=$(optional_env_value AUTH_OIDC_CLIENT_ID)" \
         "AUTH_OIDC_CLIENT_SECRET=$(optional_env_value AUTH_OIDC_CLIENT_SECRET)" "AUTH_OIDC_NAME=$(optional_env_value AUTH_OIDC_NAME)" \
         "GOTCHU_GITHUB_READER_APP_FILE=$github_app_file" "GOTCHU_GITHUB_APP_SLUG=$(optional_env_value GOTCHU_GITHUB_APP_SLUG)" \
@@ -353,6 +354,17 @@ github_setup() {
   printf '%s\n' 'Si prefieres separar el inicio de sesión de la instalación, crea una OAuth App, registra ese callback en ella y usa su client ID y client secret en AUTH_GITHUB_ID/AUTH_GITHUB_SECRET.'
   printf '%s\n' 'Vuelve a ejecutar ./gotchu up tras cambiar credenciales o .env. La App sólo lee los repositorios autorizados en la instalación; Gotchu no escribe en GitHub.'
 }
+google_setup() {
+  ensure_state
+  local public_url="${GOTCHU_PUBLIC_URL:-http://localhost:${GOTCHU_WEB_PORT:-3000}}"
+  if [[ -f "$env_file" ]]; then public_url="$(sed -n 's/^PUBLIC_APP_URL=//p' "$env_file" | head -n1)"; fi
+  printf '%s\n' 'En Google Cloud Console, abre APIs y servicios > Credenciales y crea un ID de cliente OAuth para una aplicación web.'
+  printf 'Orígenes de JavaScript autorizados (exacto): %s\n' "$public_url"
+  printf 'URI de redirección autorizados (exacto): %s/api/auth/callback/google\n' "$public_url"
+  printf 'En %s configura AUTH_GOOGLE_ID=<client-id> y AUTH_GOOGLE_SECRET=<client-secret>; el botón aparece sólo cuando ambos están configurados.\n' "$env_file"
+  printf '%s\n' 'El proveedor solicita openid, email y profile, y sólo admite correos que Google marca como verificados. Agrega los usuarios permitidos en la pantalla de consentimiento si la aplicación sigue en modo de prueba.'
+  printf '%s\n' 'Vuelve a ejecutar ./gotchu up para aplicar las credenciales. Nunca copies el client secret a páginas ni a registros.'
+}
 
 case "$command_name" in
   up) up ;;
@@ -369,5 +381,6 @@ case "$command_name" in
     up true
     ;;
   github) [[ "${1:-}" == setup ]] || fail 'Uso: ./gotchu github setup' 2; github_setup ;;
-  *) fail 'Uso: ./gotchu up|status|logs [service]|down|reset|doctor|setup-link|upgrade|github setup' 2 ;;
+  google) [[ "${1:-}" == setup ]] || fail 'Uso: ./gotchu google setup' 2; google_setup ;;
+  *) fail 'Uso: ./gotchu up|status|logs [service]|down|reset|doctor|setup-link|upgrade|github setup|google setup' 2 ;;
 esac

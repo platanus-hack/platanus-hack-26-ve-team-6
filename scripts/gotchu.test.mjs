@@ -91,6 +91,14 @@ try {
   assert.match(githubSetup.stdout, /botón aparece sólo cuando ambos están configurados/);
   for (const secret of secrets) assert.equal(`${githubSetup.stdout}${githubSetup.stderr}`.includes(secret), false);
 
+  const googleSetup = run(['google', 'setup'], { GOTCHU_STATE_DIR: stateDir });
+  assert.equal(googleSetup.status, 0, googleSetup.stderr);
+  assert.match(googleSetup.stdout, new RegExp(`Orígenes de JavaScript autorizados \\(exacto\\): http://localhost:${webPort}`));
+  assert.match(googleSetup.stdout, new RegExp(`URI de redirección autorizados \\(exacto\\): http://localhost:${webPort}/api/auth/callback/google`));
+  assert.match(googleSetup.stdout, /AUTH_GOOGLE_ID=<client-id> y AUTH_GOOGLE_SECRET=<client-secret>/);
+  assert.match(googleSetup.stdout, /openid, email y profile/);
+  for (const secret of secrets) assert.equal(`${googleSetup.stdout}${googleSetup.stderr}`.includes(secret), false);
+
   const upgrade = run(['upgrade'], { GOTCHU_STATE_DIR: stateDir });
   assert.notEqual(upgrade.status, 0);
   assert.match(upgrade.stdout, /Se reconstruirá desde este checkout/);
@@ -98,4 +106,4 @@ try {
 } finally {
   await rm(temp, { recursive: true, force: true });
 }
-process.stdout.write('Self-host script tests passed (scanner TLS readiness, private secrets, idempotent state, occupied ports, GitHub callback instructions, missing Docker).\n');
+process.stdout.write('Self-host script tests passed (scanner TLS readiness, private secrets, idempotent state, occupied ports, GitHub and Google callback instructions, missing Docker).\n');
