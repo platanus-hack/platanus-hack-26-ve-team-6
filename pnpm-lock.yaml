@@ -41,6 +41,9 @@ importers:
       '@gotchu/gateway':
         specifier: workspace:*
         version: link:apps/gateway
+      '@gotchu/git-adapters':
+        specifier: workspace:*
+        version: link:packages/git-adapters
       '@gotchu/monitoring':
         specifier: workspace:*
         version: link:packages/monitoring
@@ -402,6 +405,25 @@ importers:
       '@types/pg':
         specifier: ^8.15.5
         version: 8.23.1
+
+  packages/git-adapters:
+    dependencies:
+      '@gotchu/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      jose:
+        specifier: ^6.2.13
+        version: 6.2.13
+      zod:
+        specifier: ^4.0.0
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@24.19.2)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)
 
   packages/monitoring:
     dependencies:
