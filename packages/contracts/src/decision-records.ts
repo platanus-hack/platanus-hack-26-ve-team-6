@@ -32,7 +32,7 @@ export const decisionRecordQuerySchema = z.object({
   subjectId: uuid.optional(),
   from: timestamp.optional(),
   to: timestamp.optional(),
-}).strict().refine(value => !value.from || !value.to || value.from <= value.to, {
+}).strict().refine(value => !value.from || !value.to || Date.parse(value.from) <= Date.parse(value.to), {
   message: 'The start time must not be after the end time', path: ['from'],
 });
 
