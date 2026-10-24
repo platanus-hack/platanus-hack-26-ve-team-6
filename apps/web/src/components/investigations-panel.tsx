@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   investigationDataScopeSchema,
-  investigationModelSuggestions,
+  investigationProviderCatalog,
+  investigationProviderPresetIdSchema,
   type InvestigationDataScope,
+  type InvestigationProviderPresetId,
   type InvestigationSubject,
 } from '@gotchu/contracts';
 import { customerApi, CustomerApiError } from './customer-client';
@@ -17,9 +19,20 @@ const scopeNames: Record<InvestigationDataScope, string> = {
   triage_summaries: 'Resúmenes de triaje',
   runtime_summaries: 'Resumen de eventos y alertas',
 };
-const providerNames = { openai_compatible: 'OpenAI compatible', anthropic_messages: 'Anthropic Messages' } as const;
 const modelKey = (organizationId: string) => ['customer-data', organizationId, 'investigation-model'] as const;
 const runsKey = (organizationId: string, applicationId: string) => ['customer-data', organizationId, applicationId, 'investigations'] as const;
+const probeReasons = {
+  invalid_api_key: 'La clave API no es válida.', access_denied: 'La clave no tiene acceso al modelo solicitado.',
+  billing_or_credits: 'El proveedor rechazó la solicitud por facturación o créditos.',
+  model_or_endpoint_not_found: 'No se encontró el modelo o endpoint.', rate_limited: 'El proveedor limitó la velocidad de solicitudes.',
+  request_rejected: 'El proveedor rechazó la solicitud.', provider_unavailable: 'El proveedor no está disponible ahora.',
+  network_error: 'No se pudo conectar con el proveedor.', invalid_response: 'El proveedor devolvió una respuesta no válida.',
+  missing_usage: 'El proveedor no informó el uso de tokens; la reserva se conserva para conciliación.',
+  model_output_invalid: 'El proveedor respondió, pero no respetó el formato de prueba.',
+  budget_exhausted: 'No queda presupuesto suficiente para una prueba de 64 tokens.',
+  unsafe_endpoint: 'El endpoint personalizado no es HTTPS público y seguro.',
+  probe_unavailable: 'La prueba de conexión no está disponible.',
+} as const;
 
 function errorText(error: unknown) {
   if (error instanceof CustomerApiError) {
@@ -33,9 +46,9 @@ function errorText(error: unknown) {
 export function InvestigationModelSettings({ organizationId, isOwner }: { organizationId: string; isOwner: boolean }) {
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: modelKey(organizationId), queryFn: () => customerApi.investigationModel(organizationId), retry: false });
-  const [provider, setProvider] = useState<'openai_compatible' | 'anthropic_messages'>('openai_compatible');
-  const [endpoint, setEndpoint] = useState(investigationModelSuggestions.openai_compatible.endpoint);
-  const [modelId, setModelId] = useState(investigationModelSuggestions.openai_compatible.modelId);
+  const [providerPresetId, setProviderPresetId] = useState<InvestigationProviderPresetId>('openai');
+  const [customEndpoint, setCustomEndpoint] = useState('');
+  const [modelId, setModelId] = useState<string>(investigationProviderCatalog[0].defaultModelId ?? '');
   const [apiKey, setApiKey] = useState('');
   const [clearApiKey, setClearApiKey] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -49,10 +62,11 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
   useEffect(() => {
     const value = settings.data;
     if (!value) return;
-    const selectedProvider = value.provider ?? 'openai_compatible';
-    setProvider(selectedProvider);
-    setEndpoint(value.endpoint ?? investigationModelSuggestions[selectedProvider].endpoint);
-    setModelId(value.modelId ?? investigationModelSuggestions[selectedProvider].modelId);
+    const selectedPresetId = value.providerPresetId ?? 'openai';
+    const selectedPreset = investigationProviderCatalog.find(preset => preset.id === selectedPresetId);
+    setProviderPresetId(selectedPresetId);
+    setCustomEndpoint(selectedPresetId === 'custom_openai_compatible' ? value.endpoint ?? '' : '');
+    setModelId(value.modelId ?? selectedPreset?.defaultModelId ?? '');
     setConsent(value.consentToExternalProcessing);
     setScopes(value.dataScopes);
     setInputRate(String(value.inputPriceMicroUsdPerMillionTokens));
@@ -63,7 +77,7 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
 
   const save = useMutation({
     mutationFn: () => customerApi.configureInvestigationModel(organizationId, {
-      provider, endpoint: endpoint.trim(), modelId: modelId.trim(),
+      providerPresetId, ...(providerPresetId === 'custom_openai_compatible' ? { customEndpoint: customEndpoint.trim() } : {}), modelId: modelId.trim(),
       ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}), ...(clearApiKey ? { clearApiKey: true } : {}),
       consentToExternalProcessing: consent, dataScopes: scopes,
       inputPriceMicroUsdPerMillionTokens: Number(inputRate), outputPriceMicroUsdPerMillionTokens: Number(outputRate),
@@ -75,6 +89,18 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
       void queryClient.invalidateQueries({ queryKey: ['customer-data', organizationId] });
     },
   });
+  const testConnection = useMutation({
+    mutationFn: async () => {
+      await save.mutateAsync();
+      return customerApi.testInvestigationModel(organizationId);
+    },
+    onSuccess: result => {
+      setNotice(result.status === 'succeeded'
+        ? `Conexión correcta · ${result.inputTokens ?? 0} tokens de entrada y ${result.outputTokens ?? 0} de salida.`
+        : probeReasons[result.reason ?? 'probe_unavailable']);
+      void queryClient.invalidateQueries({ queryKey: modelKey(organizationId) });
+    },
+  });
   const disable = useMutation({
     mutationFn: () => customerApi.disableInvestigationModel(organizationId),
     onSuccess: () => { setApiKey(''); setConsent(false); setScopes([]); setNotice('La investigación y la credencial guardada se deshabilitaron.'); void queryClient.invalidateQueries({ queryKey: modelKey(organizationId) }); },
@@ -84,43 +110,53 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
   const ready = settings.data?.status === 'ready';
   return <section className="customer-card customer-investigation-settings">
     <div className="customer-card-heading"><div><span className="customer-eyebrow">INVESTIGACIÓN ASISTIDA</span><h2>Modelo y consentimiento</h2></div><span className={`customer-status ${ready ? 'customer-ops-status-ready' : 'customer-ops-status-warning'}`}>{ready ? 'Disponible' : 'Investigación deshabilitada'}</span></div>
-    <p>La revisión determinista sigue disponible sin modelo. Al habilitarlo, Gotchu enviará al endpoint configurado sólo las categorías marcadas y los fragmentos redactados que correspondan.</p>
+    <p>La revisión determinista sigue disponible sin modelo. Al habilitarlo, Gotchu enviará sólo las categorías marcadas y los fragmentos redactados. La clave se guarda en el servidor y sólo se muestra si ya está configurada.</p>
     {settings.error && <p className="customer-form-error" role="alert">{errorText(settings.error)}</p>}
-    <label htmlFor="investigation-provider">Proveedor compatible</label>
-    <select id="investigation-provider" value={provider} onChange={event => {
-      const next = event.target.value as typeof provider;
-      setProvider(next); setEndpoint(investigationModelSuggestions[next].endpoint); setModelId(investigationModelSuggestions[next].modelId);
-    }} disabled={!isOwner || save.isPending}>
-      <option value="openai_compatible">OpenAI compatible · servidores locales u hospedados</option>
-      <option value="anthropic_messages">Anthropic Messages</option>
+    <label htmlFor="investigation-provider">Proveedor</label>
+    <select id="investigation-provider" value={providerPresetId} onChange={event => {
+      const parsed = investigationProviderPresetIdSchema.safeParse(event.target.value);
+      if (!parsed.success) return;
+      const next = parsed.data;
+      const preset = investigationProviderCatalog.find(item => item.id === next);
+      setProviderPresetId(next);
+      setCustomEndpoint(next === 'custom_openai_compatible' ? customEndpoint : '');
+      setModelId(preset?.defaultModelId ?? '');
+    }} disabled={!isOwner || save.isPending || testConnection.isPending}>
+      {investigationProviderCatalog.map(preset => <option value={preset.id} key={preset.id}>{preset.displayName}</option>)}
     </select>
-    <label htmlFor="investigation-endpoint">Endpoint HTTPS o servidor local</label>
-    <input id="investigation-endpoint" value={endpoint} onChange={event => setEndpoint(event.target.value)} maxLength={2048} disabled={!isOwner || save.isPending} />
-    <label htmlFor="investigation-model-id">ID del modelo</label>
-    <input id="investigation-model-id" value={modelId} onChange={event => setModelId(event.target.value)} maxLength={200} disabled={!isOwner || save.isPending} />
-      <label htmlFor="investigation-api-key">Clave API <span>(se guarda sólo en el servidor y nunca se devuelve)</span></label>
-    <input id="investigation-api-key" type="password" autoComplete="new-password" value={apiKey} onChange={event => { setApiKey(event.target.value); if (event.target.value) setClearApiKey(false); }} maxLength={4096} disabled={!isOwner || save.isPending} placeholder={settings.data?.apiKeyConfigured ? 'Clave configurada · déjalo vacío para conservarla' : 'Opcional para servidores locales'} />
-    {isOwner && settings.data?.apiKeyConfigured && <label className="customer-investigation-consent"><input type="checkbox" checked={clearApiKey} onChange={event => setClearApiKey(event.target.checked)} disabled={save.isPending} />Eliminar la clave guardada al guardar</label>}
-    <fieldset disabled={!isOwner || save.isPending}>
+    {providerPresetId === 'custom_openai_compatible' && <>
+      <label htmlFor="investigation-endpoint">Endpoint HTTPS personalizado</label>
+      <input id="investigation-endpoint" type="url" value={customEndpoint} onChange={event => setCustomEndpoint(event.target.value)} maxLength={2048} disabled={!isOwner || save.isPending || testConnection.isPending} placeholder="https://api.example.com/v1" />
+      <p className="customer-field-note">Debe resolver a direcciones públicas. El modo de autohospedaje requiere habilitación del operador.</p>
+    </>}
+    <label htmlFor="investigation-model-id">Modelo</label>
+    <input id="investigation-model-id" list="investigation-model-suggestions" value={modelId} onChange={event => setModelId(event.target.value)} maxLength={200} disabled={!isOwner || save.isPending || testConnection.isPending} placeholder="Escribe un ID de modelo" />
+    <datalist id="investigation-model-suggestions">{investigationProviderCatalog.find(preset => preset.id === providerPresetId)?.suggestedModelIds.map(model => <option value={model} key={model} />)}</datalist>
+    <label htmlFor="investigation-api-key">Clave API</label>
+    <input id="investigation-api-key" type="password" autoComplete="new-password" value={apiKey} onChange={event => { setApiKey(event.target.value); if (event.target.value) setClearApiKey(false); }} maxLength={4096} disabled={!isOwner || save.isPending || testConnection.isPending} placeholder={settings.data?.apiKeyConfigured ? 'Clave nueva (vacío conserva la configurada)' : 'Pega la clave API'} />
+    {settings.data?.apiKeyConfigured && <p className="customer-field-note" aria-label="Clave API configurada">•••••••• configurada</p>}
+    {isOwner && settings.data?.apiKeyConfigured && <label className="customer-investigation-consent"><input type="checkbox" checked={clearApiKey} onChange={event => setClearApiKey(event.target.checked)} disabled={save.isPending || testConnection.isPending} />Eliminar la clave guardada al guardar</label>}
+    <fieldset disabled={!isOwner || save.isPending || testConnection.isPending}>
       <legend>Datos que autorizas enviar al modelo</legend>
       {(investigationDataScopeSchema.options).map(scope => <label className="customer-investigation-consent" key={scope}>
         <input type="checkbox" checked={scopes.includes(scope)} onChange={event => setScopes(current => event.target.checked ? [...current, scope] : current.filter(item => item !== scope))} />
         {scopeNames[scope]}
       </label>)}
     </fieldset>
-    <label className="customer-investigation-consent"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={!isOwner || save.isPending} />Autorizo el procesamiento externo de las categorías seleccionadas</label>
+    <label className="customer-investigation-consent"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={!isOwner || save.isPending || testConnection.isPending} />Autorizo el procesamiento externo de las categorías seleccionadas</label>
     <div className="customer-investigation-budget-grid">
-      <label htmlFor="investigation-input-rate">Entrada · micro USD por millón de tokens<input id="investigation-input-rate" type="number" min="0" max="1000000000" step="1" value={inputRate} onChange={event => setInputRate(event.target.value)} disabled={!isOwner || save.isPending} /></label>
-      <label htmlFor="investigation-output-rate">Salida · micro USD por millón de tokens<input id="investigation-output-rate" type="number" min="0" max="1000000000" step="1" value={outputRate} onChange={event => setOutputRate(event.target.value)} disabled={!isOwner || save.isPending} /></label>
-      <label htmlFor="investigation-budget">Presupuesto del espacio · centavos<input id="investigation-budget" type="number" min="0" max="100000000" step="1" value={budgetCents} onChange={event => setBudgetCents(event.target.value)} disabled={!isOwner || save.isPending} /></label>
-      <label htmlFor="investigation-token-budget">Presupuesto de tokens<input id="investigation-token-budget" type="number" min="0" max="100000000" step="1000" value={tokenBudget} onChange={event => setTokenBudget(event.target.value)} disabled={!isOwner || save.isPending} /></label>
+      <label htmlFor="investigation-input-rate">Entrada · micro USD por millón de tokens<input id="investigation-input-rate" type="number" min="0" max="1000000000" step="1" value={inputRate} onChange={event => setInputRate(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
+      <label htmlFor="investigation-output-rate">Salida · micro USD por millón de tokens<input id="investigation-output-rate" type="number" min="0" max="1000000000" step="1" value={outputRate} onChange={event => setOutputRate(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
+      <label htmlFor="investigation-budget">Presupuesto del espacio · centavos<input id="investigation-budget" type="number" min="0" max="100000000" step="1" value={budgetCents} onChange={event => setBudgetCents(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
+      <label htmlFor="investigation-token-budget">Presupuesto de tokens<input id="investigation-token-budget" type="number" min="0" max="100000000" step="1000" value={tokenBudget} onChange={event => setTokenBudget(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
     </div>
     {settings.data && <p className="customer-field-note">Uso: {settings.data.tokensSpent.toLocaleString('es')} tokens · ${(settings.data.spentMicroUsd / 1_000_000).toFixed(6)} USD gastados · ${(settings.data.reservedMicroUsd / 1_000_000).toFixed(6)} USD reservados.</p>}
-    {(save.error || disable.error) && <p className="customer-form-error" role="alert">{errorText(save.error ?? disable.error)}</p>}
+    {(save.error || disable.error || testConnection.error) && <p className="customer-form-error" role="alert">{errorText(save.error ?? disable.error ?? testConnection.error)}</p>}
     {notice && <p role="status">{notice}</p>}
     <div className="customer-ops-alert-actions">
-      <button className="customer-button customer-button-primary" type="button" disabled={!isOwner || save.isPending} onClick={() => { setNotice(null); save.mutate(); }}>{save.isPending ? 'Guardando…' : 'Guardar configuración'}</button>
-      {isOwner && ready && <button className="customer-button" type="button" disabled={disable.isPending} onClick={() => disable.mutate()}>{disable.isPending ? 'Deshabilitando…' : 'Deshabilitar y eliminar clave'}</button>}
+      <button className="customer-button customer-button-primary" type="button" disabled={!isOwner || save.isPending || testConnection.isPending} onClick={() => { setNotice(null); save.mutate(); }}>{save.isPending ? 'Guardando…' : 'Guardar configuración'}</button>
+      <button className="customer-button" type="button" disabled={!isOwner || save.isPending || testConnection.isPending} onClick={() => { setNotice(null); testConnection.mutate(); }}>{testConnection.isPending ? 'Probando conexión…' : 'Probar conexión'}</button>
+      {isOwner && ready && <button className="customer-button" type="button" disabled={disable.isPending || save.isPending || testConnection.isPending} onClick={() => disable.mutate()}>{disable.isPending ? 'Deshabilitando…' : 'Deshabilitar y eliminar clave'}</button>}
     </div>
     {!isOwner && <p className="customer-field-note">Sólo la persona propietaria puede cambiar el proveedor, los permisos y los presupuestos.</p>}
   </section>;
