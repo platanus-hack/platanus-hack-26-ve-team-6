@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type RequestListener, type Server, type ServerResponse } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createBackend, type CredentialStore } from '@gotchu/backend';
@@ -193,6 +194,10 @@ live('runtime protection through a real Node app, signed HTTP intake, Postgres, 
 
     await expect(apiBackend.protection.get({ userId: f.b.userId }, scope)).rejects.toMatchObject({ code: 'forbidden' });
     currentUser = f.b.userId;
+    expect((await writeConfig('monitor')).status).toBe(403);
+    const viewerId = `github:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'viewer')", [scope.organizationId, viewerId]);
+    currentUser = viewerId;
     expect((await writeConfig('monitor')).status).toBe(403);
     currentUser = f.a.userId;
 
