@@ -114,9 +114,10 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
       for (const item of attestations) await tx.query(`INSERT INTO gotchu.validation_attestations(organization_id,application_id,run_id,id,kind,body,key_id,signature,expires_at)
         VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [run.organizationId, run.applicationId, run.id, item.payload.id, item.payload.evidence.kind, JSON.stringify(item.payload), item.keyId, item.signature, item.payload.expiresAt]);
       await tx.query(`UPDATE gotchu.validation_runs SET state=$5,reason=$6,finished_at=clock_timestamp(),lease_token=NULL,lease_until=NULL,
-        runner_digest=$7,firecracker_digest=$8,kernel_digest=$9,rootfs_digest=$10 WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND lease_token=$4`,
+        runner_digest=$7,firecracker_digest=$8,kernel_digest=$9,rootfs_digest=$10,cleanup_verified=$11 WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND lease_token=$4`,
       [run.organizationId, run.applicationId, run.id, leaseToken, state, reason, results.length ? digests.runner : null,
-        results.length ? digests.firecracker : null, results.length ? digests.kernel : null, results.length ? digests.rootfs : null]);
+        results.length ? digests.firecracker : null, results.length ? digests.kernel : null, results.length ? digests.rootfs : null,
+        results.length > 0 && results.every(result => result.isolation.cleanupVerified)]);
     });
   }
 
