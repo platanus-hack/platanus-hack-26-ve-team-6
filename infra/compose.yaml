@@ -1,12 +1,16 @@
-x-disabled-service: &disabled-service
-  image: node:24.18.1-bookworm-slim
-  entrypoint: ["node", "-e"]
-  restart: "no"
+x-hardened-service: &hardened-service
   read_only: true
   cap_drop: ["ALL"]
   security_opt: ["no-new-privileges:true"]
   tmpfs:
-    - /tmp:rw,noexec,nosuid,size=16m
+    - /tmp:rw,noexec,nosuid,size=32m,uid=1000,gid=1000
+  pids_limit: 100
+
+x-disabled-service: &disabled-service
+  <<: *hardened-service
+  image: node:24.18.1-bookworm-slim
+  entrypoint: ["node", "-e"]
+  restart: "no"
   mem_limit: 256m
   cpus: 0.5
 
@@ -84,22 +88,28 @@ services:
       start_period: 3s
     restart: unless-stopped
 
-  # Profile services fail closed until their owning workstreams provide
-  # runnable package entrypoints and image definitions. This file records only
-  # each target runtime's required configuration and never mounts host paths.
   web:
-    <<: *disabled-service
+    <<: *hardened-service
     profiles: [web]
-    command: ["console.error('apps/web is not wired into Compose yet'); process.exit(78)"]
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: web
+    restart: unless-stopped
+    init: true
     environment:
+      NODE_ENV: production
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
       AUTH_SECRET: ${AUTH_SECRET:?run scripts/infra-local-setup.sh first}
       AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
       AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET:-}
+      GOTCHU_EVENT_SIGNING_KEYS_JSON: ${GOTCHU_EVENT_SIGNING_KEYS_JSON:-}
       GOTCHU_API_DATABASE_URL: postgresql://${GOTCHU_API_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_API_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
       GOTCHU_INGEST_DATABASE_URL: postgresql://${GOTCHU_INGEST_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_INGEST_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
       PORT: 3000
       HOST: 0.0.0.0
+      NITRO_PORT: 3000
+      NITRO_HOST: 0.0.0.0
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,31 +118,44 @@ services:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:3000/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
-      interval: 10s
-      timeout: 3s
+        - "fetch('http://127.0.0.1:3000/api/ready').then(async (response) => { const body = await response.json(); const ready = response.ok && body.ready === true; if (!ready) console.error(JSON.stringify(body)); process.exit(ready ? 0 : 1); }).catch((error) => { console.error(error.name); process.exit(1); })"
+      interval: 15s
+      timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 30s
+    user: "1000:1000"
+    mem_limit: 512m
+    cpus: 1.0
     ports:
       - name: web-local
         target: 3000
         published: ${WEB_HOST_PORT:-3000}
         host_ip: 127.0.0.1
         protocol: tcp
-    networks: [control-plane, data]
+    networks:
+      control-plane: {}
+      data: {}
+      web-egress:
+        gw_priority: 100
 
   coordinator:
-    <<: *disabled-service
+    <<: *hardened-service
     profiles: [coordinator]
-    command: ["console.error('apps/coordinator is not wired into Compose yet'); process.exit(78)"]
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: coordinator
+    restart: unless-stopped
+    init: true
     environment:
+      NODE_ENV: production
       GOTCHU_COORDINATOR_DATABASE_URL: postgresql://${GOTCHU_COORDINATOR_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_COORDINATOR_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
       GOTCHU_REDIS_URL: redis://:${REDIS_PASSWORD:?run scripts/infra-local-setup.sh first}@redis:6379
       GOTCHU_ORGANIZATION_IDS: ${GOTCHU_ORGANIZATION_IDS:-}
       GOTCHU_WORKER_URL: ${GOTCHU_WORKER_URL:-}
       GOTCHU_RUN_CAPABILITY_PRIVATE_KEY: ${GOTCHU_RUN_CAPABILITY_PRIVATE_KEY:-}
       PORT: 3003
-      HOST: 0.0.0.0
+      GOTCHU_COORDINATOR_HOST: 0.0.0.0
     depends_on:
       postgres:
         condition: service_healthy
@@ -143,18 +166,21 @@ services:
         - CMD
         - node
         - -e
-        - "Promise.all(['/health/live','/health/ready'].map((path) => fetch('http://127.0.0.1:3003'+path))).then((responses) => process.exit(responses.every((response) => response.ok) ? 0 : 1)).catch(() => process.exit(1))"
-      interval: 10s
-      timeout: 3s
+        - "fetch('http://127.0.0.1:3003/health/ready').then(async (response) => { const body = await response.json(); const ready = response.ok && body.status === 'ready'; if (!ready) console.error(JSON.stringify(body)); process.exit(ready ? 0 : 1); }).catch((error) => { console.error(error.name); process.exit(1); })"
+      interval: 15s
+      timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 30s
+    user: "1000:1000"
+    mem_limit: 768m
+    cpus: 1.0
     ports:
       - name: coordinator-local
         target: 3003
         published: ${COORDINATOR_HOST_PORT:-3003}
         host_ip: 127.0.0.1
         protocol: tcp
-    networks: [control-plane, data, agent-link]
+    networks: [control-plane, data, agent-link, local-app-host]
 
   gateway:
     <<: *disabled-service
@@ -205,8 +231,17 @@ networks:
     driver_opts:
       com.docker.network.bridge.enable_ip_masquerade: "false"
       com.docker.network.bridge.enable_icc: "false"
+  local-app-host:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.enable_icc: "false"
   control-plane:
     internal: true
+  web-egress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "true"
   agent-link:
     internal: true
   scanner-boundary:

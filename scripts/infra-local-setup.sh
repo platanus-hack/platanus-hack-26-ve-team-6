@@ -28,6 +28,7 @@ trap 'rm -f "$tmp_file"' EXIT
   printf 'COORDINATOR_HOST_PORT=3003\n'
   printf 'PUBLIC_APP_URL=http://localhost:3000\n'
   printf 'AUTH_SECRET=%s\n' "$(openssl rand -hex 32)"
+  printf 'GOTCHU_EVENT_SIGNING_KEYS_JSON=\n'
   printf 'GOTCHU_API_DB_USERNAME=gotchu_api_login\n'
   printf 'GOTCHU_API_DB_PASSWORD=%s\n' "$(openssl rand -hex 32)"
   printf 'GOTCHU_INGEST_DB_USERNAME=gotchu_ingest_login\n'

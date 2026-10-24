@@ -28,7 +28,11 @@ free_loopback_port() {
 
 test_pg_port="$(free_loopback_port)"
 test_redis_port="$(free_loopback_port)"
-while [[ "$test_pg_port" == "$test_redis_port" ]]; do test_redis_port="$(free_loopback_port)"; done
+test_web_port="$(free_loopback_port)"
+test_coordinator_port="$(free_loopback_port)"
+while [[ "$test_pg_port" == "$test_redis_port" || "$test_pg_port" == "$test_web_port" || "$test_pg_port" == "$test_coordinator_port" || "$test_redis_port" == "$test_web_port" || "$test_redis_port" == "$test_coordinator_port" || "$test_web_port" == "$test_coordinator_port" ]]; do
+  test_coordinator_port="$(free_loopback_port)"
+done
 test_pg_password="$(openssl rand -hex 32)"
 test_redis_password="$(openssl rand -hex 32)"
 test_api_password="$(openssl rand -hex 32)"
@@ -47,10 +51,16 @@ POSTGRES_PASSWORD=${test_pg_password}
 POSTGRES_HOST_PORT=${test_pg_port}
 REDIS_PASSWORD=${test_redis_password}
 REDIS_HOST_PORT=${test_redis_port}
-WEB_HOST_PORT=3000
-COORDINATOR_HOST_PORT=3003
-PUBLIC_APP_URL=http://localhost:3000
+WEB_HOST_PORT=${test_web_port}
+COORDINATOR_HOST_PORT=${test_coordinator_port}
+PUBLIC_APP_URL=http://localhost:${test_web_port}
 AUTH_SECRET=${test_auth_secret}
+AUTH_GITHUB_ID=
+AUTH_GITHUB_SECRET=
+GOTCHU_EVENT_SIGNING_KEYS_JSON=
+GOTCHU_ORGANIZATION_IDS=
+GOTCHU_WORKER_URL=
+GOTCHU_RUN_CAPABILITY_PRIVATE_KEY=
 GOTCHU_API_DB_USERNAME=gotchu_api_login
 GOTCHU_API_DB_PASSWORD=${test_api_password}
 GOTCHU_INGEST_DB_USERNAME=gotchu_ingest_login
@@ -66,13 +76,14 @@ EOF
 chmod 600 "$env_file"
 
 cleanup() {
-  docker compose -p "$project" --env-file "$env_file" -f "$compose_file" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  docker compose -p "$project" --profile '*' --env-file "$env_file" -f "$compose_file" down --volumes --remove-orphans --rmi local >/dev/null 2>&1 || true
   rm -rf "$temp_dir"
 }
 trap cleanup EXIT INT TERM
 
 cd "$repo_root"
 docker compose -p "$project" --profile '*' --env-file "$env_file" -f "$compose_file" config --quiet
+docker compose -p "$project" --profile '*' --env-file "$env_file" -f "$compose_file" config --format json | node scripts/infra-compose-policy.mjs
 docker compose -p "$project" --env-file "$env_file" -f "$compose_file" up -d postgres redis
 printf 'Isolated Compose ports: PostgreSQL %s -> %s, Redis %s -> %s.\n' \
   "$test_pg_port" "$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" port postgres 5432)" \
@@ -137,58 +148,120 @@ fi
 node scripts/infra-check-loopback-ports.mjs "$test_pg_port" "$test_redis_port"
 printf '%s\n' 'Live Postgres and Redis connectivity, loopback publishing, and restart persistence passed.'
 
-set +e
-docker compose -p "$project" --profile agent --env-file "$env_file" -f "$compose_file" run --rm --no-deps agent >/dev/null 2>&1
-agent_status=$?
-set -e
-if [[ "$agent_status" != 78 ]]; then
-  printf '%s\n' 'apps/worker profile did not fail closed as an unimplemented agent service.' >&2
+if [[ ! -f packages/database/package.json ]]; then
+  printf '%s\n' '@gotchu/database is required for the integrated web/coordinator live check.' >&2
+  exit 2
+fi
+if ! command -v pnpm >/dev/null 2>&1; then
+  printf '%s\n' 'pnpm is required to run the live database bootstrap check.' >&2
+  exit 2
+fi
+
+INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" scripts/infra-db-bootstrap.sh
+INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" scripts/infra-db-bootstrap.sh
+printf '%s\n' 'Live database bootstrap passed on first run and repeat run, including role capabilities, ownership, exact memberships, and login connectivity.'
+
+docker compose -p "$project" --profile web --profile coordinator --env-file "$env_file" -f "$compose_file" build web coordinator
+docker compose -p "$project" --profile web --profile coordinator --env-file "$env_file" -f "$compose_file" up -d web coordinator
+
+node --input-type=module - "$test_web_port" "$test_coordinator_port" <<'NODE'
+import assert from 'node:assert/strict';
+
+const [webPort, coordinatorPort] = process.argv.slice(2);
+const until = Date.now() + 90_000;
+let webHealth;
+let coordinatorLive;
+while (Date.now() < until) {
+  try {
+    webHealth = await fetch(`http://127.0.0.1:${webPort}/api/health`, { signal: AbortSignal.timeout(3_000) });
+    coordinatorLive = await fetch(`http://127.0.0.1:${coordinatorPort}/health/live`, { signal: AbortSignal.timeout(3_000) });
+    if (webHealth.ok && coordinatorLive.ok) break;
+  } catch {}
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+}
+assert.equal(webHealth?.status, 200, 'built web /api/health route did not start');
+assert.equal(coordinatorLive?.status, 200, 'built coordinator /health/live route did not start');
+const webReady = await fetch(`http://127.0.0.1:${webPort}/api/ready`);
+const webBody = await webReady.json();
+assert.equal(webReady.status, 503, 'web should remain unready without GitHub OAuth and fresh MFA approval');
+assert.equal(webBody.ready, false);
+assert.equal(webBody.dependencies.apiDatabase, true, 'web API database runtime login did not connect');
+assert.equal(webBody.dependencies.intakeDatabase, true, 'web ingestion runtime login did not connect');
+assert.equal(webBody.dependencies.signIn, false, 'live check unexpectedly configured GitHub OAuth');
+assert.equal(webBody.capabilities.eventSigningKeys, false, 'empty local signing map must remain unavailable');
+assert.equal(webBody.capabilities.freshSecondFactorApproval, false, 'fresh MFA approval must remain visibly unavailable');
+const coordinatorReady = await fetch(`http://127.0.0.1:${coordinatorPort}/health/ready`);
+const coordinatorBody = await coordinatorReady.json();
+assert.equal(coordinatorReady.status, 503, 'coordinator should remain unready without organization assignment');
+assert.equal(coordinatorBody.status, 'unassigned');
+assert.equal(coordinatorBody.assignedOrganizations, 0);
+assert.equal(coordinatorBody.investigatorConfigured, false, 'worker profile must remain intentionally disabled');
+process.stdout.write('Built app routes returned 503 for missing OAuth and organization assignment; MFA and investigator unavailability were explicit in the response bodies.\n');
+NODE
+
+web_container="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" ps -q web)"
+coordinator_container="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" ps -q coordinator)"
+web_user="$(docker inspect --format '{{.Config.User}}' "$web_container")"
+coordinator_user="$(docker inspect --format '{{.Config.User}}' "$coordinator_container")"
+if [[ "$web_user" != 1000:1000 || "$coordinator_user" != 1000:1000 ]]; then
+  printf '%s\n' 'Built applications are not running as the configured nonroot UID.' >&2
   exit 1
 fi
-printf '%s\n' 'apps/worker profile booted its Node image and exited 78 as an intentional unimplemented service.'
+web_workspace_owner="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" exec -T web stat -c '%u:%g' /workspace/apps/web)"
+coordinator_workspace_owner="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" exec -T coordinator stat -c '%u:%g' /workspace/apps/coordinator)"
+if [[ "$web_workspace_owner" != 1000:1000 || "$coordinator_workspace_owner" != 1000:1000 ]]; then
+  printf '%s\n' 'Built app work directories are not owned by the nonroot runtime user.' >&2
+  exit 1
+fi
+node scripts/infra-check-loopback-ports.mjs "$test_pg_port" "$test_redis_port" "$test_web_port" "$test_coordinator_port"
+printf '%s\n' 'Built application images run nonroot and publish only on their isolated loopback ports.'
 
-if [[ -f packages/database/package.json ]]; then
-  if ! command -v pnpm >/dev/null 2>&1; then
-    printf '%s\n' '@gotchu/database is present but pnpm is unavailable; role checks did not run.' >&2
-    exit 2
-  fi
-  bootstrap_url="postgresql://gotchu_bootstrap:${test_pg_password}@127.0.0.1:${test_pg_port}/gotchu"
-  GOTCHU_MIGRATION_DATABASE_URL="$bootstrap_url" pnpm --filter @gotchu/database build
-  GOTCHU_MIGRATION_DATABASE_URL="$bootstrap_url" pnpm --filter @gotchu/database migrate
-  GOTCHU_MIGRATION_DATABASE_URL="$bootstrap_url" \
-    GOTCHU_API_DB_USERNAME=gotchu_api_login GOTCHU_API_DB_PASSWORD="$test_api_password" \
-    GOTCHU_INGEST_DB_USERNAME=gotchu_ingest_login GOTCHU_INGEST_DB_PASSWORD="$test_ingest_password" \
-    GOTCHU_COORDINATOR_DB_USERNAME=gotchu_coordinator_login GOTCHU_COORDINATOR_DB_PASSWORD="$test_coordinator_password" \
-    GOTCHU_GATEWAY_DB_USERNAME=gotchu_gateway_login GOTCHU_GATEWAY_DB_PASSWORD="$test_gateway_password" \
-    GOTCHU_EXECUTOR_DB_USERNAME=gotchu_executor_login GOTCHU_EXECUTOR_DB_PASSWORD="$test_executor_password" \
-    pnpm --filter @gotchu/database exec node "$repo_root/scripts/infra-provision-runtime-logins.mjs"
+docker compose -p "$project" --env-file "$env_file" -f "$compose_file" exec -T web \
+  node --input-type=module -e 'const response = await fetch("https://github.com/", { signal: AbortSignal.timeout(10000) }); if (!response.ok) throw new Error(`GitHub TLS probe returned ${response.status}`); process.stdout.write("Web container reached GitHub over verified HTTPS.\n");'
 
-  unsafe_role_count="$(pg_query "SELECT count(*) FROM pg_roles WHERE rolname = ANY(ARRAY['gotchu_owner','gotchu_api','gotchu_ingest','gotchu_coordinator','gotchu_executor']) AND (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication);")"
-  runtime_login_count="$(pg_query "SELECT count(*) FROM pg_roles WHERE rolname = ANY(ARRAY['gotchu_api_login','gotchu_ingest_login','gotchu_coordinator_login','gotchu_gateway_login','gotchu_executor_login']) AND rolcanlogin AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication;")"
-  unsafe_owner_count="$(pg_query "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_roles r ON r.oid = c.relowner WHERE n.nspname = 'gotchu' AND r.rolname = ANY(ARRAY['gotchu_api_login','gotchu_ingest_login','gotchu_coordinator_login','gotchu_gateway_login','gotchu_executor_login']);")"
-  bad_membership_count="$(pg_query "SELECT count(*) FROM (VALUES ('gotchu_api_login','gotchu_api'),('gotchu_ingest_login','gotchu_ingest'),('gotchu_coordinator_login','gotchu_coordinator'),('gotchu_gateway_login','gotchu_coordinator'),('gotchu_executor_login','gotchu_executor')) AS membership(login_name, role_name) WHERE NOT pg_has_role(login_name, role_name, 'MEMBER');")"
-  if [[ "$unsafe_role_count" != 0 || "$runtime_login_count" != 5 || "$unsafe_owner_count" != 0 || "$bad_membership_count" != 0 ]]; then
-    printf '%s\n' 'Runtime role capability or membership check failed.' >&2
+web_health=starting
+coordinator_health=starting
+for _ in $(seq 1 50); do
+  web_health="$(docker inspect --format '{{.State.Health.Status}}' "$web_container")"
+  coordinator_health="$(docker inspect --format '{{.State.Health.Status}}' "$coordinator_container")"
+  if [[ "$web_health" == unhealthy && "$coordinator_health" == unhealthy ]]; then break; fi
+  sleep 2
+done
+if [[ "$web_health" != unhealthy || "$coordinator_health" != unhealthy ]]; then
+  printf 'Missing OAuth/org assignment should produce visible unhealthy status (web=%s, coordinator=%s).\n' \
+    "$web_health" "$coordinator_health" >&2
+  exit 1
+fi
+printf '%s\n' 'Container health follows the routes: missing OAuth and organization assignment report unhealthy.'
+
+for disabled_service in agent gateway executor scanner-boundary; do
+  set +e
+  docker compose -p "$project" --profile "$(case "$disabled_service" in scanner-boundary) printf scanner ;; *) printf '%s' "$disabled_service" ;; esac)" \
+    --env-file "$env_file" -f "$compose_file" run --rm --no-deps "$disabled_service" >/dev/null 2>&1
+  disabled_status=$?
+  set -e
+  if [[ "$disabled_status" != 78 ]]; then
+    printf 'Disabled service %s did not fail closed with status 78.\n' "$disabled_service" >&2
     exit 1
   fi
+done
+printf '%s\n' 'Agent, gateway, executor, and scanner service profiles remain explicitly disabled.'
 
-  check_runtime_login() {
-    local role="$1" username="$2" password="$3"
-    local effective_role
-    effective_role="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" exec -T \
-      -e "PGPASSWORD=${password}" postgres \
-      psql -h 127.0.0.1 -U "$username" -d gotchu -Atq -c "BEGIN; SET LOCAL ROLE ${role}; SELECT current_user; ROLLBACK;")"
-    if [[ "$effective_role" != "$role" ]]; then
-      printf 'Runtime login could not connect with its isolated role: %s.\n' "$role" >&2
-      exit 1
-    fi
-  }
-  check_runtime_login gotchu_api gotchu_api_login "$test_api_password"
-  check_runtime_login gotchu_ingest gotchu_ingest_login "$test_ingest_password"
-  check_runtime_login gotchu_coordinator gotchu_coordinator_login "$test_coordinator_password"
-  check_runtime_login gotchu_coordinator gotchu_gateway_login "$test_gateway_password"
-  check_runtime_login gotchu_executor gotchu_executor_login "$test_executor_password"
-  printf '%s\n' 'Live migration, least-privilege login flags, table ownership, role membership, and connectivity passed.'
-else
-  printf '%s\n' 'SKIP runtime role checks: packages/database is not in this checkout; local Postgres/Redis checks above were live.'
+docker compose -p "$project" --env-file "$env_file" -f "$compose_file" stop --timeout 20 web coordinator >/dev/null
+web_exit="$(docker inspect --format '{{.State.ExitCode}}' "$web_container")"
+coordinator_exit="$(docker inspect --format '{{.State.ExitCode}}' "$coordinator_container")"
+if [[ "$web_exit" != 0 || "$coordinator_exit" != 0 ]]; then
+  printf 'Graceful app shutdown failed (web=%s, coordinator=%s).\n' "$web_exit" "$coordinator_exit" >&2
+  exit 1
 fi
+printf '%s\n' 'Web and coordinator stopped cleanly on Compose SIGTERM.'
+
+INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" scripts/infra-local-down.sh
+remaining_containers="$(docker compose -p "$project" --profile '*' --env-file "$env_file" -f "$compose_file" ps -aq)"
+remaining_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=${project}" | wc -l | tr -d ' ')"
+if [[ -n "$remaining_containers" || "$remaining_volumes" != 2 ]]; then
+  printf 'Local down left project containers or removed its persistent volumes (containers=%s, volumes=%s).\n' \
+    "${remaining_containers:+present}" "$remaining_volumes" >&2
+  exit 1
+fi
+printf '%s\n' 'Local down removed every app/data container and retained both local data volumes.'
