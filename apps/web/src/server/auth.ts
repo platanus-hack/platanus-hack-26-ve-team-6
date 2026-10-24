@@ -11,6 +11,7 @@ interface AuthBase {
   origin: string;
   secret: string;
   localAccounts?: LocalAccounts;
+  invalidateStepUpSession?: (userId: string) => Promise<void>;
 }
 const oidcSettingsSchema = z.object({
   issuer: z.url().refine((value) => { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash; }, 'OIDC issuer must use HTTPS without credentials or query parameters'),
@@ -28,9 +29,10 @@ export interface AuthService {
   enabled: boolean;
   handle(request: Request): Promise<Response>;
   identity(request: Request): Promise<SessionIdentity | null>;
+  accountEmail(userId: string): Promise<string | null>;
 }
 
-export function authSettings(env: NodeJS.ProcessEnv = process.env, localAccounts?: LocalAccounts): AuthSettings | null {
+export function authSettings(env: NodeJS.ProcessEnv = process.env, localAccounts?: LocalAccounts, invalidateStepUpSession?: (userId: string) => Promise<void>): AuthSettings | null {
   const oidc = env.AUTH_OIDC_ISSUER || env.AUTH_OIDC_CLIENT_ID || env.AUTH_OIDC_CLIENT_SECRET
     ? oidcSettingsSchema.parse({ issuer: env.AUTH_OIDC_ISSUER, clientId: env.AUTH_OIDC_CLIENT_ID, clientSecret: env.AUTH_OIDC_CLIENT_SECRET, name: env.AUTH_OIDC_NAME?.trim() || 'Workspace sign-in' }) : undefined;
   const github = env.AUTH_GITHUB_ID && env.AUTH_GITHUB_SECRET ? { githubClientId: env.AUTH_GITHUB_ID, githubClientSecret: env.AUTH_GITHUB_SECRET } : undefined;
@@ -41,7 +43,7 @@ export function authSettings(env: NodeJS.ProcessEnv = process.env, localAccounts
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) {
     throw new Error('PUBLIC_APP_URL must use HTTPS outside local development');
   }
-  const base = { origin: url.origin, secret, ...(localAccounts ? { localAccounts } : {}) };
+  const base = { origin: url.origin, secret, ...(localAccounts ? { localAccounts } : {}), ...(invalidateStepUpSession ? { invalidateStepUpSession } : {}) };
   if (github) return { ...base, ...github, ...(oidc ? { oidc } : {}) };
   if (oidc) return { ...base, oidc };
   if (localAccounts) return { ...base, localAccounts };
@@ -111,6 +113,11 @@ export function createAuthConfig(settings: AuthSettings): AuthConfig {
         return target.origin === settings.origin ? target.href : settings.origin;
       },
     },
+    events: {
+      signOut: async event => {
+        if ('token' in event && event.token?.sub) await settings.invalidateStepUpSession?.(event.token.sub);
+      },
+    },
     logger: {
       error: (error) => console.error(JSON.stringify({ event: 'auth_error', type: error.name })),
       warn: (code) => console.warn(JSON.stringify({ event: 'auth_warning', code })),
@@ -124,6 +131,7 @@ export function createAuthService(settings: AuthSettings | null): AuthService {
     enabled: false,
     handle: async () => json({ error: { code: 'auth_not_configured', message: 'Sign-in is not configured' } }, 503),
     identity: async () => { throw new HttpError(503, 'auth_not_configured', 'Sign-in is not configured'); },
+    accountEmail: async () => null,
   };
   const config = createAuthConfig(settings);
   const validateOrigin = (request: Request) => {
@@ -156,6 +164,7 @@ export function createAuthService(settings: AuthSettings | null): AuthService {
       if (!session.success) return null;
       return { userId: session.data.user.id, cookies: response.headers.getSetCookie() };
     },
+    accountEmail: async userId => settings.localAccounts ? settings.localAccounts.accountEmail(userId) : null,
   };
 }
 

@@ -1,0 +1,1 @@
+exports.isAuthorized = () => false;

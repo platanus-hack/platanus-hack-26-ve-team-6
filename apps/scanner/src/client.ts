@@ -1,20 +1,49 @@
 import { request as httpsRequest } from 'node:https';
 import { request as httpRequest } from 'node:http';
+import { createSecureContext } from 'node:tls';
+import { X509Certificate } from 'node:crypto';
 import { customerRunInputSchema, customerAssessmentReportSchema, type CustomerRunInput, type CustomerAssessmentReport } from '@gotchu/contracts';
 import { assertReportBinding } from '@gotchu/customer-assessment';
 import { checkSecret, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, signScannerBody } from './auth.js';
-export interface ScannerClientOptions { origin:string;secret:Uint8Array;timeoutMs?:number;allowDevelopmentHttp?:boolean }
+export const MAX_SCANNER_CA_BYTES = 256 * 1024;
+
+export interface ScannerClientOptions { origin:string;secret:Uint8Array;ca?:Uint8Array;timeoutMs?:number;allowDevelopmentHttp?:boolean;now?:()=>number }
+
+export function validateScannerCa(raw: Uint8Array): Buffer {
+  if (!(raw instanceof Uint8Array) || raw.byteLength === 0 || raw.byteLength > MAX_SCANNER_CA_BYTES) throw new Error('invalid_scanner_ca');
+  const ca = Buffer.from(raw);
+  for (const byte of ca) if (byte > 0x7f) throw new Error('invalid_scanner_ca');
+  try {
+    const pem = ca.toString('ascii');
+    const certificatePattern = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g;
+    const certificates = pem.match(certificatePattern) ?? [];
+    if (certificates.length === 0 || pem.replace(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g, '').trim() !== '') throw new Error('invalid_scanner_ca');
+    const canonicalCertificates = certificates.map(certificate => {
+      const x509 = new X509Certificate(certificate);
+      if (!x509.ca) throw new Error('invalid_scanner_ca');
+      return x509.toString().trim();
+    });
+    const canonicalCa = Buffer.from(canonicalCertificates.join('\n'), 'ascii');
+    if (canonicalCa.length === 0 || canonicalCa.length > MAX_SCANNER_CA_BYTES) throw new Error('invalid_scanner_ca');
+    createSecureContext({ ca: canonicalCa });
+    return canonicalCa;
+  }
+  catch { throw new Error('invalid_scanner_ca'); }
+}
+
 export function createScannerClient(options:ScannerClientOptions) {
   checkSecret(options.secret);const secret=Buffer.from(options.secret);const url=new URL(options.origin);
   const devHttp=options.allowDevelopmentHttp===true && ['development','test'].includes(process.env.NODE_ENV??'') && url.protocol==='http:' && (url.hostname==='127.0.0.1'||url.hostname==='[::1]');
   if(url.username||url.password||url.pathname!=='/'||url.search||url.hash||url.origin!==options.origin||!(url.protocol==='https:'||devHttp))throw new Error('invalid_scanner_origin');
+  const ca = options.ca === undefined ? undefined : validateScannerCa(options.ca);
+  if (ca && url.protocol !== 'https:') throw new Error('scanner_ca_requires_https');
   const timeout=options.timeoutMs??60000;if(!Number.isInteger(timeout)||timeout<1||timeout>65000)throw new Error('invalid_timeout');
   return {async run(raw:CustomerRunInput):Promise<CustomerAssessmentReport>{
     const input=customerRunInputSchema.parse(raw);const bytes=Buffer.from(JSON.stringify(input));if(bytes.length>MAX_REQUEST_BYTES)throw new Error('request_limit');
-    const timestamp=String(Math.floor(Date.now()/1000));
+    const timestamp=String(Math.floor((options.now?.()??Date.now())/1000));
     const response=await new Promise<Buffer>((resolve,reject)=>{
       const request=url.protocol==='https:'?httpsRequest:httpRequest;
-      const req=request(new URL('/v1/assessments',url),{method:'POST',agent:false,rejectUnauthorized:true,signal:AbortSignal.timeout(timeout),maxHeaderSize:8192,headers:{'content-type':'application/json','content-length':bytes.length,'x-gotchu-timestamp':timestamp,'x-gotchu-signature':signScannerBody(secret,timestamp,bytes)}},res=>{
+      const req=request(new URL('/v1/assessments',url),{method:'POST',agent:false,rejectUnauthorized:true,...(ca ? {ca} : {}),signal:AbortSignal.timeout(timeout),maxHeaderSize:8192,headers:{'content-type':'application/json','content-length':bytes.length,'x-gotchu-timestamp':timestamp,'x-gotchu-signature':signScannerBody(secret,timestamp,bytes)}},res=>{
         if(res.statusCode!==200||res.headers['content-encoding']||res.headers['content-type']!=='application/json'){res.destroy();reject(new Error(`scanner_http_${res.statusCode??0}`));return;}
         let size=0;const chunks:Buffer[]=[];
         res.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>MAX_RESPONSE_BYTES){res.destroy();reject(new Error('response_limit'));}else chunks.push(chunk);});

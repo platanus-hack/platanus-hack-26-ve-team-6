@@ -107,7 +107,12 @@ live('real Postgres signed intake, outbox, and membership', () => {
     await expect(web.web.getJob(identity, { organizationId: f.b.organizationId, jobId: queued.jobId })).rejects.toMatchObject({ code: 'forbidden' });
     await expect(web.customers.queue(identity, { ...selection, organizationId: f.a.organizationId, applicationId: f.b.applicationId, idempotencyKey: 'wrong-app' })).rejects.toMatchObject({ code: 'not_found' });
     expect(await web.web.getCoverage(identity, { organizationId: f.a.organizationId, applicationId: f.a.applicationId })).toEqual(expect.arrayContaining([expect.objectContaining({ capability: 'customer_code_execution', state: 'unsupported' })]));
-    await f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
-    await expect(web.customers.queue(identity, { ...selection, organizationId: f.a.organizationId, applicationId: f.a.applicationId, idempotencyKey: 'viewer' })).rejects.toMatchObject({ code: 'forbidden' });
+    const secondaryOwner = `intake-owner:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'owner')", [f.a.organizationId, secondaryOwner]);
+    try {
+      await f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
+      await expect(web.customers.queue(identity, { ...selection, organizationId: f.a.organizationId, applicationId: f.a.applicationId, idempotencyKey: 'viewer' })).rejects.toMatchObject({ code: 'forbidden' });
+      await f.admin.query("UPDATE gotchu.memberships SET role='owner' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
+    } finally { await f.admin.query('DELETE FROM gotchu.memberships WHERE organization_id=$1 AND user_id=$2', [f.a.organizationId, secondaryOwner]); }
   });
 });

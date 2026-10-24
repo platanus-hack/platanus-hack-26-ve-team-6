@@ -10,6 +10,8 @@ export const eventTypeSchema = z.enum([
   'http.request',
   'waf.match',
   'monitor.heartbeat',
+  'app.error',
+  'runtime.resource',
 ]);
 
 const attributeValueSchema = z.union([
@@ -21,7 +23,17 @@ const attributeValueSchema = z.union([
 const prohibitedAttribute = /password|secret|token|cookie|authorization|api[_-]?key|request[_-]?body/i;
 export const eventAttributesSchema = z.record(z.string().max(64), attributeValueSchema)
   .refine((value) => Object.keys(value).length <= 32, 'At most 32 attributes are allowed')
-  .refine((value) => !Object.keys(value).some((key) => prohibitedAttribute.test(key)), 'Sensitive attribute names are prohibited');
+  .refine((value) => !Object.keys(value).some((key) => prohibitedAttribute.test(key)), 'Sensitive attribute names are prohibited')
+  .superRefine((value, context) => {
+    for (const key of ['release', 'service', 'dependency'] as const) {
+      const field = value[key];
+      if (field !== undefined && (typeof field !== 'string' || field.length < 1 || field.length > 160 || /^https?:\/\//i.test(field))) context.addIssue({ code: 'custom', path: [key], message: `${key} must be a bounded identifier, not a URL` });
+    }
+    const route = value.route;
+    if (route !== undefined && (typeof route !== 'string' || route.length > 200 || !/^\/(?:[A-Za-z0-9._~-]+|\{[A-Za-z][A-Za-z0-9_]*\})(?:\/(?:[A-Za-z0-9._~-]+|\{[A-Za-z][A-Za-z0-9_]*\}))*\/?$/.test(route))) {
+      context.addIssue({ code: 'custom', path: ['route'], message: 'route must be a templated path without a host, query or fragment' });
+    }
+  });
 
 export const securityEventSchema = z.object({
   id: idSchema,
@@ -72,3 +84,11 @@ export type EventBatchInput = z.input<typeof eventBatchSchema>;
 export type JobEnvelope = z.infer<typeof jobEnvelopeSchema>;
 export type InvestigationRequest = z.infer<typeof investigationRequestSchema>;
 export * from './customer-assessment.js';
+export * from './operations.js';
+export * from './telemetry.js';
+export * from './context.js';
+export * from './step-up.js';
+export * from './triage.js';
+export * from './members.js';
+export * from './actions.js';
+export * from './validation.js';

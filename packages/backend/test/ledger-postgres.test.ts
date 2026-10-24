@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { setRecoveryState } from '@gotchu/database';
+import type { ActionV2 } from '@gotchu/contracts';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
-import { BackendError, createBackend, type ProposalEligibility, type StepUpVerifier, type VerifiedStepUp } from '../src/index.js';
+import { BackendError, canonicalJson, createBackend, createWebAuthnStepUpVerifier, hashActionV2, proposalSchema, sha256, type ActionEligibility, type ProposalEligibility, type StepUpVerifier, type VerifiedStepUp } from '../src/index.js';
 import { eligibilityFixture, proposalFixture } from './proposal-fixtures.js';
 const live = liveUrl ? describe : describe.skip;
 live('real Postgres approval/execution ledger; injected test-only MFA and eligibility verifier', () => {
@@ -11,6 +12,7 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
   let executor: ReturnType<typeof createBackend>;
   let now = new Date();
   let factsOverride: Partial<ProposalEligibility> = {};
+  let actionFacts: ActionEligibility = { eligible: true, blockingReasons: [] };
   const proofs = new Map<string, VerifiedStepUp>();
   const stepUpVerifier: StepUpVerifier = { verify: async input => {
     const proof = proofs.get(input.proof);
@@ -19,12 +21,12 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
   } };
   beforeAll(async () => {
     f = await fixture({ max: 4 });
-    const deps = { clock: { now: () => now }, stepUpVerifier, proposalVerifier: { verify: async (p: Parameters<typeof eligibilityFixture>[0]) => ({ ...eligibilityFixture(p, now), ...factsOverride }) } };
+    const deps = { clock: { now: () => now }, stepUpVerifier, proposalVerifier: { verify: async (p: Parameters<typeof eligibilityFixture>[0]) => ({ ...eligibilityFixture(p, now), ...factsOverride }) }, actionVerifier: { verify: async () => actionFacts } };
     api = createBackend({ ...deps, database: f.databases.gotchu_api });
     executor = createBackend({ ...deps, database: f.databases.gotchu_executor });
     await setRecoveryState({ connectionString: present(liveUrl), mode: 'reconciled', reconciliationReference: 'TEST ONLY: no provider writes are performed' });
   }, 30_000);
-  beforeEach(() => { now = new Date(); factsOverride = {}; });
+  beforeEach(() => { now = new Date(); factsOverride = {}; actionFacts = { eligible: true, blockingReasons: [] }; });
   afterAll(async () => { await f?.close(); });
   const identity = () => ({ userId: f.a.userId });
   async function create() { return api.proposals.create({ organizationId: f.a.organizationId, proposal: proposalFixture(f.a) }); }
@@ -32,6 +34,17 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
     const token = randomUUID();
     proofs.set(token, { proofId: token, userId: f.a.userId, organizationId: f.a.organizationId, actionHash, authenticatedAt: now, expiresAt: new Date(now.getTime() + 300_000), method: 'webauthn', ...patch });
     return token;
+  }
+  const actionFixture = (): ActionV2 => ({ version: 2, kind: 'source_patch_pull_request', capabilityId: 'repository.source_patch_pr', organizationId: f.a.organizationId, applicationId: f.a.applicationId, policyVersion: 'policy-v2', target: { kind: 'repository', repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, recipeId: 'tls-certificate-verification', recipeVersion: '1', snapshotSha256: 'a'.repeat(64), patchSha256: 'b'.repeat(64), findingIdentities: ['finding-1'], validationAttestationIds: [randomUUID()], evidence: [{ id: randomUUID(), sha256: 'c'.repeat(64), kind: 'candidate' }] });
+  const dependencyActionFixture = (): ActionV2 => ({version:2,kind:'dependency_pull_request',capabilityId:'repository.dependency_pr',organizationId:f.a.organizationId,applicationId:f.a.applicationId,policyVersion:'policy-v2',target:{kind:'repository',repositoryLinkId:randomUUID(),repositoryKey:'catalog:key',branch:'main'},baseCommit:'a'.repeat(40),candidateCommit:'b'.repeat(40),changes:[{name:'safe-package',from:'1.0.0',to:'1.0.1'}],lockfileSha256:'c'.repeat(64),patchSha256:'d'.repeat(64),rescanAttestationId:randomUUID(),suiteAttestationId:randomUUID(),evidence:[{id:randomUUID(),sha256:'e'.repeat(64),kind:'candidate'}]});
+  async function createV2(action = actionFixture()) {
+    const state = await f.admin.query<{ recovery_epoch: string }>('SELECT recovery_epoch FROM gotchu.platform_state');
+    const recoveryEpoch = String(state.rows[0]?.recovery_epoch);
+    const actionHash = hashActionV2(action, recoveryEpoch);
+    const proposalId = randomUUID();
+    await f.admin.query(`INSERT INTO gotchu.proposals(organization_id,application_id,id,action_hash,body,recovery_epoch,version,kind,capability_id,state,blocking_reasons)
+      VALUES($1,$2,$3,$4,$5::jsonb,$6,2,$7,$8,'eligible','[]'::jsonb)`, [f.a.organizationId,f.a.applicationId,proposalId,actionHash,JSON.stringify(action),recoveryEpoch,action.kind,action.capabilityId]);
+    return { proposalId, actionHash, action, recoveryEpoch };
   }
   async function approved() {
     const p = await create();
@@ -44,6 +57,88 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
     expect(await api.proposals.create({ organizationId: f.a.organizationId, proposal })).toEqual(first);
     await expect(f.databases.gotchu_api.tenant(f.a.organizationId, tx => tx.query("UPDATE gotchu.proposals SET body='{}' WHERE id=$1", [first.proposalId]))).rejects.toMatchObject({ code: '42501' });
     await expect(api.proposals.create({ organizationId: f.b.organizationId, proposal })).rejects.toMatchObject({ code: 'tenant_mismatch' });
+  });
+  it('keeps stored v1 proposal hashes byte-for-byte on the original v1 formula', async () => {
+    const stored = await create();
+    const row = (await f.admin.query<{ body: unknown; recovery_epoch: string; action_hash: string; version: number }>('SELECT body,recovery_epoch,action_hash,version FROM gotchu.proposals WHERE organization_id=$1 AND id=$2', [f.a.organizationId,stored.proposalId])).rows[0];
+    if (!row) throw new Error('missing stored v1 proposal');
+    const proposal = proposalSchema.parse(row.body);
+    const legacyHash = sha256('gotchu-proposal-v1\n' + canonicalJson({ proposal, recoveryEpoch: String(row.recovery_epoch) }));
+    expect(row.version).toBe(1);
+    expect(legacyHash).toBe(stored.actionHash);
+    expect(row.action_hash).toBe(legacyHash);
+  });
+  it('approves v2 only for Owners, binds MFA to the exact hash, serializes duplicate approval, and refuses executor claims without an adapter', async () => {
+    const secondaryOwner = `action-owner:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'owner')", [f.a.organizationId, secondaryOwner]);
+    await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=true WHERE kind='dependency_pull_request'");
+    try {
+      const proposal = await createV2(dependencyActionFixture());
+      const wrongHash = 'f'.repeat(64);
+      await expect(api.actions.approve(identity(), { organizationId: f.a.organizationId, applicationId: f.a.applicationId, proposalId: proposal.proposalId, actionHash: proposal.actionHash, stepUpProof: issue(wrongHash) })).rejects.toMatchObject({ code: 'step_up_required' });
+      const approvals = await Promise.allSettled([1,2].map(() => api.actions.approve(identity(), { organizationId: f.a.organizationId, applicationId: f.a.applicationId, proposalId: proposal.proposalId, actionHash: proposal.actionHash, stepUpProof: issue(proposal.actionHash) })));
+      expect(approvals.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+      expect((await f.admin.query('SELECT id FROM gotchu.approvals WHERE proposal_id=$1', [proposal.proposalId])).rowCount).toBe(1);
+      const approval = present(approvals.find(result => result.status === 'fulfilled'));
+      if (approval.status !== 'fulfilled') throw new Error('missing action approval');
+      await expect(executor.executions.claim({ organizationId: f.a.organizationId, approvalId: approval.value.approvalId })).rejects.toMatchObject({ code: 'no_adapter' });
+      expect((await f.admin.query('SELECT consumed_at FROM gotchu.approvals WHERE id=$1', [approval.value.approvalId])).rows[0]?.consumed_at).toBeNull();
+    } finally {
+      await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=false WHERE kind='dependency_pull_request'");
+      await f.admin.query('DELETE FROM gotchu.memberships WHERE organization_id=$1 AND user_id=$2', [f.a.organizationId, secondaryOwner]);
+    }
+  });
+  it('approves a dependency action through the real WebAuthn proof verifier inside the approval transaction', async () => {
+    await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=true WHERE kind='dependency_pull_request'");
+    const realBackend=createBackend({ database:f.databases.gotchu_api,clock:{now:()=>now},actionVerifier:{verify:async()=>({eligible:true,blockingReasons:[]})},stepUpVerifier:createWebAuthnStepUpVerifier({database:f.databases.gotchu_api,clock:{now:()=>now}}) });
+    const action: ActionV2={version:2,kind:'dependency_pull_request',capabilityId:'repository.dependency_pr',organizationId:f.a.organizationId,applicationId:f.a.applicationId,policyVersion:'policy-v2',target:{kind:'repository',repositoryLinkId:randomUUID(),repositoryKey:'catalog:key',branch:'main'},baseCommit:'a'.repeat(40),candidateCommit:'b'.repeat(40),changes:[{name:'safe-package',from:'1.0.0',to:'1.0.1'}],lockfileSha256:'c'.repeat(64),patchSha256:'d'.repeat(64),rescanAttestationId:randomUUID(),suiteAttestationId:randomUUID(),evidence:[{id:randomUUID(),sha256:'e'.repeat(64),kind:'candidate'}]};
+    const proposal=await createV2(action); const proof=randomUUID(); const factorId=randomUUID();
+    const epoch=await f.admin.query<{recovery_epoch:string}>('SELECT recovery_epoch FROM gotchu.platform_state WHERE singleton');
+    await f.admin.query('INSERT INTO gotchu.step_up_user_factors(user_id,id,credential_id,public_key,label) VALUES($1,$2,$3,$4,$5)',[f.a.userId,factorId,randomUUID(),Buffer.from([1,2,3]),'ledger test factor']);
+    await f.admin.query('INSERT INTO gotchu.step_up_proofs(organization_id,id,user_id,proof_hash,action_hash,recovery_epoch,authenticated_at,expires_at,factor_id,factor_count,factor_ids) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10)',[f.a.organizationId,randomUUID(),f.a.userId,sha256(proof),proposal.actionHash,epoch.rows[0]?.recovery_epoch,now,new Date(now.getTime()+60_000),factorId,[factorId]]);
+    try {
+      const approval=await realBackend.actions.approve(identity(),{organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposal.proposalId,actionHash:proposal.actionHash,stepUpProof:proof});
+      expect(approval.approvalId).toMatch(/[0-9a-f-]{36}/);
+      expect((await f.admin.query('SELECT consumed_at FROM gotchu.step_up_proofs WHERE proof_hash=$1',[sha256(proof)])).rows[0]?.consumed_at).toEqual(expect.any(Date));
+      expect((await f.admin.query("SELECT kind,payload FROM gotchu.jobs WHERE kind='execution' AND payload->>'approvalId'=$1",[approval.approvalId])).rowCount).toBe(1);
+    } finally { await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=false WHERE kind='dependency_pull_request'"); }
+  });
+  it('invalidates v2 proposals when the recovery epoch changes', async () => {
+    const proposal = await createV2();
+    await setRecoveryState({ connectionString: present(liveUrl), mode: 'freeze' });
+    try {
+      await expect(api.actions.getEligibility(identity(), { organizationId: f.a.organizationId, applicationId: f.a.applicationId, proposalId: proposal.proposalId })).resolves.toMatchObject({ status: 'ineligible', blockingReasons: ['propuesta invalidada tras una recuperación'] });
+      expect((await f.admin.query('SELECT state,invalidated_at FROM gotchu.proposals WHERE id=$1', [proposal.proposalId])).rows[0]).toMatchObject({ state: 'invalidated' });
+    }
+    finally { await setRecoveryState({ connectionString: present(liveUrl), mode: 'reconciled', reconciliationReference: 'TEST ONLY: recovery invalidation check' }); }
+  });
+  it('invalidates a v2 proposal when the independent verifier observes a changed base', async () => {
+    await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=true WHERE kind='source_patch_pull_request'");
+    const proposal = await createV2();
+    actionFacts = { eligible: false, blockingReasons: ['base changed'], baseChanged: true };
+    try {
+      await expect(api.actions.getEligibility(identity(), { organizationId: f.a.organizationId, applicationId: f.a.applicationId, proposalId: proposal.proposalId })).resolves.toMatchObject({ status: 'ineligible', blockingReasons: expect.arrayContaining(['base cambió desde la propuesta']) });
+      expect((await f.admin.query('SELECT state,invalidated_at FROM gotchu.proposals WHERE id=$1', [proposal.proposalId])).rows[0]).toMatchObject({ state: 'invalidated' });
+    } finally { await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=false WHERE kind='source_patch_pull_request'"); }
+  });
+  it('reports explicit blockers without a trusted v2 verifier or write adapter and keeps tenant reads isolated', async () => {
+    const proposal = await createV2();
+    const disabled = createBackend({ database: f.databases.gotchu_api });
+    await expect(disabled.actions.getEligibility(identity(), { organizationId: f.a.organizationId, applicationId: f.a.applicationId, proposalId: proposal.proposalId })).resolves.toMatchObject({ status: 'ineligible', blockingReasons: expect.arrayContaining(['validación en VM no disponible','sin adaptador de escritura']) });
+    await expect(api.actions.get({ userId: f.b.userId }, { organizationId: f.b.organizationId, applicationId: f.b.applicationId, proposalId: proposal.proposalId })).rejects.toMatchObject({ status: 404 });
+  });
+  it('builds a source patch action only from stored candidate and context records and projects no private source content', async () => {
+    const candidateId = randomUUID(); const repositoryLinkId = randomUUID();
+    const privateMarker = 'PRIVATE_SOURCE_MUST_NOT_LEAK';
+    const body = { revision: 'candidate', files: [{ path: 'src/config.ts', content: privateMarker }] };
+    const candidateDigest = 'd'.repeat(64); const patchHash = 'e'.repeat(64);
+    await f.admin.query('INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor) VALUES($1,$2,$3,$4,$5::jsonb,$6)', [f.a.organizationId,f.a.applicationId,candidateId,candidateDigest,JSON.stringify(body),f.a.userId]);
+    await f.admin.query('INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access,state) VALUES($1,$2,$3,$4,$5,$6,$7)', [f.a.organizationId,f.a.applicationId,repositoryLinkId,'catalog:service','main','granted','declared']);
+    await f.admin.query('INSERT INTO gotchu.audit_records(organization_id,id,actor_id,action,subject_id,detail) VALUES($1,$2,$3,$4,$5,$6::jsonb)', [f.a.organizationId,randomUUID(),f.a.userId,'correction.prepared',candidateId,JSON.stringify({ recipeId: 'tls-certificate-verification', recipeVersion: '1.0.0', findingId: 'finding-identity', patchHash, candidateSourceDigest: candidateDigest, path: 'src/config.ts' })]);
+    const proposed = await api.actions.propose(identity(), { organizationId: f.a.organizationId, applicationId: f.a.applicationId, kind: 'source_patch_pull_request', sourceRef: { type: 'correction_candidate', candidateId } });
+    const card = await api.actions.get(identity(), { organizationId: f.a.organizationId, applicationId: f.a.applicationId, proposalId: proposed.proposalId });
+    expect(card).toMatchObject({ state: 'ineligible', target: { kind: 'repository', repositoryLinkId, repositoryKey: 'catalog:service', branch: 'main' }, diff: { path: 'src/config.ts' }, blockingReasons: expect.arrayContaining(['No hay un adaptador de escritura disponible. No se modificará ningún repositorio.']) });
+    expect(JSON.stringify(card)).not.toContain(privateMarker);
   });
   it('rejects forged caller timestamps, unissued proof, hash mismatch, and no trusted verifier', async () => {
     const p = await create();
@@ -72,6 +167,15 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
     await expect(executor.executions.assertWritable(token)).rejects.toMatchObject({ code: 'stale_execution' });
     expect((await f.admin.query('SELECT state FROM gotchu.executions WHERE id=$1', [claim.value.executionId])).rows[0].state).toBe('uncertain');
   });
+  it('persists monotonic executor attempt transitions across a backend restart', async () => {
+    const approval=await approved();
+    const claim=await executor.executions.claim({organizationId:f.a.organizationId,approvalId:approval.approvalId});
+    await executor.executions.recordAttempt({organizationId:f.a.organizationId,executionId:claim.executionId,attempt:1,step:'claim',state:'claimed'});
+    await executor.executions.recordAttempt({organizationId:f.a.organizationId,executionId:claim.executionId,attempt:1,step:'publish_branch',state:'branch_published',detail:{branch:'gotchu/test-action'}});
+    await expect(executor.executions.recordAttempt({organizationId:f.a.organizationId,executionId:claim.executionId,attempt:1,step:'claim',state:'claimed'})).rejects.toMatchObject({code:'invalid_attempt_transition'});
+    const restarted=createBackend({database:f.databases.gotchu_executor});
+    await expect(restarted.executions.listAttempts({organizationId:f.a.organizationId,executionId:claim.executionId})).resolves.toMatchObject([{attempt:1,state:'branch_published',step:'publish_branch',detail:{branch:'gotchu/test-action'}}]);
+  });
   it('rejects stale target head and commits invalidation even if the head is later restored', async () => {
     const a = await approved();
     factsOverride = { currentBaseCommit: '3'.repeat(40) };
@@ -86,9 +190,13 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
     await expect(executor.executions.claim({ organizationId: f.a.organizationId, approvalId: expired.approvalId })).rejects.toMatchObject({ code: 'approval_expired' });
     now = new Date();
     const revoked = await approved();
-    await f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
-    try { await expect(executor.executions.claim({ organizationId: f.a.organizationId, approvalId: revoked.approvalId })).rejects.toMatchObject({ code: 'forbidden' }); }
-    finally { await f.admin.query("UPDATE gotchu.memberships SET role='owner' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]); }
+    const secondaryOwner = `ledger-owner:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'owner')", [f.a.organizationId, secondaryOwner]);
+    try {
+      await f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
+      await expect(executor.executions.claim({ organizationId: f.a.organizationId, approvalId: revoked.approvalId })).rejects.toMatchObject({ code: 'forbidden' });
+      await f.admin.query("UPDATE gotchu.memberships SET role='owner' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
+    } finally { await f.admin.query('DELETE FROM gotchu.memberships WHERE organization_id=$1 AND user_id=$2', [f.a.organizationId, secondaryOwner]); }
   });
   it('serializes membership revocation against the authorization row lock', async () => {
     let locked: () => void = () => { throw new Error('Lock promise not initialized'); };

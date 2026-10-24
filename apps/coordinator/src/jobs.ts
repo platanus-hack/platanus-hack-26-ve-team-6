@@ -5,12 +5,18 @@ import { jobEnvelopeSchema, securityEventSchema, type JobEnvelope } from '@gotch
 import type { Database, Transaction } from '@gotchu/database';
 import { z } from 'zod';
 import { runAssessment, runCustomerAssessment, type AssessmentRunner, type CustomerAssessmentRunner } from './assessment.js';
+import { observeRuntime, observeAssessment, backendInTransaction } from './observations.js';
+import { evaluateTriage } from './triage.js';
 
 const WINDOW_MS = 600_000;
 const MAX_WINDOW_EVENTS = 10_000;
 // CASE guards the cast even when PostgreSQL reorders query predicates.
 const eventTimeSql = "CASE WHEN pg_input_is_valid(payload->>'occurredAt','timestamptz') THEN (payload->>'occurredAt')::timestamptz END";
 const payloadSchema = z.object({ incidentId: z.uuid(), evidenceIds: z.array(z.uuid()).min(1).max(20) }).strict();
+const projectionPayloadSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('assessment_observation'), reportId: z.uuid() }).strict(),
+  z.object({ kind: z.literal('triage_evaluation'), windowBucket: z.number().int().nonnegative() }).strict(),
+]);
 export interface Investigator {
   investigate(input: { organizationId: string; applicationId: string; runId: string; deadline: Date; evidenceIds: readonly string[] }): Promise<InvestigationResult>;
 }
@@ -38,9 +44,12 @@ async function aggregate(dependencies: CoordinatorDependencies, claim: JobClaim)
     const input = await tx.query<{ payload: unknown }>(`SELECT payload FROM gotchu.events WHERE organization_id=$1 AND application_id=$2 AND job_id=$3
       AND pg_input_is_valid(payload->>'occurredAt','timestamptz') IS TRUE`, [organizationId, applicationId, jobId]);
     const current = input.rows.map((row) => securityEventSchema.parse(row.payload));
+    const operationalProjection = await observeRuntime(dependencies.database, tx, claim, current);
     const auth = current.filter((event) => event.type === 'auth.login_failed' || event.type === 'auth.login_succeeded');
+    await enqueue(tx, { organizationId, applicationId, id: randomUUID(), kind: 'notification',
+      idempotencyKey: `triage:${jobId}`, payload: { kind: 'triage_evaluation', windowBucket: Math.floor(Date.now() / WINDOW_MS) } });
     if (auth.length === 0) {
-      await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', incidents: 0, quarantinedTimestamps: quarantined } });
+      await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', incidents: 0, quarantinedTimestamps: quarantined, operationalProjection } });
       return;
     }
     const times = auth.map((event) => Date.parse(event.occurredAt));
@@ -80,7 +89,7 @@ async function aggregate(dependencies: CoordinatorDependencies, claim: JobClaim)
     }
     if (!quarantined) await tx.query(`INSERT INTO gotchu.coverage(organization_id,application_id,capability,state,reason,checked_at) VALUES ($1,$2,'login_failure_detection','active','Account and IP failure detectors v1 only; thresholds are pilot defaults',clock_timestamp())
       ON CONFLICT (organization_id,application_id,capability) DO UPDATE SET state=EXCLUDED.state,reason=EXCLUDED.reason,checked_at=EXCLUDED.checked_at`, [organizationId, applicationId]);
-    await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', createdIncidents: created, blockedAttempts: result.blockedAttempts, quarantinedTimestamps: quarantined } });
+    await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', createdIncidents: created, blockedAttempts: result.blockedAttempts, quarantinedTimestamps: quarantined, operationalProjection } });
   });
 }
 
@@ -191,6 +200,25 @@ export async function processDurableJob(dependencies: CoordinatorDependencies, r
     if (envelope.kind === 'events.aggregate') await aggregate(dependencies, claim);
     else if (envelope.kind === 'investigation') await investigate(dependencies, claim);
     else if (envelope.kind === 'audit') await assess(dependencies, claim);
+    else if (envelope.kind === 'notification') await dependencies.database.tenant(envelope.organizationId, async tx => {
+      const current = await tx.query("SELECT id FROM gotchu.jobs WHERE organization_id=$1 AND id=$2 AND state='running' AND lease_token=$3 AND lease_until>clock_timestamp() FOR UPDATE", [envelope.organizationId, envelope.id, claim.leaseToken]);
+      if (!current.rowCount) throw new BackendError('stale_lease', 'Observation projection requires a current job claim', 409);
+      const payload = projectionPayloadSchema.parse(claim.payload);
+      try {
+        if(payload.kind==='assessment_observation') await observeAssessment(backendInTransaction(dependencies.database, envelope.organizationId, tx), tx, { organizationId: envelope.organizationId, applicationId: envelope.applicationId, reportId: payload.reportId });
+        else await evaluateTriage(tx,{organizationId:envelope.organizationId,applicationId:envelope.applicationId});
+        await completeJob(tx, { organizationId: envelope.organizationId, jobId: envelope.id, leaseToken: claim.leaseToken });
+      } catch (error) {
+        // Expired evidence, archived scope and full storage cannot improve through transport retries.
+        if (!(error instanceof BackendError) || !['evidence_stale', 'application_archived', 'observation_capacity_exceeded', 'evidence_not_found'].includes(error.code)) throw error;
+        const reason = `assessment_projection_${error.code}`;
+        await tx.query(`INSERT INTO gotchu.coverage(organization_id,application_id,capability,state,reason,checked_at)
+          VALUES($1,$2,'assessment_alert_projection','degraded',$3,clock_timestamp())
+          ON CONFLICT(organization_id,application_id,capability) DO UPDATE SET state=EXCLUDED.state,reason=EXCLUDED.reason,checked_at=EXCLUDED.checked_at`,
+        [envelope.organizationId, envelope.applicationId, reason]);
+        await failJob(tx, claim, reason);
+      }
+    });
     else await dependencies.database.tenant(envelope.organizationId, (tx) => failJob(tx, claim, `${envelope.kind}_adapter_not_configured`));
     return { status: 'processed' };
   } catch (error) {

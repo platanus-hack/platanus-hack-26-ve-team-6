@@ -155,7 +155,7 @@ External assessment must work without source access and only within authorized s
 
 Read `docs/definition-interview.md`, `docs/architecture.md`, and `docs/implementation-plan.md` before making architectural changes. A reference or proposed limit is not a measured production guarantee.
 
-Use focused commits for coherent changes. Include meaningful tests for tenant isolation, event authentication and replay handling, durable outbox delivery, budgets, and exact approval semantics. Never substitute a mock passing test for a live infrastructure check without labeling the distinction.
+Use focused commits for coherent changes: one commit per important change, kept near 300 changed lines or fewer, excluding lockfiles, generated output, and fixture data. Split by layer (contracts, migration, backend service, tests, API, UI, docs) and order the commits bottom-up so each one builds where practical. A later fix gets its own `fix(scope):` commit. Use the history's conventional prefixes (`feat(scope):`, `test(scope):`, `build:`, `docs:`) and explain why in the body. Include meaningful tests for tenant isolation, event authentication and replay handling, durable outbox delivery, budgets, and exact approval semantics. Never substitute a mock passing test for a live infrastructure check without labeling the distinction.
 
 Parallel agents work in isolated worktrees. Own the directories assigned by the parent; do not overwrite another stream's code. Commit your changes locally and report commit SHAs, checks, gaps, and integration contracts. Do not push or open PRs unless assigned. Do not delegate additional work without coordinating with the parent because the team has a bounded concurrency budget.
 

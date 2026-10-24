@@ -565,7 +565,7 @@ async function start() {
     command('bash', ['scripts/infra-local-up.sh'], { env: { ...baseEnvironment, DOCKER_HOST: dockerHost, DOCKER_CONFIG: '/nonexistent' }, label: 'Local PostgreSQL and Redis setup' });
     const urls = databaseUrls(infra);
     const scannerSecretFile = join(directory, 'scanner.secret');
-    const origin = `http://127.0.0.1:${ports.web}`;
+    const origin = `http://localhost:${ports.web}`;
 
     await launchService(state, 'scanner', ports.scanner, {
       GOTCHU_SCANNER_SECRET_FILE: scannerSecretFile,
@@ -577,6 +577,9 @@ async function start() {
       GOTCHU_COORDINATOR_HOST: '127.0.0.1',
       GOTCHU_ORGANIZATION_IDS: '',
       GOTCHU_CUSTOMER_DISCOVERY: 'true',
+      GOTCHU_MONITORING_ENABLED: 'true',
+      GOTCHU_MONITORING_OSV: 'true',
+      ...(process.env.GOTCHU_MONITORING_CONFIG_FILE ? { GOTCHU_MONITORING_CONFIG_FILE: process.env.GOTCHU_MONITORING_CONFIG_FILE } : {}),
       GOTCHU_COORDINATOR_DATABASE_URL: urls.coordinator,
       GOTCHU_REDIS_URL: redisUrl(infra),
       GOTCHU_SCANNER_ORIGIN: `http://127.0.0.1:${ports.scanner}`,
@@ -592,7 +595,9 @@ async function start() {
       GOTCHU_API_DATABASE_URL: urls.api,
       GOTCHU_INGEST_DATABASE_URL: urls.ingest,
       GOTCHU_LOCAL_AUTH_ENABLED: 'true',
+      ...(process.env.GOTCHU_MONITORING_CONFIG_FILE ? { GOTCHU_MONITORING_CONFIG_FILE: process.env.GOTCHU_MONITORING_CONFIG_FILE } : {}),
       GOTCHU_ALLOW_LOCAL_REGISTRATION: 'true',
+      GOTCHU_EVENT_CREDENTIAL_DIRECTORY: join(directory, 'event-credentials'),
     });
 
     await waitForScanner(ports.scanner);
@@ -606,13 +611,13 @@ async function start() {
       return value?.status === 'ready' && dependencies?.apiDatabase === true
         && dependencies?.intakeDatabase === true && dependencies?.signIn === true;
     });
-    await waitForHttpReady('Customer session', `http://127.0.0.1:${ports.web}/api/customer/session`, body => {
+    await waitForHttpReady('Customer session', `${origin}/api/customer/session`, body => {
       const value = responseObject(body);
       return value?.localAuthEnabled === true && value.registrationEnabled === true
         && Array.isArray(value.providers) && value.providers.some(provider => isRecord(provider) && provider.id === 'credentials');
     });
 
-    const dashboard = await fetch(`${origin}/dashboard`, { signal: AbortSignal.timeout(10_000), redirect: 'error' });
+    const dashboard = await fetch(`http://127.0.0.1:${ports.web}/dashboard`, { signal: AbortSignal.timeout(10_000), redirect: 'error' });
     if (!dashboard.ok || !dashboard.headers.get('content-type')?.includes('text/html')) throw new Error('The actual dashboard did not render successfully; inspect .local/dev/web.log.');
     await dashboard.body?.cancel();
 

@@ -1,14 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
-import { createDockerScanners } from '../src/index.js';
-import { input } from './fixtures.js';
+import { describe, expect, it } from 'vitest';
+import { profiles } from '../src/index.js';
 
-describe('development-only scanner release gate', () => {
-  it('rejects the outdated Semgrep profile before any Docker operation in production', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    try {
-      const source = input().source;
-      if (!source) throw new Error('Missing test source');
-      await expect(createDockerScanners().run('semgrep', source, AbortSignal.timeout(1000))).rejects.toThrow('development_scanner_profile_not_allowed');
-    } finally { vi.unstubAllEnvs(); }
+describe('maintained Semgrep release profile', () => {
+  it('pins the validated official v1.182.0 image by digest', () => {
+    expect(profiles.semgrep).toEqual({
+      image: 'semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af',
+      version: '1.182.0',
+      config: 'semgrep.yaml',
+    });
   });
 });

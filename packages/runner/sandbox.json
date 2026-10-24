@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "executionEnabled": true,
+  "hostSandboxSelfTestRequired": true,
+  "networkMode": "none",
+  "seccomp": "firecracker-default",
+  "pidsCgroup": true
+}

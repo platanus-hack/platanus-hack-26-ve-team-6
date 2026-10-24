@@ -24,3 +24,12 @@ rules:
     message: TLS certificate verification is disabled in this object.
     severity: ERROR
     pattern: '({..., rejectUnauthorized: false, ...})'
+  - id: gotchu.javascript.helmet-csp-disabled
+    languages: [javascript, typescript]
+    message: Helmet may be configured without its default content security policy.
+    severity: WARNING
+    patterns:
+      - pattern: '$HELMET({contentSecurityPolicy: false})'
+      - pattern-inside: |
+          import $HELMET from 'helmet';
+          ...

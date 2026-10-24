@@ -133,6 +133,21 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     expect((await api.customers.listTargets(c.identity, c.scope))[0]?.status).toBe('revoked');
   });
 
+  it('binds explicit public-surface consent to the target and immutable worker request', async () => {
+    const c = await customer();
+    const enrollment = await api.customers.enrollTarget(c.identity, { ...c.scope, origin: 'https://surface.acme.com', authorized: true, scanProfile: 'public_surface' });
+    dns.set(enrollment.challenge.name, [[enrollment.challenge.value]]);
+    const target = await api.customers.verifyTarget(c.identity, { ...c.scope, targetId: enrollment.target.id });
+    expect(target.scanProfile).toBe('public_surface');
+    const queued = await api.customers.queue(c.identity, { ...c.scope, mode: 'external', sourceSnapshotId: null, targetId: target.id, idempotencyKey: randomUUID() });
+    const job = present(await coordinator.jobs.claim({ organizationId: c.workspace.id, jobId: queued.jobId }));
+    const claim = { ...c.scope, jobId: queued.jobId, leaseToken: job.leaseToken };
+    expect((await coordinator.customers.getRequest(claim)).target?.scanProfile).toBe('public_surface');
+    // Operator corruption fixture: profile drift cannot bypass the immutable consent check.
+    await f.admin.query("UPDATE gotchu.customer_targets SET scan_profile='root' WHERE organization_id=$1 AND id=$2", [c.workspace.id, target.id]);
+    await expect(coordinator.customers.getRequest(claim)).rejects.toMatchObject({ code: 'assessment_target_changed' });
+  });
+
   it('blocks target changes for every queued, claimed and hydrated request, including expired leases', async () => {
     const c = await customer(); const target = await verified(c);
     const queueInput = { ...c.scope, mode: 'external' as const, sourceSnapshotId: null, targetId: target.id, idempotencyKey: randomUUID() };

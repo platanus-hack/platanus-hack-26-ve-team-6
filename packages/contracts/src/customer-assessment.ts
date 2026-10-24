@@ -28,12 +28,14 @@ export const customerCreateWorkspaceSchema = z.object({ name }).strict();
 export const customerCreateApplicationSchema = z.object({ organizationId: uuid, name }).strict();
 export const customerApplicationSchema = customerScopeSchema.extend({ name, archived: z.boolean(), createdAt: timestamp }).strict();
 export const customerUpdateApplicationSchema = customerScopeSchema.extend({ name: name.optional(), archived: z.boolean().optional() }).strict().refine(value => value.name !== undefined || value.archived !== undefined);
-export const customerEnrollTargetSchema = customerScopeSchema.extend({ origin: customerOriginSchema, authorized: z.literal(true) }).strict();
+export const customerScanProfileSchema = z.enum(['root', 'public_surface']);
+export const customerEnrollTargetSchema = customerScopeSchema.extend({ origin: customerOriginSchema, authorized: z.literal(true), scanProfile: customerScanProfileSchema.optional() }).strict();
 export const customerTargetIdSchema = customerScopeSchema.extend({ targetId: uuid }).strict();
 export const customerTargetSchema = customerScopeSchema.extend({
   id: uuid, origin: customerOriginSchema, version: z.number().int().positive(),
   status: z.enum(['pending', 'verified', 'revoked']), consentActor: z.string().min(1).max(256), consentAt: timestamp,
   challengeExpiresAt: timestamp, verifiedAt: timestamp.nullable(), expiresAt: timestamp.nullable(),
+  scanProfile: customerScanProfileSchema.optional(),
 }).strict();
 export const customerEnrollmentSchema = z.object({ target: customerTargetSchema, challenge: z.object({ name: z.string(), value: z.string(), expiresAt: timestamp }).strict() }).strict();
 export const customerSourceFileSchema = z.object({
@@ -58,7 +60,7 @@ export const customerQueueSchema = customerScopeSchema.extend({ mode: assessment
 export const customerRunInputSchema = customerScopeSchema.extend({
   version: z.literal(2), jobId: uuid, applicationName: name, mode: assessmentModeSchema,
   source: customerSourceSnapshotSchema.safeExtend({ id: uuid, digest }).nullable(),
-  target: z.object({ id: uuid, origin: customerOriginSchema, version: z.number().int().positive(), verifiedAt: timestamp, expiresAt: timestamp }).strict().nullable(),
+  target: z.object({ id: uuid, origin: customerOriginSchema, version: z.number().int().positive(), verifiedAt: timestamp, expiresAt: timestamp, scanProfile: customerScanProfileSchema.optional() }).strict().nullable(),
 }).strict().superRefine((value, context) => {
   if ((value.mode !== 'external') !== (value.source !== null) || (value.mode !== 'internal') !== (value.target !== null)) context.addIssue({ code: 'custom', message: 'Source and target must match the requested mode' });
 });

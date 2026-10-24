@@ -7,5 +7,7 @@ import { nitro } from 'nitro/vite';
 
 export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
-  plugins: [tailwindcss(), tanstackStart(), nitro({ preset: 'node-server' }), react()],
+  // The compiler uses CommonJS filesystem globals; preserve its native Node package.
+  ssr: { external: ['typescript'] },
+  plugins: [tailwindcss(), tanstackStart(), nitro({ preset: 'node-server', traceDeps: ['typescript'] }), react()],
 });

@@ -27,11 +27,13 @@ export function createCoordinatorTransport(options: {
     deterministic: new Queue<JobEnvelope>('gotchu-deterministic-v1', { connection: queueConnection, prefix }),
     investigation: new Queue<JobEnvelope>('gotchu-investigations-v1', { connection: queueConnection, prefix }),
     assessment: new Queue<JobEnvelope>('gotchu-assessments-v1', { connection: queueConnection, prefix }),
+    notification: new Queue<JobEnvelope>('gotchu-observations-v1', { connection: queueConnection, prefix }),
   };
   for (const queue of Object.values(queues)) queue.on('error', (error) => options.report('coordinator_queue_error', error));
   function queueFor(kind: JobEnvelope['kind']) {
     // Other kinds retain the domain's explicit adapter-not-configured failure.
     if (kind === 'investigation') return queues.investigation;
+    if (kind === 'notification') return queues.notification;
     return kind === 'audit' ? queues.assessment : queues.deterministic;
   }
   function consume(queue: Queue<JobEnvelope>, concurrency: number) {
@@ -45,7 +47,7 @@ export function createCoordinatorTransport(options: {
     worker.on('failed', (_job, error) => options.report('coordinator_job_failed', error));
     return worker;
   }
-  const workers = [consume(queues.deterministic, 1), consume(queues.investigation, 2), consume(queues.assessment, 1)];
+  const workers = [consume(queues.deterministic, 1), consume(queues.investigation, 2), consume(queues.assessment, 1), consume(queues.notification, 1)];
   let closing: Promise<void> | undefined;
   async function close() {
     // Workers drain active jobs and close BullMQ's internally duplicated blocking clients.

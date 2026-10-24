@@ -13,9 +13,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createCustomerAssessmentRunner, createDockerScanners, createOsvAdapter, profiles, type ScannerAdapter } from '@gotchu/customer-assessment';
 import { createScannerServer, signScannerBody } from '@gotchu/scanner';
+import { httpRequestEvent, signEventBatch } from '@gotchu/sdk';
+import { prepareCorrectionResponseSchema, reportRecommendationsResponseSchema } from '@gotchu/scenarios/contracts';
 import {
   customerApplicationSchema, customerAssessmentReportSchema, customerEnrollmentSchema,
   customerReportSummarySchema, customerSourceSummarySchema, customerTargetSchema, customerWorkspaceSchema,
+  telemetryConnectionSchema, operationAlertSchema, operationCoverageSchema, monitorConfigSchema,
   type CustomerAssessmentReport, type CustomerSourceSnapshot,
 } from '../../packages/contracts/src/index.js';
 import { fixture, liveUrl, present } from '../../packages/database/test/support.js';
@@ -25,8 +28,10 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const queuedSchema = z.object({ jobId: z.uuid() }).strict();
 const jobSchema = z.object({ id: z.uuid(), applicationId: z.uuid(), kind: z.string(), state: z.enum(['queued', 'running', 'succeeded', 'failed']), reportId: z.uuid().nullable(), reasonCode: z.string().nullable() });
+const coordinatorReadinessSchema = z.object({ status: z.literal('ready'), assignedOrganizations: z.number().int().nonnegative(), investigatorConfigured: z.boolean(), customerDiscovery: z.literal(true), customerScannerConfigured: z.literal(true), scheduledMonitoring: z.boolean() });
 const errorSchema = z.object({ error: z.object({ code: z.string(), message: z.string() }) });
 const sessionSchema = z.object({ user: z.object({ id: z.string() }).nullable(), localAuthEnabled: z.boolean(), registrationEnabled: z.boolean() });
+const publicSurfaceEvidenceSchema = z.object({ profile: z.literal('public_surface'), path: z.string() }).passthrough();
 // Fast protocol tests deliberately return unavailable coverage, never fabricated scanner findings.
 const unavailableScanners: ScannerAdapter = {
   async run() { throw new Error('explicitly_unavailable_in_fast_protocol_test'); },
@@ -130,6 +135,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
   let engine = createCustomerAssessmentRunner({ scanners: unavailableScanners });
   let realEngine: ReturnType<typeof createCustomerAssessmentRunner>;
   let corrected = false;
+  let publicSurfaceFixture = false;
   let holdHttpsLookup: (() => Promise<void>) | undefined;
   const httpsRequests: Array<{ method: string | undefined; path: string | undefined; hostname: string | undefined; hasCredentials: boolean }> = [];
   const lookups: string[] = [];
@@ -193,7 +199,16 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     const cert = await readFile(join(directory, 'cert.pem'), 'utf8'); const key = await readFile(join(directory, 'key.pem'), 'utf8');
     const tls = createTlsServer({ cert, key }, (request, response) => {
       httpsRequests.push({ method: request.method, path: request.url, hostname: request.headers.host, hasCredentials: Boolean(request.headers.cookie || request.headers.authorization) });
-      response.writeHead(200, corrected ? { 'content-security-policy': "default-src 'none'", 'strict-transport-security': 'max-age=31536000', 'x-content-type-options': 'nosniff' } : { server: 'Untrusted-Fixture/1.0' }).end('fixture root; not customer data');
+      const path = request.url ?? '/';
+      const headers = corrected ? { 'content-security-policy': "default-src 'none'", 'strict-transport-security': 'max-age=31536000', 'x-content-type-options': 'nosniff' } : { server: 'Untrusted-Fixture/1.0' };
+      if (publicSurfaceFixture) {
+        if (path === '/') return response.writeHead(200, { ...headers, 'content-type': 'text/html' }).end('<a href="/public-app">App</a><a href="/redirect">Redirect</a><a href="/search?token=BODY_MUST_NOT_PERSIST">Search</a><a href="https://other.example/private">External</a>');
+        if (path === '/robots.txt') return response.writeHead(200, { ...headers, 'content-type': 'text/plain' }).end('Sitemap: /sitemap.xml');
+        if (path === '/sitemap.xml') return response.writeHead(200, { ...headers, 'content-type': 'application/xml' }).end('<urlset><url><loc>https://customer.org/from-sitemap</loc></url><url><loc>https://customer.org/private?token=BODY_MUST_NOT_PERSIST</loc></url><url><loc>https://other.example/offsite</loc></url></urlset>');
+        if (path === '/redirect') return response.writeHead(302, { ...headers, location: 'https://169.254.169.254/latest/meta-data' }).end();
+        return response.writeHead(path === '/.well-known/security.txt' || path === '/security.txt' || path === '/public-app' || path === '/from-sitemap' ? 200 : 404, { ...headers, 'content-type': 'text/plain' }).end('controlled public-surface fixture');
+      }
+      response.writeHead(200, headers).end('fixture root; not customer data');
     });
     const tlsPort = await listen(tls); cleanup.push(() => closeServer(tls));
     const https = { lookup: async (hostname: string) => { if (hostname !== 'customer.org') throw new Error('unexpected_fixture_hostname'); lookups.push(hostname); await holdHttpsLookup?.(); return [{ address: '127.0.0.1', family: 4 }]; }, testFixture: { hostname: 'customer.org', port: tlsPort, ca: cert } };
@@ -201,22 +216,24 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     realEngine = createCustomerAssessmentRunner({ scanners: createDockerScanners(), advisory: createOsvAdapter(), https });
     const scanner = createScannerServer({ secret, runner: { run: input => engine.run(input), readiness: () => engine.readiness() } });
     scannerOrigin = `http://127.0.0.1:${await listen(scanner)}`; cleanup.push(() => closeServer(scanner));
-    const webPort = await unusedPort(); origin = `http://127.0.0.1:${webPort}`;
+    const webPort = await unusedPort(); origin = `http://localhost:${webPort}`;
     const web = childProcess('Nitro web', 'apps/web/.output/server/index.mjs', webPort, {
       NODE_ENV: 'development', HOST: '127.0.0.1', NITRO_HOST: '127.0.0.1', PUBLIC_APP_URL: origin,
       GOTCHU_API_DATABASE_URL: f.runtimeConnectionString('gotchu_api'), GOTCHU_INGEST_DATABASE_URL: f.runtimeConnectionString('gotchu_ingest'),
       AUTH_SECRET: randomBytes(48).toString('base64url'), GOTCHU_LOCAL_AUTH_ENABLED: 'true', GOTCHU_ALLOW_LOCAL_REGISTRATION: 'true', GOTCHU_DNS_SERVERS_JSON: JSON.stringify([dns.nameserver]),
+      GOTCHU_EVENT_CREDENTIAL_DIRECTORY: join(directory, 'event-credentials'),
     });
     const worker = childProcess('coordinator', 'apps/coordinator/dist/main.js', await unusedPort(), {
       NODE_ENV: 'test', GOTCHU_CUSTOMER_DISCOVERY: 'true', GOTCHU_COORDINATOR_HOST: '127.0.0.1',
       GOTCHU_COORDINATOR_DATABASE_URL: f.runtimeConnectionString('gotchu_coordinator'), GOTCHU_REDIS_URL: present(process.env.GOTCHU_TEST_REDIS_URL),
       GOTCHU_SCANNER_ORIGIN: scannerOrigin, GOTCHU_SCANNER_SECRET_FILE: secretFile,
+      GOTCHU_MONITORING_ENABLED: 'true',
       // No GOTCHU_ORGANIZATION_IDS: all workspaces below are created after coordinator startup.
     });
     coordinator = worker.child;
     await Promise.all([web.ready('/api/ready'), worker.ready('/health/ready')]);
     const health = await fetch(`http://127.0.0.1:${present(children.find(child => child.name === 'coordinator')).port}/health/ready`);
-    expect(await health.json()).toMatchObject({ assignedOrganizations: 0, customerDiscovery: true, customerScannerConfigured: true });
+    expect(await json(health, 200, coordinatorReadinessSchema)).toMatchObject({ customerDiscovery: true, customerScannerConfigured: true, scheduledMonitoring: true });
     owner = await registerAndSignIn(); stranger = await registerAndSignIn();
   }, 90_000);
 
@@ -237,15 +254,15 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
   async function upload(path: string, snapshot = minimalSource(), client = owner) {
     return json(await client.api(`${path}/sources`, 'POST', { snapshot, authorized: true }), 201, customerSourceSummarySchema);
   }
-  async function target(path: string) {
+  async function target(path: string, scanProfile: 'root' | 'public_surface' = 'root') {
     dns.records.clear();
-    const enrollment = await json(await owner.api(`${path}/targets`, 'POST', { origin: 'https://customer.org', authorized: true }), 201, customerEnrollmentSchema);
+    const enrollment = await json(await owner.api(`${path}/targets`, 'POST', { origin: 'https://customer.org', authorized: true, ...(scanProfile === 'public_surface' ? { scanProfile } : {}) }), 201, customerEnrollmentSchema);
     const verify = `${path}/targets/${enrollment.target.id}/verify`;
     await rejected(await owner.api(verify, 'POST', {}), 409, 'dns_verification_failed');
     expect(enrollment.challenge.name).toBe('_gotchu.customer.org');
     dns.records.set(enrollment.challenge.name, enrollment.challenge.value);
     const verified = await json(await owner.api(verify, 'POST', {}), 200, customerTargetSchema);
-    expect(verified.status).toBe('verified'); expect(verified.verifiedAt).not.toBeNull();
+    expect(verified.status).toBe('verified'); expect(verified.verifiedAt).not.toBeNull(); expect(verified.scanProfile ?? 'root').toBe(scanProfile);
     expect(dns.questions.slice(-2)).toEqual(['_gotchu.customer.org', '_gotchu.customer.org']);
     return verified;
   }
@@ -305,6 +322,26 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     for (const capability of ['semgrep', 'gitleaks', 'trivy']) expect(report.internal?.coverage).toContainEqual(expect.objectContaining({ capability, state: 'unavailable' }));
     const summaries = await json(await owner.api(`${first.path}/reports`), 200, z.array(customerReportSummarySchema));
     expect(summaries.map(item => item.id)).toContain(report.id);
+    const settings = { enabled: true, intervalSeconds: 21600, sourceSnapshotId: source.id, targetId: null, repositoryKey: null, providers: [] };
+    await json(await owner.api(`${first.path}/monitoring`, 'PUT', settings), 200, monitorConfigSchema);
+    await eventually(async () => {
+      const coverage = await json(await owner.api(`${first.path}/monitoring`), 200, operationCoverageSchema);
+      return coverage.lastRun?.status === 'degraded' && coverage.lastRun.jobId !== queued.jobId && coverage.lastRun.finishedAt !== null;
+    }, 'actual main-process scheduled assessment');
+    await json(await owner.api(`${first.path}/monitoring`, 'PUT', { ...settings, enabled: false }), 200, monitorConfigSchema);
+    const telemetry = await json(await owner.api(`${first.path}/telemetry`, 'POST', {}), 201, telemetryConnectionSchema);
+    const signed = signEventBatch({ integrationId: telemetry.integration.id, secret: Buffer.from(telemetry.signingKey, 'base64'), batch: { applicationId: first.app.applicationId,
+      events: Array.from({ length: 30 }, () => httpRequestEvent({ route: '/api/orders/:id', statusCode: 503, durationMs: 1800 })),
+    } });
+    expect((await fetch(`${origin}/api/v1/events`, { method: 'POST', headers: signed.headers, body: signed.body })).status).toBe(202);
+    let pressure: z.infer<typeof operationAlertSchema> | undefined;
+    await eventually(async () => {
+      const alerts = await json(await owner.api(`${first.path}/alerts`), 200, z.array(operationAlertSchema));
+      pressure = alerts.find(alert => alert.observation.kind === 'traffic_pressure'); return Boolean(pressure);
+    }, 'signed events to actual dashboard alerts');
+    const acknowledged = await json(await owner.api(`${first.path}/alerts/${present(pressure).id}`, 'PATCH', { state: 'acknowledged' }), 200, operationAlertSchema);
+    expect(acknowledged.state).toBe('acknowledged');
+    expect((await owner.api(`${first.path}/telemetry/${telemetry.integration.id}`, 'DELETE')).status).toBe(204);
     for (const path of [`${first.base}/applications`, `${first.path}/sources`, `${first.path}/targets`, `${first.path}/reports/${report.id}`, `${first.base}/jobs/${queued.jobId}`]) await rejected(await stranger.api(path), 403, 'forbidden');
     await rejected(await stranger.api(`${first.path}/sources/${source.id}`, 'DELETE'), 403, 'forbidden');
     await rejected(await cookieClient(origin).api(`${first.path}/sources/${source.id}`, 'DELETE'), 401, 'unauthenticated');
@@ -393,15 +430,17 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     expect(await json(await owner.api(`${app.path}/reports`), 200, z.array(customerReportSummarySchema))).toEqual([]);
   }, 45_000);
 
-  it.skipIf(process.env.GOTCHU_TEST_SCANNERS !== '1')('persists six real mode/revision reports using cached Docker profiles, actual OSV and local TLS (no simulated findings)', async () => {
+  it.skipIf(process.env.GOTCHU_TEST_SCANNERS !== '1')('persists real Docker/OSV mode reports and a combined public_surface report with local TLS', async () => {
     engine = realEngine;
     expect(await realEngine.readiness()).toEqual({ ready: true, tools: expect.arrayContaining(['semgrep', 'gitleaks', 'trivy', 'npm_advisories'].map(name => ({ name, available: true }))) });
     const app = await application('Real customer scans'); const verified = await target(app.path);
     const reports: CustomerAssessmentReport[] = [];
     const fakeSecret = 'FAKE_ONLY_INTEGRATION_1234567890';
+    let baselineSourceId: string | undefined;
     for (const revision of ['before', 'after'] as const) {
       corrected = revision === 'after';
       const snapshot: CustomerSourceSnapshot = { revision, files: [
+        { path: 'src/tls.ts', content: `export const options = { rejectUnauthorized: ${corrected ? 'true' : 'false'} };\n` },
         { path: 'src/customer.ts', content: corrected ? 'export function evaluate(input: string) { return JSON.parse(input); }\n' : `export function evaluate(input: string) { return eval(input); }\nconst password = "${fakeSecret}";\nconst fakeKey = "-----BEGIN PRIVATE KEY-----fixture-not-a-key";\n` },
         { path: 'client.js', content: 'export const message = "uploaded customer application";\n' },
         { path: 'deployment.yaml', content: corrected
@@ -411,6 +450,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
         { path: 'package-lock.json', content: JSON.stringify({ name: 'customer-upload', lockfileVersion: 3, packages: { '': { name: 'customer-upload', dependencies: { lodash: corrected ? '4.17.21' : '4.17.20' } }, 'node_modules/lodash': { version: corrected ? '4.17.21' : '4.17.20' } } }) },
       ] };
       const source = await upload(app.path, snapshot);
+      if (revision === 'before') baselineSourceId = source.id;
       for (const mode of ['internal', 'external', 'both'] as const) {
         const requestsBefore = httpsRequests.length;
         const body = { mode, sourceSnapshotId: mode === 'external' ? null : source.id, targetId: mode === 'internal' ? null : verified.id };
@@ -426,6 +466,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
           expect(report.internal.coverage).toContainEqual(expect.objectContaining({ capability: 'trivy', state: 'unavailable', detail: expect.stringContaining('2 candidate YAML/JSON configuration files') }));
           const rules = report.internal.findings.map(finding => finding.ruleId);
           expect(rules.some(rule => rule.endsWith('javascript.eval'))).toBe(!corrected);
+          expect(rules.some(rule => rule.endsWith('gotchu.javascript.tls-disabled'))).toBe(!corrected);
           expect(rules.includes('gotchu-assigned-secret')).toBe(!corrected); expect(rules.includes('gotchu-private-key')).toBe(!corrected);
           expect(rules.includes('osv.GHSA-35jh-r3h4-6jhm')).toBe(!corrected);
           if (!corrected) expect(rules.some(rule => rule.startsWith('AVD-KSV'))).toBe(true);
@@ -464,7 +505,81 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     const afterK8s = after.internal?.findings.filter(finding => finding.ruleId.startsWith('AVD-KSV')).length ?? 0;
     expect(afterK8s).toBeLessThan(beforeK8s); // Corrected fixture removes known risks without claiming universal safety.
     expect(await json(await owner.api(`${app.path}/reports`), 200, z.array(customerReportSummarySchema))).toHaveLength(6);
+    const recommendations = await json(await owner.api(`${app.path}/reports/${before.id}/recommendations`), 200, reportRecommendationsResponseSchema);
+    const tlsRecipe = present(recommendations.recommendations.find(recipe => recipe.recipeId === 'tls-certificate-verification'));
+    expect(tlsRecipe.availability).toBe('candidate_patch');
+    const selection = { recipeId: tlsRecipe.recipeId, findingId: present(tlsRecipe.evidenceFindingIds[0]), expectedSourceDigest: present(before.subject.sourceDigest) };
+    await rejected(await stranger.api(`${app.path}/reports/${before.id}/corrections`, 'POST', selection), 403, 'forbidden');
+    await rejected(await owner.api(`${app.path}/reports/${before.id}/corrections`, 'POST', { ...selection, expectedSourceDigest: 'f'.repeat(64) }), 409, 'expected_source_digest_mismatch');
+    const candidate = await json(await owner.api(`${app.path}/reports/${before.id}/corrections`, 'POST', selection), 201, prepareCorrectionResponseSchema);
+    expect(await json(await owner.api(`${app.path}/reports/${before.id}/corrections`, 'POST', selection), 201, prepareCorrectionResponseSchema)).toEqual(candidate);
+    expect(candidate.changes).toEqual([{ path: 'src/tls.ts', description: expect.any(String) }]);
+    const rescanned = present(await finished(app.base, app.path, candidate.jobId));
+    expect(rescanned.internal?.coverage).toContainEqual(expect.objectContaining({ capability: 'semgrep', state: 'inspected' }));
+    expect(rescanned.internal?.findings.some(finding => finding.ruleId.endsWith('gotchu.javascript.tls-disabled'))).toBe(false);
+    expect(rescanned.internal?.findings.some(finding => finding.ruleId.endsWith('gotchu.javascript.eval'))).toBe(true);
+    const original = await f.admin.query<{ body: CustomerSourceSnapshot }>('SELECT body FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND id=$3', [app.workspace.id, app.app.applicationId, before.subject.sourceSnapshotId]);
+    expect(original.rows[0]?.body.files.find(file => file.path === 'src/tls.ts')?.content).toContain('rejectUnauthorized: false');
     const writes = await f.admin.query<{ count: number }>('SELECT ((SELECT count(*) FROM gotchu.proposals WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.approvals WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.executions WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.agent_runs WHERE organization_id=$1))::int AS count', [app.workspace.id]);
     expect(writes.rows[0]?.count).toBe(0);
+
+    await json(await owner.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 200, customerTargetSchema);
+    const surfaceTarget = await target(app.path, 'public_surface');
+    corrected = false;
+    publicSurfaceFixture = true;
+    try {
+      const queued = await queue(app.path, { mode: 'both', sourceSnapshotId: present(baselineSourceId), targetId: surfaceTarget.id });
+      const combined = present(await finished(app.base, app.path, queued.jobId));
+      expect(combined.internal?.findings.some(finding => finding.ruleId.endsWith('javascript.eval'))).toBe(true);
+      expect(combined.external?.coverage).toContainEqual(expect.objectContaining({ capability: 'same_origin_link_discovery', state: 'inspected' }));
+      const pathEvidence = present(combined.external?.evidence.find(item => item.kind === 'http_response' && publicSurfaceEvidenceSchema.parse(JSON.parse(item.excerpt)).path === '/public-app'));
+      expect(combined.external?.findings.some(finding => finding.location === pathEvidence.locator && finding.evidenceIds.includes(pathEvidence.id))).toBe(true);
+    } finally { publicSurfaceFixture = false; }
   }, 360_000);
+
+  it('runs external-only public_surface through authenticated enrollment, scanner HTTP and the durable report pipeline', async () => {
+    const app = await application('Public surface only');
+    const verified = await target(app.path, 'public_surface');
+    publicSurfaceFixture = true;
+    try {
+      const requestStart = httpsRequests.length;
+      const lookupStart = lookups.length;
+      const queued = await queue(app.path, { mode: 'external', sourceSnapshotId: null, targetId: verified.id });
+      const report = present(await finished(app.base, app.path, queued.jobId));
+      const requests = httpsRequests.slice(requestStart);
+      expect(report).toMatchObject({ mode: 'external', subject: { sourceSnapshotId: null, sourceDigest: null, targetId: verified.id, origin: 'https://customer.org' }, internal: null });
+      expect(report.external?.snapshotRef).toContain(':public_surface');
+      expect(report.external?.coverage).toContainEqual(expect.objectContaining({ capability: 'public_surface_known_paths', state: 'inspected' }));
+      expect(report.external?.coverage).toContainEqual(expect.objectContaining({ capability: 'same_origin_link_discovery', state: 'inspected' }));
+      expect(requests.length).toBeGreaterThan(5);
+      expect(requests.length).toBeLessThanOrEqual(10);
+      expect(requests.every(request => request.method === 'GET' && request.hostname === 'customer.org' && !request.hasCredentials)).toBe(true);
+      expect(requests.map(request => request.path)).toContain('/public-app');
+      expect(requests.map(request => request.path)).toContain('/from-sitemap');
+      expect(requests.map(request => request.path)).not.toContain('/search?token=BODY_MUST_NOT_PERSIST');
+      expect(requests.map(request => request.path)).not.toContain('/private?token=BODY_MUST_NOT_PERSIST');
+      expect(requests.map(request => request.path)).not.toContain('/latest/meta-data');
+      expect(lookups.slice(lookupStart)).toEqual(Array.from({ length: requests.length }, () => 'customer.org'));
+
+      const evidence = present(report.external).evidence.filter(item => item.kind === 'http_response');
+      expect(evidence).toHaveLength(requests.length);
+      const evidenceById = new Map(evidence.map(item => [item.id, item]));
+      for (const finding of present(report.external).findings) {
+        for (const evidenceId of finding.evidenceIds) {
+          const item = present(evidenceById.get(evidenceId));
+          const observation = publicSurfaceEvidenceSchema.parse(JSON.parse(item.excerpt));
+          expect(item.locator).toBe(`https://customer.org${observation.path}`);
+          expect(finding.location).toBe(item.locator);
+          expect(item.checksum).toBe(hash(item.excerpt));
+        }
+      }
+      const appEvidence = present(evidence.find(item => publicSurfaceEvidenceSchema.parse(JSON.parse(item.excerpt)).path === '/public-app'));
+      expect(present(report.external).findings.some(finding => finding.location === appEvidence.locator && finding.evidenceIds.includes(appEvidence.id))).toBe(true);
+      expect(JSON.stringify(report)).not.toContain('BODY_MUST_NOT_PERSIST');
+      await rejected(await stranger.api(`${app.path}/reports/${report.id}`), 403, 'forbidden');
+      const job = await json(await owner.api(`${app.base}/jobs/${queued.jobId}`), 200, jobSchema);
+      expect(job).toMatchObject({ id: queued.jobId, applicationId: app.app.applicationId });
+      await rejected(await stranger.api(`${app.base}/jobs/${queued.jobId}`), 403, 'forbidden');
+    } finally { publicSurfaceFixture = false; }
+  }, 60_000);
 });

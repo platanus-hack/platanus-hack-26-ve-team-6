@@ -1,5 +1,5 @@
 import { encode } from '@auth/core/jwt';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { authSettings, createAuthConfig, createAuthService, type AuthSettings } from '../src/server/auth.js';
 
@@ -44,6 +44,15 @@ describe('Auth.js Request/Response integration', () => {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: await sessionCookie() }, body: 'callbackUrl=%2F',
     }));
     expect(response.headers.get('location')).toContain('error=MissingCSRF');
+  });
+
+  it('invalidates step-up state for the signed-out JWT subject', async () => {
+    const invalidate = vi.fn(async (_userId: string) => undefined);
+    const configured: AuthSettings = { ...settings, invalidateStepUpSession: invalidate };
+    const event = createAuthConfig(configured).events?.signOut;
+    if (!event) throw new Error('Auth.js sign-out event is not configured');
+    await event({ token: { sub: 'github:42' } });
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith('github:42');
   });
 
   it('bounds anonymous auth POST bodies before Auth.js reads them', async () => {

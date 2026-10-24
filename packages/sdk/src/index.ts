@@ -1,5 +1,20 @@
-import { createHmac } from 'node:crypto';
-import { eventBatchSchema, idSchema, type EventBatchInput } from '@gotchu/contracts';
+import { createHmac, randomUUID } from 'node:crypto';
+import { eventBatchSchema, idSchema, securityEventSchema, type EventBatchInput } from '@gotchu/contracts';
+
+/** Use a route template (e.g. /orders/:id), never a request body, query, cookie or raw stack. */
+export function httpRequestEvent(input: { route: string; statusCode: number; durationMs: number; capacityUtilization?: number }) {
+  if (!/^\/[^?#\x00-\x1f\x7f]{0,255}$/.test(input.route) || !Number.isInteger(input.statusCode) || input.statusCode < 100 || input.statusCode > 599
+    || !Number.isFinite(input.durationMs) || input.durationMs < 0 || input.durationMs > 3_600_000
+    || input.capacityUtilization !== undefined && (!Number.isFinite(input.capacityUtilization) || input.capacityUtilization < 0 || input.capacityUtilization > 1)) throw new Error('Invalid bounded request metrics');
+  return securityEventSchema.parse({ id: randomUUID(), source: 'application', type: 'http.request', occurredAt: new Date().toISOString(),
+    outcome: input.statusCode >= 500 ? 'failure' : 'success', resource: { type: 'route', id: input.route },
+    attributes: { statusCode: input.statusCode, durationMs: input.durationMs, ...(input.capacityUtilization !== undefined ? { capacityUtilization: input.capacityUtilization } : {}) } });
+}
+
+export function applicationErrorEvent(category: 'exception' | 'database' | 'upstream' | 'memory' | 'timeout' | 'configuration' | 'unknown') {
+  if (!['exception', 'database', 'upstream', 'memory', 'timeout', 'configuration', 'unknown'].includes(category)) throw new Error('Unsupported error category');
+  return securityEventSchema.parse({ id: randomUUID(), source: 'application', type: 'app.error', occurredAt: new Date().toISOString(), outcome: 'failure', attributes: { category } });
+}
 
 export function signEventBatch(input: { integrationId: string; secret: Uint8Array; batch: EventBatchInput; timestamp?: number }) {
   const integrationId = idSchema.parse(input.integrationId);

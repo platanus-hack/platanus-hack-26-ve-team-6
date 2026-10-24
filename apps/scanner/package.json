@@ -16,6 +16,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest run",
+    "test:production": "pnpm run build && GOTCHU_SCANNER_PRODUCTION_SMOKE=1 pnpm exec vitest run test/production-smoke.test.ts",
     "start": "node dist/main.js"
   },
   "dependencies": {

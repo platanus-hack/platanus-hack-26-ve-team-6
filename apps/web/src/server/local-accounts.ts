@@ -24,6 +24,8 @@ async function verifyPassword(password: string, encoded: string) {
 export interface LocalAccounts {
   register(input: unknown): Promise<{ id: string }>;
   authenticate(input: unknown): Promise<{ id: string; email: string; credentialEpoch: number } | null>;
+  accountEmail(userId: string): Promise<string | null>;
+  reauthenticate(userId: string, password: string): Promise<boolean | null>;
   epoch(id: string): Promise<number | null>;
 }
 
@@ -75,6 +77,33 @@ export function createLocalAccounts(database: Database): LocalAccounts {
         const encoded = record?.password_hash ?? 'scrypt-v1$32768$8$3$00000000000000000000000000000000$' + '0'.repeat(128);
         const valid = await verifyPassword(value.password, encoded);
         return valid && record ? { id: record.id, email: value.email, credentialEpoch: record.epoch } : null;
+      });
+    },
+    accountEmail: async userId => {
+      const subject = /^credentials:([0-9a-f-]{36})$/.exec(userId)?.[1];
+      if (!subject || !z.uuid().safeParse(subject).success) return null;
+      const result = await database.tenant(systemScope, tx => tx.query<{ email: string | null }>('SELECT gotchu.auth_lookup_email($1) AS email', [subject]));
+      const email = result.rows[0]?.email;
+      return email ? z.email().parse(email).toLowerCase() : null;
+    },
+    reauthenticate: async (userId, password) => {
+      const subject = /^credentials:([0-9a-f-]{36})$/.exec(userId)?.[1];
+      if (!subject || !z.uuid().safeParse(subject).success) return null;
+      const parsed = z.string().min(1).max(128).safeParse(password);
+      if (!parsed.success) return false;
+      const bucket = createHash('sha256').update(subject).digest('hex');
+      const admitted = await database.tenant(systemScope, async tx => {
+        const global = await tx.query<{ allowed: boolean }>("SELECT gotchu.auth_admit('login:global',60,60) AS allowed");
+        const account = await tx.query<{ allowed: boolean }>('SELECT gotchu.auth_admit($1,5,900) AS allowed', [`login:${bucket}`]);
+        return global.rows[0]?.allowed === true && account.rows[0]?.allowed === true;
+      });
+      if (!admitted) throw new HttpError(429, 'authentication_rate_limit', 'Demasiados intentos. Espera antes de volver a entrar.');
+      return bounded(async () => {
+        const rows = await database.tenant(systemScope, tx => tx.query('SELECT * FROM gotchu.auth_lookup_id($1)', [subject]));
+        const record = rows.rows[0] ? storedSchema.parse(rows.rows[0]) : null;
+        const encoded = record?.password_hash ?? 'scrypt-v1$32768$8$3$00000000000000000000000000000000$' + '0'.repeat(128);
+        const valid = await verifyPassword(parsed.data, encoded);
+        return record ? valid : null;
       });
     },
     epoch: async id => {

@@ -10,5 +10,5 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
-  "dependencies": { "zod": "^4.0.0" }
+  "dependencies": { "@gotchu/triage": "workspace:*", "zod": "^4.0.0" }
 }

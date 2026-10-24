@@ -66,7 +66,7 @@
 <body>
   <main>
     <header>
-      <h1>Gotchu customer security assessments</h1>
+      <h1>Gotchu assessments, monitoring and correction preparation</h1>
       <p class="lead">Authenticated customers manage workspaces and applications, authorize source and public HTTPS assessments, and review persisted evidence. The supported runtime is local development. The fictional vulnerable/corrected app is a regression fixture only.</p>
       <span class="status">Customer workflows implemented · local development only</span>
     </header>
@@ -111,7 +111,7 @@
           <article class="node ready">
             <span class="eyebrow">External · source not required</span>
             <h3>DNS-verified public HTTPS origin</h3>
-            <p>Customer proves domain control with a TXT challenge. The transport validates public DNS and TLS, then makes one bounded GET to the origin root.</p>
+            <p>Customer proves domain control with a TXT challenge. The transport validates public DNS and TLS, then uses root-only consent or explicit bounded same-origin public discovery.</p>
           </article>
         </div>
         <p class="small-title">Choose internal, external, or both; each evidence stream keeps its own provenance and coverage.</p>
@@ -120,7 +120,7 @@
           <article class="node gate">
             <span class="eyebrow">Separate scanner service</span>
             <h3>Signed request · bounded profiles</h3>
-            <p>HMAC-authenticated HTTP boundary; scanner has no database or Redis access. Semgrep 1.90.0 is enforced development/test-only.</p>
+            <p>HMAC-authenticated scanner boundary; the standalone service supports direct HTTPS and has no database or Redis access. The pinned Semgrep profile is 1.182.0.</p>
           </article>
           <div class="arrow" aria-hidden="true">→</div>
           <article class="node ready">
@@ -173,6 +173,17 @@
       </div>
     </section>
 
+    <section aria-labelledby="monitoring-title">
+      <h2 id="monitoring-title">Monitoring and dashboard actions</h2>
+      <div class="records">
+        <article class="node ready"><h3>Selected inputs</h3><p>Scoped Git/GitHub snapshots, repeat npm advisory metadata, consented HTTPS checks and optional provider status feeds. Leased runs materialize canonical audits.</p></article>
+        <article class="node ready"><h3>Private alerts</h3><p>Signed runtime errors and supported suspicious behavior produce evidence-backed alerts. Healthy volume is not an attack; provider impact remains unverified.</p></article>
+        <article class="node ready"><h3>Exact candidates</h3><p>Versioned recipes and literal project context prepare a separate source snapshot and independent rescan. The original repository and production are unchanged.</p></article>
+      </div>
+      <div class="callout"><strong>Preparation has a concrete boundary</strong><p>Capacity and migration checklists bind exact revisions. Self-reported steps do not enable production execution. Production action approval, provider adapters, behavioral validation and recovery remain separate gates; WebAuthn step-up code exists but is not a general approval path. Quotas and unknown coverage stay visible.</p></div>
+      <p class="links"><a href="operations.md">Monitoring setup, limits and actual button effects</a></p>
+    </section>
+
     <section aria-labelledby="runtime-title">
       <h2 id="runtime-title">Runtime and remaining gates</h2>
       <div class="infra">
@@ -182,18 +193,18 @@
         </article>
         <article class="node gate">
           <h3>AWS is the planned host</h3>
-          <p>Core contracts and adapters are portable. No AWS deployment, live AWS validation, production TLS ingress, or restore drill has occurred.</p>
+          <p>Core contracts and adapters are portable. No AWS deployment, live AWS validation, hosted web ingress, or restore drill has occurred. The scanner's production-mode TLS path passed local Linux/amd64 checks after CA certificate canonicalization.</p>
         </article>
         <article class="node blocked">
-          <h3>Production scanning and execution</h3>
-          <p>Upgrade and validate the development-only Semgrep pin. Customer code stays disabled until disposable VM-class isolation is demonstrated.</p>
+          <h3>Customer-code execution gate</h3>
+          <p>The maintained Semgrep 1.182.0 profile passed local checks through the production-mode scanner. Broader accuracy and capacity validation remain open. Customer code stays disabled until disposable VM-class isolation is demonstrated.</p>
         </article>
       </div>
       <div class="callout">
         <strong>Production controls remain open.</strong>
-        <p>Production MFA and workspace invitations, TLS ingress, recovery, provider-write authorization, scanner validation, and capacity evidence remain unproven or unavailable.</p>
+        <p>Production identity configuration and lifecycle, hosted web TLS ingress, recovery, provider-write authorization, broader scanner accuracy, and capacity evidence remain unproven or unavailable. WebAuthn step-up and tenant-scoped workspace invitation/member operations exist, but hosted validation and invitation email delivery do not.</p>
       </div>
-      <p class="links"><a href="architecture.md">Read architecture details</a> · <a href="implementation-plan.md">Review implementation status and gates</a> · <a href="development.md">Run the local customer application</a> · <a href="definition-interview.md#current-user-correction-actual-customer-application-in-development">Read historical decisions and the product correction</a></p>
+      <p class="links"><a href="architecture.md">Read architecture details</a> · <a href="implementation-plan.md">Review implementation status and gates</a> · <a href="development.md">Run the local customer application</a> · <a href="validation.md">Review validation evidence and limits</a> · <a href="definition-interview.md#current-user-correction-actual-customer-application-in-development">Read historical decisions and the product correction</a></p>
     </section>
   </main>
 </body>

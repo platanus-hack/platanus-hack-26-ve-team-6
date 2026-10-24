@@ -53,6 +53,7 @@ type TargetRow = {
   id: string; origin: string; version: number; status: string; consent_actor: string; consent_at: Date;
   challenge_hash: string; challenge_expires_at: Date; verified_at: Date | null; expires_at: Date | null;
   challenge_current: boolean; authorization_current: boolean;
+  scan_profile: 'root' | 'public_surface';
 };
 async function targetRow(tx: Transaction, scope: Scope, targetId?: string): Promise<TargetRow | null> {
   const result = await tx.query<TargetRow>(`SELECT *,challenge_expires_at>clock_timestamp() AS challenge_current,
@@ -64,7 +65,7 @@ async function targetRow(tx: Transaction, scope: Scope, targetId?: string): Prom
 function targetView(scope: Scope, row: TargetRow): CustomerTarget {
   return parse(customerTargetSchema, { organizationId: scope.organizationId, applicationId: scope.applicationId, id: row.id, origin: row.origin, version: row.version, status: row.status,
     consentActor: row.consent_actor, consentAt: row.consent_at.toISOString(), challengeExpiresAt: row.challenge_expires_at.toISOString(),
-    verifiedAt: row.verified_at?.toISOString() ?? null, expiresAt: row.expires_at?.toISOString() ?? null });
+    verifiedAt: row.verified_at?.toISOString() ?? null, expiresAt: row.expires_at?.toISOString() ?? null, scanProfile: row.scan_profile });
 }
 function requireTarget(row: TargetRow | null): TargetRow {
   if (!row) throw new BackendError('not_found', 'Target not found', 404);
@@ -113,7 +114,7 @@ async function currentRequest(tx: Transaction, claim: CustomerClaim): Promise<Cu
   const input = parse(customerRunInputSchema, { ...intent, source });
   if (input.target) {
     const target = await targetRow(tx, claim, input.target.id);
-    if (!target?.authorization_current || target.version !== input.target.version || target.origin !== input.target.origin
+    if (!target?.authorization_current || target.version !== input.target.version || target.origin !== input.target.origin || target.scan_profile !== (input.target.scanProfile ?? 'root')
       || target.verified_at?.toISOString() !== input.target.verifiedAt || target.expires_at?.toISOString() !== input.target.expiresAt) {
       throw new BackendError('assessment_target_changed', 'Target authorization expired, changed or was revoked', 409);
     }
@@ -192,14 +193,14 @@ export function createCustomerService(deps: CustomerDependencies) {
         const current = await targetRow(tx, value);
         if (current) await requireTargetIdle(tx, value, current.id);
         const token = randomBytes(32).toString('base64url');
-        await tx.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at)
-          VALUES ($1,$2,$3,$4,1,'pending',$5,$6,clock_timestamp()+interval '30 minutes')
+        await tx.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at,scan_profile)
+          VALUES ($1,$2,$3,$4,1,'pending',$5,$6,clock_timestamp()+interval '30 minutes',$7)
           ON CONFLICT (organization_id,application_id) DO UPDATE SET origin=EXCLUDED.origin,version=customer_targets.version+1,status='pending',
             consent_actor=EXCLUDED.consent_actor,consent_at=clock_timestamp(),challenge_hash=EXCLUDED.challenge_hash,
-            challenge_expires_at=EXCLUDED.challenge_expires_at,verified_at=NULL,expires_at=NULL`,
-        [value.organizationId, value.applicationId, randomUUID(), value.origin, actor.userId, sha256(token)]);
+            challenge_expires_at=EXCLUDED.challenge_expires_at,verified_at=NULL,expires_at=NULL,scan_profile=EXCLUDED.scan_profile`,
+        [value.organizationId, value.applicationId, randomUUID(), value.origin, actor.userId, sha256(token), value.scanProfile ?? 'root']);
         const row = requireTarget(await targetRow(tx, value));
-        await audit(tx, value.organizationId, actor.userId, 'target.enrolled', row.id, { origin: value.origin, version: row.version });
+        await audit(tx, value.organizationId, actor.userId, 'target.enrolled', row.id, { origin: value.origin, version: row.version, scanProfile: row.scan_profile });
         return { target: targetView(value, row), challenge: { name: `_gotchu.${new URL(row.origin).hostname}`, value: `gotchu-verification=${token}`, expiresAt: row.challenge_expires_at.toISOString() } };
       });
     },
@@ -319,7 +320,7 @@ export function createCustomerService(deps: CustomerDependencies) {
         if (value.targetId) {
           const row = requireTarget(await targetRow(tx, value, value.targetId));
           if (!row.authorization_current || !row.verified_at || !row.expires_at) throw new BackendError('target_not_verified', 'Verify a current target before requesting external assessment', 409);
-          target = { id: row.id, origin: row.origin, version: row.version, verifiedAt: row.verified_at.toISOString(), expiresAt: row.expires_at.toISOString() };
+          target = { id: row.id, origin: row.origin, version: row.version, verifiedAt: row.verified_at.toISOString(), expiresAt: row.expires_at.toISOString(), scanProfile: row.scan_profile };
         }
         const request = parse(customerAssessmentIntentSchema, { version: 2, organizationId: value.organizationId, applicationId: value.applicationId, jobId: randomUUID(), applicationName: app.name, mode: value.mode, source, target });
         const jobId = await enqueue(tx, { organizationId: value.organizationId, applicationId: value.applicationId, id: request.jobId, kind: 'audit', idempotencyKey: value.idempotencyKey, payload: request });
@@ -368,6 +369,7 @@ export function createCustomerService(deps: CustomerDependencies) {
         // Locks prevent concurrent revocation; recheck time-based expiry after storage work too.
         if (request.target && !(await targetRow(tx, request, request.target.id))?.authorization_current) throw new BackendError('assessment_target_changed', 'Target authorization expired before completion', 409);
         await completeJob(tx, { organizationId: request.organizationId, jobId: request.jobId, leaseToken: value.leaseToken, result: { status: 'completed', reportId: report.id } });
+        await enqueue(tx, { organizationId: request.organizationId, applicationId: request.applicationId, id: randomUUID(), kind: 'notification', idempotencyKey: `assessment-observation:${report.id}`, payload: { kind: 'assessment_observation', reportId: report.id } });
         await audit(tx, request.organizationId, 'coordinator', 'customer_assessment.recorded', report.id, { jobId: request.jobId });
         return { reportId: report.id };
       });

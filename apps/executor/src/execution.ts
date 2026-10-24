@@ -66,7 +66,7 @@ type ExecutionIdentity = Pick<ExecutionClaim,
   'organizationId' | 'applicationId' | 'approvalId' | 'executionId' | 'claimToken' | 'actionHash' | 'proposal'>;
 
 export class ExecutionLedgerError extends Error {
-  constructor(readonly code: 'already_claimed' | 'approval_rejected' | 'stale_proposal' | 'ledger_unavailable') {
+  constructor(readonly code: 'already_claimed' | 'approval_rejected' | 'stale_proposal' | 'ledger_unavailable' | 'no_adapter') {
     super(code);
     this.name = 'ExecutionLedgerError';
   }
@@ -134,7 +134,8 @@ export interface ExecutorResult {
     | 'provider_verification_mismatch'
     | 'provider_verification_unavailable'
     | 'provider_verified'
-    | 'ledger_unavailable';
+    | 'ledger_unavailable'
+    | 'no_adapter';
 }
 
 /** This stays false until disposable VM-class isolation is independently demonstrated. */
@@ -405,6 +406,7 @@ export function createExecutor({ ledger, provider }: ExecutorOptions) {
           }
         }
         if (error instanceof ExecutionLedgerError && error.code === 'approval_rejected') return result('rejected', 'approval_rejected');
+        if (error instanceof ExecutionLedgerError && error.code === 'no_adapter') return result('rejected', 'no_adapter');
         if (error instanceof ExecutionLedgerError && error.code === 'stale_proposal') return result('rejected', 'resource_version_stale');
         return result('uncertain', 'ledger_unavailable');
       }

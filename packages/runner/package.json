@@ -1,0 +1,29 @@
+{
+  "name": "@gotchu/runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "images.lock.json", "PROFILES.md", "README.md"],
+  "scripts": {
+    "prepare:images": "bash scripts/prepare-images.sh",
+    "pin:images": "bash scripts/prepare-images.sh --pin",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run --exclude '**/*.vm.test.ts'",
+    "test:vm": "node scripts/test-vm.mjs"
+  },
+  "dependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

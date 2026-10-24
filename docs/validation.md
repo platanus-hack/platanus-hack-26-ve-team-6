@@ -1,5 +1,87 @@
 # Verification record
 
+## Maintained scanner, production TLS, and real-source verification — 2026-10-24
+
+The final functional code revision is `51c42303bda1a16793fd9efa46e127c821b2b060`. It includes canonicalization of validated PEM certificates in the coordinator-scoped scanner CA bundle. The following is local Linux/amd64 evidence for the exercised paths, not a cloud deployment, broad scanner-accuracy guarantee, or production-capacity claim.
+
+| Check | Observed result |
+| --- | --- |
+| Root `pnpm typecheck` and scanner/coordinator dependency builds | Passed across the workspace, including the integration-test project; scanner and coordinator dependency builds passed. |
+| Scanner build, focused typecheck, and ordinary tests after CA canonicalization | Build and typecheck passed; **29 tests passed**. The separate opt-in production smoke was skipped by the ordinary test command. |
+| `pnpm --filter @gotchu/scanner test:production` | **1/1 passed, zero skipped** in an actual `NODE_ENV=production` process. It assessed `apps/web/src/server/customer-api.ts` using real Docker profiles and scoped TLS, and asserted Semgrep/Gitleaks coverage and profile evidence; this does not claim those profiles found issues in that file. Trivy's unsupported result for non-Kubernetes input was expected. |
+| `GOTCHU_TEST_SCANNERS=1 pnpm test:integration test/integration/production-scanner.test.ts` after CA canonicalization | **1/1 passed, zero skipped** with a production scanner, coordinator/private CA, PostgreSQL, Redis/BullMQ, durable source-bound report and outbox delivery, and tenant-denial checks. |
+| Maintained-profile assessment tests | A separate Linux/amd64 run passed **111 assessment unit tests and 5 actual scanner live tests**. The CA-only follow-up did not change assessment logic. |
+
+Before PEM canonicalization, the combined command `GOTCHU_TEST_SCANNERS=1 pnpm test:integration test/integration/production-scanner.test.ts test/integration/customer-applications.test.ts test/integration/operational-alerts.test.ts test/integration/scheduled-monitoring.test.ts` passed **19/19, zero skipped, in 58.05 seconds**: six customer, one production-scanner, four scheduled-monitoring, and eight operational-alert tests. It exercised Auth.js/Nitro, PostgreSQL/Redis/BullMQ, the coordinator and HMAC scanner, Docker profiles, OSV, controlled DNS/TLS, all three assessment modes, monitoring, alerts, and correction flows. The production scanner case was rerun separately after canonicalization as listed above.
+
+Independent Astra round 3 reviewed `8c03aca..51c4230` and returned GO with no actionable blockers. It rejected all 128 high-bit CA variants and eight invalid inputs; passed eight real loopback HTTPS requests covering whitespace/adjacent PEM and use of both distinct certificates; and rejected four untrusted-certificate or hostname cases. The review changed no product files and did not rerun repository infrastructure suites.
+
+### Actual selected-source and report evidence
+
+The browser selected declared server-source snapshots for NodeBB 4.16.4 (`38b0bbac00d26e663cbc40287e7c97788ab44ca7`, 638 files, about 2.7 MB) and Uptime Kuma 2.5.7 (`d54e4619e52553416e292549f435cc7e57330c29`, 273 files, about 2 MB). These are selected server files, not whole-application or all-repository assessments. Every stored file matched its upstream manifest hash; source digests, successful jobs, delivered outbox records, and report/evidence bindings were verified through restricted PostgreSQL read-only access.
+
+NodeBB produced two static indicators (shell execution and disabled TLS); it had no npm lockfile, so dependency coverage is unknown. Uptime Kuma produced one static TLS indicator and seven exact-version OSV advisory matches; the 200-package cap and unrecognized JSON configuration leave additional coverage unknown. Both reports are partial and exploitability is unknown. The supported source boundary is JS/TS, JSON, YAML, and TOML, with at most 1,000 files, 1 MiB per file, and 4 MiB serialized per snapshot. Dependency inventory recognizes npm lockfile v2/v3 only and checks at most 200 entries. No customer source was executed.
+
+The downloaded Uptime Kuma JSON report passed the current runtime schema and matched the stored report ID and source digest. A full reload followed by explicit workspace/application reselection retrieved the persisted reports. Expanded findings/evidence views at 1280, 390, and 320 CSS pixels had no horizontal overflow or UI alerts; mobile navigation targets were at least 44 px. After the integrated local services restarted, `GET /api/auth/session` on web `3000`, coordinator health on `3003`, and scanner readiness on `4400` each returned HTTP 200; all four scanner readiness tools were available. After a further browser reload, the saved report remained retrievable with its matching digest and no alerts.
+
+The local launcher remains development HTTP on loopback; production scanner checks used HTTPS. The controlled DNS/TLS fixture verifies transport, not DNS control of a real customer-owned public domain; none was authorized for this validation. Local Auth.js authentication, workspace membership, and WebAuthn step-up code exist, but production identity configuration and operation are unverified. No customer-code execution, provider writes, or cloud deployment was performed.
+
+## Deterministic customer assessment pipeline — 2026-10-24
+
+The deterministic customer assessment path now includes the LangGraph runner, bounded source and public HTTPS profiles, their evidence comparison, and persisted reports. Checks and browser work below use local development infrastructure. They do not establish a cloud deployment, general-purpose audit, exploitation proof, or production release.
+
+| Check | Observed result |
+| --- | --- |
+| Frozen offline install and startup | Frozen offline workspace install passed. `pnpm dev:start` built the web, coordinator, and dependencies, applied migrations, and reported ready with the pinned Semgrep/Gitleaks/Trivy scanner, OSV lookup, coordinator, and web app. |
+| `pnpm typecheck` | Passed across the workspace, including the integration-test project. |
+| Focused packages | `@gotchu/customer-assessment`: **111 passed**; `@gotchu/scanner`: **20 passed**; `@gotchu/web`: **74 passed**, with two existing opt-in tests skipped. The unchanged `@gotchu/agent` graph-worker suite also passed **21**. |
+| Assessment pipeline integration | **14 passed** with real PostgreSQL/Redis, the worker, and LangGraph. The model endpoint was unconfigured (`model_not_configured`); this verifies the deterministic pipeline without claiming an LLM call. |
+| Coordinator `test:live` | **20 passed**, including five triage cases with real PostgreSQL/Redis, marked provider/TLS fixtures, and synthetic assessment ports. This is the unchanged coordinator result from the preceding record. |
+| CSP candidate gate | **1 selected test passed** using the pinned Semgrep image and scoped TLS fixture; **4 additional live cases were skipped** by the `-t` filter. Separately, all six shadowed, type-only, duplicate, spread, conflicting, and hoisted candidate examples were confirmed emitted by Semgrep and filtered by the gate. |
+| Final live integration | `GOTCHU_TEST_SCANNERS=1 pnpm test:integration test/integration/customer-applications.test.ts test/integration/scheduled-monitoring.test.ts test/integration/operational-alerts.test.ts`: **18 passed, zero skipped** (6 customer applications, 4 scheduled monitoring, 8 operational alerts). This used actual Auth.js/Nitro/coordinator processes, scanner HMAC, PostgreSQL, Redis/BullMQ, Docker Semgrep/Gitleaks/Trivy, live OSV metadata, and controlled DNS/TLS. |
+
+The first combined integration attempt exposed a readiness assertion that assumed the global organization list was empty even when a prior test file had left valid pending organizations. Commit `d11fd39` now schema-validates readiness without that global-empty assumption. The integration creates a workspace after the coordinator has started, then confirms startup discovery and processing; the final three-file rerun above passed without a code change afterward.
+
+### Behavior exercised
+
+- Assessment graph order is `START → validate → analyze → compare → finalize → END`. Authorization, leases, durable outbox delivery, persistence, and monitoring stay outside the graph. Source and other private inputs remain local to each invocation; there are no graph checkpoints or retries, and deterministic scans need no model key. Configured LangSmith/LangChain tracing or verbose mode fails closed before scan work.
+- The internal profile uses bounded Semgrep, Gitleaks, Trivy, and exact-version OSV package-lock lookup. It does not install dependencies or execute customer code. The Helmet CSP candidate gate uses TypeScript 5.9.3 `createSourceFile` parsing and two exact Semgrep IDs; it does no module resolution, transpilation, or execution. It requires a unique value import, matching call location, and literal configuration, with conservative whole-file conflict filtering.
+- External `public_surface` assessment stays on the consented origin, with at most ten serial GETs, 64 KiB aggregate response bytes, and 16 KiB per response. Safe HTML, robots, and sitemap discovery is query-free; JavaScript is not run, and redirects are not followed. It may GET safe discovered same-origin public paths; it performs no authenticated or state-changing API exercise or API introspection. Only complete TLS responses support path-specific CSP/HSTS/nosniff observations. Unverified server banners remain informational.
+- A fresh incognito T3 browser flow created an account, workspace, and application; completed authorization against the isolated `https://customer.org` DNS fixture; and ran a source-free public-surface assessment. It showed **8 paths and 28 observations**. This controlled origin is not evidence about a live customer internet origin.
+- A two-file source upload included a disabled-TLS condition, `eval`, Helmet CSP configuration, and exact `lodash@4.17.20` lock evidence. The combined report showed **36 observations: 8 internal plus 28 external**. Its shared CSP group represented the same control with separate evidence and uncertainty; it did not assert the same issue, deployment, cause, or exploit. One-sided unknown coverage remained unknown, not absence.
+- A supported private TLS correction through the UI preserved the original source and report, then independently rescanned to **7 internal observations**. The TLS finding cleared while `eval`, CSP, and advisory observations remained. After the controlled TLS response headers were changed to clean values, an external rescan had zero findings. All eight resources remained visible with expandable status, headers, response hash, and provenance; seven responses were complete, the root was verified HTTP 200, and one redirect was refused with unknown coverage.
+- All four reports remained retrievable after reload with no UI errors. Browser widths of 320, 390, 620, and 1280 CSS pixels showed no horizontal overflow; navigation labels stayed in their cells and mobile targets were at least 44 px.
+- A final native-browser check used the persistent main app at `http://localhost:3000`. From a fresh app, it opened Vigilancia, generated a signing key in the UI, and kept the key invocation-local in WebCrypto. Twenty healthy signed HTTP events and then twenty failing/slow/high-capacity events in the same window each reached durable job success; exact replay accepted zero events and counted 20 duplicates. Without navigation or reload, polling showed two alerts and incident revisions 1 and 2 with the expanded 40 requests, 20 errors, p95 1,800 ms, and capacity 95%. The ten-minute window retained its first immutable metric snapshot while later batches reran detectors against the expanded window. Authentication-only detection, quota handling, and rollback behavior remain covered; this does not continuously refresh metrics within the window or establish a recovery measurement.
+- The same check changed the incident to monitoring, acknowledged the pressure alert, created a capacity advisory plan, and requested preparation revision 2. Readiness showed unmet verification requirements and disabled production apply. After a full reload, the app selector returned to its default first app; after explicitly reselecting the new regression app, its persisted monitoring state, exactly two alerts, reviewed pressure alert, and prepared plan revision 2 were present. No signing key or UI errors were visible. This verifies record persistence, not persistence of the selected-app preference.
+
+An initial final review of `5863578..87a5862` returned GO with no actionable blocker for the CSP gate and metric-window lock, including detector continuation, rollback, provenance, and bounded claims. The review was read-only and did not rerun tests. Test counts above overlap earlier runs and are not a unique-case total.
+
+This milestone's original final claim is historical: it said Semgrep 1.90.0 was development/test-only. The maintained-profile and local production-scanner validation gates are superseded for the exercised Linux/amd64 scope by the record above. Customer-code execution, cloud deployment, production response/provider writes, production recovery, and representative accuracy/capacity remain release gates. Monitoring requires configured signed telemetry or explicitly consented checks. Model investigation is unavailable when unconfigured and is not required for the deterministic core. These results do not establish broad public-source coverage, continuously refreshed same-window metrics, inferred technology-version vulnerabilities, or exploitability.
+
+
+## Continuous monitoring and dashboard corrections — 2026-10-24
+
+This milestone supersedes the manual-only capability descriptions below. All checks use local development infrastructure; no AWS deployment, live customer GitHub/provider availability guarantee or production write is claimed.
+
+| Check | Observed result |
+| --- | --- |
+| `pnpm check` | Workspace build, strict typechecks and default package suites passed: 329 tests passed and 128 infrastructure-gated cases were explicitly skipped at that checkpoint. Later claim/provider fixes were covered by the focused and live commands below; these counts are not a final unique-case total. |
+| Final `pnpm typecheck` | Passed across the entire workspace and root integration-test project after the final claim/provider fixes. |
+| `pnpm --filter @gotchu/database test:postgres` | **115 passed**: 12 database and 103 backend cases, including 107 actual PostgreSQL checks and 8 units. Covers monitoring RLS/leases/materialization, signed telemetry lifecycle, exact correction atomicity and migration 013 claim settlement. Synthetic scanner/status/MFA ports are labeled fixtures. |
+| `GOTCHU_TEST_SCANNERS=1 pnpm test:integration` | **52 passed, zero skips** against fresh PostgreSQL/Redis, actual BullMQ, built Nitro/coordinator processes, Auth.js cookies, HMAC scanner, cached Docker tools, real OSV metadata and controlled DNS/TLS. Includes all six assessment combinations plus an exact TLS correction and actual independent rescan. |
+| Final monitoring/provider checks | Monitoring **21 tests passed**; coordinator/monitoring source+test typechecks and builds passed. The subsequent scheduled-monitoring integration rerun passed **4/4**, including simultaneous known Railway outage and separate unknown coverage. Provider feeds are synthetic fixtures, not live provider availability evidence. |
+| Web checks | **60 tests passed**, including recommendations/selection contracts, same-origin APIs, no caller authority overrides and alert response handling. Actual API+Postgres regressions verify acknowledgment/resolution and refreshed session cookies. |
+| Packaging | `docker build --check .` and normalized all-profile Compose policy checks passed. Updated images were not built or deployed; disk pressure made a full image rebuild inappropriate. Native Node compiled runtime behavior was checked separately. |
+| Development lifecycle/browser | `pnpm dev:start` reached actual scanner/coordinator/web readiness. Chromium registered a fresh account, created a workspace/app, sent authenticated telemetry, acknowledged an alert, checked advisory capacity readiness, uploaded a source folder, confirmed a private correction, observed its rescan, disabled telemetry and signed out. Desktop and 390px mobile layouts had no horizontal overflow or displayed application errors. Signing keys were hidden before captures. |
+
+The full integration run precedes the last mixed-provider coverage fix; the four-case live scheduler rerun and 21 adapter tests cover that final change. Counts overlap and must not be added as unique cases. The updated backend suite includes the newer eleven monitor-claim settlement cases even though they were not present when the default checkpoint collected its skipped tests.
+
+The process integration found two real integration defects: bundling TypeScript's CommonJS compiler into Nitro ESM broke runtime readiness, and Semgrep's `profile.` rule prefix prevented recipe matching. Native compiler tracing and exact known-prefix matching fix both. The actual scanner-to-button-to-rescan path passed after those fixes, without changing the original snapshot or claiming behavioral tests.
+
+Independent Astra reviews drove fixes for alert quota isolation, permanent projection settlement, acknowledged-alert responses, GitHub aggregate memory limits, Railway freshness/mixed evidence, Git submodule exclusion, recovered unknown monitoring, current-revision coverage, distinct dependency versions and revoked monitor claims. The fourth scoped review reported no findings; its conclusion is code-review evidence, not an independently rerun live suite.
+
+Provider writes, production MFA/approval adapters, behavioral customer tests, complete dependency-source auditing, broad company asset discovery, external notifications, VM-class execution isolation, measured capacity, retention maintenance and recovery drills remain unavailable or unproven. In-app triage and self-reported migration checklists do not establish completed remediation or migration. The production Semgrep profile gate remains closed.
+
 ## Actual customer application in development — 2026-10-24
 
 This record supersedes the fixture-only milestone below. The product now accepts customer-created accounts, workspaces, applications, source snapshots, and DNS-verified public HTTPS origins. The fictional application remains a regression target. No cloud deployment was performed.
@@ -43,7 +125,7 @@ The first broad runs exposed two test-harness errors: a case-sensitive assertion
 
 ### Remaining release gates
 
-This establishes the implemented development customer path, not a production release. Semgrep 1.90.0 remains enforced development/test-only until a maintained pin is validated. Customer-code execution stays disabled pending VM-class isolation. Live AWS/OAuth, production ingress TLS, MFA, provider writes, alerts, restoration drills, measured retention/capacity/cost, invitation management, and broader scanner profiles are not established. Model calls and provider writes remain disabled. The updated coordinator image dependency layout passed Dockerfile checks but was not rebuilt because local Docker storage had less than 0.5 GiB free; no unrelated data/images were pruned.
+This establishes the implemented development customer path, not a production release. At that checkpoint Semgrep 1.90.0 remained development/test-only; that profile gate is superseded for the exercised Linux/amd64 scanner path by the maintained-profile validation above. Customer-code execution stays disabled pending VM-class isolation. Live AWS/OAuth, production ingress TLS, production identity operation, provider writes, alerts, restoration drills, measured retention/capacity/cost, and broader scanner profiles are not established. Model calls and provider writes remain disabled. The updated coordinator image dependency layout passed Dockerfile checks but was not rebuilt because local Docker storage had less than 0.5 GiB free; no unrelated data/images were pruned.
 
 The production web build reports upstream Nitro/Rolldown `use client` warnings; these are not suppressed. There is no lint script.
 
@@ -135,3 +217,35 @@ OAuth callbacks against a live GitHub application, production MFA and trusted el
 The first full product demonstration still needs the vulnerable-dependency scanner path and an approved tested GitHub PR. Current tests prove the event/investigation foundation and execution authorization ledger using explicitly labeled external fixtures.
 
 The production web build emits upstream Nitro/Rolldown warnings about bundled `use client` directives. The build passes; these warnings have not been suppressed. No repository lint script is defined.
+
+## Pre-merge corrections and focused verification — 2026-10-24
+
+This follow-up records the focused corrections after the earlier evidence above. The product-code range is `1551830..7cbf3ed`, including 17 corrections after the prior history-ledger commit; runtime image packaging is fixed by `464f19d`. This is scoped verification, not broad release certification. Earlier core, production TLS, and real NodeBB/Kuma evidence remains historical and was not rerun here.
+
+### Review
+
+The original broad pre-merge review found 13 unique confirmed P2 defects across web/context, triage, Git adapters, validator, and runner behavior. Focused code corrections resolved those findings. An independent Astra Git-adapter review initially caught a mismatch for `?` in branch globs; final commit `7cbf3ed` rejects that unsupported pattern. The final confirmation was **GO**, with 26 in-memory assertions passing. A separate validator/runner confirmation was **GO** for input registry cleanup and isolation, scalar/array/JSON/nested setup paths, and host/guest digest handling. Earlier focused fix reviews had no remaining blockers; none of these reviews is a broad release certification.
+
+### Builds and tests
+
+| Check | Result |
+| --- | --- |
+| Root `pnpm build` and `pnpm typecheck` | Passed on `9b92710`; the final Git-adapter guard package build also passed on `7cbf3ed`. |
+| Concurrent `pnpm test` attempt | The initial attempt hit the 5-second harness timeout during customer-assessment lifecycle child startup. It did not pass. The same isolated test passed in 1.19 seconds; no test was relaxed. |
+| `pnpm -r --workspace-concurrency=1 --sort --if-present test` | The full ordinary workspace test suite passed on `7cbf3ed`. |
+| Web, backend, triage, and coordinator packages | Web's 26 runtime/customer API tests, typecheck, and build passed. Backend and triage typechecks and the identifier test passed. Coordinator's four unit tests, typecheck, build, and dependency build passed. |
+| Disposable PostgreSQL backend harness | 14 database and 133 backend tests passed, including strict probe DTO GET/PUT behavior and tenant checks. |
+| Disposable PostgreSQL/Redis coordinator harness | Seven files and 25 tests passed, including 101 deployments and 200-character identifiers. |
+| Validator and runner | Builds, typechecks, and unit suites passed. Nine injected-runner quarantine tests passed against an isolated real PostgreSQL harness. No real VM was run and no VM gate was enabled. |
+| Git adapter package | Earlier build/typecheck/unit checks passed with seven tests and two provider cases skipped. Final `?`-glob package build/typecheck passed with eight tests and two provider cases skipped. |
+| Independent root regression probes | All seven probes moved from failing at baseline to passing at final: push-ignore, secret environment, `toJSON`, root/nested scalar setup, provider 101, and probe 201. |
+
+The GitHub live-infrastructure attempt initially failed at coordinator startup because `@gotchu/triage` was missing from both final images. `464f19d` packages the manifest, built distribution, and production dependencies, then performs a real import/schema smoke before readiness while retaining the sandbox. A stale WebAuthn capability assertion was also corrected; OAuth, provider writes, and customer-code execution remain unavailable. These local results do not establish hosted CI.
+
+### Browser and persistent local PostgreSQL
+
+Using the normal UI and persistent local PostgreSQL, an isolated owner account, guest account, and workspaces A and B were created; two one-use invitations, one for each workspace, were generated and accepted by the same guest. Before the workspace-key fix, A's removal dialog remained open after switching to B; it was cancelled, and PostgreSQL confirmed both memberships remained. After the fix, switching A to B cleared the dialog and invite field while both membership rows remained. Removing the guest from A through the UI returned 200; PostgreSQL confirmed A's membership row was removed while the guest remained a viewer in B. The desktop UI was visually inspected at 1280×800 with no console errors.
+
+Local development was safely restarted with `pnpm dev:stop` and `pnpm dev:start`; the app became ready on port 3000. No production deployment, provider operation, or customer-code execution occurred. No emails, tokens, credentials, UUIDs, or local artifact paths are recorded here.
+
+Hosted CI remains a merge prerequisite; consult [PR #2](https://github.com/0bkevin/gotchu/pull/2) for the latest check status. This record makes no hosted-CI pass claim. The documentation update itself does not rerun earlier core-19, production-TLS, or real NodeBB/Kuma proofs.

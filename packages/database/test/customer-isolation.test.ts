@@ -67,3 +67,26 @@ live('customer schema privilege and RLS boundaries on real Postgres', () => {
     expect((await f.databases.gotchu_api.tenant(f.a.organizationId, tx => tx.query('SELECT gotchu.lock_customer_organization($1) AS locked', [f.b.organizationId]))).rows).toEqual([{ locked: false }]);
   });
 });
+
+live('application context RLS', () => {
+  let f: Awaited<ReturnType<typeof fixture>>;
+  beforeAll(async () => { f = await fixture(); }, 30_000);
+  afterAll(async () => { await f?.close(); });
+  it('forces tenant RLS across every context inventory table', async () => {
+    const tables = ['application_environments', 'application_services', 'application_repository_links', 'application_deployments', 'application_dependencies', 'application_origin_candidates'] as const;
+    const environmentId = randomUUID(); const serviceId = randomUUID(); const deploymentId = randomUUID();
+    await f.admin.query("INSERT INTO gotchu.application_environments(organization_id,application_id,id,name,kind,source) VALUES($1,$2,$3,'production','production','customer_declared')", [f.a.organizationId,f.a.applicationId,environmentId]);
+    await f.admin.query("INSERT INTO gotchu.application_services(organization_id,application_id,environment_id,id,name,kind,state,source) VALUES($1,$2,$3,$4,'api','api','declared','customer_declared')", [f.a.organizationId,f.a.applicationId,environmentId,serviceId]);
+    await f.admin.query("INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access) VALUES($1,$2,$3,'repo-test','main','granted')", [f.a.organizationId,f.a.applicationId,randomUUID()]);
+    await f.admin.query("INSERT INTO gotchu.application_deployments(organization_id,application_id,service_id,environment_id,id,release_id,deployed_at,state,source) VALUES($1,$2,$3,$4,$5,'release',now(),'declared','customer_declared')", [f.a.organizationId,f.a.applicationId,serviceId,environmentId,deploymentId]);
+    await f.admin.query("INSERT INTO gotchu.application_dependencies(organization_id,application_id,environment_id,service_id,id,kind,provider,component,state,source) VALUES($1,$2,$3,$4,$5,'package','other','library','declared','customer_declared')", [f.a.organizationId,f.a.applicationId,environmentId,serviceId,randomUUID()]);
+    await f.admin.query("INSERT INTO gotchu.application_origin_candidates(organization_id,application_id,environment_id,id,origin,discovery_source,ownership,state,source) VALUES($1,$2,$3,$4,'https://example.com','customer_inventory','claimed','declared','customer_declared')", [f.a.organizationId,f.a.applicationId,environmentId,randomUUID()]);
+    for (const table of tables) {
+      const rows = await f.databases.gotchu_api.tenant(f.b.organizationId, tx => tx.query(`SELECT * FROM gotchu.${table} WHERE organization_id=$1`, [f.a.organizationId]));
+      expect(rows.rows).toEqual([]);
+    }
+    const policies = await f.admin.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relnamespace='gotchu'::regnamespace AND relname=ANY($1::text[])", [tables]);
+    expect(policies.rows).toHaveLength(tables.length);
+    expect(policies.rows.every(row => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
+  });
+});

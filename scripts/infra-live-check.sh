@@ -166,6 +166,10 @@ INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" scripts/infra-db-bootst
 printf '%s\n' 'Live database bootstrap passed on first run and repeat run, including role capabilities, ownership, exact memberships, and login connectivity.'
 
 docker compose -p "$project" --profile web --profile coordinator --env-file "$env_file" -f "$compose_file" build web coordinator
+# Compose tags an unnamed service image as <project>-<service>; run the bundled runtime checks before waiting on app readiness.
+coordinator_image="${project}-coordinator"
+docker image inspect "$coordinator_image" >/dev/null
+docker compose -p "$project" --profile '*' --env-file "$env_file" -f "$compose_file" config --format json | node scripts/infra-check.mjs "$coordinator_image"
 docker compose -p "$project" --profile web --profile coordinator --env-file "$env_file" -f "$compose_file" up -d web coordinator
 
 node --input-type=module - "$test_web_port" "$test_coordinator_port" <<'NODE'
@@ -187,26 +191,26 @@ assert.equal(webHealth?.status, 200, 'built web /api/health route did not start'
 assert.equal(coordinatorLive?.status, 200, 'built coordinator /health/live route did not start');
 const webReady = await fetch(`http://127.0.0.1:${webPort}/api/ready`);
 const webBody = await webReady.json();
-assert.equal(webReady.status, 503, 'web should remain unready without GitHub OAuth and fresh MFA approval');
+assert.equal(webReady.status, 503, 'web should remain unready without GitHub OAuth');
 assert.equal(webBody.ready, false);
 assert.equal(webBody.dependencies.apiDatabase, true, 'web API database runtime login did not connect');
 assert.equal(webBody.dependencies.intakeDatabase, true, 'web ingestion runtime login did not connect');
 assert.equal(webBody.dependencies.signIn, false, 'live check unexpectedly configured GitHub OAuth');
 assert.equal(webBody.capabilities.eventSigningKeys, false, 'empty local signing map must remain unavailable');
-assert.equal(webBody.capabilities.freshSecondFactorApproval, false, 'fresh MFA approval must remain visibly unavailable');
+assert.equal(webBody.capabilities.freshSecondFactorApproval, true, 'configured WebAuthn service capability must be visible without an enrolled factor');
+assert.equal(webBody.capabilities.githubWrites, false, 'provider writes must remain disabled');
+assert.equal(webBody.capabilities.customerCodeExecution, false, 'customer-code execution must remain disabled');
 const coordinatorReady = await fetch(`http://127.0.0.1:${coordinatorPort}/health/ready`);
 const coordinatorBody = await coordinatorReady.json();
 assert.equal(coordinatorReady.status, 503, 'coordinator should remain unready without organization assignment');
 assert.equal(coordinatorBody.status, 'unassigned');
 assert.equal(coordinatorBody.assignedOrganizations, 0);
 assert.equal(coordinatorBody.investigatorConfigured, false, 'worker profile must remain intentionally disabled');
-process.stdout.write('Built app routes returned 503 for missing OAuth and organization assignment; MFA and investigator unavailability were explicit in the response bodies.\n');
+process.stdout.write('Built app routes stayed unready without OAuth or organization assignment; WebAuthn capability was configured while provider writes, customer-code execution, and investigator execution remained unavailable.\n');
 NODE
 
 web_container="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" ps -q web)"
 coordinator_container="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" ps -q coordinator)"
-coordinator_image="$(docker inspect --format '{{.Image}}' "$coordinator_container")"
-docker compose -p "$project" --profile '*' --env-file "$env_file" -f "$compose_file" config --format json | node scripts/infra-check.mjs "$coordinator_image"
 web_user="$(docker inspect --format '{{.Config.User}}' "$web_container")"
 coordinator_user="$(docker inspect --format '{{.Config.User}}' "$coordinator_container")"
 if [[ "$web_user" != 1000:1000 || "$coordinator_user" != 1000:1000 ]]; then

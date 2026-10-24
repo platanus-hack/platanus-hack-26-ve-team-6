@@ -39,6 +39,12 @@
     "vitest": "^3.2.4",
     "zod": "^4.0.0",
     "@gotchu/customer-assessment": "workspace:*",
-    "@gotchu/scanner": "workspace:*"
+    "@gotchu/scanner": "workspace:*",
+    "@gotchu/monitoring": "workspace:*",
+    "@gotchu/scenarios": "workspace:*",
+    "@gotchu/runner": "workspace:*",
+    "@gotchu/contracts": "workspace:*",
+    "@gotchu/triage": "workspace:*",
+    "@gotchu/git-adapters": "workspace:*"
   }
 }

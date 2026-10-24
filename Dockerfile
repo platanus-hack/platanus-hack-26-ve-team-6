@@ -35,14 +35,28 @@ COPY --from=web-production-dependencies --chown=node:node /workspace/packages/co
 COPY --from=web-build --chown=node:node /workspace/packages/backend/package.json /workspace/packages/backend/package.json
 COPY --from=web-build --chown=node:node /workspace/packages/backend/dist /workspace/packages/backend/dist
 COPY --from=web-production-dependencies --chown=node:node /workspace/packages/backend/node_modules /workspace/packages/backend/node_modules
+COPY --from=web-build --chown=node:node /workspace/packages/triage/package.json /workspace/packages/triage/package.json
+COPY --from=web-build --chown=node:node /workspace/packages/triage/dist /workspace/packages/triage/dist
+COPY --from=web-production-dependencies --chown=node:node /workspace/packages/triage/node_modules /workspace/packages/triage/node_modules
 COPY --from=web-build --chown=node:node /workspace/packages/database/package.json /workspace/packages/database/package.json
 COPY --from=web-build --chown=node:node /workspace/packages/database/dist /workspace/packages/database/dist
 COPY --from=web-production-dependencies --chown=node:node /workspace/packages/database/node_modules /workspace/packages/database/node_modules
+COPY --from=web-build --chown=node:node /workspace/packages/scenarios/package.json /workspace/packages/scenarios/package.json
+COPY --from=web-build --chown=node:node /workspace/packages/scenarios/dist /workspace/packages/scenarios/dist
+COPY --from=web-production-dependencies --chown=node:node /workspace/packages/scenarios/node_modules /workspace/packages/scenarios/node_modules
+COPY --from=web-build --chown=node:node /workspace/packages/monitoring/package.json /workspace/packages/monitoring/package.json
+COPY --from=web-build --chown=node:node /workspace/packages/monitoring/dist /workspace/packages/monitoring/dist
+COPY --from=web-production-dependencies --chown=node:node /workspace/packages/monitoring/node_modules /workspace/packages/monitoring/node_modules
+COPY --from=web-build --chown=node:node /workspace/packages/customer-assessment/package.json /workspace/packages/customer-assessment/package.json
+COPY --from=web-build --chown=node:node /workspace/packages/customer-assessment/dist /workspace/packages/customer-assessment/dist
+COPY --from=web-build --chown=node:node /workspace/packages/customer-assessment/profiles /workspace/packages/customer-assessment/profiles
+COPY --from=web-production-dependencies --chown=node:node /workspace/packages/customer-assessment/node_modules /workspace/packages/customer-assessment/node_modules
 WORKDIR /workspace/apps/web
 USER node
 CMD ["node", ".output/server/index.mjs"]
 
 FROM node:24.18.1-bookworm-slim AS coordinator
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 WORKDIR /workspace
 COPY --from=coordinator-production-dependencies --chown=node:node /workspace/node_modules /workspace/node_modules
@@ -55,6 +69,9 @@ COPY --from=coordinator-production-dependencies --chown=node:node /workspace/pac
 COPY --from=coordinator-build --chown=node:node /workspace/packages/backend/package.json /workspace/packages/backend/package.json
 COPY --from=coordinator-build --chown=node:node /workspace/packages/backend/dist /workspace/packages/backend/dist
 COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/backend/node_modules /workspace/packages/backend/node_modules
+COPY --from=coordinator-build --chown=node:node /workspace/packages/triage/package.json /workspace/packages/triage/package.json
+COPY --from=coordinator-build --chown=node:node /workspace/packages/triage/dist /workspace/packages/triage/dist
+COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/triage/node_modules /workspace/packages/triage/node_modules
 COPY --from=coordinator-build --chown=node:node /workspace/packages/contracts/package.json /workspace/packages/contracts/package.json
 COPY --from=coordinator-build --chown=node:node /workspace/packages/contracts/dist /workspace/packages/contracts/dist
 COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/contracts/node_modules /workspace/packages/contracts/node_modules
@@ -76,6 +93,12 @@ COPY --from=coordinator-build --chown=node:node /workspace/packages/customer-ass
 COPY --from=coordinator-build --chown=node:node /workspace/packages/customer-assessment/dist /workspace/packages/customer-assessment/dist
 COPY --from=coordinator-build --chown=node:node /workspace/packages/customer-assessment/profiles /workspace/packages/customer-assessment/profiles
 COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/customer-assessment/node_modules /workspace/packages/customer-assessment/node_modules
+COPY --from=coordinator-build --chown=node:node /workspace/packages/monitoring/package.json /workspace/packages/monitoring/package.json
+COPY --from=coordinator-build --chown=node:node /workspace/packages/monitoring/dist /workspace/packages/monitoring/dist
+COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/monitoring/node_modules /workspace/packages/monitoring/node_modules
+COPY --from=coordinator-build --chown=node:node /workspace/packages/scenarios/package.json /workspace/packages/scenarios/package.json
+COPY --from=coordinator-build --chown=node:node /workspace/packages/scenarios/dist /workspace/packages/scenarios/dist
+COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/scenarios/node_modules /workspace/packages/scenarios/node_modules
 WORKDIR /workspace/apps/coordinator
 USER node
 CMD ["node", "dist/main.js"]

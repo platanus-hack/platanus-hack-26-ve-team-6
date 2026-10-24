@@ -2,7 +2,7 @@ import pg, { type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
 import { z } from 'zod';
 export { migrate, provisionRuntimeLogin, setRecoveryState } from './migrate.js';
 
-export const runtimeRoleSchema = z.enum(['gotchu_api', 'gotchu_ingest', 'gotchu_coordinator', 'gotchu_executor']);
+export const runtimeRoleSchema = z.enum(['gotchu_api', 'gotchu_ingest', 'gotchu_coordinator', 'gotchu_executor', 'gotchu_validator']);
 export type RuntimeRole = z.infer<typeof runtimeRoleSchema>;
 export interface Transaction {
   query<R extends QueryResultRow = Record<string, unknown>>(text: string, values?: unknown[]): Promise<QueryResult<R>>;

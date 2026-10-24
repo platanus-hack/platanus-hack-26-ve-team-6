@@ -4,18 +4,20 @@ import { createServer, request } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CustomerRunInput } from '@gotchu/contracts';
 import { createCustomerAssessmentRunner, sourceDigest } from '@gotchu/customer-assessment';
-import { createScannerClient,createScannerServer,signScannerBody,verifyScannerSignature } from '../src/index.js';
-const secret=randomBytes(32);const cleanups:Array<()=>Promise<void>>=[];
+import { createScannerClient as makeScannerClient,createScannerServer as makeScannerServer,signScannerBody,verifyScannerSignature } from '../src/index.js';
+const secret=randomBytes(32);const cleanups:Array<()=>Promise<void>>=[];const testNow=Date.UTC(2026,9,24,0,0,0);const clock=()=>testNow;
+function createScannerClient(options:Parameters<typeof makeScannerClient>[0]){return makeScannerClient({...options,now:clock});}
+function createScannerServer(options:Parameters<typeof makeScannerServer>[0]){return makeScannerServer({...options,now:clock});}
 afterEach(async()=>{for(const close of cleanups.splice(0))await close();});
 function input():CustomerRunInput{const snapshot={revision:'user-upload',files:[{path:'main.ts',content:'export const hello = 1;'}]};return {version:2,organizationId:randomUUID(),applicationId:randomUUID(),jobId:randomUUID(),applicationName:'Customer',mode:'internal',source:{...snapshot,id:randomUUID(),digest:sourceDigest(snapshot)},target:null};}
 const runner=()=>createCustomerAssessmentRunner({scanners:{run:async()=>{throw new Error('fixture-unavailable');},readiness:async()=>({ready:false,tools:[]})}});
 async function listen(server:ReturnType<typeof createServer>){await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address||typeof address==='string')throw new Error();cleanups.push(async()=>{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));});return `http://127.0.0.1:${address.port}`;}
-async function post(origin:string,body:Buffer,timestamp=String(Math.floor(Date.now()/1000)),signature=signScannerBody(secret,timestamp,body)){
+async function post(origin:string,body:Buffer,timestamp=String(Math.floor(testNow/1000)),signature=signScannerBody(secret,timestamp,body)){
  return new Promise<number>((resolve,reject)=>{const req=request(new URL('/v1/assessments',origin),{method:'POST',headers:{'content-type':'application/json','content-length':body.length,'x-gotchu-timestamp':timestamp,'x-gotchu-signature':signature}},res=>{res.resume();res.on('end',()=>resolve(res.statusCode??0));});req.on('error',reject);req.end(body);});
 }
 describe('service authentication and client',()=>{
  it('uses fixed-prefix raw-body HMAC and rejects tampering/expiry/invalid lengths',()=>{
-  const now=Date.now(),timestamp=String(Math.floor(now/1000)),bytes=Buffer.from('{"x":1}'),signature=signScannerBody(secret,timestamp,bytes);
+  const now=testNow,timestamp=String(Math.floor(now/1000)),bytes=Buffer.from('{"x":1}'),signature=signScannerBody(secret,timestamp,bytes);
   expect(verifyScannerSignature(secret,timestamp,signature,bytes,now)).toBe(true);expect(verifyScannerSignature(secret,timestamp,signature,Buffer.from('{ "x":1}'),now)).toBe(false);expect(verifyScannerSignature(secret,timestamp,signature,bytes,now+61000)).toBe(false);expect(verifyScannerSignature(secret,timestamp,'a',bytes,now)).toBe(false);
  });
  it('roundtrips exact v2 input and rejects repeated signed requests',async()=>{
@@ -26,7 +28,7 @@ describe('service authentication and client',()=>{
  it('rejects unauthorized/tampered requests before executing the runner',async()=>{
   const run=vi.fn(runner().run);const origin=await listen(createScannerServer({secret,runner:{run,readiness:runner().readiness}}));const bytes=Buffer.from(JSON.stringify(input()));
   expect(await post(origin,bytes,undefined,'a'.repeat(64))).toBe(401);expect(run).not.toHaveBeenCalled();
-  expect(await post(origin,bytes,String(Math.floor(Date.now()/1000)-120))).toBe(401);expect(run).not.toHaveBeenCalled();
+  expect(await post(origin,bytes,String(Math.floor(testNow/1000)-120))).toBe(401);expect(run).not.toHaveBeenCalled();
  });
  it('rejects malformed and oversized signed inputs',async()=>{
   const run=vi.fn(runner().run);const origin=await listen(createScannerServer({secret,runner:{run,readiness:runner().readiness}}));

@@ -1,4 +1,4 @@
-import { createBackend, type Backend, type CredentialStore } from '@gotchu/backend';
+import { createActionVerifier, createBackend, type Backend, type CredentialStore } from '@gotchu/backend';
 import { createDatabase } from '@gotchu/database';
 import { z } from 'zod';
 import { createApi, type ApiOperation } from './api.js';
@@ -8,6 +8,9 @@ import { bindDemoAssessmentServices, createDemoAssessmentApi } from './demo.js';
 import { createLocalAccounts } from './local-accounts.js';
 import { createCustomerApi } from './customer-api.js';
 import { createCustomerDnsVerifier } from './customer-dns.js';
+import { createFileEventCredentials } from './event-credentials.js';
+import { createGitHubRepositoryReader, createLocalGitRepositoryReader, loadMonitoringRepositoryCatalog } from '@gotchu/monitoring';
+import { isIP } from 'node:net';
 
 function credentialStore(value: string | undefined): CredentialStore | undefined {
   if (!value) return undefined;
@@ -50,20 +53,72 @@ export function createBackendApi(options: { auth: AuthService; origin: string; w
   });
 }
 
+export function resolveWebAuthnConfiguration(configuredOrigin: URL, configuredRpID: string | undefined) {
+  const defaultRpID = ['127.0.0.1', '[::1]'].includes(configuredOrigin.hostname) ? 'localhost' : configuredOrigin.hostname;
+  const rpID = z.string().min(1).max(253).parse(configuredRpID ?? defaultRpID).toLowerCase();
+  const matchesOrigin = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/i.test(rpID)
+    && isIP(rpID) === 0
+    && (configuredOrigin.hostname === rpID || configuredOrigin.hostname.endsWith(`.${rpID}`));
+  if (configuredRpID !== undefined && !matchesOrigin) throw new Error('GOTCHU_WEBAUTHN_RP_ID must match the configured application origin');
+  if (!matchesOrigin) return undefined;
+  return { rpID, origin: configuredOrigin.origin, rpName: 'Gotchu' };
+}
+
 export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
-  const origin = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000').origin;
+  const configuredOrigin = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000');
+  if (configuredOrigin.username || configuredOrigin.password || configuredOrigin.pathname !== '/' || configuredOrigin.search || configuredOrigin.hash
+    || (configuredOrigin.protocol !== 'https:' && !(configuredOrigin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(configuredOrigin.hostname)))) throw new Error('PUBLIC_APP_URL must be an HTTPS origin (localhost is allowed for development)');
+  const origin = configuredOrigin.origin;
+  const webAuthn = resolveWebAuthnConfiguration(configuredOrigin, env.GOTCHU_WEBAUTHN_RP_ID);
   const apiDatabase = env.GOTCHU_API_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_API_DATABASE_URL, role: 'gotchu_api', max: 5 }) : null;
   const ingestDatabase = env.GOTCHU_INGEST_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_INGEST_DATABASE_URL, role: 'gotchu_ingest', max: 5 }) : null;
   const accounts = apiDatabase && env.GOTCHU_LOCAL_AUTH_ENABLED === 'true' ? createLocalAccounts(apiDatabase) : undefined;
-  const settings = authSettings(env, accounts);
-  const auth = createAuthService(settings);
   const dnsServers = env.GOTCHU_DNS_SERVERS_JSON ? z.array(z.string().min(1).max(100)).max(5).parse(JSON.parse(env.GOTCHU_DNS_SERVERS_JSON)) : [];
-  const web = apiDatabase ? createBackend({ database: apiDatabase, customerDnsVerifier: createCustomerDnsVerifier(dnsServers) }) : null;
-  const credentials = credentialStore(env.GOTCHU_EVENT_SIGNING_KEYS_JSON);
+  const eventCredentials = env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY ? createFileEventCredentials(env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY) : undefined;
+  const actionVerifier = apiDatabase ? createActionVerifier({ database: apiDatabase, repository: {
+    async readHead(scope) {
+      if (!env.GOTCHU_MONITORING_CONFIG_FILE) throw new Error('repository_reader_unavailable');
+      const catalog = await loadMonitoringRepositoryCatalog(env.GOTCHU_MONITORING_CONFIG_FILE);
+      const entry = catalog.resolve(scope, scope.repositoryKey);
+      if (entry.provider === 'github') {
+        if (entry.ref && entry.ref !== scope.branch) throw new Error('repository_branch_mismatch');
+        const reader = createGitHubRepositoryReader(catalog);
+        return (await reader.read({ ...scope, previousRevision: null })).commit.sha;
+      }
+      if (entry.ref !== scope.branch) throw new Error('repository_branch_mismatch');
+      const reader = createLocalGitRepositoryReader(catalog);
+      return (await reader.read({ ...scope, previousRevision: null })).commit.sha;
+    },
+    // The product policy registry is not wired yet; action eligibility stays closed.
+    async isPolicyCurrent() { return false; },
+    // Until the reader can inspect workflow contents at the pinned commit, automation is unknown.
+    async isAutomationSafe() { return false; },
+  // D05 integration binds getFacts to backend.validations.getValidationFacts(actionRef).
+  }, validationFacts: { getFacts: async () => null } }) : undefined;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(actionVerifier ? { actionVerifier } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const stepUp = web?.stepUp;
+  const settings = authSettings(env, accounts, stepUp ? userId => stepUp.invalidateSession(userId) : undefined);
+  const auth = createAuthService(settings);
+  const configuredCredentials = credentialStore(env.GOTCHU_EVENT_SIGNING_KEYS_JSON);
+  const credentials: CredentialStore | undefined = eventCredentials || configuredCredentials ? { getSigningSecret: async reference => {
+    if (reference.startsWith('local-event:') && eventCredentials) return eventCredentials.getSigningSecret(reference);
+    if (configuredCredentials) return configuredCredentials.getSigningSecret(reference);
+    throw new HttpError(503, 'credential_unavailable', 'Integration signing credential is unavailable');
+  } } : undefined;
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
-  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, job: (identity, value) => web.web.getJob(identity, value) } : null,
+  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, operations: web.operations, corrections: web.corrections, context: web.context, triage: web.triage,
+    members: web.members,
+    actions: web.actions,
+    validations: web.validations,
+    repositoryCatalog: async (identity, scope) => {
+      await web.operations.getConfig(identity, scope);
+      if (!env.GOTCHU_MONITORING_CONFIG_FILE) return [];
+      const catalog = await loadMonitoringRepositoryCatalog(env.GOTCHU_MONITORING_CONFIG_FILE);
+      return catalog.listAllowedRepositoryOptions(scope).map(entry => ({ key: entry.repositoryKey, label: entry.displayName }));
+    },
+    job: (identity, value) => web.web.getJob(identity, value) } : null,
     ...(accounts ? { localAccounts: accounts } : {}),
     registrationEnabled: Boolean(accounts) && auth.enabled && env.NODE_ENV === 'development' && env.GOTCHU_ALLOW_LOCAL_REGISTRATION === 'true',
     providers: publicAuthProviders(settings),
@@ -83,7 +138,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
       return {
         ready,
         dependencies: { apiDatabase: apiDatabaseReady, intakeDatabase: intakeDatabaseReady, signIn: auth.enabled },
-        capabilities: { eventSigningKeys: Boolean(credentials), freshSecondFactorApproval: false, githubWrites: false, customerCodeExecution: false, deployedAwsCoverage: false },
+        capabilities: { eventSigningKeys: Boolean(credentials), freshSecondFactorApproval: Boolean(web?.stepUp), githubWrites: false, customerCodeExecution: false, deployedAwsCoverage: false },
       };
     },
     async close() { await Promise.all([apiDatabase?.close(), ingestDatabase?.close()]); },

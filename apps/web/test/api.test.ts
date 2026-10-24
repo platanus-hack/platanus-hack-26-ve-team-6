@@ -7,7 +7,7 @@ const origin = 'http://localhost:3000';
 function services(authenticated = true): ApiServices {
   return {
     origin,
-    auth: { enabled: true, handle: async () => new Response(), identity: async () => authenticated ? { userId: 'github:42', cookies: [] } : null },
+    auth: { enabled: true, handle: async () => new Response(), identity: async () => authenticated ? { userId: 'github:42', cookies: [] } : null, accountEmail: async () => null },
     ingest: vi.fn(async () => ({ accepted: 1, duplicates: 0 })),
     execute: vi.fn(async () => ({ jobId: app })),
   };

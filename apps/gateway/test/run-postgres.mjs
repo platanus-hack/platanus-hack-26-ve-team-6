@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout } from 'node:timers/promises';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
+// PostgreSQL 17.11, pinned to its OCI manifest digest for repeatable live tests.
+const postgresImage = 'postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb';
 const name = `gotchu-gateway-test-${randomBytes(6).toString('hex')}`;
 const password = randomBytes(32).toString('hex');
 let started = false;
@@ -20,7 +22,7 @@ function cleanup() {
 }
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { cleanup(); process.exit(130); });
 try {
-  command('docker', ['run', '--detach', '--rm', '--name', name, '--memory', '512m', '--cpus', '1', '--tmpfs', '/var/lib/postgresql/data:rw', '-p', '127.0.0.1::5432', '-e', 'POSTGRES_PASSWORD', '-e', 'POSTGRES_DB=gotchu_test_gateway', 'postgres:17-alpine'], { env: { ...process.env, POSTGRES_PASSWORD: password } });
+  command('docker', ['run', '--detach', '--rm', '--name', name, '--memory', '512m', '--cpus', '1', '--tmpfs', '/var/lib/postgresql/data:rw', '-p', '127.0.0.1::5432', '-e', 'POSTGRES_PASSWORD', '-e', 'POSTGRES_DB=gotchu_test_gateway', postgresImage], { env: { ...process.env, POSTGRES_PASSWORD: password } });
   started = true;
   const address = command('docker', ['port', name, '5432/tcp']);
   const port = address.split(':').at(-1);
@@ -31,7 +33,7 @@ try {
     await setTimeout(250);
   }
   if (!ready) throw new Error('Isolated Postgres did not become ready');
-  process.stdout.write(`Testing against isolated postgres:17-alpine on loopback port ${port}. No existing volumes are used.\n`);
+  process.stdout.write(`Testing against isolated PostgreSQL 17.11 on loopback port ${port}. No existing volumes are used.\n`);
   const result = spawnSync('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/gateway', 'test'], {
     cwd: root, stdio: 'inherit', env: { ...process.env, GOTCHU_TEST_DATABASE_URL: `postgres://postgres:${password}@127.0.0.1:${port}/gotchu_test_gateway` },
   });

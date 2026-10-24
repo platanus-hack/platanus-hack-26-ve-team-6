@@ -30,6 +30,7 @@ export async function fixture(options: { max?: number } = {}) {
   const databases: Record<RuntimeRole, Database> = {
     gotchu_api: await database('gotchu_api'), gotchu_ingest: await database('gotchu_ingest'),
     gotchu_coordinator: await database('gotchu_coordinator'), gotchu_executor: await database('gotchu_executor'),
+    gotchu_validator: await database('gotchu_validator'),
   };
   const tenant = () => ({ organizationId: randomUUID(), applicationId: randomUUID(), integrationId: randomUUID(), userId: `github:${randomUUID()}` });
   const a = tenant(); const b = tenant(); const tenants = [a, b];

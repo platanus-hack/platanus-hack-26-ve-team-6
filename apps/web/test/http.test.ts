@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { readBoundedBody, requireSameOrigin } from '../src/server/http.js';
+import { readBoundedBody, requireSameOrigin, errorResponse } from '../src/server/http.js';
 
 describe('HTTP input boundary', () => {
+  it('exposes a monitoring archive fence as a conflict without exposing arbitrary database errors', async () => {
+    const response = errorResponse(Object.assign(new Error('monitor_work_in_progress'), { code: 'P0001' }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: 'monitor_work_in_progress' } });
+    const other = errorResponse(Object.assign(new Error('private database detail'), { code: 'P0001' }));
+    expect(other.status).toBe(500); expect(await other.text()).not.toContain('private database detail');
+  });
   it('limits streamed bytes even when Content-Length is absent', async () => {
     let cancelled = false;
     const body = new ReadableStream<Uint8Array>({

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "architecture": "x86_64",
+  "firecracker": {
+    "version": "1.17.0",
+    "archiveUrl": "https://github.com/firecracker-microvm/firecracker/releases/download/v1.17.0/firecracker-v1.17.0-x86_64.tgz",
+    "archiveSha256": "06094a1108ae9e82aa4c23a775aa92758f53f1175d422270d9d6162cb9ade558",
+    "binarySha256": "99ad0f5cd0514a88aad0e9ae8cfdb3cc3b4ab9d190e1194602406c786b5de7a5",
+    "jailerSha256": "65ef226e96f0ceda55ba643f445801ef2cc0ea667ef67cad8ac4f406c9c8434f"
+  },
+  "kernel": {
+    "version": "6.18.54",
+    "url": "https://s3.amazonaws.com/spec.ccfc.min/firecracker-ci/20261023-dd7c24b0d165-0/x86_64/vmlinux-6.18.54",
+    "sha256": "da5e0041fb31fcc7337026da9e2b64fb7694b4eed760cc9b5e8fe54e52fa8188"
+  },
+  "rootfs": {
+    "baseImage": "docker.io/library/node:24-bookworm-slim@sha256:2dd9a4f758e173b65fee15388f7706af6fb01ef50cf7a2c0538711d67a6981ae",
+    "nodeVersion": "24.22.1",
+    "sha256": "6747c8f0d6ab4faf1a890b043ea2f39fa795a2684a998c0f709e3412179dd329"
+  },
+  "semgrepResearch": {
+    "version": "1.179.0",
+    "image": "docker.io/semgrep/semgrep:1.179.0",
+    "indexSha256": "93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b",
+    "linuxAmd64Sha256": "cab19964e6c93019934252a9cd591d9b27df1e5b5d1734b26f4069ae51c295f8"
+  }
+}

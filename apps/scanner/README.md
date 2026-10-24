@@ -6,6 +6,7 @@ Coordinator interface, exported by `@gotchu/scanner`:
 interface ScannerClientOptions {
   origin: string;
   secret: Uint8Array; // 32–1024 bytes, held only by coordinator/scanner host
+  ca?: Uint8Array; // optional scanner-specific CA bundle; HTTPS only
   timeoutMs?: number; // default 60,000; maximum 65,000
   allowDevelopmentHttp?: boolean; // explicit literal-loopback opt-in
 }
@@ -13,15 +14,32 @@ const client = createScannerClient(options);
 const report = await client.run(input); // CustomerRunInput -> Promise<CustomerAssessmentReport>
 ```
 
-`input` is the exact persisted version 2 request returned by `backend.customers.getRequest`. No caller URLs or scanner options are added. The client validates both runtime contracts and exact report scope/subject binding. Coordinator persistence must still revalidate its durable lease, target authorization/version and source binding. TLS is verified by default. HTTP requires both `allowDevelopmentHttp: true` and `NODE_ENV=development|test`, and only canonical literal `127.0.0.1` or `[::1]` origins. Paths, credentials, queries, fragments and redirects are refused; no environment proxy is used.
+`input` is the exact persisted version 2 request returned by `backend.customers.getRequest`. No caller URLs or scanner options are added. The client validates both runtime contracts and exact report scope/subject binding. Coordinator persistence still revalidates its durable lease, target authorization/version, and source binding. TLS is verified by default. `ca` optionally supplies a private CA bundle to this scanner request only and is rejected for HTTP; it does not change process-wide trust or the HTTPS assessment target's trust. HTTP requires both `allowDevelopmentHttp: true` and `NODE_ENV=development|test`, and only canonical literal `127.0.0.1` or `[::1]` origins. Paths, credentials, queries, fragments and redirects are refused; no environment proxy is used.
 
-`createScannerServer({ secret, runner? })` returns a Node HTTP server. `runner` implements `run(input): Promise<CustomerAssessmentReport>` and `readiness(): Promise<{ ready: boolean; tools: { name: string; available: boolean }[] }>`; the default is `createCustomerAssessmentRunner()`. The host has no DB/Redis access. It is a separate process called by the durable coordinator, not code inside a customer-facing route. No customer code is executed. The trusted host alone orchestrates fixed parser containers; scanner jobs receive no service secret or Docker socket.
+`createScannerServer({ secret, runner?, tls?: { cert, key } })` returns a Node HTTP server without `tls`, or an HTTPS server when a TLS identity is supplied. `runner` implements `run(input): Promise<CustomerAssessmentReport>` and `readiness(): Promise<{ ready: boolean; tools: { name: string; available: boolean }[] }>`; the default is `createCustomerAssessmentRunner()`. The host has no DB/Redis access. It is a separate process called by the durable coordinator, not code inside a customer-facing route. No customer code is executed. The trusted host alone orchestrates fixed parser containers; scanner jobs receive no service secret or Docker socket.
 
 ## Local process configuration
 
-`NODE_ENV=development pnpm --filter @gotchu/scanner start` runs the built `dist/main.js`, binds only `127.0.0.1`, and logs its PID/port. Required `GOTCHU_SCANNER_SECRET_FILE` names a local credential file containing the raw shared bytes (no trimming/base64 decoding). `GOTCHU_SCANNER_PORT` defaults to 4400. Set `GOTCHU_SCANNER_OSV=1` to explicitly enable the bounded package-name/version-only OSV adapter. Without it, advisory coverage is unavailable and aggregate readiness is unready. No secret is printed, placed in process arguments or inherited by child jobs. Keep the credential file out of version control. SIGINT/SIGTERM stop accepting work and allow active bounded requests to finish.
+`NODE_ENV=development pnpm --filter @gotchu/scanner start` runs the built `dist/main.js`. The listener defaults to `127.0.0.1:4400`; `GOTCHU_SCANNER_HOST` and `GOTCHU_SCANNER_PORT` configure the bind host and port. Startup logs the host and port. Required `GOTCHU_SCANNER_SECRET_FILE` names a local credential file containing the raw shared bytes (no trimming/base64 decoding). Set `GOTCHU_SCANNER_OSV=1` to explicitly enable the bounded package-name/version-only OSV adapter. Without it, advisory coverage is unavailable and aggregate readiness is unready. No secret is printed, placed in process arguments or inherited by child jobs. Keep the credential file out of version control. SIGINT/SIGTERM stop accepting work and allow active bounded requests to finish.
 
-The parent development launcher can import `createScannerServer` directly to share an in-memory secret instead. For separate processes, provision a private temporary file and supply the same raw bytes to `createScannerClient`. Parent owns process/PID/port records and credential-file cleanup. Production TLS hosting is not implemented by this local entry point; the client supports verified HTTPS and `createScannerServer` can sit behind an operator-controlled TLS terminator.
+The customer development launcher starts the scanner as a separate process and supplies a private secret-file path; it owns process/PID/port records and credential-file cleanup. Embedded callers and tests can instead use `createScannerServer` directly and share the secret in memory.
+
+## Standalone TLS runtime configuration
+
+`apps/scanner/src/main.ts` can serve production traffic directly over HTTPS. `NODE_ENV=production` requires both TLS files even on loopback. Without TLS, only `development` or `test` on a literal loopback IP may use HTTP; the configured host must always be a literal IP address. The default host is `127.0.0.1`, and the default port is `4400`.
+
+| Environment variable | Meaning |
+| --- | --- |
+| `GOTCHU_SCANNER_HOST` | Literal IPv4 or IPv6 bind address; defaults to `127.0.0.1`. |
+| `GOTCHU_SCANNER_PORT` | Port from 1024 through 65535; defaults to `4400`. |
+| `GOTCHU_SCANNER_SECRET_FILE` | Required file with 32–1024 raw HMAC secret bytes. |
+| `GOTCHU_SCANNER_TLS_CERT_FILE` | PEM server certificate; configure together with the key file. |
+| `GOTCHU_SCANNER_TLS_KEY_FILE` | Matching PEM private key; TLS uses a minimum of TLS 1.2. |
+| `GOTCHU_SCANNER_OSV` | Set to `1` to enable bounded OSV package-name/version lookups; unset or `0` disables them. |
+
+Secret, certificate, and key inputs must be nonempty regular files and are opened without following symlinks. Reads are bounded at 1 KiB for the secret, 256 KiB for the certificate, and 64 KiB for the key. The certificate and key must form a valid TLS identity. Keep these files private and outside version control.
+
+The coordinator may set `GOTCHU_SCANNER_CA_FILE` to a nonempty PEM bundle containing CA certificates (maximum 256 KiB). It is accepted only when `GOTCHU_SCANNER_ORIGIN` uses HTTPS. Validated certificate blocks are canonicalized before the CA bundle is returned and used by that scanner client. The CA does not alter global TLS trust, target HTTPS validation, or other outbound requests. The CA file is read as a bounded regular file without following symlinks.
 
 ## Wire contract and bounds
 
@@ -42,3 +60,5 @@ pnpm --filter @gotchu/scanner test
 ```
 
 Service tests use real HTTP sockets with an explicitly injected unavailable-scanner runner: they test authentication, replay, request/result caps, deadlines, one-run admission, redirects and report-binding rejection. They are not scanner accuracy tests. The engine's `test:live` runs real Docker profiles and OSV; its HTTPS tests use actual TLS sockets with a test CA. No AWS resources, cloud deployment, production credentials, customer execution or provider writes are involved.
+
+After CA canonicalization, focused local Linux/amd64 checks passed for the production-mode scanner/coordinator TLS path and the separate production smoke. These checks cover the exercised durable path, not a cloud deployment or every supported architecture. See the [verification record](../../docs/validation.md) for commands, chronology, and remaining accuracy/capacity limits.

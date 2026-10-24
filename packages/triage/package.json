@@ -1,0 +1,25 @@
+{
+  "name": "@gotchu/triage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": { "types": "./dist/triage/src/index.d.ts", "import": "./dist/triage/src/index.js" },
+    "./output": { "types": "./dist/triage/src/output.d.ts", "import": "./dist/triage/src/output.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "eval": "tsx src/eval-cli.ts"
+  },
+  "dependencies": {
+    "typescript": "~5.9.3",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.0",
+    "vitest": "^3.2.4"
+  }
+}

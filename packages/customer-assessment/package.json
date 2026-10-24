@@ -20,7 +20,9 @@
     "test:live": "vitest run test/scanners.live.test.ts"
   },
   "dependencies": {
+    "@langchain/langgraph": "^1.5.2",
     "@gotchu/contracts": "workspace:*",
+    "typescript": "~5.9.3",
     "zod": "^4.0.0"
   }
 }
