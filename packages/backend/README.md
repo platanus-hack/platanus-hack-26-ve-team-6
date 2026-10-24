@@ -140,6 +140,8 @@ Storage is admission-bounded: 1,000 retained monitoring runs per app (then sched
 
 Migration 009 contains the service-only discovery/materialization/heartbeat functions and FORCE RLS tables. Real-Postgres tests use isolated cached `postgres:17-alpine` and synthetic adapter evidence, DNS-independent target fixtures and persisted-event fixtures; they establish database/authorization behavior, not actual repository/provider traffic, event signing, MFA, live cloud resources or production recovery. Existing event-authentication and proposal suites remain separate checks. Plans are nonwriting advisory artifacts with exact revision/hash binding; caller checklist attestations remain `self_reported`, and request execution always returns `operation_execution_unavailable` with required capability, independent preflight, exact proposal, MFA and executor gates.
 
+Migration 013 settles invalid scheduled assessment claims and their monitor runs atomically. `jobs.claim` returns `null` when the authorization fence settles a job. A previously queued job with zero attempts fails with `monitor_authorization_changed`, releases its active assessment slot and allows source erasure. A prior running/requeued attempt fails with `assessment_reconciliation_required`; target revoke/renew and monitor changes remain blocked until reconciliation. Settlement grants no new I/O permission and does not refund the rolling admission quota.
+
 ## Private correction candidates
 
 `createBackend().corrections` uses the server-only `@gotchu/scenarios/server` recipes and public `@gotchu/scenarios/contracts` response schemas:
