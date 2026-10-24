@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { access } from 'node:fs/promises';
@@ -39,6 +39,7 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
   let web: ChildProcess | undefined;
   let browser: Browser | undefined;
   let cdp: CDPSession | undefined;
+  let authenticatorId: string;
   let page: import('playwright').Page;
   let origin: string;
   beforeAll(async () => {
@@ -59,10 +60,11 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
     page = await context.newPage();
     cdp = await context.newCDPSession(page);
     await cdp.send('WebAuthn.enable');
-    await cdp.send('WebAuthn.addVirtualAuthenticator', { options: {
+    const authenticator = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: {
       protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true,
       isUserVerified: true, automaticPresenceSimulation: true,
     } });
+    authenticatorId = authenticator.authenticatorId;
   }, 45_000);
   afterAll(async () => {
     await cdp?.detach().catch(() => undefined);
@@ -70,13 +72,11 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
     if (web?.pid && web.exitCode === null) { web.kill('SIGTERM'); await once(web, 'exit').catch(() => undefined); }
     await db?.close();
   });
-  it('registers, enrolls, asserts, and consumes the exact revocation proof', async () => {
+  it('registers, enrolls, recovers, and asserts across workspaces', async () => {
     const failures: string[] = [];
-    let assertionRequest: unknown;
-    let assertionProof: string | null = null;
-    page.on('request', request => { if (request.url().endsWith('/api/customer/step-up/assertions') && request.method() === 'POST') assertionRequest = request.postDataJSON(); });
-    page.on('response', async response => { if (response.url().endsWith('/api/customer/step-up/assertions') && response.ok()) { const payload: unknown = await response.json(); if (isRecord(payload) && typeof payload.proof === 'string') assertionProof = payload.proof; } });
-    page.on('response', async response => { if (response.url().includes('/api/customer/step-up/')) failures.push(`${response.status()} ${response.url()} ${await response.text().catch(() => '')}`); });
+    const stepUpRequests: string[] = [];
+    page.on('request', request => { if (request.url().includes('/api/customer/step-up/')) stepUpRequests.push(`${request.method()} ${request.url()}`); });
+    page.on('response', response => { if (response.url().includes('/api/customer/step-up/') && !response.ok()) failures.push(`${response.status()} ${response.url()}`); });
     const email = `step-up-${randomUUID()}@example.test`;
     const password = `Passphrase-${randomBytes(16).toString('hex')}`;
     await page.goto(origin);
@@ -109,6 +109,19 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
     await page.goto(`${origin}/dashboard`);
     await page.getByRole('button', { name: 'Aplicaciones' }).click();
     await page.getByRole('heading', { name: 'Verificación en dos pasos' }).waitFor();
+    const bootstrapWithoutPassword = await page.evaluate(async organizationId => {
+      const response = await fetch('/api/customer/step-up/factors/enrollment-options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId }) });
+      return { status: response.status, payload: await response.json() as unknown };
+    }, organizationId);
+    expect(bootstrapWithoutPassword.status).toBe(403);
+    expect(bootstrapWithoutPassword.payload).toMatchObject({ error: { code: 'step_up_password_required' } });
+    const bootstrapWrongPassword = await page.evaluate(async ({ organizationId, password }) => {
+      const response = await fetch('/api/customer/step-up/factors/enrollment-options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId, password }) });
+      return { status: response.status, payload: await response.json() as unknown };
+    }, { organizationId, password: 'Wrong-password-for-step-up' });
+    expect(bootstrapWrongPassword.status).toBe(403);
+    expect(bootstrapWrongPassword.payload).toMatchObject({ error: { code: 'step_up_password_invalid' } });
+    await page.getByLabel('Contraseña actual').fill(password);
     await page.getByRole('button', { name: 'Añadir factor' }).click();
     const recoveryHeading = page.getByRole('heading', { name: 'Guarda estos códigos de recuperación' });
     const enrollmentError = page.getByRole('alert').first();
@@ -122,39 +135,85 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
       const response = await fetch(`/api/customer/step-up/factors?organizationId=${organizationId}`);
       return await response.json() as unknown;
     }, organizationId);
-    const factorId = firstFactorId(factorList);
+    const recoveryCodeForConcurrency = await recoveryHeading.locator('..').getByRole('listitem').nth(1).innerText();
     await page.getByRole('button', { name: 'Ya los guardé' }).click();
-    await page.getByRole('button', { name: 'Revocar', exact: true }).click();
-    await page.getByText('No hay factores registrados.').waitFor({ timeout: 30_000 });
-    if (!assertionRequest || !assertionProof) throw new Error('The real WebAuthn assertion did not return its one-use proof.');
-    const actionHash = createHash('sha256').update(`gotchu:step-up:revoke:v1:${organizationId}:${factorId}`).digest('hex');
-    const challengeReplay = await page.evaluate(async assertion => {
-      const response = await fetch('/api/customer/step-up/assertions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(assertion) });
+    const sessionOnlyEnrollment = await page.evaluate(async organizationId => {
+      const response = await fetch('/api/customer/step-up/factors/enrollment-options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId }) });
       return { status: response.status, payload: await response.json() as unknown };
-    }, assertionRequest);
-    expect(challengeReplay.status).toBe(409);
-    expect(challengeReplay.payload).toMatchObject({ error: { code: 'step_up_challenge_invalid' } });
-    const proofReplay = await page.evaluate(async ({ organizationId, factorId, actionHash, proof }) => {
-      const response = await fetch(`/api/customer/step-up/factors/${factorId}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId, actionHash, proof }) });
+    }, organizationId);
+    expect(sessionOnlyEnrollment.status).toBe(403);
+    expect(sessionOnlyEnrollment.payload).toMatchObject({ error: { code: 'step_up_required' } });
+    let existingFactorProof: string | null = null;
+    await page.route('**/api/customer/step-up/factors/enrollment-options', async route => {
+      const payload: unknown = JSON.parse(route.request().postData() ?? 'null');
+      if (isRecord(payload) && typeof payload.proof === 'string') {
+        existingFactorProof = payload.proof;
+        if (!cdp) throw new Error('CDP virtual authenticator session is unavailable.');
+        await cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId });
+        const replacement = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: {
+          protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true,
+          isUserVerified: true, automaticPresenceSimulation: true,
+        } });
+        authenticatorId = replacement.authenticatorId;
+      }
+      await route.continue();
+    });
+    await page.getByLabel('Nombre del factor').last().fill('Factor añadido con prueba');
+    const secondEnrollmentResponse = page.waitForResponse(response => response.url().endsWith('/api/customer/step-up/factors/enrollment') && response.request().method() === 'POST', { timeout: 10_000 });
+    await page.getByRole('button', { name: 'Añadir factor' }).click();
+    let enrolledSecondFactor: import('playwright').Response;
+    try { enrolledSecondFactor = await secondEnrollmentResponse; }
+    catch (error) { throw new Error(`Second-factor enrollment did not finish: ${String(error)}\nRequests: ${stepUpRequests.join('\n')}\nFailures: ${failures.join('\n')}\nAlerts: ${await page.getByRole('alert').allTextContents()}`); }
+    if (enrolledSecondFactor.status() !== 201) throw new Error(`Proof-authorized enrollment failed: ${enrolledSecondFactor.status()} ${await enrolledSecondFactor.text()}`);
+    await page.unroute('**/api/customer/step-up/factors/enrollment-options');
+    if (!existingFactorProof) throw new Error('Second-factor enrollment did not include its step-up proof.');
+    const existingProofReplay = await page.evaluate(async ({ organizationId, proof }) => {
+      const response = await fetch('/api/customer/step-up/factors/enrollment-options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId, proof }) });
       return { status: response.status, payload: await response.json() as unknown };
-    }, { organizationId, factorId, actionHash, proof: assertionProof });
-    expect(proofReplay.status).toBe(403);
-    expect(proofReplay.payload).toMatchObject({ error: { code: 'step_up_proof_invalid' } });
-    await page.getByText('¿Has perdido tu factor?').click();
-    await page.getByLabel('Código de recuperación').fill(recoveryCode);
-    await page.getByLabel('Nombre del nuevo factor').fill('Factor recuperado');
-    await page.getByRole('button', { name: 'Usar código y registrar factor' }).click();
+    }, { organizationId, proof: existingFactorProof });
+    expect(existingProofReplay.status).toBe(403);
+    expect(existingProofReplay.payload).toMatchObject({ error: { code: 'step_up_proof_invalid' } });
     await page.waitForFunction(async organizationId => {
       const response = await fetch(`/api/customer/step-up/factors?organizationId=${organizationId}`);
       const factors = await response.json() as unknown;
-      return Array.isArray(factors) && factors.length === 1;
+      return Array.isArray(factors) && factors.length === 2;
     }, organizationId, { timeout: 30_000 });
-    const replay = await page.evaluate(async ({ organizationId, recoveryCode }) => {
+    expect((await db.admin.query('SELECT id FROM gotchu.step_up_user_factors WHERE user_id=$1 AND revoked_at IS NULL', [`credentials:${account}`])).rowCount).toBe(2);
+    const concurrentRecovery = await page.evaluate(async ({ organizationId, recoveryCode }) => Promise.all([1, 2].map(async () => {
+      const response = await fetch('/api/customer/step-up/factors/recovery-options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId, recoveryCode }) });
+      return { status: response.status, payload: await response.json() as unknown };
+    })), { organizationId, recoveryCode: recoveryCodeForConcurrency });
+    expect(concurrentRecovery.map(result => result.status).sort()).toEqual([201, 403]);
+    await page.route('**/api/customer/step-up/factors/recovery-options', async route => {
+      if (!cdp) throw new Error('CDP virtual authenticator session is unavailable.');
+      await cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId });
+      const replacement = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: {
+        protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true,
+        isUserVerified: true, automaticPresenceSimulation: true,
+      } });
+      authenticatorId = replacement.authenticatorId;
+      await route.continue();
+    });
+    await page.locator('section[aria-labelledby="step-up-heading"] summary').click();
+    await page.getByLabel('Código de recuperación').fill(recoveryCode);
+    await page.getByLabel('Nombre del nuevo factor').fill('Factor recuperado');
+    const recoveryEnrollmentResponse = page.waitForResponse(response => response.url().endsWith('/api/customer/step-up/factors/enrollment') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Usar código y registrar factor' }).click();
+    const recoveredFactor = await recoveryEnrollmentResponse;
+    if (recoveredFactor.status() !== 201) throw new Error(`Recovery enrollment failed: ${recoveredFactor.status()} ${await recoveredFactor.text()}`);
+    await page.unroute('**/api/customer/step-up/factors/recovery-options');
+    await page.waitForFunction(async organizationId => {
+      const response = await fetch(`/api/customer/step-up/factors?organizationId=${organizationId}`);
+      const factors = await response.json() as unknown;
+      return Array.isArray(factors) && factors.length === 3;
+    }, organizationId, { timeout: 30_000 });
+    expect((await db.admin.query('SELECT id FROM gotchu.step_up_user_factors WHERE user_id=$1 AND revoked_at IS NULL', [`credentials:${account}`])).rowCount).toBe(3);
+    const recoveryReplay = await page.evaluate(async ({ organizationId, recoveryCode }) => {
       const response = await fetch('/api/customer/step-up/factors/recovery-options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId, recoveryCode }) });
       return { status: response.status, payload: await response.json() as unknown };
     }, { organizationId, recoveryCode });
-    expect(replay.status).toBe(403);
-    expect(replay.payload).toMatchObject({ error: { code: 'recovery_code_invalid' } });
+    expect(recoveryReplay.status).toBe(403);
+    expect(recoveryReplay.payload).toMatchObject({ error: { code: 'recovery_code_invalid' } });
     await rejectAssertion(page, assertion => {
       const clientData = z.record(z.string(), z.unknown()).parse(JSON.parse(Buffer.from(assertion.response.response.clientDataJSON, 'base64url').toString('utf8')) as unknown);
       clientData.origin = 'https://evil.example';
@@ -176,7 +235,36 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
       const response = await fetch(`/api/customer/step-up/factors?organizationId=${organizationId}`);
       return await response.json() as unknown;
     }, organizationId);
-    expect(factors).toHaveLength(1);
+    if (!Array.isArray(factors) || factors.length !== 3) throw new Error(`Expected three active factors after enrollment and recovery; got ${JSON.stringify(factors)}. Stored: ${JSON.stringify((await db.admin.query('SELECT id,user_id,revoked_at FROM gotchu.step_up_user_factors WHERE user_id=$1 ORDER BY created_at', [`credentials:${account}`])).rows)}. Failures: ${failures.join('\n')} Alerts: ${await page.getByRole('alert').allTextContents()}`);
+    const workspaceB = await page.evaluate(async () => {
+      const response = await fetch('/api/customer/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Cross-workspace step-up test' }) });
+      return { status: response.status, payload: await response.json() as unknown };
+    });
+    expect(workspaceB.status).toBe(201);
+    const organizationBId = zId(workspaceB.payload);
+    const workspaceBProof = await page.evaluate(async organizationId => {
+      const challengeResponse = await fetch('/api/customer/step-up/challenges', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId, actionHash: 'c'.repeat(64) }) });
+      if (!challengeResponse.ok) throw new Error(`Workspace B challenge failed: ${await challengeResponse.text()}`);
+      const begun = await challengeResponse.json() as { challengeId: string; options: { challenge: string; allowCredentials?: Array<{ id: string; transports?: AuthenticatorTransport[] }>; [key: string]: unknown } };
+      const decode = (value: string) => Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4)), character => character.charCodeAt(0)).buffer;
+      const encode = (value: ArrayBuffer | null) => value ? btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '') : null;
+      const publicKey: PublicKeyCredentialRequestOptions = {
+        challenge: decode(begun.options.challenge),
+        ...(typeof begun.options.rpId === 'string' ? { rpId: begun.options.rpId } : {}),
+        ...(typeof begun.options.timeout === 'number' ? { timeout: begun.options.timeout } : {}),
+        ...(typeof begun.options.userVerification === 'string' ? { userVerification: begun.options.userVerification as UserVerificationRequirement } : {}),
+        ...(begun.options.allowCredentials ? { allowCredentials: begun.options.allowCredentials.map(item => ({ id: decode(item.id), type: 'public-key' as const, ...(item.transports ? { transports: item.transports } : {}) })) } : {}),
+      };
+      const credential = await navigator.credentials.get({ publicKey }) as PublicKeyCredential | null;
+      if (!credential) throw new Error('Workspace B WebAuthn assertion was cancelled.');
+      const assertion = credential.response as AuthenticatorAssertionResponse;
+      const response = await fetch('/api/customer/step-up/assertions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId, challengeId: begun.challengeId, response: {
+        id: credential.id, rawId: encode(credential.rawId), type: credential.type, response: { clientDataJSON: encode(assertion.clientDataJSON), authenticatorData: encode(assertion.authenticatorData), signature: encode(assertion.signature), userHandle: encode(assertion.userHandle) }, clientExtensionResults: credential.getClientExtensionResults(),
+      } }) });
+      return { status: response.status, payload: await response.json() as unknown };
+    }, organizationBId);
+    expect(workspaceBProof.status).toBe(200);
+    expect(workspaceBProof.payload).toMatchObject({ proof: expect.any(String) });
     expect(account).toMatch(/^[0-9a-f-]{36}$/);
   }, 120_000);
 });
@@ -194,7 +282,7 @@ async function rejectAssertion(page: import('playwright').Page, tamper: (asserti
     tamper(parsed.data);
     await route.continue({ postData: JSON.stringify(parsed.data) });
   });
-  await page.getByRole('button', { name: 'Revocar', exact: true }).click();
+  await page.locator('section[aria-labelledby="step-up-heading"] li').first().getByRole('button', { name: 'Revocar', exact: true }).click();
   const response = await responsePromise;
   await page.unroute('**/api/customer/step-up/assertions');
   expect(response.status()).toBe(403);
@@ -204,10 +292,6 @@ async function rejectAssertion(page: import('playwright').Page, tamper: (asserti
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === 'object' && !Array.isArray(value)); }
-function firstFactorId(value: unknown) {
-  if (!Array.isArray(value) || !value[0] || typeof value[0] !== 'object' || !('id' in value[0]) || typeof value[0].id !== 'string') throw new Error('Factor list did not include a factor id');
-  return value[0].id;
-}
 function zAccount(value: unknown) {
   if (!value || typeof value !== 'object' || !('id' in value) || typeof value.id !== 'string') throw new Error('Registration returned an invalid account identity');
   return value.id;

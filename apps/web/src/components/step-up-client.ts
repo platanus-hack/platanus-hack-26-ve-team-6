@@ -21,8 +21,11 @@ const authenticationOptionsSchema = z.object({ challenge: z.string().min(1), rpI
 export async function listStepUpFactors(organizationId: string): Promise<StepUpFactor[]> {
   return call(`/api/customer/step-up/factors?organizationId=${encodeURIComponent(organizationId)}`, factorList);
 }
-export async function enrollStepUpFactor(organizationId: string, label: string) {
-  const begun = serverChallenge.parse(await call('/api/customer/step-up/factors/enrollment-options', serverChallenge, 'POST', { organizationId }));
+export async function enrollStepUpFactor(organizationId: string, label: string, password?: string) {
+  const authorization = password === undefined
+    ? { proof: await requestStepUp(organizationId, await sha256(`gotchu:step-up:enroll:v1:${await currentUserId()}`)) }
+    : { password };
+  const begun = serverChallenge.parse(await call('/api/customer/step-up/factors/enrollment-options', serverChallenge, 'POST', { organizationId, ...authorization }));
   const response = await startRegistration({ optionsJSON: registrationOptionsSchema.parse(begun.options) as PublicKeyCredentialCreationOptionsJSON });
   return call('/api/customer/step-up/factors/enrollment', z.object({ factor: stepUpFactorSchema, recoveryCodes: z.array(z.string()).max(10) }).strict(), 'POST', { organizationId, challengeId: begun.challengeId, response, label });
 }
@@ -37,6 +40,14 @@ export async function renameStepUpFactor(organizationId: string, factorId: strin
 async function sha256(text: string) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+async function currentUserId() {
+  const response = await fetch('/api/customer/session');
+  if (!response.ok) throw new Error('No se pudo leer la sesión actual.');
+  const payload: unknown = await response.json();
+  const user = z.object({ user: z.object({ id: z.string().min(1).max(256) }).nullable() }).passthrough().parse(payload).user;
+  if (!user) throw new Error('No hay una sesión activa.');
+  return user.id;
 }
 export async function revokeStepUpFactor(organizationId: string, factorId: string) {
   const actionHash = await sha256(`gotchu:step-up:revoke:v1:${organizationId}:${factorId}`);
