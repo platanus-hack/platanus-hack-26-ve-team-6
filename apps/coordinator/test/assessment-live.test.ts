@@ -32,6 +32,41 @@ live('live Postgres/Redis assessment delivery (synthetic bounded runner)', () =>
   }
   const jobState = async (id: string) => (await f.admin.query<{ state: string }>('SELECT state FROM gotchu.jobs WHERE id=$1', [id])).rows[0]?.state;
 
+  async function customerTargetJob() {
+    let proof = '';
+    const customerApi = createBackend({ database: f.databases.gotchu_api, customerDnsVerifier: { resolveTxt: async () => [[proof]] } });
+    const identity = { userId: `credentials:${randomUUID()}` };
+    const workspace = await customerApi.customers.createWorkspace(identity, { name: 'Uncertain scanner test' });
+    const application = await customerApi.customers.createApplication(identity, { organizationId: workspace.id, name: 'Authorized target' });
+    const customerScope = { organizationId: workspace.id, applicationId: application.applicationId };
+    const enrollment = await customerApi.customers.enrollTarget(identity, { ...customerScope, origin: 'https://customer.example.com', authorized: true });
+    proof = enrollment.challenge.value;
+    await customerApi.customers.verifyTarget(identity, { ...customerScope, targetId: enrollment.target.id });
+    const { jobId } = await customerApi.customers.queue(identity, { ...customerScope, mode: 'external', sourceSnapshotId: null, targetId: enrollment.target.id, idempotencyKey: randomUUID() });
+    return { customerApi, identity, customerScope, targetId: enrollment.target.id, envelope: { version: 1 as const, id: jobId, ...customerScope, kind: 'audit' as const } };
+  }
+
+  it('quarantines an uncertain remote scanner outcome instead of releasing target authorization', async () => {
+    const c = await customerTargetJob();
+    let calls = 0;
+    await processDurableJob({ ...dependencies(), customerAssessmentRunner: { run: async () => { calls++; throw new Error('Synthetic transport failure after remote admission'); } } }, c.envelope);
+    expect(calls).toBe(1);
+    expect(await c.customerApi.web.getJob(c.identity, { organizationId: c.customerScope.organizationId, jobId: c.envelope.id })).toMatchObject({ state: 'failed', reasonCode: 'assessment_reconciliation_required', reportId: null });
+    await expect(c.customerApi.customers.revokeTarget(c.identity, { ...c.customerScope, targetId: c.targetId })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
+    expect(await processDurableJob(dependencies(), c.envelope)).toEqual({ status: 'already_terminal' });
+  });
+
+  it('does not replay customer scanning after a consumer loses its durable claim', async () => {
+    const c = await customerTargetJob();
+    await backend.jobs.claim({ organizationId: c.customerScope.organizationId, jobId: c.envelope.id });
+    await f.admin.query("UPDATE gotchu.jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE organization_id=$1 AND id=$2", [c.customerScope.organizationId, c.envelope.id]);
+    let calls = 0;
+    await processDurableJob({ ...dependencies(), customerAssessmentRunner: { run: async () => { calls++; throw new Error('Must not replay'); } } }, c.envelope);
+    expect(calls).toBe(0);
+    expect(await c.customerApi.web.getJob(c.identity, { organizationId: c.customerScope.organizationId, jobId: c.envelope.id })).toMatchObject({ state: 'failed', reasonCode: 'assessment_reconciliation_required' });
+    await expect(c.customerApi.customers.revokeTarget(c.identity, { ...c.customerScope, targetId: c.targetId })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
+  });
+
   it('fails unconfigured and malformed adapters visibly without storing a successful report', async () => {
     const unconfigured = await queue();
     await processDurableJob(dependencies(), unconfigured);

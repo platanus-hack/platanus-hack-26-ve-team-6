@@ -130,6 +130,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
   let engine = createCustomerAssessmentRunner({ scanners: unavailableScanners });
   let realEngine: ReturnType<typeof createCustomerAssessmentRunner>;
   let corrected = false;
+  let holdHttpsLookup: (() => Promise<void>) | undefined;
   const httpsRequests: Array<{ method: string | undefined; path: string | undefined; hostname: string | undefined; hasCredentials: boolean }> = [];
   const lookups: string[] = [];
   const children: Array<{ child: ChildProcess; name: string; port: number }> = [];
@@ -195,7 +196,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
       response.writeHead(200, corrected ? { 'content-security-policy': "default-src 'none'", 'strict-transport-security': 'max-age=31536000', 'x-content-type-options': 'nosniff' } : { server: 'Untrusted-Fixture/1.0' }).end('fixture root; not customer data');
     });
     const tlsPort = await listen(tls); cleanup.push(() => closeServer(tls));
-    const https = { lookup: async (hostname: string) => { if (hostname !== 'customer.org') throw new Error('unexpected_fixture_hostname'); lookups.push(hostname); return [{ address: '127.0.0.1', family: 4 }]; }, testFixture: { hostname: 'customer.org', port: tlsPort, ca: cert } };
+    const https = { lookup: async (hostname: string) => { if (hostname !== 'customer.org') throw new Error('unexpected_fixture_hostname'); lookups.push(hostname); await holdHttpsLookup?.(); return [{ address: '127.0.0.1', family: 4 }]; }, testFixture: { hostname: 'customer.org', port: tlsPort, ca: cert } };
     engine = createCustomerAssessmentRunner({ scanners: unavailableScanners, https });
     realEngine = createCustomerAssessmentRunner({ scanners: createDockerScanners(), advisory: createOsvAdapter(), https });
     const scanner = createScannerServer({ secret, runner: { run: input => engine.run(input), readiness: () => engine.readiness() } });
@@ -323,7 +324,18 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     const app = await application('Authorization lifecycle');
     const verified = await target(app.path);
     const body = { mode: 'external', sourceSnapshotId: null, targetId: verified.id } as const;
+    let releaseLookup = () => {};
+    let lookupEntered = false;
+    const pausedLookup = new Promise<void>(resolve => { releaseLookup = resolve; });
+    holdHttpsLookup = () => { lookupEntered = true; return pausedLookup; };
+    const beforeProbe = httpsRequests.length;
     const key = randomUUID(); const queued = await queue(app.path, body, key);
+    try {
+      await eventually(async () => lookupEntered, 'scanner DNS admission');
+      expect(httpsRequests).toHaveLength(beforeProbe);
+      await rejected(await owner.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 409, 'target_assessment_in_progress');
+      await rejected(await owner.api(`${app.path}/targets`, 'POST', { origin: verified.origin, authorized: true }), 409, 'target_assessment_in_progress');
+    } finally { holdHttpsLookup = undefined; releaseLookup(); }
     const report = present(await finished(app.base, app.path, queued.jobId));
     expect(report.internal).toBeNull(); expect(report.external?.coverage).toContainEqual(expect.objectContaining({ capability: 'tls_https', state: 'inspected' }));
     await rejected(await stranger.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 403, 'forbidden');
@@ -355,10 +367,14 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
       for (let index = 0; index < 3; index++) jobs.push((await queue(app.path, body)).jobId);
       await rejected(await owner.api(`${app.path}/assessments`, 'POST', body, randomUUID()), 429, 'assessment_capacity_exceeded');
       await rejected(await owner.api(`${app.path}/sources/${source.id}/delete`, 'POST', {}), 409, 'source_in_use');
-      await json(await owner.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 200, customerTargetSchema);
+      await rejected(await owner.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 409, 'target_assessment_in_progress');
+      // Archival stops admission and makes queued work fail its fresh-state check.
+      await json(await owner.api(app.path, 'PATCH', { archived: true }), 200, customerApplicationSchema);
     } finally { coordinator.kill('SIGCONT'); }
     for (const job of jobs) await finished(app.base, app.path, job, 'failed');
     expect(httpsRequests).toHaveLength(requestsBefore);
+    await json(await owner.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 200, customerTargetSchema);
+    await json(await owner.api(app.path, 'PATCH', { archived: false }), 200, customerApplicationSchema);
     await json(await owner.api(`${app.path}/sources/${source.id}/delete`, 'POST', {}), 200, z.object({ deleted: z.literal(true) }));
     expect((await upload(app.path, minimalSource('replacement-after-delete'))).id).not.toBe(source.id);
     expect(await json(await owner.api(`${app.path}/reports`), 200, z.array(customerReportSummarySchema))).toEqual([]);

@@ -39,6 +39,7 @@ function date(value: string) {
 }
 
 function readableError(error: unknown) {
+  if (error instanceof CustomerApiError && error.code === 'target_assessment_in_progress') return 'La autorización sigue activa mientras haya evaluaciones pendientes. Espera a que terminen; si el resultado es incierto, una persona operadora debe revisarlo antes de revocar o renovar.';
   if (error instanceof CustomerApiError) return error.message;
   if (error instanceof Error && !(error.name === 'ZodError')) return error.message;
   return 'No se pudo completar la operación. Inténtalo de nuevo.';
@@ -447,7 +448,9 @@ function CustomerWorkspace({ session, userId }: { session: CustomerSession; user
       queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'reports', activeJob.organizationId, activeJob.applicationId] }).catch(caught => setPageError(readableError(caught)));
     } else if (jobResult.state === 'failed') {
       setActiveJob(null);
-      setPageError(jobResult.reasonCode ? `La evaluación no finalizó (${jobResult.reasonCode}).` : 'La evaluación no finalizó. Los informes anteriores siguen disponibles.');
+      setPageError(jobResult.reasonCode === 'assessment_reconciliation_required'
+        ? 'No se pudo confirmar que el escáner haya terminado. Una persona operadora debe comprobarlo antes de revocar o renovar el origen. La autorización sigue activa y no se repetirá este trabajo automáticamente.'
+        : jobResult.reasonCode ? `La evaluación no finalizó (${jobResult.reasonCode}).` : 'La evaluación no finalizó. Los informes anteriores siguen disponibles.');
     }
   }, [activeJob, jobResult, queryClient, userId]);
 
