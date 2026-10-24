@@ -7,7 +7,14 @@ Estado al 24 de octubre de 2026. Lista viva de lo que falta, ordenada por priori
 - **Integrar el executor con D12.** Integrar el worker independiente, el registro de políticas, los permisos de escritura verificados (migración 038) y la alcanzabilidad de dependencias (migración 043) sobre la topología nueva del instalador. Falta la prueba en vivo de un PR de dependencia npm en el sandbox; el PR de corrección de código ya se probó.
 - **Revocación inmediata (D14).** Revocar GitHub, la firma de eventos, un canal de notificación o una credencial WebAuthn debe invalidar en la misma operación las aprobaciones pendientes y las pruebas de segundo factor, y quedar en el historial de decisiones.
 - **Borrado permanente (D14).** Borrar aplicaciones y espacios de trabajo, con un Owner y segundo factor reciente, auditado.
-- **Recorrido completo en navegador real.** Recorrer y corregir todo el flujo: inicio de sesión con Google o GitHub → conectar repo o subir código → escaneo → informe → recomendación → candidato → validación → aprobación con WebAuthn → PR real → vigilancia y alertas. Incluye `./gotchu backup` y `./gotchu restore` con la topología de procesos en el host.
+- **Vincular Google desde la configuración de la cuenta.** Hoy un email local existente recibe un mensaje y no se vincula automáticamente.
+- **Historial de commits.** Actualizar `commit-history*.md` y documentar las excepciones de tamaño: `lockfiles.ts` (501 líneas) y el gateway de D11 (445 líneas).
+
+## 2. Al pasar a producción y al final
+
+Acordado el 24 de octubre de 2026: no bloquean el cierre del núcleo.
+
+- **Recorrido completo en navegador real, ya en producción.** Recorrer y corregir todo el flujo: inicio de sesión con Google o GitHub → conectar repo o subir código → escaneo → informe → recomendación → candidato → validación → aprobación con WebAuthn → PR real → vigilancia y alertas. Incluye `./gotchu backup` y `./gotchu restore` con la topología de procesos en el host.
 - **Pasada de textos.**
   - La interfaz debe estar entera en español; hoy hay recomendaciones en inglés.
   - Corregir "Protege lo que construyes" en el dashboard.
@@ -15,10 +22,8 @@ Estado al 24 de octubre de 2026. Lista viva de lo que falta, ordenada por priori
   - Traducir la página de cierre de sesión de Auth.js.
   - Mostrar el nombre en el avatar.
   - Cada afirmación debe estar respaldada por evidencia.
-- **Vincular Google desde la configuración de la cuenta.** Hoy un email local existente recibe un mensaje y no se vincula automáticamente.
-- **Historial de commits.** Actualizar `commit-history*.md` y documentar las excepciones de tamaño: `lockfiles.ts` (501 líneas) y el gateway de D11 (445 líneas).
 
-## 2. Seguridad y operación (D14, resto)
+## 3. Seguridad y operación (D14, resto)
 
 - Confirmar el destinatario de email antes de enviar.
 - Rotar el secreto de webhook con una ventana de solapamiento.
@@ -26,7 +31,7 @@ Estado al 24 de octubre de 2026. Lista viva de lo que falta, ordenada por priori
 - Copias fuera del host y retención de copias; RPO/RTO medidos.
 - Identidad, TLS y capacidad de producción. El despliegue en `gotchu.kevinbravo.com` queda fuera de alcance hasta pedirlo.
 
-## 3. Entregas del plan
+## 4. Entregas del plan
 
 - **D10 — Merge, deploy y rollback** como capacidades separadas, empezando por un entorno de desarrollo aislado.
 - **D11 — Agente investigador.**
@@ -40,7 +45,7 @@ Estado al 24 de octubre de 2026. Lista viva de lo que falta, ordenada por priori
   - Corregir la omisión intermitente del detector de CPU; no se corrigió para no ajustar el detector con datos del holdout.
 - **D16 — Phishing, deepfakes e influencia.** Módulo separado; va al final.
 
-## 4. Paridad con Snyk/Aikido que aún no existe
+## 5. Paridad con Snyk/Aikido que aún no existe
 
 - Checks de PR en CI/CD (GitHub Checks).
 - Slack y escalamiento.
@@ -52,7 +57,7 @@ Estado al 24 de octubre de 2026. Lista viva de lo que falta, ordenada por priori
 - Informes de cumplimiento.
 - Precios, medición de uso y facturación.
 
-## 5. Al final: laboratorio de explotación en sandbox
+## 6. Al final: laboratorio de explotación en sandbox
 
 Decisión del 24 de octubre de 2026: el primer mecanismo de pruebas activas será un laboratorio dentro del runner Firecracker existente. El DAST contra un staging del cliente queda para una segunda fase.
 
