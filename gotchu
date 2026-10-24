@@ -182,7 +182,8 @@ start_app() {
   case "$service" in
     scanner)
       environment+=("GOTCHU_SCANNER_SECRET_FILE=$state_dir/scanner.secret" "GOTCHU_SCANNER_PORT=$port" "GOTCHU_SCANNER_HOST=127.0.0.1" \
-        "GOTCHU_SCANNER_TLS_CERT_FILE=$state_dir/scanner.crt" "GOTCHU_SCANNER_TLS_KEY_FILE=$state_dir/scanner.key" "GOTCHU_SCANNER_OSV=1")
+        "GOTCHU_SCANNER_TLS_CERT_FILE=$state_dir/scanner.crt" "GOTCHU_SCANNER_TLS_KEY_FILE=$state_dir/scanner.key" \
+        "GOTCHU_SCANNER_TRIVY_DB_DIRECTORY=$root/.local/dev/trivy-db" "GOTCHU_SCANNER_OSV=1")
       ;;
     coordinator)
       local database_url redis_connection_url
