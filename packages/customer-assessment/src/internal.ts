@@ -9,7 +9,7 @@ const semgrepSchema = z.object({version:z.string(),results:z.array(z.object({che
 const leaksSchema = z.array(z.object({RuleID:z.string().max(128),File:z.string().max(1024),StartLine:z.number().int().positive()})).max(2000);
 const trivySchema = z.object({SchemaVersion:z.number(),Results:z.array(z.object({Target:z.string().max(1024),Misconfigurations:z.array(z.object({ID:z.string().max(128),AVDID:z.string().max(128),Title:z.string().min(1).max(256),Description:z.string().min(1).max(4000),Resolution:z.string().min(1).max(4000),Severity:z.enum(['UNKNOWN','LOW','MEDIUM','HIGH','CRITICAL']),CauseMetadata:z.object({StartLine:z.number().int().nonnegative().optional()}).optional()})).optional()})).optional()});
 interface Indicator { rule: string; path: string; line: number; severity: AssessmentFinding['severity']; title?:string; description?:string; recommendation?:string }
-function normalize(name: ScannerName, result: ToolResult): {indicators:Indicator[]; incomplete:boolean; scanned:number} {
+function normalize(name: ScannerName, result: ToolResult): {indicators:Indicator[]; incomplete:boolean; scanned:number; scannedPaths?:string[]} {
   if (name === 'semgrep') {
     const parsed = semgrepSchema.parse(result.output);
     if (parsed.version !== result.version) throw new Error('scanner_version_mismatch');
@@ -18,11 +18,20 @@ function normalize(name: ScannerName, result: ToolResult): {indicators:Indicator
   if (name === 'gitleaks') return {indicators:leaksSchema.parse(result.output).map(r=>({rule:r.RuleID,path:r.File,line:r.StartLine,severity:'high'})),incomplete:false,scanned:0};
   const parsed = trivySchema.parse(result.output);
   const severities={UNKNOWN:'informational',LOW:'low',MEDIUM:'medium',HIGH:'high',CRITICAL:'critical'} as const;
-  return {indicators:(parsed.Results??[]).flatMap(r=>(r.Misconfigurations??[]).map(m=>({rule:m.AVDID,path:r.Target,line:m.CauseMetadata?.StartLine??0,severity:severities[m.Severity],title:m.Title,description:m.Description,recommendation:m.Resolution}))),incomplete:false,scanned:parsed.Results?.length??0};
+  return {indicators:(parsed.Results??[]).flatMap(r=>(r.Misconfigurations??[]).map(m=>({rule:m.AVDID,path:r.Target,line:m.CauseMetadata?.StartLine??0,severity:severities[m.Severity],title:m.Title,description:m.Description,recommendation:m.Resolution}))),incomplete:false,scanned:parsed.Results?.length??0,scannedPaths:(parsed.Results??[]).map(r=>r.Target)};
 }
 function addTool(a: AssessmentAnalysis, name: ScannerName, result: ToolResult, source: NonNullable<CustomerRunInput['source']>) {
   const parsed = normalize(name,result);
   if(name === 'semgrep' && parsed.scanned < source.files.filter(f=>/\.[cm]?[jt]sx?$/i.test(f.path)).length) parsed.incomplete=true;
+  let missingConfigurations = 0;
+  if (name === 'trivy') {
+    const scanned = new Set((parsed.scannedPaths??[]).map(path=>path.replace(/^\/?source\//,'')));
+    if ([...scanned].some(path=>!source.files.some(file=>file.path===path))) throw new Error('scanner_unknown_path');
+    // Every YAML/JSON file can contain Kubernetes configuration. An omitted file is
+    // unknown, even if Trivy successfully reported findings for another file.
+    missingConfigurations=source.files.filter(file=>/\.(?:ya?ml|json)$/i.test(file.path) && !scanned.has(file.path)).length;
+    if (missingConfigurations) parsed.incomplete=true;
+  }
   const provenance = {image:result.image,profileChecksum:result.profileChecksum,sourceDigest:source.digest,redacted:true,matched:parsed.indicators.length,scanned:parsed.scanned};
   const tool = {name,version:result.version};
   evidence(a,'configuration',`scanner-profile:${name}`,provenance,tool);
@@ -36,11 +45,11 @@ function addTool(a: AssessmentAnalysis, name: ScannerName, result: ToolResult, s
     const id = evidence(a,name === 'gitleaks' ? 'source' : name === 'trivy' ? 'configuration':'source',location,{rule:hit.rule,path,line:hit.line,content:'[REDACTED]',sourceDigest:source.digest},tool);
     finding(a,{ruleId:hit.rule,correlationKey:`${name}:${hit.rule}:${path}`.slice(0,512),title:hit.title ?? `${name} static indicator: ${hit.rule}`.slice(0,256),location,description:hit.description ?? `The controlled ${name} profile matched a static indicator in the uploaded bytes. The source excerpt and any secret value are redacted.`,severity:hit.severity,confidence:'inferred',impact:name === 'gitleaks' ? 'Potential credential material may be exposed; validity and use are unknown.':'The matched source or configuration may weaken a security boundary; runtime reachability is unknown.',recommendation:hit.recommendation ?? (name === 'gitleaks' ? 'Review privately; revoke and rotate if this is a real credential.':'Review the indicated location and trust boundary, then rescan the updated snapshot.'),limitations:['Static rule match only; no customer code or exploit was executed.'],evidenceIds:[id]});
   }
-  if(name === 'trivy' && parsed.scanned===0) {
+  if(name === 'trivy' && parsed.scanned===0 && !missingConfigurations) {
     a.coverage.push({capability:name,state:'unsupported',detail:'The pinned Kubernetes profile recognized no supported configuration in this snapshot.'});
     return;
   }
-  a.coverage.push({capability:name,state:parsed.incomplete || truncated ? 'unavailable':'inspected',detail:parsed.incomplete ? 'Scanner reported parsing or analysis errors; findings retain only available evidence.' : truncated ? 'Finding cap reached; additional matches were omitted.' : `Completed pinned ${name} profile against uploaded files only; no finding is not proof of safety.`});
+  a.coverage.push({capability:name,state:parsed.incomplete || truncated ? 'unavailable':'inspected',detail:missingConfigurations ? `${missingConfigurations} candidate YAML/JSON configuration files were omitted or unrecognized; their coverage is unknown. Available findings are retained.` : parsed.incomplete ? 'Scanner reported parsing or analysis errors; findings retain only available evidence.' : truncated ? 'Finding cap reached; additional matches were omitted.' : `Completed pinned ${name} profile against uploaded files only; no finding is not proof of safety.`});
 }
 export async function assessInternal(input: CustomerRunInput, signal: AbortSignal, scanners: ScannerAdapter, advisory?: AdvisoryAdapter) {
   const source = input.source; if (!source) throw new Error('missing_source');

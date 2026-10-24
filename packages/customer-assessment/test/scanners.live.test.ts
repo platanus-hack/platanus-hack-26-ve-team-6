@@ -12,13 +12,27 @@ describe('actual local Docker scanners (no simulated findings)',()=>{
     const scanners=createDockerScanners();expect((await scanners.readiness()).ready).toBe(true);
     const files=[{path:'src/customer.ts',content:'export function evaluate(userInput: string) { return eval(userInput); }\nconst password = "FAKE_ONLY_1234567890_test_secret";'}, {path:'deployment.yaml',content:'apiVersion: v1\nkind: Pod\nmetadata:\n  name: customer-pod\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27\n      securityContext:\n        privileged: true\n'}, {path:'package.json',content:'{"scripts":{"postinstall":"exit 99"}}'}];
     const report=await createCustomerAssessmentRunner({scanners}).run(input(files));
-    expect(report.internal?.coverage.filter(c=>['semgrep','gitleaks','trivy'].includes(c.capability))).toEqual(expect.arrayContaining(['semgrep','gitleaks','trivy'].map(capability=>expect.objectContaining({capability,state:'inspected'}))));
+    expect(report.internal?.coverage.filter(c=>['semgrep','gitleaks','trivy'].includes(c.capability))).toEqual(expect.arrayContaining(['semgrep','gitleaks'].map(capability=>expect.objectContaining({capability,state:'inspected'}))));
+    expect(report.internal?.coverage.find(c=>c.capability==='trivy')?.state).toBe('unavailable'); // package.json was not inspected as Kubernetes configuration.
     expect(report.internal?.findings.some(f=>f.ruleId.includes('javascript.eval'))).toBe(true);
     expect(report.internal?.findings.some(f=>f.ruleId==='gotchu-assigned-secret')).toBe(true);
     expect(report.internal?.findings.some(f=>f.ruleId.startsWith('AVD-KSV'))).toBe(true);
     expect(JSON.stringify(report)).not.toContain('FAKE_ONLY_1234567890_test_secret');
     expect(report.internal?.evidence.every(e=>/^[a-f0-9]{64}$/.test(e.checksum))).toBe(true);
   },60000);
+  it('retains real Trivy findings while marking an omitted malformed YAML file unknown',async()=>{
+    const scanners=createDockerScanners();
+    const report=await createCustomerAssessmentRunner({scanners:{...scanners,async run(name,source,signal){
+      if(name!=='trivy')throw new Error('not_part_of_this_live_check');
+      return scanners.run(name,source,signal);
+    }}}).run(input([
+      {path:'valid.yaml',content:'apiVersion: v1\nkind: Pod\nmetadata:\n  name: customer\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27\n      securityContext:\n        privileged: true\n'},
+      {path:'broken.yaml',content:'apiVersion: v1\nkind: Pod\nspec: [unclosed\n'},
+    ]));
+    expect(report.internal?.findings.some(f=>f.ruleId.startsWith('AVD-KSV'))).toBe(true);
+    expect(report.internal?.coverage.find(c=>c.capability==='trivy')).toMatchObject({state:'unavailable',detail:expect.stringContaining('1 candidate')});
+    expect(report.internal?.status).toBe('partial');
+  },15000);
   it('settles an aborted real Docker run only after removing its container and source directory',async()=>{
     const docker=(...args:string[])=>promisify(execFile)('docker',['--host','unix:///var/run/docker.sock',...args]);
     const marker=`abort-${randomUUID()}.ts`;
