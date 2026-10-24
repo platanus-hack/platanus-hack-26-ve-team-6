@@ -22,7 +22,8 @@ function cleanup() {
 }
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { cleanup(); process.exit(130); });
 try {
-  command('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/contracts', '--filter', '@gotchu/database', '--filter', '@gotchu/backend', '--filter', '@gotchu/web...', '--sort', 'build']);
+  // CI builds the workspace once before every live suite; local runs rebuild what these tests import.
+  if (process.env.GOTCHU_TEST_SKIP_BUILD !== '1') command('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/contracts', '--filter', '@gotchu/database', '--filter', '@gotchu/backend', '--filter', '@gotchu/web...', '--sort', 'build']);
   command('docker', ['run', '--detach', '--rm', '--name', name, '--memory', '512m', '--cpus', '1', '--tmpfs', '/var/lib/postgresql/data:rw', '-p', '127.0.0.1::5432', '-e', 'POSTGRES_PASSWORD', '-e', 'POSTGRES_DB=gotchu_test_backend', postgresImage], { env: { ...process.env, POSTGRES_PASSWORD: password } });
   started = true;
   const address = command('docker', ['port', name, '5432/tcp']);
