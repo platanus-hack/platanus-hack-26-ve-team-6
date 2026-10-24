@@ -5,17 +5,17 @@
   font-display: swap;
 }
 
-/* Landing faces: one OFL variable file (Archivo), fixed to an expanded width for display and normal width for text. */
+/* Landing faces: one OFL variable file (Saira), fixed to an expanded width for display and normal width for text. */
 @font-face {
   font-family: 'Gotchu Display';
-  src: url('/fonts/archivo-latin.woff2') format('woff2');
+  src: url('/fonts/saira-latin.woff2') format('woff2');
   font-weight: 100 900;
-  font-stretch: 118%;
+  font-stretch: 125%;
   font-display: swap;
 }
 @font-face {
   font-family: 'Gotchu Text';
-  src: url('/fonts/archivo-latin.woff2') format('woff2');
+  src: url('/fonts/saira-latin.woff2') format('woff2');
   font-weight: 100 900;
   font-stretch: 100%;
   font-display: swap;
@@ -49,7 +49,7 @@
   --gc-unknown: #d6c6f3;
   --gc-unknown-bg: #352d47;
   --gc-font-body: 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --gc-font-display: 'Gotchu Display', 'Archivo', sans-serif;
+  --gc-font-display: 'Gotchu Display', sans-serif;
   --gc-font-code: ui-monospace, SFMono-Regular, Consolas, monospace;
   --gc-text-xs: 0.75rem;
   --gc-text-sm: 0.875rem;
