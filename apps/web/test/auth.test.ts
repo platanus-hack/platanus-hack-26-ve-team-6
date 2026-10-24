@@ -1,7 +1,7 @@
 import { encode } from '@auth/core/jwt';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { authSettings, createAuthConfig, createAuthService, type AuthSettings } from '../src/server/auth.js';
+import { authSettings, createAuthConfig, createAuthService, publicAuthProviders, type AuthSettings } from '../src/server/auth.js';
 
 const settings: AuthSettings = {
   origin: 'http://localhost:3000',
@@ -21,6 +21,7 @@ describe('Auth.js Request/Response integration', () => {
   it('reads a real Auth.js encrypted session and propagates refreshed cookies', async () => {
     const identity = await service.identity(new Request(`${settings.origin}/api/v1/applications`, { headers: { cookie: await sessionCookie() } }));
     expect(identity?.userId).toBe('github:42');
+    expect(identity?.displayName).toBe('Test operator');
     expect(identity?.cookies.some((cookie) => cookie.startsWith(`${cookieName}=`))).toBe(true);
   });
 
@@ -65,6 +66,13 @@ describe('Auth.js Request/Response integration', () => {
     expect(authSettings({})).toBeNull();
     expect((await createAuthService(null).handle(new Request(`${settings.origin}/api/auth/session`))).status).toBe(503);
     expect(() => authSettings({ AUTH_SECRET: settings.secret, AUTH_GITHUB_ID: 'id', AUTH_GITHUB_SECRET: 'secret', PUBLIC_APP_URL: 'http://public.example' })).toThrow('HTTPS');
+  });
+
+  it('publishes the GitHub sign-in provider only when both credentials are configured', () => {
+    const base = { AUTH_SECRET: settings.secret, PUBLIC_APP_URL: settings.origin };
+    expect(publicAuthProviders(authSettings({ ...base, AUTH_GITHUB_ID: 'client-id' }))).toEqual([]);
+    expect(publicAuthProviders(authSettings({ ...base, AUTH_GITHUB_SECRET: 'client-secret' }))).toEqual([]);
+    expect(publicAuthProviders(authSettings({ ...base, AUTH_GITHUB_ID: 'client-id', AUTH_GITHUB_SECRET: 'client-secret' }))).toContainEqual({ id: 'github', name: 'GitHub', type: 'oauth' });
   });
 
   it('supports generic OIDC without a GitHub account and exposes no client secret', async () => {
