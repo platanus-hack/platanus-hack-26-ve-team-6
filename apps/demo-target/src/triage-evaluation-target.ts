@@ -68,15 +68,16 @@ export async function startTriageEvaluationTarget(options: EvaluationTargetOptio
   function requestMetrics(request: Parameters<RequestListener>[0], response: Parameters<RequestListener>[1], startedAt: number) {
     response.once('finish', () => {
       const path = new URL(request.url ?? '/', 'http://gotchu-evaluation.invalid').pathname;
-      const route = path === '/' || path === '/.well-known/security.txt' || path === '/healthz'
-        ? path
+      const route = path === '/' ? undefined
+        : path === '/.well-known/security.txt' || path === '/healthz'
+          ? path
         : path.startsWith('/attack/') ? '/attack/{sink}'
           : path === '/login' ? '/login'
             : path === '/dependent' ? '/dependent'
               : path === '/checkout' ? '/checkout'
                 : '/work';
       const event = httpRequestEvent({
-        route,
+        route: route ?? '/',
         statusCode: response.statusCode,
         durationMs: Math.min(3_600_000, Math.max(0, performance.now() - startedAt)),
         capacityUtilization: faults.has('cpu_pressure') || faults.has('memory_pressure') ? 0.95 : 0.3,
@@ -84,7 +85,7 @@ export async function startTriageEvaluationTarget(options: EvaluationTargetOptio
       queue({
         ...event,
         ...(telemetryAt ? { occurredAt: telemetryAt } : {}),
-        attributes: { ...event.attributes, service: options.service, release, route },
+        attributes: { ...event.attributes, service: options.service, release, ...(route ? { route } : {}) },
       });
     });
   }
