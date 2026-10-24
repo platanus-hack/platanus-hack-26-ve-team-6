@@ -63,6 +63,23 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect(response.status).toBe(201); expect(await response.json()).toEqual(result);
     expect(prepare).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, reportId, ...selection });
   });
+  it('exposes validation status by candidate and versioned suite setup to authenticated workspace members', async () => {
+    const { services, auth } = ports();
+    const candidateSourceId = randomUUID(); const repositoryLinkId = randomUUID();
+    const validationStatus = vi.fn(async () => null);
+    services.corrections = { recommendations: async () => { throw new Error('Unexpected recommendations read'); }, prepare: async () => { throw new Error('Unexpected correction preparation'); }, validationStatus };
+    const suite = { id: randomUUID(), organizationId, applicationId, repositoryLinkId, version: 1, profile: 'node24-npm-test' as const, scriptName: 'test', suiteName: 'API tests', requiredCount: 4, regressionTestPath: null, createdAt: new Date().toISOString() };
+    const configureSuite = vi.fn(async () => suite);
+    services.validations = { configureSuite, getStatus: async () => null, getValidationFacts: async () => null };
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const statusRequest = new Request(`${origin}/api/customer/workspaces/${organizationId}/applications/${applicationId}/corrections/${candidateSourceId}`);
+    expect(await (await handle(statusRequest)).json()).toBeNull();
+    expect(validationStatus).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, candidateSourceId });
+    const configured = await handle(request(`workspaces/${organizationId}/applications/${applicationId}/validation-suites`, { repositoryLinkId, scriptName: 'test', suiteName: 'API tests', requiredCount: 4, regressionTestPath: null }));
+    expect(configured.status).toBe(200);
+    expect(await configured.json()).toEqual(suite);
+    expect(configureSuite).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, repositoryLinkId, scriptName: 'test', suiteName: 'API tests', requiredCount: 4, regressionTestPath: null });
+  });
   it('dispatches versioned action references with strict request fields and refreshed session cookies', async () => {
     const { services, auth } = ports();
     const proposalId = randomUUID();

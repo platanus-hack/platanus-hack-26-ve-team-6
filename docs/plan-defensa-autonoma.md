@@ -153,14 +153,16 @@ Trabajo:
 
 Trabajo:
 
-- [ ] Introducir registros durables de artefacto y validación: tenant, fuente/commit, patch y árbol candidato, hashes, herramienta/perfil, suite, runner/imagen, estado, tiempos, límites y caducidad.
-- [ ] Definir una suite relevante autorizada para cada repositorio. Su contenido no puede alterarse silenciosamente por el candidato para forzar un resultado verde.
-- [ ] Cuando sea reproducible, registrar una regresión que falla en la base por el problema y pasa en el candidato. Ejecutar además pruebas funcionales relevantes y reanálisis independiente; conservar separadas esas evidencias.
-- [ ] Usar alcance activo sólo en laboratorio autorizado. Preparar harnesses de Node/JS y pruebas de API; fuzzing posterior con corpus, tiempo y recursos limitados, sin extenderlo a producción.
-- [ ] Comparar findings nuevos/anteriores por identidad y cobertura. Si el scanner falla, el test es irrelevante o el código afectado queda sin inspección, no otorgar validación completa.
-- [ ] Firmar o autenticar resultados del runner mediante una identidad separada del modelo. El verificador carga artefactos persistidos; no acepta booleanos de éxito enviados por el cliente o el agente.
+- [x] Introducir registros durables por tenant de validación, fuente base/candidata, target, patch y árbol, perfil, suite versionada, runner/Firecracker/kernel/rootfs, estado, tiempos, límites y caducidad; las cuatro attestations se guardan separadas e inmutables.
+- [x] Permitir a Owner/Operator configurar una suite por enlace de repositorio; comparar `package.json` scripts y todos los paths de test entre base y candidato. Una suite modificada queda inconclusa.
+- [x] Ejecutar base y candidato en Firecracker con `node24-npm-test`; guardar reproducción, regresión candidata, suite y reanálisis como attestations distintas. La suite informa conteos y la reproducción objetivo desde `test-results/*.json`.
+- [ ] Añadir fuzzing con corpus y harnesses de API. El alcance actual se limita al laboratorio local y al perfil Node/JS fijo.
+- [x] Comparar identidades de findings nuevos/objetivo y cobertura antes/después; scanner fallido, coverage parcial, identity objetivo ausente, mismatch de digest y gate cerrado no producen validación completa.
+- [x] Firmar las attestations con una clave Ed25519 del proceso validator, protegida fuera del repo con modo 0600. `validationAttestationSchema` y `getValidationFacts({organizationId, actionRef})` entregan al verificador evidencia firmada y clave pública; la verificación es independiente del modelo.
 
 **Aceptación:** arreglo correcto; arreglo que borra/desactiva la funcionalidad; suite omitida; nuevo hallazgo; perfil viejo; salida falsificada; base diferente; test fallido; cobertura parcial; runner no aislado. UI con “reanálisis objetivo pasó” y “suite X pasó”, nunca “aplicación completamente segura”.
+
+El circuito local ya registra el resultado del candidato borrado como fallo en VM y distingue rescan y suite en la proyección. El profile del runner sólo admite `npm test`; otros `scriptName` quedan inconclusos. Los escenarios de scanner nuevo/coverage parcial, candidate digest distinto, gate cerrado y persistencia/lease están cubiertos por reglas o pruebas específicas; el cierre completo sigue pendiente de correr todas las suites de evidencia en infraestructura real.
 
 Esto adopta la exigencia práctica de un CRS: encontrar y corregir manteniendo comportamiento. La [evaluación de AIxCC](https://www.darpa.mil/news/2025/ai-cyber-challenge-scoring) valoró explícitamente parches que preservan funcionalidad. No implica que Gotchu ya alcance las capacidades de esos sistemas.
 
@@ -327,19 +329,19 @@ Estas funciones no se derivan de tener Semgrep o un LLM. Requieren un módulo de
 
 ## 7. Contratos, persistencia y evolución
 
-Los nombres de entidades siguientes son propuestas de diseño; no describen tablas/API ya existentes:
+Las entidades ya implementadas y las propuestas pendientes se distinguen aquí:
 
 - **Contexto:** servicios/entornos, enlaces de repositorio y despliegue, relaciones de dependencia y evidencia de vinculación.
 - **Triage:** revisión de incidente con hipótesis, impacto observado, contradicciones, evidencia, freshness y versión de reglas.
 - **Corrección:** candidato con source/report/finding, receta, base/tree/patch, integridad y perfil de validación.
-- **Validación:** ejecución de suite/rescan aislados y attestations inmutables de resultados separados.
+- **Validación (implementada localmente):** `validation_runs`, suites versionadas por repositorio, attestations Ed25519 inmutables por tipo, proyección pública de “reanálisis objetivo” y “suite”, y worker con rol/lease/quarantine propios. El perfil sigue fijo a `node24-npm-test`; no hay fuzzing ni perfiles adicionales.
 - **Acción v2:** unión discriminada para PR de dependencia, patch admitido, merge, deploy y respuesta de proveedor; cada variante exige sus propios campos y capacidad.
 
 El flujo objetivo es candidato → validación → propuesta elegible → aprobación exacta → ejecución → comprobación de resultado. Estados alternativos explícitos: rechazado, obsoleto, expirado, cancelado, fallido, inconcluso y pendiente de reconciliación. No comprimir todas las etapas en `success` ni inferirlas de un checkbox.
 
 Aplicar migraciones aditivas y compatibilidad de lectores/jobs en vuelo. El servidor calcula hashes normalizados; aprobar una versión no aprueba la siguiente. Un restore cambia epoch e invalida permisos anteriores. Los clientes reciben sólo proyecciones públicas; source, patch privado, credenciales y resultados sensibles no deben salir en respuestas de estado ordinarias.
 
-Las rutas futuras deben adaptarse a servicios backend tipados; las colas transportan IDs/intent compacto y las tareas largas devuelven jobId. No fijar URLs nuevas en la UI antes de acordar schemas de petición/respuesta, errores y estados de cancelación.
+Las rutas adaptan servicios backend tipados; validación expone configuración de suite por aplicación y lectura de estado por candidato. La cola duradera transporta referencias y las tareas largas se ejecutan fuera del HTTP request. Las proyecciones omiten snapshots y contenido de código.
 
 ## 8. Recorrido de interfaz que debemos completar
 

@@ -9,6 +9,7 @@ import {
   telemetryIntegrationSchema, telemetryConnectionSchema,
   monitorConfigInputSchema, monitorConfigSchema, operationCoverageSchema, operationAlertSchema,
   operationPlanSchema, operationPlanKindSchema, operationPlanBindingSchema, operationPlanStepSchema, operationReadinessSchema,
+  validationPublicProjectionSchema, validationSuiteConfigSchema, validationSuiteDefinitionSchema,
 } from '@gotchu/contracts';
 import { type Identity, type Backend } from '@gotchu/backend';
 import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, reportRecommendationsResponseSchema, type PrepareCorrectionRequest, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
@@ -26,7 +27,9 @@ export interface CustomerServices {
   corrections?: {
     recommendations(identity: Identity, input: { organizationId: string; applicationId: string; reportId: string }): Promise<ReportRecommendationsResponse>;
     prepare(identity: Identity, input: PrepareCorrectionRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<PrepareCorrectionResponse>;
+    validationStatus?(identity: Identity, input: { organizationId: string; applicationId: string; candidateSourceId: string }): Promise<unknown>;
   };
+  validations?: Backend['validations'];
   telemetry?: Backend['telemetry'];
   context?: Backend['context'];
   members?: Backend['members'];
@@ -139,6 +142,17 @@ export function createCustomerApi(options: {
         if (request.method === 'POST') return send(customerWorkspaceSchema.parse(await services.createWorkspace(identity, parse(customerCreateWorkspaceSchema, await body(request)))), 201);
       }
       const parts = url.pathname.split('/').filter(Boolean);
+      if (parts.length === 7 && parts[0] === 'api' && parts[1] === 'customer' && parts[2] === 'workspaces' && parts[4] === 'applications' && parts[6] === 'validation-suites' && request.method === 'POST') {
+        if (!services.validations) throw new HttpError(503, 'validations_not_configured', 'La validación independiente no está configurada.');
+        const value = parse(validationSuiteConfigSchema.omit({ organizationId: true, applicationId: true }), await body(request));
+        const validationScope = parse(scopeSchema, { organizationId: parts[3], applicationId: parts[5] });
+        return send(validationSuiteDefinitionSchema.parse(await services.validations.configureSuite(identity, { ...validationScope, ...value })));
+      }
+      if (parts.length === 8 && parts[0] === 'api' && parts[1] === 'customer' && parts[2] === 'workspaces' && parts[4] === 'applications' && parts[6] === 'corrections' && request.method === 'GET') {
+        if (!services.corrections?.validationStatus) throw new HttpError(503, 'corrections_not_configured', 'La validación de correcciones no está configurada.');
+        const validationScope = parse(scopeSchema, { organizationId: parts[3], applicationId: parts[5] });
+        return send(validationPublicProjectionSchema.nullable().parse(await services.corrections.validationStatus(identity, { ...validationScope, candidateSourceId: parse(uuid, parts[7]) })));
+      }
       if (parts[0] !== 'api' || parts[1] !== 'customer' || parts[2] !== 'workspaces') throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
       const organizationId = parse(uuid, parts[3]);
       if (parts.length === 6 && parts[4] === 'jobs' && request.method === 'GET') {

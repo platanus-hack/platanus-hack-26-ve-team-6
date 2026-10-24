@@ -82,6 +82,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, operations: web.operations, corrections: web.corrections, context: web.context, triage: web.triage,
     members: web.members,
     actions: web.actions,
+    validations: web.validations,
     repositoryCatalog: async (identity, scope) => {
       await web.operations.getConfig(identity, scope);
       if (!env.GOTCHU_MONITORING_CONFIG_FILE) return [];
