@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
-import { MonitorIcon, MoonIcon, SunIcon, type LucideIcon } from 'lucide-react';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { CheckIcon, MonitorIcon, MoonIcon, SunIcon, type LucideIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuRadioItemIndicator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
@@ -78,22 +79,26 @@ export function useThemePreference() {
 }
 
 const OPTIONS = [
-  { value: 'light', label: 'Tema claro', Icon: SunIcon },
-  { value: 'dark', label: 'Tema oscuro', Icon: MoonIcon },
-  { value: 'system', label: 'Tema del sistema', Icon: MonitorIcon },
+  { value: 'light', label: 'Claro', Icon: SunIcon },
+  { value: 'dark', label: 'Oscuro', Icon: MoonIcon },
+  { value: 'system', label: 'Sistema', Icon: MonitorIcon },
 ] as const satisfies readonly { value: ThemePreference; label: string; Icon: LucideIcon }[];
 
-/** Three-way theme control. The group owns roving focus and arrow keys; one option is always pressed. */
+/** Theme control: one icon button showing the current preference that opens a Claro / Oscuro / Sistema menu. */
 export function ThemeSwitch({ className }: { className?: string }) {
   const [preference, choose] = useThemePreference();
-  return <ToggleGroup
-    aria-label="Tema"
-    spacing={1}
-    className={cn('gl-theme rounded-lg shadow-[inset_0_0_0_1px_var(--border)]', className)}
-    value={[preference]}
-    onValueChange={([next]) => { if (isPreference(next)) choose(next); }}>
-    {OPTIONS.map(({ value, label, Icon }) => <ToggleGroupItem key={value} value={value} aria-label={label} title={label} className="size-[34px] px-0">
-      <Icon aria-hidden="true" className="size-3.5" />
-    </ToggleGroupItem>)}
-  </ToggleGroup>;
+  const current = OPTIONS.find(option => option.value === preference) ?? OPTIONS[2];
+  return <DropdownMenu>
+    <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label="Tema" title="Tema" className={cn('gl-theme size-[34px]', className)} />}>
+      <current.Icon aria-hidden="true" />
+    </DropdownMenuTrigger>
+    <DropdownMenuContent>
+      <DropdownMenuRadioGroup value={preference} onValueChange={next => { if (isPreference(next)) choose(next); }}>
+        {OPTIONS.map(({ value, label, Icon }) => <DropdownMenuRadioItem key={value} value={value}>
+          <Icon aria-hidden="true" />{label}
+          <DropdownMenuRadioItemIndicator><CheckIcon aria-hidden="true" /></DropdownMenuRadioItemIndicator>
+        </DropdownMenuRadioItem>)}
+      </DropdownMenuRadioGroup>
+    </DropdownMenuContent>
+  </DropdownMenu>;
 }
