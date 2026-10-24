@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import json
 from pathlib import Path
 import tarfile
 import tempfile
@@ -47,9 +48,20 @@ class ArchiveSafety(unittest.TestCase):
         member.mode = 0o4755
         self.reject([member])
 
-    def test_wrong_commit(self):
+    def test_invalid_manifest(self):
         member = tarfile.TarInfo('release.json')
         self.reject([member])
+
+    def test_wrong_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / 'release.tgz'
+            payload = json.dumps(dict(commit='b' * 40, nodeMajor=24, platform='linux', arch='x64')).encode()
+            with tarfile.open(archive, 'w:gz') as bundle:
+                member = tarfile.TarInfo('release.json')
+                member.size = len(payload)
+                bundle.addfile(member, io.BytesIO(payload))
+            with self.assertRaisesRegex(ValueError, 'manifest does not match deployment'):
+                module.extract_release(archive, Path(directory) / 'app', 'a' * 40)
 
 
 unittest.main()
