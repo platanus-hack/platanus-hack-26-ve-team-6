@@ -1,6 +1,6 @@
 .g-product-flow { position: relative; }
 .g-flow-sheet { position: relative; padding: 26px 28px 0; border: 1px solid var(--gc-line); border-radius: 24px; background: #0f0f16; overflow: hidden; }
-.g-flow-dots { --dots-size: 66px; }
+.g-flow-dots { --dots-size: 150px; margin: 4px auto 10px; }
 .g-flow-sheet h3 { margin-top: 18px !important; font: 700 26px/1.1 var(--gc-font-display); text-transform: uppercase; letter-spacing: -.01em; }
 .g-file-formats { display: flex; flex-wrap: wrap; gap: 8px; padding: 22px 0 6px; }
 .g-file-formats code { padding: 7px 10px; border: 1px solid var(--gc-line); border-radius: 8px; font: 12px/1.5 var(--gc-font-code); color: var(--gc-paper); }
