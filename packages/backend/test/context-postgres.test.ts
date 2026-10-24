@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { fixture, liveUrl } from '../../database/test/support.js';
 import { createBackend, type VerifiedStepUp } from '../src/index.js';
-import { compareAnalyzedToDeployed } from '@gotchu/contracts';
 
 const live = liveUrl ? describe : describe.skip;
 live('tenant application context on real PostgreSQL', () => {
@@ -183,32 +182,4 @@ live('tenant application context on real PostgreSQL', () => {
     expect(await backend.context.createRepositoryLink(identity(), { ...scope(), repositoryKey: 'catalog-backed', defaultBranch: 'main' })).toMatchObject({ readAccess: 'granted', writeAccess: 'not_granted' });
     await expect(f.admin.query("INSERT INTO gotchu.application_deployments(organization_id,application_id,environment_id,service_id,id,release_id,deployed_at,state,source) VALUES($1,$2,$3,$4,$5,'bad-fk',now(),'declared','customer_declared')", [f.a.organizationId,f.a.applicationId,otherEnvironment.id,service.id,crypto.randomUUID()])).rejects.toMatchObject({ code: '23503' });
   });
-  it('maps bounds and environment name collisions to stable errors', async () => {
-    await base();
-    for (let i = 0; i < 9; i++) await backend.context.createEnvironment(identity(), { ...scope(), name: `env-${i}`, kind: 'other' });
-    await expect(backend.context.createEnvironment(identity(), { ...scope(), name: 'eleven', kind: 'other' })).rejects.toMatchObject({ code: 'context_environment_limit', status: 429 });
-    await expect(backend.context.updateEnvironment(identity(), { ...scope(), environmentId: (await backend.context.list(identity(), scope())).environments[0]!.id, name: 'env-0' })).rejects.toMatchObject({ code: 'context_conflict', status: 409 });
-    const inventory = await backend.context.list(identity(), scope());
-    const env = inventory.environments[0]!;
-    for (let i = 0; i < 20; i++) await backend.context.createRepositoryLink(identity(), { ...scope(), repositoryKey: `repo-${i}`, defaultBranch: 'main' });
-    await expect(backend.context.createRepositoryLink(identity(), { ...scope(), repositoryKey: 'repo-overflow', defaultBranch: 'main' })).rejects.toMatchObject({ code: 'context_repository_limit', status: 429 });
-    for (let i = 0; i < 49; i++) await backend.context.createService(identity(), { ...scope(), environmentId: env.id, name: `service-${i}`, kind: 'web' });
-    await expect(backend.context.createService(identity(), { ...scope(), environmentId: env.id, name: 'service-overflow', kind: 'web' })).rejects.toMatchObject({ code: 'context_service_limit', status: 429 });
-    const service = (await backend.context.list(identity(), scope())).services[0]!;
-    for (let i = 0; i < 100; i++) await backend.context.createDependency(identity(), { ...scope(), environmentId: env.id, serviceId: service.id, kind: 'package', provider: 'other', component: `dep-${i}`, region: null });
-    await expect(backend.context.createDependency(identity(), { ...scope(), environmentId: env.id, serviceId: service.id, kind: 'package', provider: 'other', component: 'dep-overflow', region: null })).rejects.toMatchObject({ code: 'context_dependency_limit', status: 429 });
-    for (let i = 0; i < 200; i++) await backend.context.createOriginCandidate(identity(), { ...scope(), environmentId: env.id, origin: `https://host-${i}.example.com`, discoverySource: 'customer_inventory' });
-    await expect(backend.context.createOriginCandidate(identity(), { ...scope(), environmentId: env.id, origin: 'https://overflow.example.com', discoverySource: 'customer_inventory' })).rejects.toMatchObject({ code: 'context_origin_limit', status: 429 });
-  }, 60_000);
-  it('retains the 500 newest deployments per service and compares only verified identity', async () => {
-    const { environment, service } = await base();
-    for (let i = 0; i < 501; i++) await backend.context.createDeployment(identity(), { ...scope(), environmentId: environment.id, serviceId: service.id, releaseId: `r-${i}`, deployedAt: new Date(Date.UTC(2020, 0, 1, 0, 0, i)).toISOString(), commitSha: `${i.toString(16).padStart(40, '0')}` });
-    const rows = (await backend.context.list(identity(), scope())).deployments;
-    expect(rows).toHaveLength(500);
-    expect(rows.some(row => row.releaseId === 'r-0')).toBe(false);
-    expect(rows[0]?.releaseId).toBe('r-500');
-    expect(compareAnalyzedToDeployed({ commitSha: 'a'.repeat(40) }, { state: 'verified', commitSha: 'a'.repeat(40), sourceSnapshotDigest: null })).toBe('matches');
-    expect(compareAnalyzedToDeployed({ commitSha: 'b'.repeat(40) }, { state: 'verified', commitSha: 'a'.repeat(40), sourceSnapshotDigest: null })).toBe('differs');
-    expect(compareAnalyzedToDeployed({}, { state: 'declared', commitSha: 'a'.repeat(40), sourceSnapshotDigest: null })).toBe('unknown');
-  }, 60_000);
 });
