@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Database, Transaction } from '@gotchu/database';
+import { DEMO_ASSESSMENT_SCOPE } from './demo.js';
 
 export interface Clock { now(): Date }
 export const systemClock: Clock = { now: () => new Date() };
@@ -30,8 +31,12 @@ export const sha256 = (input: string | Uint8Array): string => createHash('sha256
 export async function audit(tx: Transaction, organizationId: string, actorId: string, action: string, subjectId: string | null, detail: unknown = {}): Promise<void> {
   await tx.query('INSERT INTO gotchu.audit_records(organization_id,id,actor_id,action,subject_id,detail) VALUES ($1,$2,$3,$4,$5,$6::jsonb)', [organizationId, randomUUID(), actorId, action, subjectId, JSON.stringify(detail)]);
 }
-export async function authorize(tx: Transaction, organizationId: string, identity: Identity, allowed: readonly MembershipRole[] = ['owner', 'operator', 'viewer']): Promise<MembershipRole> {
+export async function authorize(tx: Transaction, organizationId: string, identity: Identity, allowed: readonly MembershipRole[] = ['owner', 'operator', 'viewer'], demoApplicationId?: string): Promise<MembershipRole> {
   const { userId } = parse(identitySchema, identity);
+  // Only assessment methods and their job polling opt in to the fixed public demo scope.
+  if (userId === DEMO_ASSESSMENT_SCOPE.userId && (organizationId.toLowerCase() !== DEMO_ASSESSMENT_SCOPE.organizationId || demoApplicationId?.toLowerCase() !== DEMO_ASSESSMENT_SCOPE.applicationId)) {
+    throw new BackendError('forbidden', 'The controlled demo principal cannot access this operation or scope', 403);
+  }
   // Row lock makes role revocation and a privileged operation serialize.
   const result = await tx.query<{ role: MembershipRole }>('SELECT gotchu.lock_membership($1,$2) AS role', [organizationId, userId]);
   const role = result.rows[0]?.role;

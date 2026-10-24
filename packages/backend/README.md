@@ -15,18 +15,37 @@ Use separate runtime logins and backend instances for `gotchu_api`, `gotchu_inge
 
 ## HTTP adapter contract
 
+### Controlled assessment integration
+
+`backend.assessments` uses the shared `AssessmentRunInput` and `AssessmentReport` contracts. These are observation-only controlled checks; reports never grant verified remediation or action permission.
+
+- `queue(identity, { organizationId, applicationId, mode, revision, idempotencyKey }): Promise<{ jobId: string }>` authorizes Owner/Operator membership, selects the operator-enabled target, and commits request, audit job, outbox and audit record together. Reusing a key with another mode, revision or configured target fails with `idempotency_conflict`.
+- `getTarget(identity, { organizationId, applicationId }): Promise<{ targetKey: string } | null>` authorizes membership and returns the enabled opaque target key, never a URL or filesystem path.
+- `list(identity, { organizationId, applicationId, limit? }): Promise<AssessmentReportSummary[]>` returns at most 50 report summaries (default 20).
+- `get(identity, { organizationId, applicationId, reportId }): Promise<AssessmentReport>` authorizes membership and loads one validated report. Use `web.getJob` to poll jobs; successful assessment jobs expose `reportId`.
+- Coordinator only: `getRequest({ organizationId, applicationId, jobId, leaseToken }): Promise<AssessmentRunInput>` checks the current audit-job lease, persisted request, job payload, and enabled target before returning trusted runner input.
+- Coordinator only: `recordResult({ input: AssessmentRunInput, leaseToken: string, report: unknown }): Promise<{ reportId: string }>` validates the report, checks input/report/request scope and the enabled target, and stores the report plus job completion in one transaction under the current lease. Both serialized report JSON and stored JSONB text are bounded at 1 MiB. Expired/replaced leases roll back all effects.
+
+Targets are operator-managed rows in `gotchu.assessment_targets`; API/coordinator roles can only read them. Each app has at most one enabled target. To change it, disable the previous row and enable a new key in one operator transaction. Existing requests retain their original key and cannot be redirected. No request accepts a target URL/path/key. The adapter resolves `controlled-demo-store` to its operator-configured fixtures and HTTP origin.
+
+The operator-only `node scripts/assessment-demo-seed.mjs` uses `GOTCHU_MIGRATION_DATABASE_URL` after package builds. It creates only `DEMO_ASSESSMENT_SCOPE` (exported by backend) and the fixed `DEMO_ASSESSMENT_TARGET_KEY`. It is repeatable and refuses conflicting existing scope/configuration instead of overwriting it. The migration/operator login must see all rows; runtime credentials are insufficient. The reserved `demo:controlled-assessment` principal is deliberately public, not an authenticated customer identity. Generic backend operations deny it; only assessment operations and job polling for the fixed app accept it after membership checks. The public HTTP adapter must be opt-in, enforce origin/body/usage bounds, inject this fixed scope, and call these same membership-authorized assessment methods. Never accept that principal from a customer session or expose operator credentials at web startup.
+
+The fixed scope is organization `d3e00000-0000-4000-8000-000000000001`, application `d3e00000-0000-4000-8000-000000000002`, user `demo:controlled-assessment`, with target `controlled-demo-store`. Its queue transaction permits at most three unfinished audit jobs and 100 total audit jobs, serialized under the target lock across API instances. Exact idempotent retries return before quota checks. New work fails with HTTP 429 `assessment_capacity_exceeded` or `demo_assessment_limit`; the lifetime bound requires deliberate operator cleanup in a disposable demonstration environment. These are admission bounds, not measured throughput guarantees.
+
+Legacy `web.queueAudit` jobs contain no assessment request and remain visibly unavailable to a configured runner. New assessment HTTP adapters must use `assessments.queue` and the explicit mode/revision contract.
+
 `backend.events.ingest({ integrationId, timestamp, signature, rawBody })` takes the exact received Buffer. `MAX_EVENT_BODY_BYTES` is 256 KiB; enforce it while streaming, before buffering. At most 100 events fit the shared `eventBatchSchema`. The integration supplies the organization and application; `signed_events` only accepts `source: 'application'`.
 
 HMAC-SHA256 input is the UTF-8 prefix `gotchu-events-v1\n${integrationId}\n${timestamp}\n`, followed by the exact raw bytes. Timestamp is decimal Unix seconds within 300 seconds of server time. Signature is 64 lowercase hex characters. `signEventBody` and `verifyEventSignature` are exported. `CredentialStore.getSigningSecret(reference): Promise<Uint8Array>` must resolve at least 32 secret bytes from an external secret store or encrypted adapter; the database only stores an opaque reference in the intake-only credential table.
 
 The response is `{ accepted, duplicates, jobId: string | null }`. Stable event IDs deduplicate per integration; changed event content rejects the entire batch. UUID spelling is normalized; object key order is immaterial. A response is returned only after the event, durable job, outbox, and audit transaction commits. A repeated batch returns zero accepted and `jobId: null`. These body/batch bounds are not measured sustained-rate or per-tenant quota guarantees.
 
-Web methods take `identity: { userId: string }` exclusively from a trusted server-side Auth.js session (for example `github:<providerAccountId>`). Organization IDs select a tenant; every method checks membership inside the transaction. Cookie-authenticated routes must enforce same-Origin/CSRF protections in the web adapter. Domain services do not consume identity headers.
+Customer web methods take `identity: { userId: string }` exclusively from a trusted server-side Auth.js session (for example `github:<providerAccountId>`). The fixed public assessment demo above is a separate, explicitly restricted entry point. Organization IDs select a tenant; every method checks membership inside the transaction. Cookie-authenticated routes must enforce same-Origin/CSRF protections in the web adapter. Domain services do not consume identity headers.
 
 - `web.authorize(identity, organizationId, roles?)` returns `owner | operator | viewer`.
 - `web.listApplications(identity, { organizationId })` returns `{ id, name }[]`.
 - `web.queueAudit(identity, { organizationId, applicationId, idempotencyKey })` returns `{ jobId }`; Owner or Operator only.
-- `web.getJob(identity, { organizationId, jobId })` returns `{ id, applicationId, kind, state, attempts, createdAt, completedAt }`. Payload, private checkpoints, and internal results are excluded.
+- `web.getJob(identity, { organizationId, jobId })` returns `{ id, applicationId, kind, state, attempts, createdAt, completedAt, outcome, reasonCode, reportId }`. Payload and private checkpoints are excluded; `reportId` is null before successful assessment completion.
 - `web.listIncidents`, `web.getCoverage`, and `web.listProposals` take `(identity, { organizationId, applicationId })`. Lists are bounded at 100. Coverage synthesizes explicit unconfigured/unsupported states; customer-code execution is unsupported until a separately verified VM boundary exists.
 
 Expected failures are `BackendError` with `code` and HTTP `status`. Invalid runtime contracts fail as `invalid_input`. Do not expose unexpected database/credential/provider exception details in HTTP responses.
