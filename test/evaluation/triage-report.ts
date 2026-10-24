@@ -64,7 +64,8 @@ function metricsFor(scenario: string, trials: readonly TrialResult[]) {
     falseAlarms += unexpected.length;
     if (unexpected.length) falseAlarmWindows++;
 
-    const expectedKinds = new Set(trial.expected.hypotheses.filter(item => item.kind !== 'unknown').map(item => item.kind));
+    const expectedKinds = new Set(trial.expected.hypotheses.filter(item => item.kind !== 'unknown'
+      && (item.status === 'supported' || item.status === 'weak')).map(item => item.kind));
     const predictedKinds = new Set(trial.actual.hypotheses.filter(item => item.kind !== 'unknown'
       && (item.status === 'supported' || item.status === 'weak')).map(item => item.kind));
     causeTp += [...expectedKinds].filter(kind => predictedKinds.has(kind)).length;
@@ -128,10 +129,12 @@ export function buildEvaluationReport(input: {
     const detectedSignals = trials.reduce((total, trial) => total + trial.actual.alertRules.length + trial.actual.incidentRules.length, 0);
     const tpSignals = trials.reduce((total, trial) => total + [...new Set([...trial.expected.alertRules, ...trial.expected.incidentRules])]
       .filter(rule => [...trial.actual.alertRules, ...trial.actual.incidentRules].includes(rule)).length, 0);
-    const expectedCauses = trials.reduce((total, trial) => total + trial.expected.hypotheses.filter(item => item.kind !== 'unknown').length, 0);
+    const expectedCauses = trials.reduce((total, trial) => total + trial.expected.hypotheses.filter(item => item.kind !== 'unknown'
+      && (item.status === 'supported' || item.status === 'weak')).length, 0);
     const predictedCauses = trials.reduce((total, trial) => total + new Set(trial.actual.hypotheses.filter(item => item.kind !== 'unknown'
       && (item.status === 'supported' || item.status === 'weak')).map(item => item.kind)).size, 0);
     const tpCauses = trials.reduce((total, trial) => total + trial.expected.hypotheses.filter(item => item.kind !== 'unknown'
+      && (item.status === 'supported' || item.status === 'weak')
       && trial.actual.hypotheses.some(actual => actual.kind === item.kind && (actual.status === 'supported' || actual.status === 'weak'))).length, 0);
     const alertTimes = trials.flatMap(trial => trial.timings.alertMs === null ? [] : [trial.timings.alertMs]);
     const decisionTimes = trials.flatMap(trial => trial.timings.decisionMs === null ? [] : [trial.timings.decisionMs]);
@@ -231,7 +234,8 @@ export function buildEvaluationReport(input: {
       for (const rule of trial.actual.falseAlarmRules) failures.push({ caseId: trial.caseId, repetition: trial.repetition,
         kind: 'false_alarm', expected: 'no unlabelled operational signal', actual: rule });
       const expectedKinds = new Set<string>(trial.expected.hypotheses.map(item => item.kind));
-      for (const hypothesis of trial.actual.hypotheses) if (hypothesis.kind !== 'unknown' && !expectedKinds.has(hypothesis.kind)) {
+      for (const hypothesis of trial.actual.hypotheses) if (hypothesis.kind !== 'unknown'
+        && (hypothesis.status === 'supported' || hypothesis.status === 'weak') && !expectedKinds.has(hypothesis.kind)) {
         failures.push({ caseId: trial.caseId, repetition: trial.repetition, kind: 'false_cause',
           expected: 'no unlabelled supported cause', actual: `${hypothesis.kind}/${hypothesis.status}/${hypothesis.confidence}` });
       }
