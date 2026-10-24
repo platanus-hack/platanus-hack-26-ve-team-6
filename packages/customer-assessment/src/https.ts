@@ -23,10 +23,15 @@ export interface HttpsObservation { status: number; headers: Record<string,strin
 export function createHttpsProbe(options: HttpsOptions = {}) {
   const fixture = options.testFixture;
   if (fixture && (process.env.NODE_ENV !== 'test' || !options.lookup || !Number.isInteger(fixture.port) || fixture.port < 1024 || fixture.port > 65535)) throw new Error('invalid_test_fixture');
-  return async (origin: string, parentSignal: AbortSignal): Promise<HttpsObservation> => {
+  return async (origin: string, parentSignal: AbortSignal, expiresAt?: string): Promise<HttpsObservation> => {
     const url = new URL(customerOriginSchema.parse(origin));
-    const signal = AbortSignal.any([parentSignal, AbortSignal.timeout(5000)]);
-    const addresses = await bounded((options.lookup ?? (host => lookup(host,{all:true,verbatim:true})))(url.hostname),signal);
+    const authorizedUntil = expiresAt === undefined ? Infinity : Date.parse(expiresAt);
+    const remaining = authorizedUntil-Date.now();
+    if (!(remaining > 0)) throw new Error('expired_target');
+    const signal = AbortSignal.any([parentSignal, AbortSignal.timeout(Math.min(5000,remaining))]);
+    const addresses = await bounded(()=>(options.lookup ?? (host => lookup(host,{all:true,verbatim:true})))(url.hostname),signal);
+    // DNS can outlive authorization, including when a delayed event loop has not fired the timer.
+    if (Date.now() >= authorizedUntil) throw new Error('expired_target');
     const scopedFixture = fixture?.hostname === url.hostname ? fixture : undefined;
     if (!addresses.length || addresses.length > 32 || addresses.some(a => isIP(a.address) !== a.family || !(isPublicAddress(a.address) || scopedFixture && (a.address === '127.0.0.1' || a.address === '::1')))) throw new Error('nonpublic_dns');
     const selected = addresses[0]; if (!selected) throw new Error('empty_dns');

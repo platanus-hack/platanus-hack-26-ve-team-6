@@ -7,7 +7,7 @@ export async function assessExternal(input: CustomerRunInput, signal: AbortSigna
   a.limitations.push('Only GET / was requested. No redirects, endpoint enumeration, credentials, exploitation, application version inference or source access.', 'Header presence does not establish policy effectiveness. A banner is untrusted and does not establish installed software or vulnerable versions.');
   try {
     if (Date.parse(target.expiresAt) <= Date.now() || Date.parse(target.verifiedAt) > Date.now()) throw new Error('expired_target');
-    const observed = await createHttpsProbe(options)(target.origin,signal);
+    const observed = await createHttpsProbe(options)(target.origin,signal,target.expiresAt);
     const id = evidence(a,'http_response',`${target.origin}/`,observed,{name:'node:https',version:process.versions.node});
     a.coverage.push({capability:'tls_https',state:'inspected',detail:'A real TLS connection verified the certificate chain and enrolled hostname against the selected validated DNS address.'});
     a.coverage.push({capability:'root_headers',state:observed.incomplete ? 'unavailable' : 'inspected',detail:observed.incomplete ?? `Observed HTTP ${observed.status}; headers apply only to this response.`});

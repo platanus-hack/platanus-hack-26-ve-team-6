@@ -16,8 +16,8 @@ beforeAll(async()=>{
 });
 afterAll(async()=>rm(directory,{recursive:true,force:true}));
 async function fixture(handler:HttpListener){
-  const server=createServer({cert,key},handler);await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address||typeof address==='string')throw new Error();
-  return {port:address.port,close:async()=>{server.closeAllConnections();await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));}};
+  let connections=0;const server=createServer({cert,key},handler);server.on('connection',()=>{connections++;});await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address||typeof address==='string')throw new Error();
+  return {port:address.port,connections:()=>connections,close:async()=>{server.closeAllConnections();await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));}};
 }
 describe('public address policy',()=>{
   it.each(['0.0.0.0','10.2.3.4','127.0.0.1','169.254.169.254','100.100.100.200','172.16.0.2','192.168.1.1','192.0.2.1','198.51.100.2','203.0.113.1','198.19.0.1','224.0.0.1','255.255.255.255','::1','::ffff:127.0.0.1','::ffff:8.8.8.8','fe80::1','fc00::1','ff02::1','2001:db8::1','2002:0808:0808::1','3fff::1'])('rejects reserved/private/mapped address %s',address=>expect(isPublicAddress(address)).toBe(false));
@@ -35,6 +35,33 @@ describe('actual HTTPS sockets with scoped test CA and port',()=>{
       const request=input();request.mode='external';request.source=null;request.target={id:request.jobId,origin:'https://customer.org',version:7,verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()};
       const report=await createCustomerAssessmentRunner({scanners:absentScanners,https:options}).run(request);expect(report.external?.status).toBe('completed');expect(report.external?.findings.find(f=>f.ruleId==='https.technology-banner')?.confidence).toBe('inferred');expect(report.external?.findings.find(f=>f.ruleId.includes('content-security-policy'))?.confidence).toBe('observed');expect(seen).toEqual(['GET /','GET /','GET /']);
     }finally{await target.close();}
+  });
+  it.each(['async DNS','delayed timer'] as const)('never opens TLS or sends GET when authorization expires during %s',async kind=>{
+    let requests=0,connections=0;
+    const target=await fixture((_,res)=>{requests++;res.end('must not be requested');});
+    // Count TCP connections too: an expired target must not reach TLS negotiation.
+    const request=input();request.mode='external';request.source=null;
+    request.target={id:request.jobId,origin:'https://customer.org',version:1,verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+150).toISOString()};
+    try {
+      const report=await createCustomerAssessmentRunner({https:{testFixture:{hostname:'customer.org',port:target.port,ca:cert},lookup:async()=>{
+        if(kind==='async DNS')await new Promise(resolve=>setTimeout(resolve,350));
+        else {const until=Date.now()+350;while(Date.now()<until){/* Exercise the explicit wall-clock check before abort timers run. */}}
+        return [{address:'127.0.0.1',family:4}];
+      }}}).run(request);
+      connections=target.connections();
+      expect(requests).toBe(0);expect(connections).toBe(0);
+      expect(report.external?.status).toBe('unavailable');
+      expect(report.external?.coverage.find(c=>c.capability==='public_https_root')?.state).toBe('unavailable');
+    } finally {await target.close();}
+  });
+  it('caps an in-progress HTTPS request by remaining authorization time',async()=>{
+    let requests=0;const target=await fixture(()=>{requests++;});
+    try {
+      const started=Date.now();
+      const probe=createHttpsProbe({lookup:async()=>[{address:'127.0.0.1',family:4}],testFixture:{hostname:'customer.org',port:target.port,ca:cert}});
+      await expect(probe('https://customer.org',AbortSignal.timeout(5000),new Date(Date.now()+150).toISOString())).rejects.toThrow();
+      expect(requests).toBe(1);expect(Date.now()-started).toBeLessThan(1000);
+    } finally {await target.close();}
   });
   it('rejects wrong hostname even with a trusted test CA',async()=>{
     const target=await fixture((_,res)=>res.end('no'));
