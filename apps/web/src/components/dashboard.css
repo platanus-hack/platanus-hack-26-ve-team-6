@@ -99,6 +99,7 @@ body { margin: 0; }
 .gc-reading-note, .gc-improvement { display: flex; gap: 14px; padding: 19px 22px; background: #eef4e8; border: 1px solid #dae6ce; border-radius: 8px; color: #627c52; font-size: 14px; line-height: 1.8; margin: 20px 0; }
 .gc-improvement svg { flex-shrink: 0; margin-top: 3px; }
 .gc-improvement strong { font-size: 15px; color: #47683b; font-weight: 600; }
+.gc-improvement-actions { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 7px; }
 .gc-improvement p { font-size: 13px; margin: 5px 0 0; color: #738569; }
 .gc-history { list-style: none; margin: 0; padding: 0 24px; }
 .gc-history li + li { border-top: 1px solid #edf1e9; }
