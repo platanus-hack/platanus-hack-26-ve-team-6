@@ -69,6 +69,7 @@ live('material investigations on real PostgreSQL', () => {
     const apiWithSecrets = createBackend({ database: f.databases.gotchu_api, modelSecrets: {
       get: async () => new Uint8Array(),
       put: async (_reference, secret) => { storedSecrets.push(secret); },
+      replace: async () => undefined,
       delete: async () => {},
     } });
     await expect(apiWithSecrets.investigationModels.configure({ userId: viewer }, {
@@ -84,6 +85,7 @@ live('material investigations on real PostgreSQL', () => {
     const apiWithSecrets = createBackend({ database: f.databases.gotchu_api, modelSecrets: {
       get: async reference => storedSecrets.get(reference) ?? new Uint8Array(),
       put: async (reference, secret) => { storedSecrets.set(reference, secret); },
+      replace: async (reference, secret) => { storedSecrets.set(reference, secret); },
       delete: async reference => { storedSecrets.delete(reference); },
     } });
     const identity = { userId: f.a.userId };
@@ -101,5 +103,40 @@ live('material investigations on real PostgreSQL', () => {
     expect(switched.providerPresetId).toBe('anthropic');
     expect(switched.apiKeyConfigured).toBe(false);
     expect(storedSecrets.size).toBe(0);
+  });
+
+  it('stores only a real subscription login and never a per-token price for it', async () => {
+    const storedSecrets = new Map<string, Uint8Array>();
+    const apiWithSecrets = createBackend({ database: f.databases.gotchu_api, modelSecrets: {
+      get: async reference => storedSecrets.get(reference) ?? new Uint8Array(),
+      put: async (reference, secret) => { storedSecrets.set(reference, secret); },
+      replace: async (reference, secret) => { storedSecrets.set(reference, secret); },
+      delete: async reference => { storedSecrets.delete(reference); },
+    } });
+    const identity = { userId: f.a.userId };
+    const codex = {
+      organizationId: f.a.organizationId, providerPresetId: 'codex' as const, modelId: 'gpt-6-luna',
+      consentToExternalProcessing: true, dataScopes: ['runtime_summaries' as const], inputPriceMicroUsdPerMillionTokens: 0,
+      outputPriceMicroUsdPerMillionTokens: 0, organizationBudgetCents: 100, organizationTokenBudget: 100_000,
+    };
+    await expect(apiWithSecrets.investigationModels.configure(identity, { ...codex, apiKey: '{"OPENAI_API_KEY":"sk-not-a-login"}' }))
+      .rejects.toMatchObject({ code: 'model_credential_invalid', status: 400 });
+    await expect(apiWithSecrets.investigationModels.configure(identity, { ...codex, inputPriceMicroUsdPerMillionTokens: 1,
+      apiKey: JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: 'i', access_token: 'a', refresh_token: 'r' } }) }))
+      .rejects.toMatchObject({ status: 400 });
+    expect(storedSecrets.size).toBe(0);
+
+    const ready = await apiWithSecrets.investigationModels.configure(identity, { ...codex,
+      apiKey: '{\n  "auth_mode": "chatgpt",\n  "tokens": { "id_token": "i", "access_token": "a", "refresh_token": "r" }\n}' });
+    expect(ready).toMatchObject({ status: 'ready', provider: 'codex_cli', endpoint: 'https://chatgpt.com/backend-api/codex', apiKeyConfigured: true });
+    expect([...storedSecrets.values()].map(secret => Buffer.from(secret).toString('utf8')))
+      .toEqual(['{"auth_mode":"chatgpt","tokens":{"id_token":"i","access_token":"a","refresh_token":"r"}}']);
+
+    await expect(apiWithSecrets.investigationModels.configure(identity, { ...codex, providerPresetId: 'claude_code', modelId: 'claude-sonnet-5-5',
+      apiKey: 'sk-ant-api03-a-console-api-key-is-not-a-subscription-token' })).rejects.toMatchObject({ code: 'model_credential_invalid' });
+    const claude = await apiWithSecrets.investigationModels.configure(identity, { ...codex, providerPresetId: 'claude_code',
+      modelId: 'claude-sonnet-5-5', apiKey: `sk-ant-oat01-${'b'.repeat(40)}` });
+    expect(claude).toMatchObject({ status: 'ready', provider: 'claude_code_cli', providerPresetId: 'claude_code' });
+    expect(storedSecrets.size).toBe(1);
   });
 });
