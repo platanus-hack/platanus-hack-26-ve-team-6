@@ -129,6 +129,26 @@ This establishes the implemented development customer path, not a production rel
 
 The production web build reports upstream Nitro/Rolldown `use client` warnings; these are not suppressed. There is no lint script.
 
+# Runtime protection SDK verification — 2026-10-24
+
+This focused run exercises the opt-in Node protection path against an isolated local data stack. It does not measure production traffic accuracy, overhead, service capacity, or hosted behavior.
+
+| Command | Observed result |
+| --- | --- |
+| `pnpm --filter @gotchu/sdk test` | 13 unit cases passed across detector, middleware, policy, event queue, and failure behavior. |
+| `pnpm --filter @gotchu/contracts test` | 23 cases passed. |
+| `pnpm --filter @gotchu/backend test` | 10 passed; 123 database-gated cases skipped because this package run had no database URL. The focused live integration below covers the changed service path. |
+| `pnpm --filter @gotchu/coordinator test` | 15 passed; 11 database-gated cases skipped. |
+| `pnpm --filter @gotchu/web test` | 81 passed; 2 browser/Postgres-gated cases skipped. |
+| Affected package builds: `@gotchu/contracts`, `@gotchu/sdk`, `@gotchu/backend`, `@gotchu/coordinator`, `@gotchu/web` | All passed. The web build emitted existing upstream Nitro/Rolldown `use client` directive warnings. |
+| `pnpm typecheck` | Passed for workspace packages and root integration-test sources after building the workspace dependencies. |
+| `pnpm exec tsc -p test/tsconfig.json` | Passed after adding the middleware and live integration cases. |
+| `pnpm test:integration test/integration/runtime-protection.test.ts` | One end-to-end case passed against temporary isolated Postgres and Redis. A first attempt exposed a Zod v4 refined-schema `.omit()` failure in the settings route; the route now validates a dedicated payload schema, and the final live run passed. |
+
+The end-to-end case starts a real `node:http` target, installs the SDK wrapper, sends four attack-shaped requests through the signed web intake, checks that monitor mode continues and block mode returns 403 before each sink, and verifies the sanitized events in Postgres. It then checks per-tenant reads/writes, event replay and app binding, and durable coordinator jobs producing medium-severity runtime indications with blocked attempts counted separately. Input values do not appear in the stored protection projection. This validates the exercised paths with disposable local services; it does not establish the general accuracy or false-positive rate of these patterns.
+
+The authenticated customer dashboard was typechecked and built, but its protected workspace panel was not browser-verified in this run because the available local browser session had no test account. No existing local account or workspace data was changed.
+
 ## Earlier controlled assessments and AWS direction — 2026-10-24
 
 The current milestone is a controlled demonstration with real source/HTTP assessments and a usable dashboard, rather than the earlier scanner-plus-approved-PR demonstration. The older foundation record below remains historical evidence. General customer scanning, response automation and cloud deployment remain separate gates.
