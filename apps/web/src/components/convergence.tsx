@@ -56,7 +56,7 @@ export function Convergence() {
       element.style.opacity = opacity.toFixed(3);
     };
     if (!live) {
-      for (const element of Object.values(parts.current)) if (element) { element.style.transform = ''; element.style.opacity = ''; }
+      for (const element of Object.values(parts.current)) if (element) { element.style.transform = ''; element.style.opacity = ''; element.style.removeProperty('clip-path'); }
       open.set(REST);
       return;
     }
@@ -69,8 +69,10 @@ export function Convergence() {
     set('left', `translate3d(${-drift}vw, 0, 0)`, labels);
     set('right', `translate3d(${drift}vw, 0, 0)`, labels);
     set('two', `translate3d(0, ${((1 - seg(.02, .1)) * 24).toFixed(1)}px, 0)`, seg(.02, .1) * (1 - seg(.4, .46)));
-    const flash = seg(.47, .52) * (1 - seg(.62, .68));
-    set('flash', `scale(${(1.06 - .06 * seg(.47, .58)).toFixed(3)})`, flash);
+    // The catch wipes in from below and out through the top, so the field is never a translucent tint.
+    const wipeIn = ease(seg(.47, .53)), wipeOut = ease(seg(.62, .68));
+    set('flash', 'none', wipeIn > 0 && wipeOut < 1 ? 1 : 0);
+    parts.current.flash?.style.setProperty('clip-path', `inset(${((1 - wipeIn) * 100).toFixed(2)}% 0 ${(wipeOut * 100).toFixed(2)}% 0)`);
     const emit = ease(seg(.68, .86));
     set('mark', `translate3d(${(-emit * 21).toFixed(2)}vw, 0, 0) scale(${(1 - .12 * emit).toFixed(3)})`, 1);
     set('report', `translate3d(${((1 - emit) * 12).toFixed(2)}vw, 0, 0)`, seg(.7, .78));
