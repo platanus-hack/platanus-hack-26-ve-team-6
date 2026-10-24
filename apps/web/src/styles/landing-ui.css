@@ -1,0 +1,8 @@
+/*
+ * Tailwind for the landing's shadcn/ui components. Preflight is left out on purpose: this stylesheet
+ * can stay loaded after client navigation, and a global reset would restyle /dashboard and /demo.
+ * A minimal reset scoped to the landing root (.gl) stands in for it.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
