@@ -17,10 +17,13 @@ function revisionChange(current:TriageRevision, previous:TriageRevision|undefine
 }
 export function IncidentCard({ organizationId, applicationId, incidentId, canManage }: { organizationId:string; applicationId:string; incidentId:string; canManage:boolean }) {
   const scope={organizationId,applicationId}; const queryClient=useQueryClient();
-  const query=useQuery({queryKey:['triage-incident',organizationId,applicationId,incidentId],queryFn:()=>triageApi.get(scope,incidentId)});
-  const refresh=()=>queryClient.invalidateQueries({queryKey:['triage-incident',organizationId,applicationId,incidentId]});
+  const query=useQuery({queryKey:['triage-incident',organizationId,applicationId,incidentId],queryFn:()=>triageApi.get(scope,incidentId),refetchInterval:10_000,refetchIntervalInBackground:false});
+  const refresh=()=>Promise.all([
+    queryClient.invalidateQueries({queryKey:['triage-incident',organizationId,applicationId,incidentId]}),
+    queryClient.invalidateQueries({queryKey:['triage-incidents',organizationId,applicationId]}),
+  ]);
   const status=useMutation({mutationFn:(value:'open'|'monitoring'|'closed')=>triageApi.status(scope,incidentId,value),onSuccess:refresh});
-  const evidence=useMutation({mutationFn:()=>triageApi.requestEvidence(scope,incidentId)});
+  const evidence=useMutation({mutationFn:()=>triageApi.requestEvidence(scope,incidentId),onSuccess:()=>queryClient.invalidateQueries({queryKey:['triage-incident',organizationId,applicationId,incidentId]})});
   if(query.isPending)return <section className="customer-card" role="status">Cargando incidente…</section>;
   if(query.error)return <section className="customer-card" role="alert"><h3>No se pudo cargar el incidente</h3><button onClick={()=>query.refetch()}>Reintentar</button></section>;
   const detail=query.data; if(!detail)return <section className="customer-card">No hay revisiones disponibles.</section>;
@@ -38,7 +41,7 @@ export function IncidentCard({ organizationId, applicationId, incidentId, canMan
 }
 
 export function IncidentList({ organizationId, applicationId, canManage }: { organizationId:string; applicationId:string; canManage:boolean }) {
-  const query=useQuery({queryKey:['triage-incidents',organizationId,applicationId],queryFn:()=>triageApi.list({organizationId,applicationId})});
+  const query=useQuery({queryKey:['triage-incidents',organizationId,applicationId],queryFn:()=>triageApi.list({organizationId,applicationId}),refetchInterval:10_000,refetchIntervalInBackground:false});
   if(query.isPending)return <section className="customer-card" role="status">Cargando incidentes…</section>;
   if(query.error)return <section className="customer-card" role="alert"><h2>No se pudieron cargar los incidentes</h2><button onClick={()=>query.refetch()}>Reintentar</button></section>;
   return <section className="customer-section"><ProbeRouteSettings organizationId={organizationId} applicationId={applicationId} canManage={canManage}/><h2>Incidentes correlacionados</h2>{!query.data?.length?<p>Sin incidentes registrados. Las señales nuevas aparecerán cuando el evaluador produzca una revisión.</p>:query.data.map(incident=><IncidentCard key={incident.id} organizationId={organizationId} applicationId={applicationId} incidentId={incident.id} canManage={canManage}/>)}</section>;
