@@ -1,4 +1,5 @@
 import { createActionVerifier, createBackend, createModelEndpointValidator, createValidationService, issueModelProbeToken, readPinnedRootfsDigest, type Backend, type CredentialStore, type ModelProbeClient } from '@gotchu/backend';
+import { actionPolicyVersion, createActionVerifier, createBackend, createValidationService, readPinnedRootfsDigest, type Backend, type CredentialStore } from '@gotchu/backend';
 import { createDatabase } from '@gotchu/database';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -195,8 +196,14 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
       const adapter = await githubReaderAdapter(env, readerApp, { ...scope, repositoryKey: scope.repositoryKey });
       return adapter.readTree(scope.commitSha);
     },
-    // A matching version string is not a policy registry; keep action eligibility closed until one is wired.
-    async isPolicyCurrent() { return false; },
+    async isPolicyCurrent(input) {
+      const codeVersion = actionPolicyVersion(input.capabilityId);
+      if (!codeVersion || codeVersion !== input.policyVersion) return false;
+      const result = await apiDatabase.tenant(input.organizationId, tx => tx.query<{ active_version: string }>(
+        'SELECT active_version FROM gotchu.action_policy_registry WHERE capability_id=$1', [input.capabilityId],
+      ));
+      return result.rows[0]?.active_version === codeVersion;
+    },
     async inspectAutomation(scope) {
       const adapter = await githubReaderAdapter(env, readerApp, { ...scope, repositoryKey: scope.repositoryKey });
       return adapter.inspectAutomation(scope.baseCommit);

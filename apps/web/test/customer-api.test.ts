@@ -206,7 +206,7 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     const { services, auth } = ports();
     const proposalId = randomUUID();
     const propose = vi.fn(async (_identity: { userId: string }, _input: { organizationId: string; applicationId: string; kind: string; sourceRef: unknown }) => ({ proposalId, actionHash: 'a'.repeat(64) }));
-    const projection = { id: proposalId, actionHash: 'a'.repeat(64), kind: 'source_patch_pull_request' as const, state: 'ineligible' as const, effect: 'Abrir una solicitud de cambio', scope: 'Aplicación', target: { kind: 'repository' as const, repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, cost: { state: 'unknown' as const, amount: null }, diff: null, validations: [], limits: [], blockingReasons: [], createdAt: new Date().toISOString() };
+    const projection = { id: proposalId, actionHash: 'a'.repeat(64), kind: 'source_patch_pull_request' as const, state: 'ineligible' as const, effect: 'Abrir una solicitud de cambio', scope: 'Aplicación', target: { kind: 'repository' as const, repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, cost: { state: 'unknown' as const, amount: null }, diff: null, validations: [], limits: [], blockingReasons: [], execution: { status:null, pullRequestUrl:null, attempts:[] }, createdAt: new Date().toISOString() };
     services.actions = {
       list: async () => [], get: async () => projection, propose, getEligibility: async () => ({ status: 'ineligible' as const, blockingReasons: ['sin adaptador de escritura'] }),
       approve: async () => ({ approvalId: randomUUID(), expiresAt: new Date() }), cancel: async () => undefined,
