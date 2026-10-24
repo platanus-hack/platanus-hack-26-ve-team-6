@@ -3,6 +3,7 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CUSTOMER_MAX_SOURCE_FILE_BYTES } from '@gotchu/contracts';
 import { createMonitoringRepositoryCatalog } from '../src/config.js';
 import { createGitHubRepositoryReader } from '../src/github.js';
 
@@ -108,5 +109,96 @@ describe('GitHub REST repository reader', () => {
     const fetchFixture: typeof fetch = async () => new Response('', { status: 302, headers: { location: 'https://attacker.invalid/collect' } });
     const reader = createGitHubRepositoryReader(catalog, { fetchImplementation: fetchFixture });
     await expect(reader.read({ ...scope, repositoryKey: 'public-source' })).rejects.toThrow('redirect_refused');
+  });
+
+  it('rejects an oversized selected source tree before requesting any blobs', async () => {
+    const root = await tempDirectory();
+    const scope = { organizationId: randomUUID(), applicationId: randomUUID() };
+    const catalog = createMonitoringRepositoryCatalog({
+      repositoryRoot: root,
+      repositories: [{ ...scope, repositoryKey: 'public-source', displayName: 'Public', provider: 'github', owner: 'acme', repository: 'product', ref: 'main' }],
+    });
+    const headSha = 'a'.repeat(40);
+    const treeSha = 'b'.repeat(40);
+    const entries = Array.from({ length: 5 }, (_, index) => ({
+      path: 'src/file-' + index + '.ts',
+      mode: '100644',
+      type: 'blob',
+      sha: String(index + 1).padStart(40, '0'),
+      size: CUSTOMER_MAX_SOURCE_FILE_BYTES,
+    }));
+    let blobRequests = 0;
+    const fetchFixture: typeof fetch = async input => {
+      const requestUrl = new URL(input instanceof Request ? input.url : String(input));
+      if (requestUrl.pathname === '/repos/acme/product/commits/main') {
+        return jsonResponse({ sha: headSha, commit: { tree: { sha: treeSha } } });
+      }
+      if (requestUrl.pathname === '/repos/acme/product/git/trees/' + treeSha) {
+        return jsonResponse({ sha: treeSha, truncated: false, tree: entries });
+      }
+      if (requestUrl.pathname.includes('/git/blobs/')) blobRequests += 1;
+      throw new Error('unexpected_github_route');
+    };
+    const reader = createGitHubRepositoryReader(catalog, { fetchImplementation: fetchFixture });
+
+    await expect(reader.read({ ...scope, repositoryKey: 'public-source' })).rejects.toThrow('repository_source_bytes_limit');
+    expect(blobRequests).toBe(0);
+  });
+
+  it('caps actual blob bytes when tree sizes are understated and aborts and observes a stalled worker', async () => {
+    const root = await tempDirectory();
+    const scope = { organizationId: randomUUID(), applicationId: randomUUID() };
+    const catalog = createMonitoringRepositoryCatalog({
+      repositoryRoot: root,
+      repositories: [{ ...scope, repositoryKey: 'public-source', displayName: 'Public', provider: 'github', owner: 'acme', repository: 'product', ref: 'main' }],
+    });
+    const headSha = 'a'.repeat(40);
+    const treeSha = 'b'.repeat(40);
+    const entries = Array.from({ length: 20 }, (_, index) => ({
+      path: 'src/file-' + index + '.ts',
+      mode: '100644',
+      type: 'blob',
+      sha: String(index + 1).padStart(40, '0'),
+      size: 1,
+    }));
+    const encodedSource = Buffer.alloc(CUSTOMER_MAX_SOURCE_FILE_BYTES, 0x61).toString('base64');
+    let blobRequests = 0;
+    let stalledWorkerAborted = false;
+    const fetchFixture: typeof fetch = async (input, init) => {
+      const requestUrl = new URL(input instanceof Request ? input.url : String(input));
+      if (requestUrl.pathname === '/repos/acme/product/commits/main') {
+        return jsonResponse({ sha: headSha, commit: { tree: { sha: treeSha } } });
+      }
+      if (requestUrl.pathname === '/repos/acme/product/git/trees/' + treeSha) {
+        return jsonResponse({ sha: treeSha, truncated: false, tree: entries });
+      }
+      const blobIndex = entries.findIndex(entry => requestUrl.pathname.endsWith('/git/blobs/' + entry.sha));
+      if (blobIndex === -1) throw new Error('unexpected_github_route');
+      blobRequests += 1;
+      if (blobIndex === 3) {
+        const signal = init?.signal;
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            signal?.addEventListener('abort', () => {
+              stalledWorkerAborted = true;
+              controller.error(signal.reason);
+            }, { once: true });
+          },
+        });
+        return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return jsonResponse({
+        sha: entries[blobIndex]?.sha,
+        size: CUSTOMER_MAX_SOURCE_FILE_BYTES,
+        encoding: 'base64',
+        content: encodedSource,
+      });
+    };
+    const reader = createGitHubRepositoryReader(catalog, { fetchImplementation: fetchFixture });
+
+    await expect(reader.read({ ...scope, repositoryKey: 'public-source' })).rejects.toThrow('repository_source_bytes_limit');
+    expect(blobRequests).toBeGreaterThan(4);
+    expect(blobRequests).toBeLessThan(entries.length);
+    expect(stalledWorkerAborted).toBe(true);
   });
 });

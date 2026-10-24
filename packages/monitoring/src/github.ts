@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { lstat, open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import { CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES } from '@gotchu/contracts';
+import { CUSTOMER_MAX_SOURCE_BYTES, CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES } from '@gotchu/contracts';
 import { gitRefSchema, type MonitoringRepositoryCatalog } from './config.js';
 import { parseJsonBody, requestJson, type JsonRequestOptions } from './http.js';
 import type { RepositoryReadRequest } from './local-git.js';
@@ -24,6 +24,8 @@ import {
 const gitSha = /^[a-f0-9]{40}$/i;
 const apiBase = 'https://api.github.com';
 const githubApiVersion = '2026-03-10';
+const MAX_GITHUB_BLOB_RESPONSE_BYTES = Math.ceil((CUSTOMER_MAX_SOURCE_FILE_BYTES * 4) / 3) + 8192;
+const MAX_GITHUB_BLOB_RESPONSES_BYTES = 8 * 1024 * 1024;
 const treeResponseSchema = z.object({
   sha: z.string().regex(gitSha),
   tree: z.array(z.object({
@@ -106,7 +108,7 @@ export function createGitHubRepositoryReader(catalog: MonitoringRepositoryCatalo
       const currentTree = await readTree(repoUrl, currentCommit.treeSha, requestOptions);
       const previousTree = previousCommit ? await readTree(repoUrl, previousCommit.treeSha, requestOptions) : null;
       const sourceEntries = currentTree.filter(entry => entry.type !== 'tree');
-      const contents = await readBlobs(repoUrl, sourceEntries, requestOptions, input.signal);
+      const contents = await readBlobs(repoUrl, sourceEntries, requestOptions, requestOptions.signal);
       const built = buildCustomerSnapshot(currentCommit.sha, sourceEntries, contents);
       const treeDiff = previousTree && previousRevision !== currentCommit.sha ? compareTrees(previousTree, currentTree) : [];
       const maxDiffFiles = options.maxDiffFiles ?? MAX_REPOSITORY_DIFF_FILES;
@@ -208,25 +210,68 @@ async function readBlobs(
 ): Promise<Map<string, string>> {
   const blobs = tree.filter(entry => entry.type === 'blob' && ['100644', '100755'].includes(entry.mode) && isSupportedSourcePath(entry.path));
   if (blobs.length > CUSTOMER_MAX_SOURCE_FILES) throw new Error('repository_source_file_limit');
+  // Tree sizes are a pre-fetch estimate; decoded blob bytes are checked against the aggregate limit below.
+  let selectedTreeBytes = 0;
+  for (const entry of blobs) {
+    if (entry.size === undefined || entry.size > CUSTOMER_MAX_SOURCE_FILE_BYTES) throw new Error('repository_source_file_limit');
+    if (entry.size > CUSTOMER_MAX_SOURCE_BYTES - selectedTreeBytes) throw new Error('repository_source_bytes_limit');
+    selectedTreeBytes += entry.size;
+  }
+
   const contents = new Map<string, string>();
+  const abortController = new AbortController();
+  const workerSignal = signal ? AbortSignal.any([signal, abortController.signal]) : abortController.signal;
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+  let downloadedResponseBytes = 0;
+  let downloadedSourceBytes = 0;
+  let failed = false;
+  let firstFailure: unknown;
+
+  // GitHub's base64 response is larger than the source snapshot. Cap its aggregate
+  // serialized size while streaming so many small tree entries cannot retain huge
+  // provider response bodies before the snapshot validator runs.
+  const budgetedFetch: typeof fetch = async (input, init) => {
+    const response = await fetchImplementation(input, init);
+    if (!response.ok || !response.body) return response;
+    const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        if (workerSignal.aborted) throw workerSignal.reason;
+        if (chunk.byteLength > MAX_GITHUB_BLOB_RESPONSES_BYTES - downloadedResponseBytes) {
+          const error = new Error('repository_source_bytes_limit');
+          abortController.abort(error);
+          throw error;
+        }
+        downloadedResponseBytes += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    }));
+    return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  };
+
   let cursor = 0;
   const worker = async () => {
     while (cursor < blobs.length) {
-      signal?.throwIfAborted();
+      workerSignal.throwIfAborted();
       const entry = blobs[cursor];
       cursor += 1;
       if (!entry) continue;
-      if (entry.size !== undefined && entry.size > CUSTOMER_MAX_SOURCE_FILE_BYTES) throw new Error('repository_source_file_limit');
       const url = new URL(base.pathname + '/git/blobs/' + encodeURIComponent(entry.sha), base.origin);
-      const response = await requestJson(url, { ...options, maxBytes: Math.ceil((CUSTOMER_MAX_SOURCE_FILE_BYTES * 4) / 3) + 8192 });
+      const response = await requestJson(url, {
+        ...options,
+        signal: workerSignal,
+        maxBytes: MAX_GITHUB_BLOB_RESPONSE_BYTES,
+        fetchImplementation: budgetedFetch,
+      });
       const parsed = blobResponseSchema.parse(parseJsonBody(response.body));
-      if (parsed.sha.toLowerCase() !== entry.sha || parsed.size > CUSTOMER_MAX_SOURCE_FILE_BYTES || entry.size !== undefined && parsed.size !== entry.size) {
+      if (parsed.sha.toLowerCase() !== entry.sha || parsed.size > CUSTOMER_MAX_SOURCE_FILE_BYTES) {
         throw new Error('github_blob_mismatch');
       }
       const encoded = parsed.content.replace(/\s/g, '');
       if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error('github_blob_invalid');
       const bytes = Buffer.from(encoded, 'base64');
       if (bytes.byteLength !== parsed.size) throw new Error('github_blob_mismatch');
+      if (bytes.byteLength > CUSTOMER_MAX_SOURCE_BYTES - downloadedSourceBytes) throw new Error('repository_source_bytes_limit');
+      downloadedSourceBytes += bytes.byteLength;
       let content: string;
       try {
         content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -236,7 +281,24 @@ async function readBlobs(
       contents.set(entry.path, content);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(4, blobs.length) }, () => worker()));
+
+  const observeWorker = async () => {
+    try {
+      await worker();
+    } catch (error) {
+      if (!failed) {
+        failed = true;
+        firstFailure = error;
+        abortController.abort(error);
+      }
+      throw error;
+    }
+  };
+  const workers = Array.from({ length: Math.min(4, blobs.length) }, () => observeWorker());
+  const results = await Promise.allSettled(workers);
+  if (failed) throw firstFailure;
+  const rejected = results.find(result => result.status === 'rejected');
+  if (rejected?.status === 'rejected') throw rejected.reason;
   return contents;
 }
 

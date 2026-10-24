@@ -209,6 +209,32 @@ describe('official provider status adapters', () => {
     expect(healthyResult.candidate?.kind).toBe('coverage_check');
   });
 
+  it('does not reuse an older Railway component health or outage as current-day coverage', async () => {
+    for (const staleStatus of ['none', 'partial_outage'] as const) {
+      const adapter = createRailwayStatusAdapter({
+        now: () => new Date('2026-10-24T08:00:01Z'),
+        fetchImplementation: async () => jsonResponse({
+          generatedAt: '2026-10-24T08:00:00Z',
+          entries: [{
+            type: 'group',
+            data: {
+              name: 'Railway',
+              components: [{ id: randomUUID(), name: 'API', months: [{ days: [{ date: '2026-10-01', status: staleStatus }] }] }],
+            },
+          }],
+          activeIncidents: [],
+          maintenances: [],
+        }),
+      });
+
+      const result = await adapter.read();
+      expect(result.fresh).toBe(true);
+      expect(result.components).toMatchObject([{ status: 'unknown' }]);
+      expect(result.candidate?.kind).toBe('coverage_gap');
+      expect(result.limitations.join(' ')).toContain('current-day status record');
+    }
+  });
+
   it('allows either or both status watches and rejects duplicate selection', () => {
     expect(parseProviderStatusSelection(['cloudflare', 'railway'])).toEqual(['cloudflare', 'railway']);
     expect(() => parseProviderStatusSelection(['railway', 'railway'])).toThrow();

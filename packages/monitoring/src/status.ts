@@ -214,10 +214,8 @@ function flattenRailwayComponents(entries: z.infer<typeof railwayStatusSchema>['
 }
 
 function statusForRailwayDay(component: z.infer<typeof railwayComponentSchema>, generatedDay: string): string {
-  const days = component.months.flatMap(month => month.days)
-    .filter(day => day.date <= generatedDay)
-    .sort((left, right) => right.date.localeCompare(left.date));
-  const status = days[0]?.status;
+  const status = component.months.flatMap(month => month.days)
+    .find(day => day.date === generatedDay)?.status;
   if (!status) return 'unknown';
   return status === 'none' ? 'operational' : status;
 }
