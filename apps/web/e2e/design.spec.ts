@@ -39,7 +39,7 @@ test('landing is server-rendered without a loader, fabricated results or explana
   await page.screenshot({ path: info.outputPath('hero.png') });
 });
 
-test('the theme switch moves between pure white, pure black and the system preference, and persists', async ({ page }, info) => {
+test('the theme switch moves between pure white, pure black and the system preference, and persists', async ({ page, isMobile }, info) => {
   test.setTimeout(90_000);
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/', { waitUntil: 'networkidle' });
@@ -52,6 +52,16 @@ test('the theme switch moves between pure white, pure black and the system prefe
   await theme.getByRole('button', { name: 'Tema oscuro' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   expect(await background(page)).toBe('rgb(0, 0, 0)');
+  if (isMobile) {
+    const darkSwitches = page.locator('.gl-theme [aria-label="Tema oscuro"]');
+    await expect(darkSwitches).toHaveCount(2);
+    await expect(darkSwitches.nth(0)).toHaveAttribute('aria-pressed', 'true');
+    await expect(darkSwitches.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  }
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
   // The stored choice is applied before paint on the next visit, over the system preference.
   await page.reload({ waitUntil: 'networkidle' });
@@ -65,12 +75,44 @@ test('the theme switch moves between pure white, pure black and the system prefe
   await page.evaluate(() => scrollTo(0, 0));
   await expect(page.locator('.gl-header')).not.toHaveClass(/is-tucked/);
   if (!(await group.isVisible())) await page.getByRole('button', { name: 'Menú', exact: true }).click();
-  await page.getByRole('group', { name: 'Tema' }).locator('visible=true').getByRole('button', { name: 'Tema del sistema' }).click();
+  const visibleTheme = page.getByRole('group', { name: 'Tema' }).locator('visible=true');
+  await visibleTheme.getByRole('button', { name: 'Tema claro' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  if (isMobile) {
+    const lightSwitches = page.locator('.gl-theme [aria-label="Tema claro"]');
+    await expect(lightSwitches).toHaveCount(2);
+    await expect(lightSwitches.nth(0)).toHaveAttribute('aria-pressed', 'true');
+    await expect(lightSwitches.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  }
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await visibleTheme.getByRole('button', { name: 'Tema del sistema' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+});
+
+test('the mobile menu fits its links, keeps focus inside, and closes on the backdrop', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'The sheet is only shown below 900px.');
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.getByRole('button', { name: 'Menú', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const sheetHeight = await dialog.evaluate(element => element.getBoundingClientRect().height);
+  expect(sheetHeight).toBeLessThan(await page.evaluate(() => innerHeight));
+
+  const menuLink = dialog.getByRole('link', { name: 'Cómo funciona', exact: true });
+  expect(await menuLink.evaluate(element => getComputedStyle(element).fontFamily)).toContain('Gotchu Text');
+  await dialog.getByRole('button', { name: 'Cerrar' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(menuLink).toBeFocused();
+
+  await page.mouse.click(12, 830);
+  await expect(dialog).toBeHidden();
 });
 
 test('the light theme passes the accessibility audit after every reveal', async ({ page }) => {
@@ -145,6 +187,8 @@ test('reduced motion and a 320px viewport keep all content and drop the pause co
   await expect(page.getByRole('button', { name: 'Pausar animación' })).toHaveCount(0);
   expect(await page.locator('.gl-display--hero .gl-line-in').first().evaluate(element => getComputedStyle(element).animationName)).toBe('none');
   await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeAttached();
+  const plateWidths = await page.locator('.gl-plate').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().width));
+  expect(plateWidths.every(width => width <= 320)).toBe(true);
   await checkLayout(page); await checkA11y(page);
 });
 
