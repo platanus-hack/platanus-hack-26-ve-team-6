@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { investigationDataScopeSchema, modelProviderSchema } from '@gotchu/contracts';
+import { investigationDataScopeSchema, investigationProviderPresetIdSchema, modelProviderSchema } from '@gotchu/contracts';
 import { audit, BackendError, canonicalJson, parse, type BaseDependencies } from './core.js';
 import { modelConfigurationFingerprint } from './model-configuration.js';
 const scopeSchema = z.object({ organizationId: z.uuid(), runId: z.uuid() }).strict();
@@ -60,7 +60,7 @@ export function createRunService(deps: BaseDependencies) {
         const org = await tx.query<{ model_opt_in: boolean; model_budget_micros: string; model_spent_micros: string; model_reserved_micros: string; model_token_budget: string; model_tokens_spent: string; model_tokens_reserved: string }>('SELECT model_opt_in,model_budget_micros,model_spent_micros,model_reserved_micros,model_token_budget,model_tokens_spent,model_tokens_reserved FROM gotchu.organizations WHERE id=$1 FOR UPDATE', [value.organizationId]);
         const organization = org.rows[0];
         if (!organization?.model_opt_in) throw new BackendError('model_opt_in_required', 'Workspace consent is not active', 403);
-        const settings = await tx.query<{ consent_to_external_processing: boolean; provider: string; endpoint: string; model_id: string; secret_ref: string | null; data_scopes: unknown; input_price_micro_usd_per_million_tokens: string | number; output_price_micro_usd_per_million_tokens: string | number }>(`SELECT consent_to_external_processing,provider,endpoint,model_id,secret_ref,data_scopes,
+        const settings = await tx.query<{ consent_to_external_processing: boolean; provider: string; provider_preset_id: string; endpoint: string; model_id: string; secret_ref: string | null; data_scopes: unknown; input_price_micro_usd_per_million_tokens: string | number; output_price_micro_usd_per_million_tokens: string | number }>(`SELECT consent_to_external_processing,provider,provider_preset_id,endpoint,model_id,secret_ref,data_scopes,
           input_price_micro_usd_per_million_tokens,output_price_micro_usd_per_million_tokens
           FROM gotchu.investigation_model_settings WHERE organization_id=$1`, [value.organizationId]);
         const setting = settings.rows[0];
@@ -68,7 +68,8 @@ export function createRunService(deps: BaseDependencies) {
           throw new BackendError('model_configuration_changed', 'Workspace model configuration is disabled or changed', 409);
         }
         const configSha256 = modelConfigurationFingerprint({
-          provider: modelProviderSchema.parse(setting.provider), endpoint: setting.endpoint, modelId: setting.model_id,
+          provider: modelProviderSchema.parse(setting.provider), providerPresetId: investigationProviderPresetIdSchema.parse(setting.provider_preset_id),
+          endpoint: setting.endpoint, modelId: setting.model_id,
           secretRef: setting.secret_ref, consentToExternalProcessing: setting.consent_to_external_processing,
           dataScopes: z.array(investigationDataScopeSchema).max(7).parse(setting.data_scopes),
           inputPriceMicroUsdPerMillionTokens: Number(setting.input_price_micro_usd_per_million_tokens),

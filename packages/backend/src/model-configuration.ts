@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { investigationDataScopeSchema, modelProviderSchema } from '@gotchu/contracts';
+import { investigationDataScopeSchema, investigationProviderPresetIdSchema, modelProviderSchema } from '@gotchu/contracts';
 import { canonicalJson, sha256 } from './core.js';
 
 const modelConfigurationSnapshotSchema = z.object({
   provider: modelProviderSchema,
+  providerPresetId: investigationProviderPresetIdSchema,
   endpoint: z.string().url().max(2_048),
   modelId: z.string().min(1).max(200),
   secretRef: z.string().nullable(),
