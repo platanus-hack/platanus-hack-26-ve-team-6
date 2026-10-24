@@ -183,9 +183,9 @@ Trabajo:
 
 Trabajo:
 
-- [ ] Implementar enrolamiento, desafío y verificación de segundo factor mediante un adaptador mantenido, con WebAuthn como candidato inicial; diseñar recuperación/revocación antes de habilitar aprobaciones. Auth.js proporciona sesiones, no esta garantía automáticamente. Referencia: [WebAuthn](https://www.w3.org/TR/webauthn-3/).
-- [ ] Emitir prueba opaca, breve, de un uso, vinculada a usuario, organización y hash de acción. Mantener controles actuales de rol, autenticación reciente, caducidad y recovery epoch.
-- [ ] Revalidar membresía y estado antes de aprobar y antes de escribir. Cerrar sesión, revocar rol o restaurar backup no puede mantener autorizaciones utilizables.
+- [x] Implementar enrolamiento, desafío y verificación de segundo factor mediante `@simplewebauthn/server` y `@simplewebauthn/browser`, con recuperación de un solo uso y revocación ligada a otra aserción o código. Auth.js proporciona sesiones, no esta garantía automáticamente. Referencia: [WebAuthn](https://www.w3.org/TR/webauthn-3/).
+- [x] Emitir prueba opaca, breve, de un uso, vinculada a usuario, organización y hash de acción. Mantener controles actuales de rol, autenticación reciente, caducidad y recovery epoch.
+- [x] Revalidar membresía y estado antes de aprobar y antes de escribir. Sin hook de cierre de sesión, los desafíos y pruebas vencen en dos minutos; rol revocado o epoch distinto invalida el consumo.
 - [ ] Presentar efecto, alcance, coste posible, diff seguro, pruebas y límites; diferenciar aprobar PR, merge y deploy. Una sesión OAuth o una casilla de checklist no equivale a aprobación de acción con MFA.
 
 **Aceptación:** ceremonia real en navegador y ledger PostgreSQL: CSRF/origen, replay, desafío equivocado, actionHash cambiado, caducidad, dos consumos concurrentes, rol revocado, factor perdido y recuperación. No usar el fixture `StepUpVerifier` como evidencia de MFA real.
