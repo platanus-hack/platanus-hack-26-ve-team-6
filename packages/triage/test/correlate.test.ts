@@ -160,6 +160,28 @@ describe('correlation acceptance cases', () => {
     expect(regression?.evidenceAgainst.some(item => item.ref.startsWith('pre-release-error:'))).toBe(true);
   });
 
+  it('keeps provider and release explanations open when both match one service', () => {
+    const labeled = tuningCases.find(item => item.id === 'tuning-provider-isolated');
+    if (!labeled) throw new Error('missing_test_case');
+    const input = {
+      ...labeled.input,
+      context: {
+        ...labeled.input.context!,
+        deployments: [{ service: 'tune-checkout', releaseId: 'release-checkout', commit: 'fixture',
+          deployedAt: '2026-10-24T11:12:00.000Z', state: 'verified' as const }],
+      },
+      signals: [{ id: 'checkout-error-rate', metric: 'error_rate' as const, service: 'tune-checkout', environment: 'prod-north',
+        sampling: 1, freshnessMs: 600_000, samples: [{ eventAt: '2026-10-24T11:13:00.000Z',
+          acceptedAt: '2026-10-24T11:13:02.000Z', value: 0.5 }] }],
+    };
+    const hypotheses = result(input, '2026-10-24T11:16:00.000Z').hypotheses;
+    const regression = hypotheses.find(item => item.kind === 'application_regression');
+    const provider = hypotheses.find(item => item.kind === 'provider_dependency');
+    expect(regression).toMatchObject({ status: 'weak', ruleIds: expect.arrayContaining(['dependency.alternative_open.v1']) });
+    expect(regression?.evidenceAgainst.some(item => item.ref.startsWith('provider:'))).toBe(true);
+    expect(provider).toMatchObject({ status: 'weak', confidence: 'low', ruleIds: expect.arrayContaining(['dependency.alternative_open.v1']) });
+  });
+
   it('ignores unknown deployment state and reports it as missing evidence', () => {
     const labeled = tuningCases.find(item => item.id === 'tuning-unknown-deployment');
     if (!labeled) throw new Error('missing_test_case');

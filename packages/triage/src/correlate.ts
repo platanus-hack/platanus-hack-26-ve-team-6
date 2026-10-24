@@ -97,6 +97,12 @@ export function correlate(inputValue: unknown, options: CorrelationOptions): Tri
     status, dependency, evidence: ref(`provider:${index}:${status.provider}:${status.component ?? 'all'}`,
       `${status.provider} ${status.state}; ${status.scope} scope${status.fixture ? ' (fixture)' : ''}`),
   }));
+  const verifiedDeploymentErrors = (input.context?.deployments ?? []).filter(deployment => deployment.state === 'verified')
+    .flatMap(deployment => errors.some(({ series, sample }) => series.service === deployment.service
+      && sample.eventAt > deployment.deployedAt
+      && errorThreshold(input, series.service, series.environment, sample.value)) ? [deployment.service] : []);
+  const servicesWithVerifiedDeploymentErrors = new Set(verifiedDeploymentErrors);
+  const providerAlternatives = providerEvidence.filter(({ dependency }) => servicesWithVerifiedDeploymentErrors.has(dependency.service));
   if (providerStatuses.length > 0) {
     const providerFor = [
       ...providerEvidence.map(item => item.evidence),
@@ -110,7 +116,8 @@ export function correlate(inputValue: unknown, options: CorrelationOptions): Tri
     const hasCompatibleFailure = failingDependentProbes.length > 0;
     const hasScopedMatch = providerEvidence.some(({ status }) => status.scope !== 'global');
     const hasIsolation = healthyControls.length > 0 && failingControls.length === 0;
-    const status: HypothesisStatus = hasCompatibleFailure && providerAgainst.length === 0 ? 'supported'
+    const hasCompetingRelease = providerEvidence.some(({ dependency }) => servicesWithVerifiedDeploymentErrors.has(dependency.service));
+    const status: HypothesisStatus = hasCompatibleFailure && providerAgainst.length === 0 && !hasCompetingRelease ? 'supported'
       : healthyDependentProbes.length > 0 ? 'contradicted'
       : providerEvidence.length > 0 ? 'weak' : 'contradicted';
     const confidence = status !== 'supported' ? 'low' : hasScopedMatch && hasIsolation ? 'high' : 'medium';
@@ -121,8 +128,9 @@ export function correlate(inputValue: unknown, options: CorrelationOptions): Tri
       ruleIds: ['provider.scope_match.v1', ...(hasCompatibleFailure ? ['provider.compatible_impact.v1'] : []),
         ...(hasIsolation ? ['provider.control_isolates.v1'] : []),
         ...(healthyDependentProbes.length ? ['provider.dependent_healthy.contradicts.v1'] : []),
-        ...(failingControls.length ? ['provider.control_failing.contradicts_specific_cause.v1'] : [])],
-      evidenceFor: providerFor, evidenceAgainst: providerAgainst, missingData: providerMissing,
+        ...(failingControls.length ? ['provider.control_failing.contradicts_specific_cause.v1'] : []),
+        ...(hasCompetingRelease ? ['dependency.alternative_open.v1'] : [])],
+      evidenceFor: providerFor, evidenceAgainst: [...providerAgainst, ...providerAlternatives.map(item => item.evidence)], missingData: providerMissing,
       nextCheck: 'Compare an authorized route that depends on this provider with an independent control route.' });
   }
 
@@ -140,23 +148,29 @@ export function correlate(inputValue: unknown, options: CorrelationOptions): Tri
   const declaredReleaseMatches = releaseMatches.filter(item => item.deployment.state === 'declared');
   const verifiedReleaseMatches = releaseMatches.filter(item => item.deployment.state === 'verified');
   const verifiedAfterRelease = verifiedReleaseMatches.filter(item => item.matchingErrors.length > 0);
+  const providerAlternativeOpen = providerAlternatives.some(({ dependency }) =>
+    verifiedAfterRelease.some(({ deployment }) => deployment.service === dependency.service));
   const staleReleaseEvidence = staleSamples.filter(({ series, sample }) => series.metric === 'error_rate'
     && errorThreshold(input, series.service, series.environment, sample.value)
     && releaseCandidates.some(deployment => deployment.service === series.service && sample.eventAt > deployment.deployedAt));
   const anyElevatedAfterRelease = releaseMatches.some(item => item.matchingErrors.length > 0);
   const anyElevatedBeforeRelease = releaseMatches.some(item => item.earlierErrors.length > 0);
   if (releaseCandidates.length > 0 || errors.some(({ series, sample }) => errorThreshold(input, series.service, series.environment, sample.value)) || deploymentUnknown.length > 0 || staleReleaseEvidence.length > 0) {
-    const supported = verifiedAfterRelease.some(item => item.earlierErrors.length === 0) && failingControls.length === 0;
-    const weak = !supported && (declaredDeployments.length > 0 || verifiedAfterRelease.length > 0 || failingControls.length > 0 || staleReleaseEvidence.length > 0);
+    const supported = verifiedAfterRelease.some(item => item.earlierErrors.length === 0) && failingControls.length === 0 && !providerAlternativeOpen;
+    const weak = !supported && (declaredDeployments.length > 0 || verifiedAfterRelease.length > 0 || failingControls.length > 0 || staleReleaseEvidence.length > 0 || providerAlternativeOpen);
     const evidenceFor = releaseMatches.flatMap(({ deployment, matchingErrors }, index) => [
       ref(`deployment:${index}:${deployment.releaseId ?? 'unknown'}`, `${deployment.state} deployment of ${deployment.service} at ${deployment.deployedAt}`),
       ...matchingErrors.map(({ sample }) => ref(`release-error:${deployment.service}:${sample.eventAt}`, `error sample after deployment at ${sample.eventAt}`)),
     ]);
-    const evidenceAgainst = anyElevatedBeforeRelease ? releaseMatches.flatMap(({ deployment, earlierErrors }, index) => earlierErrors.map(({ sample }) =>
-      ref(`pre-release-error:${index}:${sample.eventAt}`, `elevated errors started at ${sample.eventAt}, before deployment at ${deployment.deployedAt}`))) : [];
+    const evidenceAgainst = [
+      ...(anyElevatedBeforeRelease ? releaseMatches.flatMap(({ deployment, earlierErrors }, index) => earlierErrors.map(({ sample }) =>
+        ref(`pre-release-error:${index}:${sample.eventAt}`, `elevated errors started at ${sample.eventAt}, before deployment at ${deployment.deployedAt}`))) : []),
+      ...(providerAlternativeOpen ? providerAlternatives.map(item => item.evidence) : []),
+    ];
     hypotheses.push({ kind: 'application_regression', status: supported ? 'supported' : weak ? 'weak' : 'contradicted',
       confidence: supported ? 'medium' : 'low',
       ruleIds: ['release.verified.v1', 'release.errors_after_deployment.v1', ...(anyElevatedBeforeRelease ? ['release.errors_precede_deployment.v1'] : []),
+        ...(providerAlternativeOpen ? ['dependency.alternative_open.v1'] : []),
         ...(failingControls.length ? ['release.app_wide_failure.alternative.v1'] : []),
         ...(staleReleaseEvidence.length > 0 && verifiedAfterRelease.length === 0 ? ['telemetry.stale.excluded.v1'] : [])],
       evidenceFor, evidenceAgainst,
