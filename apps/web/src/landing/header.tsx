@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { MenuIcon, XIcon } from 'lucide-react';
+import { Dialog } from '@base-ui/react/dialog';
 import { GotchuMark } from '../components/gotchu-mark';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeSwitch } from './theme';
 
 const LINKS = [
@@ -43,37 +43,39 @@ export function Header() {
       <div className="gl-header-tools">
         <ThemeSwitch className="max-[519px]:hidden" />
         <a href="/dashboard" data-catch="" className={cn(buttonVariants({ size: 'sm' }), 'max-[899px]:hidden')}>Abrir Gotchu</a>
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger render={<Button variant="outline" size="sm" className="min-[900px]:hidden" />}>
-            <MenuIcon aria-hidden="true" />Menú
-          </SheetTrigger>
-          <SheetContent
-            side="top"
-            overlayClassName="gl-sheet-backdrop !fixed !inset-x-0 !top-12 min-[760px]:!top-[52px] !bottom-0 !z-[49] !bg-black/40 !backdrop-blur-none !duration-[180ms]"
-            className="gl gl-sheet !fixed !inset-x-0 !top-0 !z-[51] !h-auto !max-h-svh !w-full !max-w-none !translate-y-0 !gap-0 !rounded-none !border-0 !bg-transparent !p-0 !shadow-none !opacity-100 !transition-[clip-path] !duration-240 !ease-[cubic-bezier(.23,1,.32,1)]"
-            showCloseButton={false}
-          >
-            <div className="gl-sheet-header">
-              <div className="gl-header-in">
-                <div className="gl-brand" aria-hidden="true"><GotchuMark size={26} /><span>Gotchu</span></div>
-                <SheetClose render={<Button variant="outline" size="sm" aria-expanded={open} />}>
-                  <XIcon aria-hidden="true" />Cerrar
-                </SheetClose>
-              </div>
-            </div>
-            <SheetTitle className="gl-sr">Menú</SheetTitle>
-            <div className="gl-sheet-panel">
-              <nav aria-label="Navegación principal" className="gl-sheet-nav">
-                {LINKS.map(link => <a key={link.href} href={link.href} onClick={() => setOpen(false)}>{link.label}</a>)}
-              </nav>
-              <div className="gl-sheet-foot">
-                <ThemeSwitch />
-                <a href="/dashboard" data-catch="" className={buttonVariants()}>Abrir Gotchu</a>
-              </div>
-            </div>
-          </SheetContent>
-        </Sheet>
+        <MobileMenu open={open} onOpenChange={setOpen} />
       </div>
     </div>
   </header>;
+}
+
+function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  return <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Trigger render={<Button variant="outline" size="sm" className="min-[900px]:hidden" />}>
+      <MenuIcon aria-hidden="true" />Menú
+    </Dialog.Trigger>
+    <Dialog.Portal>
+      <Dialog.Backdrop className="gl gl-mobile-menu-backdrop" />
+      <Dialog.Popup className="gl gl-mobile-menu">
+        <div className="gl-mobile-menu-header">
+          <div className="gl-header-in">
+            <div className="gl-brand" aria-hidden="true"><GotchuMark size={26} /><span>Gotchu</span></div>
+            <Dialog.Close render={<Button variant="outline" size="sm" aria-expanded={open} />}>
+              <XIcon aria-hidden="true" />Cerrar
+            </Dialog.Close>
+          </div>
+        </div>
+        <Dialog.Title className="gl-sr">Menú</Dialog.Title>
+        <div className="gl-mobile-menu-panel">
+          <nav aria-label="Navegación principal" className="gl-mobile-menu-nav">
+            {LINKS.map(link => <a key={link.href} href={link.href} onClick={() => onOpenChange(false)}>{link.label}</a>)}
+          </nav>
+          <div className="gl-mobile-menu-foot">
+            <ThemeSwitch />
+            <a href="/dashboard" data-catch="" className={buttonVariants()}>Abrir Gotchu</a>
+          </div>
+        </div>
+      </Dialog.Popup>
+    </Dialog.Portal>
+  </Dialog.Root>;
 }

@@ -97,7 +97,7 @@ test('the theme switch moves between pure white, pure black and the system prefe
 });
 
 test('the mobile menu stays attached to the header and remains modal across themes', async ({ page, isMobile }) => {
-  test.skip(!isMobile, 'The sheet is only shown below 900px.');
+  test.skip(!isMobile, 'The mobile menu is only shown below 900px.');
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/', { waitUntil: 'networkidle' });
   const trigger = page.getByRole('button', { name: 'Menú', exact: true });
@@ -108,7 +108,7 @@ test('the mobile menu stays attached to the header and remains modal across them
   await expect(close).toBeVisible();
   await expect(close).toHaveAttribute('aria-expanded', 'true');
 
-  const panel = dialog.locator('.gl-sheet-panel');
+  const panel = dialog.locator('.gl-mobile-menu-panel');
   const panelTop = await panel.evaluate(element => element.getBoundingClientRect().top);
   const headerBottom = await page.locator('.gl-header').evaluate(element => element.getBoundingClientRect().bottom);
   expect(Math.abs(panelTop - headerBottom)).toBeLessThanOrEqual(1);
