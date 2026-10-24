@@ -1,0 +1,385 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-24T00:00:00Z",
+  "title": "Design System: Gotchu",
+  "extensions": {
+    "colorMeta": {
+      "magenta": {
+        "role": "primary",
+        "displayName": "Signal Magenta",
+        "canonical": "#e7147d",
+        "tonalRamp": [
+          "#3a0520",
+          "#5c0833",
+          "#850b4a",
+          "#b01064",
+          "#e7147d",
+          "#ef5a9c",
+          "#f59cc3",
+          "#fcdbe9"
+        ]
+      },
+      "action": {
+        "role": "primary",
+        "displayName": "Action Magenta",
+        "canonical": "#c80c68",
+        "tonalRamp": [
+          "#2c0216",
+          "#4c0426",
+          "#73073a",
+          "#9c0a4f",
+          "#c80c68",
+          "#dc4a8a",
+          "#eb8fb6",
+          "#f8d6e5"
+        ]
+      },
+      "action-hover": {
+        "role": "primary",
+        "displayName": "Action Magenta Deep",
+        "canonical": "#ac0957"
+      },
+      "accent-ink": {
+        "role": "primary",
+        "displayName": "Pink Ink",
+        "canonical": "#ff8fbe",
+        "tonalRamp": [
+          "#4a0f28",
+          "#731a40",
+          "#a0285c",
+          "#cc4280",
+          "#f066a0",
+          "#ff8fbe",
+          "#ffbcd8",
+          "#ffe6f0"
+        ]
+      },
+      "graphite": {
+        "role": "neutral",
+        "displayName": "Graphite",
+        "canonical": "#191923",
+        "tonalRamp": [
+          "#0f0f16",
+          "#191923",
+          "#21212e",
+          "#2b2b3a",
+          "#3d3b4c",
+          "#646174",
+          "#b5b1bb",
+          "#e9e8ee"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#0f0f16"
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "canonical": "#21212e"
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Raised",
+        "canonical": "#2b2b3a"
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Line",
+        "canonical": "#646174"
+      },
+      "line-soft": {
+        "role": "neutral",
+        "displayName": "Soft Line",
+        "canonical": "#3d3b4c"
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "canonical": "#b5b1bb"
+      },
+      "silver": {
+        "role": "neutral",
+        "displayName": "Silver",
+        "canonical": "#c7bfbd",
+        "tonalRamp": [
+          "#3b3742",
+          "#5a5355",
+          "#7d7476",
+          "#9d9496",
+          "#b3aaab",
+          "#c7bfbd",
+          "#ddd8d6",
+          "#f2efee"
+        ]
+      },
+      "silver-track": {
+        "role": "neutral",
+        "displayName": "Silver Track",
+        "canonical": "#b3aaab"
+      },
+      "on-silver": {
+        "role": "neutral",
+        "displayName": "On-Silver Text",
+        "canonical": "#3b3742"
+      },
+      "porcelain": {
+        "role": "neutral",
+        "displayName": "Porcelain",
+        "canonical": "#fffefa",
+        "tonalRamp": [
+          "#2e2d2a",
+          "#55544f",
+          "#7d7c75",
+          "#a5a49c",
+          "#cbcac2",
+          "#e6e5dd",
+          "#f5f4ec",
+          "#fffefa"
+        ]
+      },
+      "focus": {
+        "role": "neutral",
+        "displayName": "Focus Pink",
+        "canonical": "#ffabd0"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Hero headline only; Goldman 700 uppercase."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section headings, max 14ch, uppercase."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card and sheet titles, uppercase."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Buttons, secondary links, tabs, report terms; uppercase."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Reading copy in silver on dark, on-silver on silver."
+      },
+      "lead": {
+        "displayName": "Lead",
+        "purpose": "Section and stage leads at 420-580px measure."
+      },
+      "tag": {
+        "displayName": "Bracket Tag",
+        "purpose": "Mono [ bracketed ] labels naming real things, and nav links."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Export listing and DNS record."
+      }
+    },
+    "shadows": [
+      {
+        "name": "ink-hairline",
+        "value": "inset 0 0 0 1px #fffefa14",
+        "purpose": "Edge of ink cards on graphite."
+      },
+      {
+        "name": "floating-report",
+        "value": "0 30px 70px #08070d99",
+        "purpose": "Only the report card floating over the pinned stage."
+      },
+      {
+        "name": "blueprint-cell",
+        "value": "inset 0 0 0 1px #e7147d66",
+        "purpose": "Lit blueprint cell under a fine pointer, with #e7147d14 fill."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-strong",
+        "value": "cubic-bezier(0.23, 1, 0.32, 1)",
+        "purpose": "Default for hovers, lifts, sheets and disclosure (160ms base)."
+      },
+      {
+        "name": "ease-morph",
+        "value": "cubic-bezier(.77, 0, .175, 1)",
+        "purpose": "Tab indicator (300ms) and dot pictogram morphs (620ms, 5ms stagger)."
+      },
+      {
+        "name": "arrive",
+        "value": "700ms ease-out-strong, opacity .35 to 1, 18px, 4px blur, 70ms stagger",
+        "purpose": "Hero entrance, once, only without reduced motion."
+      },
+      {
+        "name": "catch-spring",
+        "value": "spring duration .35 bounce .35",
+        "purpose": "Mark brackets snap shut on [data-catch] hover."
+      },
+      {
+        "name": "facing-spring",
+        "value": "spring duration .5 bounce .15",
+        "purpose": "ASCII mark turns toward the pointer."
+      },
+      {
+        "name": "stage-scroll",
+        "value": "360svh sticky, scroll spring duration .3; spread 0-.30, close .42-.50, flash .47-.66, report .62-.84",
+        "purpose": "Pinned stage; replaced by the stacked layout below 761px wide, below 560px tall, under reduced motion and without JS."
+      },
+      {
+        "name": "press",
+        "value": "scale(.97) 100ms",
+        "purpose": "Button press feedback."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "tablet",
+        "value": "1050px"
+      },
+      {
+        "name": "mobile",
+        "value": "760px"
+      },
+      {
+        "name": "stage-live-min-width",
+        "value": "761px"
+      },
+      {
+        "name": "stage-live-min-height",
+        "value": "560px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Action-magenta pill for the main path into the product; carries data-catch.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\" data-catch>Revisar mi aplicación <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></a>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 26px; min-height: 54px; padding: 14px 26px; background: #c80c68; color: #fffefa; border-radius: 999px; font: 700 14px/1 Goldman, Oxanium, sans-serif; letter-spacing: .03em; text-transform: uppercase; text-decoration: none; transition: transform 160ms cubic-bezier(0.23,1,0.32,1), background-color 160ms ease; } .ds-btn-primary svg { transition: transform 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-primary:hover { transform: translateY(-2px); background: #ac0957; } .ds-btn-primary:hover svg { transform: translateX(4px); } .ds-btn-primary:active { transform: scale(.97); } .ds-btn-primary:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
+    },
+    {
+      "name": "Ink Button",
+      "kind": "button",
+      "refersTo": "button-ink",
+      "description": "Graphite pill used on magenta and silver cards.",
+      "html": "<div class=\"ds-ink-wrap\"><a class=\"ds-btn-ink\" href=\"#\" data-catch>Empezar mi revisión <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></a></div>",
+      "css": ".ds-ink-wrap { padding: 32px; background: #e7147d; border-radius: 28px; } .ds-btn-ink { display: inline-flex; align-items: center; gap: 26px; min-height: 54px; padding: 14px 26px; background: #191923; color: #fffefa; border-radius: 999px; font: 700 14px/1 Goldman, Oxanium, sans-serif; letter-spacing: .03em; text-transform: uppercase; text-decoration: none; transition: transform 160ms cubic-bezier(0.23,1,0.32,1), background-color 160ms ease; } .ds-btn-ink:hover { transform: translateY(-2px); background: #2b2b3a; } .ds-btn-ink:active { transform: scale(.97); } .ds-btn-ink:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "button-small",
+      "description": "Graphite header: Goldman brand, mono links with sliding pink-ink brackets, small porcelain pill.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-brand\" href=\"#\"><svg width=\"30\" height=\"30\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"currentColor\"><rect x=\"1\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"1\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"1\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/><rect x=\"19.6\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"14.2\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"14.2\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/></g><path d=\"M12 7.9L16.1 12L12 16.1L7.9 12Z\" fill=\"#e7147d\"/></svg>Gotchu</a><div class=\"ds-nav-links\"><a href=\"#\">Cómo funciona</a><a href=\"#\">Alcance</a><a class=\"ds-nav-cta\" href=\"#\" data-catch>Abrir Gotchu</a></div></nav>",
+      "css": ".ds-nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 72px; padding: 0 24px; background: #191923cc; border-bottom: 1px solid #fffefa12; color: #fffefa; } .ds-nav-brand { display: inline-flex; align-items: center; gap: 12px; color: #fffefa; text-decoration: none; font: 700 22px/1 Goldman, Oxanium, sans-serif; text-transform: uppercase; } .ds-nav-links { display: flex; align-items: center; gap: 32px; } .ds-nav-links > a:not(.ds-nav-cta) { color: #c7bfbd; text-decoration: none; font: 600 12px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; transition: color 160ms ease; } .ds-nav-links > a:not(.ds-nav-cta)::before { content: '['; margin-right: 6px; color: #ff8fbe; opacity: 0; display: inline-block; transform: translateX(4px); transition: opacity 160ms ease, transform 200ms cubic-bezier(0.23,1,0.32,1); } .ds-nav-links > a:not(.ds-nav-cta)::after { content: ']'; margin-left: 6px; color: #ff8fbe; opacity: 0; display: inline-block; transform: translateX(-4px); transition: opacity 160ms ease, transform 200ms cubic-bezier(0.23,1,0.32,1); } .ds-nav-links > a:not(.ds-nav-cta):hover { color: #fffefa; } .ds-nav-links > a:not(.ds-nav-cta):hover::before, .ds-nav-links > a:not(.ds-nav-cta):hover::after { opacity: 1; transform: none; } .ds-nav-cta { display: inline-flex; align-items: center; min-height: 44px; padding: 10px 18px; border-radius: 999px; background: #fffefa; color: #191923; text-decoration: none; font: 700 12px/1 Goldman, Oxanium, sans-serif; letter-spacing: .03em; text-transform: uppercase; transition: background-color 160ms ease, color 160ms ease; } .ds-nav-cta:hover { background: #e7147d; color: #191923; } .ds-nav a:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
+    },
+    {
+      "name": "Bracket Tag",
+      "kind": "chip",
+      "refersTo": "tag-pill",
+      "description": "Mono bracket labels naming a real thing; plain on ink, on a graphite pill over magenta.",
+      "html": "<div class=\"ds-tag-row\"><span class=\"ds-tag\">[ Código ]</span><span class=\"ds-tag\">[ HTTPS ]</span><span class=\"ds-tag-pill\">[ Solo observación ]</span></div>",
+      "css": ".ds-tag-row { display: flex; gap: 24px; align-items: center; padding: 24px; background: #0f0f16; border-radius: 28px; } .ds-tag, .ds-tag-pill { font: 600 12px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; } .ds-tag { color: #b5b1bb; } .ds-tag-pill { padding: 8px 12px; border-radius: 999px; background: #191923; color: #fffefa; box-shadow: 0 0 0 6px #e7147d; }"
+    },
+    {
+      "name": "Perspective Tabs",
+      "kind": "custom",
+      "refersTo": "tab-track",
+      "description": "Silver-track pill with a sliding graphite indicator.",
+      "html": "<div class=\"ds-tabs\" role=\"tablist\"><span class=\"ds-tabs-indicator\"></span><button role=\"tab\" aria-selected=\"true\">Código</button><button role=\"tab\" aria-selected=\"false\">HTTPS</button><button role=\"tab\" aria-selected=\"false\">Ambas</button></div>",
+      "css": ".ds-tabs { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); width: min(560px, 100%); padding: 6px; border-radius: 999px; background: #b3aaab; } .ds-tabs-indicator { position: absolute; top: 6px; bottom: 6px; left: 6px; width: calc((100% - 12px) / 3); border-radius: 999px; background: #191923; transition: transform 300ms cubic-bezier(.77,0,.175,1); } .ds-tabs button { position: relative; z-index: 1; min-height: 52px; padding: 10px 16px; border: 0; border-radius: 999px; background: transparent; color: #191923; font: 700 15px/1.2 Goldman, Oxanium, sans-serif; text-transform: uppercase; letter-spacing: .02em; cursor: pointer; transition: color 200ms ease; } .ds-tabs button[aria-selected=true] { color: #fffefa; } .ds-tabs button:not([aria-selected=true]):hover { color: #2b2b3a; } .ds-tabs button:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
+    },
+    {
+      "name": "Magenta Display Card",
+      "kind": "card",
+      "refersTo": "card-magenta",
+      "description": "Drenched magenta field with two-tone Goldman headline over outlined wordmark rows.",
+      "html": "<div class=\"ds-card-magenta\"><div class=\"ds-rows\" aria-hidden=\"true\"><div>GOTCHU GOTCHU GOTCHU</div><div class=\"is-outline\">GOTCHU GOTCHU GOTCHU</div><div>GOTCHU GOTCHU GOTCHU</div></div><h2>Tu código. Tu web. <span>Bajo la misma lupa.</span></h2></div>",
+      "css": ".ds-card-magenta { position: relative; overflow: hidden; isolation: isolate; padding: clamp(24px, 3vw, 44px); min-height: 320px; display: flex; align-items: flex-end; border-radius: 28px; background: #e7147d; color: #191923; } .ds-card-magenta h2 { margin: 0; max-width: 11ch; font: 700 clamp(2.4rem, 5vw, 4.4rem)/.9 Goldman, Oxanium, sans-serif; letter-spacing: -.025em; text-transform: uppercase; } .ds-card-magenta h2 span { color: #fffefa; } .ds-rows { position: absolute; inset: 0; z-index: -1; display: flex; flex-direction: column; justify-content: center; font: 700 5rem/.92 Goldman, Oxanium, sans-serif; color: #1919231c; white-space: nowrap; transform: translateX(-10%); } .ds-rows .is-outline { color: transparent; -webkit-text-stroke: 1.5px #1919231c; }"
+    },
+    {
+      "name": "Ink Card with Dot Pictogram",
+      "kind": "card",
+      "refersTo": "card-ink",
+      "description": "Ink workflow card: one dominant 11x11 dot pictogram, Goldman title, silver body.",
+      "html": "<article class=\"ds-card-ink\"><div class=\"ds-dots\" aria-hidden=\"true\"></div><div><h3>Espacios y aplicaciones</h3><p>Organiza tus aplicaciones por espacio de trabajo y conserva los permisos de cada rol.</p></div></article>",
+      "css": ".ds-card-ink { display: flex; flex-direction: column; gap: 40px; padding: 32px; border-radius: 28px; background: #0f0f16; color: #fffefa; box-shadow: inset 0 0 0 1px #fffefa14; } .ds-card-ink h3 { margin: 0 0 12px; font: 700 22px/1.1 Goldman, Oxanium, sans-serif; text-transform: uppercase; } .ds-card-ink p { margin: 0; color: #c7bfbd; font: 15px/1.65 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } .ds-dots { width: 132px; aspect-ratio: 1; background: radial-gradient(circle, #e7147d 0 40%, transparent 41%) 0 0 / calc(100% / 11) calc(100% / 11); -webkit-mask: linear-gradient(135deg, #000 50%, transparent 50%); mask: linear-gradient(135deg, #000 50%, transparent 50%); }"
+    },
+    {
+      "name": "Report Card",
+      "kind": "card",
+      "refersTo": "report-card",
+      "description": "Ink definition list of real report vocabulary with the JSON chip; the one floating shadow.",
+      "html": "<div class=\"ds-report\"><header><span class=\"ds-report-tag\">[ Informe de evaluación ]</span><span class=\"ds-report-json\">JSON</span></header><dl><div><dt>Hallazgo</dt><dd>Título, ubicación y regla</dd></div><div><dt>Severidad</dt><dd>Desconocida · informativa · baja · media · alta · crítica</dd></div><div><dt>Confianza</dt><dd>Observada · inferida · incierta</dd></div><div><dt>Cobertura</dt><dd>Inspeccionado · no solicitado · no compatible · no disponible</dd></div></dl></div>",
+      "css": ".ds-report { max-width: 560px; border: 1px solid #646174; border-radius: 22px; background: #0f0f16; overflow: hidden; box-shadow: 0 30px 70px #08070d99; } .ds-report header { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; border-bottom: 1px solid #3d3b4c; } .ds-report-tag { color: #b5b1bb; font: 600 12px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; } .ds-report-json { padding: 5px 10px; border-radius: 6px; background: #c80c68; color: #fffefa; font: 600 12px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; } .ds-report dl { margin: 0; } .ds-report dl > div { display: grid; grid-template-columns: 120px 1fr; gap: 16px; padding: 16px 22px; border-bottom: 1px solid #3d3b4c; } .ds-report dl > div:last-child { border-bottom: 0; } .ds-report dt { color: #fffefa; font: 700 14px/1.4 Goldman, Oxanium, sans-serif; text-transform: uppercase; } .ds-report dd { margin: 0; color: #c7bfbd; font: 14px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }"
+    },
+    {
+      "name": "FAQ Disclosure",
+      "kind": "custom",
+      "description": "Native details row; round control turns magenta and rotates 45 degrees when open.",
+      "html": "<details class=\"ds-faq\"><summary>¿Tengo que compartir mi código?<span aria-hidden=\"true\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 5v14M5 12h14\"/></svg></span></summary><p>No. Puedes evaluar únicamente un origen HTTPS autorizado.</p></details>",
+      "css": ".ds-faq { border-top: 1px solid #646174; border-bottom: 1px solid #646174; background: #191923; color: #fffefa; } .ds-faq summary { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; list-style: none; cursor: pointer; font: 600 18px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: color 160ms ease; } .ds-faq summary::-webkit-details-marker { display: none; } .ds-faq summary:hover { color: #ff8fbe; } .ds-faq summary:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; } .ds-faq summary > span { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #2b2b3a; color: #fffefa; transition: transform 240ms cubic-bezier(0.23,1,0.32,1), background-color 200ms ease, color 200ms ease; } .ds-faq[open] summary > span { transform: rotate(45deg); background: #e7147d; color: #191923; } .ds-faq p { margin: 0; padding: 0 60px 26px 0; color: #c7bfbd; font: 16px/1.75 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Working Brand Board",
+    "overview": "Gotchu speaks like an identity system that also does the job: one bold mark, giant wide uppercase type, drenched colour fields, and technical blueprint detail. Every surface is a rounded bento card on a graphite ground; the cards carry flat colour, type and authored digital art (ASCII render, dot-matrix pictograms, repeated wordmark rows, hairline grid), never representations of physical things. Content is the real product vocabulary (SHA-256, `_gotchu.<dominio>`, report enums, JSON export keys) and is never padded with invented results.\n\nThe mark `[◆]` is two scope brackets closing on a magenta finding. It is the only symbol of the world and it carries the signature behaviour: the brackets spread and snap shut. Density is low and loud: few elements, each at full size.\n\nThe landing tokens are scoped to `.g-page`; customer and demo surfaces keep their own styles until they are deliberately moved into this world.",
+    "keyCharacteristics": [
+      "Graphite ground, magenta display fields, silver and ink cards, porcelain type.",
+      "Goldman 700 uppercase for everything that speaks; platform sans for reading; ui-monospace bracket tags for labels.",
+      "Rounded bento cards (28px) and pill controls; no square controls.",
+      "Authored digital art only: ASCII 3D mark, 11×11 dot pictograms, wordmark rows, 96px blueprint grid.",
+      "Motion is bracket-and-field motion; every moving piece has a still, stacked equivalent."
+    ],
+    "rules": [
+      {
+        "name": "The Small-Text Rule",
+        "body": "Small text never sits on signal magenta (porcelain reaches only about 4.4:1, graphite about 4:1). Magenta takes display type, graphic marks and fields; a card that needs body copy switches to action magenta, or puts the text on a graphite pill.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two-Tone Headline Rule",
+        "body": "On magenta and silver fields a headline is graphite with its last clause in porcelain; on dark, porcelain with the accent clause in pink ink.",
+        "section": "colors"
+      },
+      {
+        "name": "The Uppercase Voice Rule",
+        "body": "Goldman is always 700 and always uppercase, with negative tracking at headline sizes and positive tracking at label sizes. Body copy is never set in Goldman.",
+        "section": "typography"
+      },
+      {
+        "name": "The Licence Rule",
+        "body": "AIRNT is a visual reference only. Ship Goldman (OFL, licence file alongside the woff2); never embed or distribute AIRNT without licence evidence.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Card Rule",
+        "body": "Cards are colour fields, not objects. No bevels, gloss, metal, glass panels or realistic lighting; the single drop shadow belongs to the floating report card.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do put small text on action magenta, graphite, ink or silver, never on signal magenta.",
+      "Do set every display line in Goldman 700 uppercase and every reading line in the platform sans.",
+      "Do build sections as 28px bento cards on graphite, 12px apart, with pill controls.",
+      "Do label with real product vocabulary in mono bracket tags attached to the thing they name.",
+      "Do mark every primary path into the product with `data-catch` so the mark catches it.",
+      "Do give every moving piece a still, stacked equivalent for reduced motion, small or short viewports and no-JS.",
+      "Do make art from the world's own materials: the mark, ASCII, dots, wordmark rows, the blueprint grid."
+    ],
+    "donts": [
+      "Don't show a loader or splash before content.",
+      "Don't add captions or helper copy that explain the artwork or the page.",
+      "Don't invent results, metrics, findings, customers or animated pseudo-data; show product structure instead.",
+      "Don't use anything realistic: photos, metal, glass objects, camera-like renders, 3D product objects.",
+      "Don't set small text on signal magenta (#e7147d).",
+      "Don't ship or embed AIRNT; Goldman is the licensed face.",
+      "Don't use custom cursors, scroll snapping or hijacking, or particles that cover content.",
+      "Don't use a bracket tag as a kicker above a section headline."
+    ]
+  }
+}
