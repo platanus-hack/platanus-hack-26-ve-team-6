@@ -5,3 +5,8 @@ packages:
 
 allowBuilds:
   esbuild: true
+  msgpackr-extract: false
+  protobufjs: false
+
+minimumReleaseAge: 1440
+minimumReleaseAgeStrict: true
