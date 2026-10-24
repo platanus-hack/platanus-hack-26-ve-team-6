@@ -154,15 +154,19 @@ Trabajo:
 Trabajo:
 
 - [x] Introducir registros durables por tenant de validación, fuente base/candidata, target, patch y árbol, perfil, suite versionada, runner/Firecracker/kernel/rootfs, estado, tiempos, límites y caducidad; las cuatro attestations se guardan separadas e inmutables.
-- [x] Permitir a Owner/Operator configurar una suite por enlace de repositorio; comparar `package.json` scripts y todos los paths de test entre base y candidato. Una suite modificada queda inconclusa.
+- [x] Permitir a Owner/Operator configurar una suite por enlace de repositorio; comparar scripts y metadatos de `package.json`, configuración de runners, `.npmrc`, todos los paths de test y archivos `setupFiles` entre base y candidato. Una suite modificada queda inconclusa. Los PR de dependencias sólo permiten cambios de versión en el allowlist exacto y el lockfile.
 - [x] Ejecutar base y candidato en Firecracker con `node24-npm-test`; guardar reproducción, regresión candidata, suite y reanálisis como attestations distintas. La suite informa conteos y la reproducción objetivo desde `test-results/*.json`.
 - [ ] Añadir fuzzing con corpus y harnesses de API. El alcance actual se limita al laboratorio local y al perfil Node/JS fijo.
 - [x] Comparar identidades de findings nuevos/objetivo y cobertura antes/después; scanner fallido, coverage parcial, identity objetivo ausente, mismatch de digest y gate cerrado no producen validación completa.
+- [x] Compartir una regla pura de identidad/cobertura entre la attestation de reanálisis y `scoreValidation`; la fact sólo pasa si el objetivo desapareció y no hay findings nuevos.
+- [x] Comparar los conteos base/candidato de la suite: menos tests ejecutados o más skips falla con `suite_shrank`, aunque el mínimo de tests pasados se alcance.
 - [x] Firmar las attestations con una clave Ed25519 del proceso validator, protegida fuera del repo con modo 0600. `validationAttestationSchema` y `getValidationFacts({organizationId, actionRef})` entregan al verificador evidencia firmada y clave pública; la verificación es independiente del modelo.
+- [x] Validar con seis casos unitarios de scoring, cinco ejecuciones reales de guest VM y nueve escenarios reportados (arreglo correcto, funcionalidad borrada, configuración cambiada, suite fallida/omitida, frame malformado, digest base no aprobado y gate cerrado); el adaptador de frame está etiquetado como fixture.
+- [x] Verificar bytes de attestations modificados, lease vencido sin doble registro y `cleanup_uncertain` en cuarentena que mantiene capacidad: 14 casos de base de datos y 130 de backend pasaron en Postgres real.
 
 **Aceptación:** arreglo correcto; arreglo que borra/desactiva la funcionalidad; suite omitida; nuevo hallazgo; perfil viejo; salida falsificada; base diferente; test fallido; cobertura parcial; runner no aislado. UI con “reanálisis objetivo pasó” y “suite X pasó”, nunca “aplicación completamente segura”.
 
-El circuito local ya registra el resultado del candidato borrado como fallo en VM y distingue rescan y suite en la proyección. El profile del runner sólo admite `npm test`; otros `scriptName` quedan inconclusos. Los escenarios de scanner nuevo/coverage parcial, candidate digest distinto, gate cerrado y persistencia/lease están cubiertos por reglas o pruebas específicas; el cierre completo sigue pendiente de correr todas las suites de evidencia en infraestructura real.
+El circuito local registra por separado el reanálisis objetivo y la suite. El profile del runner sólo admite `npm test`; otros `scriptName` quedan inconclusos. La evidencia anterior es local de desarrollo: los casos guest usaron Firecracker real y el test de firma/lease usó Postgres real. No demuestra AWS, cobertura general de fuzzing, ni capacidad de producción.
 
 Esto adopta la exigencia práctica de un CRS: encontrar y corregir manteniendo comportamiento. La [evaluación de AIxCC](https://www.darpa.mil/news/2025/ai-cyber-challenge-scoring) valoró explícitamente parches que preservan funcionalidad. No implica que Gotchu ya alcance las capacidades de esos sistemas.
 

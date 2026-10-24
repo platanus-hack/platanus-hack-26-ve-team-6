@@ -1,6 +1,6 @@
 import { randomUUID, createHash, createPublicKey, verify } from 'node:crypto';
 import { z } from 'zod';
-import { validationAttestationPayloadSchema, validationAttestationSchema, validationEvidenceSchema, validationFactsSchema, validationPublicProjectionSchema, validationSuiteConfigSchema, validationSuiteDefinitionSchema, type ValidationEvidence } from '@gotchu/contracts';
+import { scoreIndependentRescan, validationAttestationPayloadSchema, validationAttestationSchema, validationEvidenceSchema, validationFactsSchema, validationPublicProjectionSchema, validationSuiteConfigSchema, validationSuiteDefinitionSchema, type ValidationEvidence } from '@gotchu/contracts';
 import type { Transaction } from '@gotchu/database';
 import { audit, authorize, BackendError, parse, type BaseDependencies, type Identity } from './core.js';
 
@@ -14,15 +14,14 @@ export function scoreValidation(evidence: readonly ValidationEvidence[]): { stat
   const suite = evidence.find(item => item.kind === 'functional_suite');
   const rescan = evidence.find(item => item.kind === 'independent_rescan');
   if (!regression || !suite || !rescan) return { state: 'inconclusive', reason: 'required_evidence_missing' };
+  if (suite.baseCounts && (suite.counts.passed + suite.counts.failed + suite.counts.skipped < suite.baseCounts.passed + suite.baseCounts.failed + suite.baseCounts.skipped || suite.counts.skipped > suite.baseCounts.skipped)) return { state: 'failed', reason: 'suite_shrank' };
   if (suite.result === 'failed' || suite.counts.passed < suite.requiredCounts || suite.counts.skipped > 0 && suite.counts.passed === 0) return { state: 'failed', reason: 'functional_suite_failed' };
   if (regression.result === 'failed') return { state: 'failed', reason: 'candidate_regression_failed' };
   if (rescan.result === 'failed') return { state: 'failed', reason: 'rescan_findings_changed' };
-  if (rescan.result !== 'passed' || rescan.before.coverage !== 'complete' || rescan.after.coverage !== 'complete') return { state: 'inconclusive', reason: 'rescan_coverage_unknown' };
-  const newFindings = rescan.after.identities.some(identity => !rescan.before.identities.includes(identity));
-  const remainingTarget = rescan.targetedIdentities.some(identity => rescan.after.identities.includes(identity));
-  if (rescan.targetedIdentities.length === 0 || rescan.targetedIdentities.some(identity => !rescan.before.identities.includes(identity))) return { state: 'inconclusive', reason: 'target_identity_missing' };
-  if (newFindings || remainingTarget) return { state: 'failed', reason: newFindings ? 'new_findings' : 'targeted_findings_remain' };
-  if (base?.result !== 'failed_for_target' && base?.result !== 'unavailable') return { state: 'inconclusive', reason: 'base_reproduction_not_confirmed' };
+  const rescanScore = scoreIndependentRescan(rescan);
+  if (rescanScore.result === 'failed') return { state: 'failed', reason: rescanScore.reason };
+  if (rescan.result !== 'passed' || rescanScore.result !== 'passed') return { state: 'inconclusive', reason: rescanScore.reason ?? 'rescan_coverage_unknown' };
+  if (base?.result !== 'failed_for_target') return { state: 'inconclusive', reason: 'base_reproduction_not_confirmed' };
   if (regression.result !== 'passed' || suite.result !== 'passed') return { state: 'inconclusive', reason: 'required_test_not_passed' };
   return { state: 'passed', reason: null };
 }

@@ -37,10 +37,25 @@ export type ValidationRun = z.infer<typeof validationRunSchema>;
 
 const findingSetSchema = z.object({ identities: z.array(z.string().min(1).max(256)).max(500), coverage: z.enum(['complete', 'partial', 'unknown']) }).strict();
 const countsSchema = z.object({ passed: z.number().int().nonnegative(), failed: z.number().int().nonnegative(), skipped: z.number().int().nonnegative() }).strict();
+export type ValidationFindingSet = z.infer<typeof findingSetSchema>;
+export type ValidationCounts = z.infer<typeof countsSchema>;
+
+export function scoreIndependentRescan(input: {
+  before: ValidationFindingSet;
+  after: ValidationFindingSet;
+  targetedIdentities: readonly string[];
+}): { result: 'passed' | 'failed' | 'inconclusive'; reason: 'new_findings' | 'targeted_findings_remain' | 'rescan_coverage_unknown' | 'target_identity_missing' | null } {
+  if (input.before.coverage !== 'complete' || input.after.coverage !== 'complete') return { result: 'inconclusive', reason: 'rescan_coverage_unknown' };
+  if (input.targetedIdentities.length === 0 || input.targetedIdentities.some(identity => !input.before.identities.includes(identity))) return { result: 'inconclusive', reason: 'target_identity_missing' };
+  if (input.after.identities.some(identity => !input.before.identities.includes(identity))) return { result: 'failed', reason: 'new_findings' };
+  if (input.targetedIdentities.some(identity => input.after.identities.includes(identity))) return { result: 'failed', reason: 'targeted_findings_remain' };
+  return { result: 'passed', reason: null };
+}
+
 export const validationEvidenceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('base_reproduction'), result: z.enum(['failed_for_target', 'passed', 'unavailable']), exitCode: z.number().int().nullable(), durationMs: z.number().int().nonnegative() }).strict(),
   z.object({ kind: z.literal('candidate_regression'), result: z.enum(['passed', 'failed', 'unavailable']), exitCode: z.number().int().nullable(), durationMs: z.number().int().nonnegative() }).strict(),
-  z.object({ kind: z.literal('functional_suite'), suiteName: z.string().min(1).max(128), result: z.enum(['passed', 'failed', 'inconclusive']), counts: countsSchema, requiredCounts: z.number().int().positive() }).strict(),
+  z.object({ kind: z.literal('functional_suite'), suiteName: z.string().min(1).max(128), result: z.enum(['passed', 'failed', 'inconclusive']), counts: countsSchema, baseCounts: countsSchema.optional(), requiredCounts: z.number().int().positive() }).strict(),
   z.object({ kind: z.literal('independent_rescan'), result: z.enum(['passed', 'failed', 'inconclusive']), before: findingSetSchema, after: findingSetSchema, targetedIdentities: z.array(z.string().min(1).max(256)).max(500) }).strict(),
 ]);
 export type ValidationEvidence = z.infer<typeof validationEvidenceSchema>;

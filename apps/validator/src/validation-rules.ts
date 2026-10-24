@@ -1,29 +1,91 @@
 import { z } from 'zod';
 import type { CustomerSourceSnapshot } from '@gotchu/contracts';
 
-const scriptsSchema = z.record(z.string(), z.string());
+const packageSchema = z.object({}).passthrough();
+const setupPathPattern = /(?:setupFiles(?:AfterEnv)?|setupFiles|setup)\s*[:=]\s*(?:\[([^\]]*)\]|['"]([^'"]+)['"])/g;
+const quotedPathPattern = /['"]([^'"]+)['"]/g;
+const testConfig = /^(?:vitest\.config\..+|jest\.config\..+|\.mocharc(?:\..+)?|\.avarc(?:\..+)?|ava\.config\..+|playwright\.config\..+|vite\.config\..+|tsconfig[^/]*\.json)$/;
+type DependencyChange = { name: string; section: 'dependencies' | 'devDependencies'; version: string };
+type SuiteIntegrityOptions = {
+  scriptName: string;
+  regressionTestPath: string | null;
+  actionKind?: 'correction' | 'dependency_pull_request';
+  dependencyAllowlist?: readonly DependencyChange[];
+};
 
-function packageScripts(files: ReadonlyMap<string, string>, scriptName: string): string | null {
-  const raw = files.get('package.json');
-  if (!raw) return null;
-  try {
-    const value: unknown = JSON.parse(raw);
-    if (typeof value !== 'object' || value === null || !('scripts' in value)) return null;
-    const scripts = scriptsSchema.safeParse(value.scripts);
-    if (!scripts.success || !(scriptName in scripts.data)) return null;
-    return JSON.stringify(scripts.data);
-  } catch { return null; }
+export function validationAdmissionReason(input: { suiteConfigured: boolean; baseDigestMatches: boolean; candidateDigestMatches: boolean; scriptName: string | null; gateOpen: boolean }): string | null {
+  if (!input.suiteConfigured) return 'suite_not_configured';
+  if (!input.baseDigestMatches) return 'approved_base_digest_mismatch';
+  if (!input.candidateDigestMatches) return 'candidate_digest_mismatch';
+  if (input.scriptName !== 'test') return 'runner_profile_script_mismatch';
+  if (!input.gateOpen) return 'runner_gate_closed';
+  return null;
 }
 
 function suiteFile(path: string): boolean {
   return path.startsWith('test/') || path.startsWith('tests/') || path.includes('/__tests__/') || path.startsWith('__tests__/') || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path);
 }
 
-export function suiteModifiedByCandidate(base: CustomerSourceSnapshot, candidate: CustomerSourceSnapshot, options: { scriptName: string; regressionTestPath: string | null }): boolean {
+function parsePackage(files: ReadonlyMap<string, string>): Record<string, unknown> | null {
+  const raw = files.get('package.json');
+  if (!raw) return null;
+  try {
+    const parsed = packageSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch { return null; }
+}
+
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+  if (typeof value !== 'object' || value === null) return JSON.stringify(value);
+  return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${stable(item)}`).join(',')}}`;
+}
+
+function packageChanged(baseFiles: ReadonlyMap<string, string>, candidateFiles: ReadonlyMap<string, string>, options: SuiteIntegrityOptions): boolean {
+  const base = parsePackage(baseFiles); const candidate = parsePackage(candidateFiles);
+  if (!base || !candidate) return true;
+  const allowlist = options.actionKind === 'dependency_pull_request' ? options.dependencyAllowlist ?? [] : [];
+  for (const change of allowlist) {
+    const baseDependencies = base[change.section]; const candidateDependencies = candidate[change.section];
+    if (typeof baseDependencies !== 'object' || baseDependencies === null || typeof candidateDependencies !== 'object' || candidateDependencies === null) return true;
+    const before = (baseDependencies as Record<string, unknown>)[change.name];
+    const after = (candidateDependencies as Record<string, unknown>)[change.name];
+    if (typeof before !== 'string' || after !== change.version) return true;
+  }
+  const normalized = (source: Record<string, unknown>) => {
+    const result = structuredClone(source);
+    for (const change of allowlist) {
+      const dependencies = result[change.section];
+      if (typeof dependencies === 'object' && dependencies !== null) (dependencies as Record<string, unknown>)[change.name] = (base[change.section] as Record<string, unknown>)[change.name];
+    }
+    return result;
+  };
+  return stable(normalized(base)) !== stable(normalized(candidate));
+}
+
+function setupFiles(files: ReadonlyMap<string, string>): Set<string> {
+  const paths = new Set<string>();
+  for (const [configPath, content] of files) {
+    if (!testConfig.test(configPath)) continue;
+    for (const match of content.matchAll(setupPathPattern)) {
+      const list = match[1] ?? match[2] ?? '';
+      for (const path of list.matchAll(quotedPathPattern)) paths.add(path[1]!.replace(/^\.\//, ''));
+    }
+  }
+  return paths;
+}
+
+export function suiteModifiedByCandidate(base: CustomerSourceSnapshot, candidate: CustomerSourceSnapshot, options: SuiteIntegrityOptions): boolean {
   const baseFiles = new Map(base.files.map(file => [file.path, file.content]));
   const candidateFiles = new Map(candidate.files.map(file => [file.path, file.content]));
-  const scripts = packageScripts(baseFiles, options.scriptName);
-  if (!scripts || scripts !== packageScripts(candidateFiles, options.scriptName)) return true;
+  if (packageChanged(baseFiles, candidateFiles, options)) return true;
   if (options.regressionTestPath && baseFiles.get(options.regressionTestPath) !== candidateFiles.get(options.regressionTestPath)) return true;
-  return [...new Set([...baseFiles.keys(), ...candidateFiles.keys()].filter(suiteFile))].some(path => baseFiles.get(path) !== candidateFiles.get(path));
+  const referencedSetup = new Set([...setupFiles(baseFiles), ...setupFiles(candidateFiles)]);
+  return [...new Set([...baseFiles.keys(), ...candidateFiles.keys()])].some(path => {
+    const name = path.split('/').at(-1)!;
+    const protectedPath = suiteFile(path) || testConfig.test(name) || name === '.npmrc' || ['package-lock.json', 'npm-shrinkwrap.json'].includes(path) || referencedSetup.has(path) || path.split('/').some(part => part === 'node_modules');
+    if (!protectedPath) return false;
+    if (options.actionKind === 'dependency_pull_request' && ['package-lock.json', 'npm-shrinkwrap.json'].includes(path)) return false;
+    return baseFiles.get(path) !== candidateFiles.get(path);
+  });
 }

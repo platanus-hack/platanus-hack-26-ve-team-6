@@ -4,6 +4,8 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createFirecrackerRunner, checkRunnerGate, runnerJobSchema, runnerResultSchema } from '@gotchu/runner';
 import { sourceArchive } from '../dist/archive.js';
+import { runValidatedRunnerJob } from '../dist/validator.js';
+import { suiteModifiedByCandidate, validationAdmissionReason } from '../dist/validation-rules.js';
 
 if (process.env.GOTCHU_TEST_VM !== '1') {
   console.log('VM suite skipped; set GOTCHU_TEST_VM=1 to run real Firecracker jobs.');
@@ -27,6 +29,9 @@ async function source() {
 const baseFiles = await source();
 const files = new Map(baseFiles.map(file => [file.path, file.content]));
 files.set('src/feature.js', 'exports.isAuthorized = () => true;\n');
+const baseSnapshot = { revision: 'fixture-base', files: baseFiles };
+function changedSnapshot(path, content) { const changed = new Map(baseFiles.map(file => [file.path, file.content])); changed.set(path, content); return { revision: 'fixture-candidate', files: [...changed].map(([path, content]) => ({ path, content })) }; }
+function withFile(path, content) { const changed = new Map(baseFiles.map(file => [file.path, file.content])); changed.set(path, content); return [...changed].map(([path, content]) => ({ path, content })); }
 const runner = createFirecrackerRunner({ maxConcurrent: 1, resolveInput: async (_reference, scope) => inputs.get(`${scope.organizationId}:${_reference.objectId}`) });
 const inputs = new Map();
 async function run(filesForRun) {
@@ -48,4 +53,20 @@ if (!evidence || JSON.parse(Buffer.from(evidence.contentBase64, 'base64').toStri
 files.delete('src/feature.js');
 const deleted = await run([...files].map(([path, content]) => ({ path, content })));
 if (deleted.status !== 'completed' || deleted.exitCode === 0 || !deleted.isolation.cleanupVerified) throw new Error(`Function deletion was not caught by the VM suite: ${deleted.status}`);
-console.log('Live VM evidence: base reproduction failed; candidate passed 1 test; deleted functionality failed; cleanup verified in all three runs.');
+const failing = await run(withFile('test/run.js', "const fs=require('node:fs');fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/evidence.json',JSON.stringify({passed:0,failed:1,skipped:0,regression:'failed_for_target'}));process.exitCode=1;"));
+if (failing.status !== 'completed' || failing.exitCode === 0 || !failing.isolation.cleanupVerified) throw new Error(`Failing suite did not fail in VM: ${failing.status}`);
+const skipped = await run(withFile('test/run.js', "const fs=require('node:fs');fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/evidence.json',JSON.stringify({passed:0,failed:0,skipped:1,regression:'passed'}));"));
+const skippedArtifact = skipped.artifacts.find(artifact => artifact.path === 'test-results/evidence.json');
+if (skipped.status !== 'completed' || skipped.exitCode !== 0 || !skippedArtifact || JSON.parse(Buffer.from(skippedArtifact.contentBase64, 'base64').toString('utf8')).skipped !== 1) throw new Error(`Dynamically skipped suite was not captured in VM: ${skipped.status}`);
+const suiteConfigEdit = changedSnapshot('vitest.config.ts', 'export default { test: { include: [] } };');
+if (!suiteModifiedByCandidate(baseSnapshot, suiteConfigEdit, { scriptName: 'test', regressionTestPath: 'test/run.js' })) throw new Error('Candidate test config edit was not classified suite_modified_by_candidate');
+if (validationAdmissionReason({ suiteConfigured: true, baseDigestMatches: false, candidateDigestMatches: true, scriptName: 'test', gateOpen: true }) !== 'approved_base_digest_mismatch') throw new Error('Mismatched approved base was not refused');
+if (validationAdmissionReason({ suiteConfigured: true, baseDigestMatches: true, candidateDigestMatches: true, scriptName: 'test', gateOpen: false }) !== 'runner_gate_closed') throw new Error('Closed runner gate was not inconclusive');
+let injected = false;
+try {
+  await runValidatedRunnerJob(async () => { injected = true; return { status: 'completed', exitCode: 0, isolation: { cleanupVerified: true } }; }, {});
+  throw new Error('Malformed runner frame was accepted');
+} catch (error) {
+  if (!injected || error.message !== 'validation_runner_frame_invalid') throw error;
+}
+console.log('Live VM evidence: base reproduction, corrected candidate, deleted functionality, failing suite, dynamically skipped suite, config-tamper refusal, base-digest refusal, closed-gate inconclusive, and malformed fixture runner frame inconclusive.');

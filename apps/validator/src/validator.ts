@@ -2,14 +2,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { customerAssessmentReportSchema, customerRunInputSchema, customerSourceSnapshotSchema, validationEvidenceSchema, validationLimitsSchema, validationSuiteDefinitionSchema, type ValidationEvidence, type ValidationRun } from '@gotchu/contracts';
+import { customerAssessmentReportSchema, customerRunInputSchema, customerSourceSnapshotSchema, scoreIndependentRescan, validationEvidenceSchema, validationLimitsSchema, validationSuiteDefinitionSchema, type ValidationEvidence, type ValidationRun } from '@gotchu/contracts';
 import { createCustomerAssessmentRunner } from '@gotchu/customer-assessment';
 import { createFirecrackerRunner, checkRunnerGate, runnerJobSchema, runnerPackageRoot, runnerResultSchema, type RunnerResult } from '@gotchu/runner';
 import type { Database } from '@gotchu/database';
 import { scoreValidation } from '@gotchu/backend';
 import { sourceArchive } from './archive.js';
 import { signAttestation, type ValidatorKey } from './keys.js';
-import { suiteModifiedByCandidate } from './validation-rules.js';
+import { suiteModifiedByCandidate, validationAdmissionReason } from './validation-rules.js';
 
 const leaseMs = 300_000;
 const scanner = createCustomerAssessmentRunner();
@@ -45,8 +45,15 @@ export interface ValidationWorkerOptions {
   readonly key: ValidatorKey;
   readonly runnerGate?: typeof checkRunnerGate;
   readonly scanner?: typeof scanner;
+  readonly runnerJobAdapter?: (job: z.infer<typeof runnerJobSchema>, options?: { signal?: AbortSignal }) => Promise<unknown>;
   readonly concurrency?: number;
   readonly shutdownSignal?: AbortSignal;
+}
+
+export async function runValidatedRunnerJob(adapter: (job: z.infer<typeof runnerJobSchema>, options?: { signal?: AbortSignal }) => Promise<unknown>, job: z.infer<typeof runnerJobSchema>, options?: { signal?: AbortSignal }): Promise<RunnerResult> {
+  const result = runnerResultSchema.safeParse(await adapter(job, options));
+  if (!result.success) throw new Error('validation_runner_frame_invalid');
+  return result.data;
 }
 
 export function createValidationWorker(options: ValidationWorkerOptions) {
@@ -107,12 +114,12 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
       { kind: 'independent_rescan', result: 'inconclusive', before: { identities: [], coverage: 'unknown' }, after: { identities: [], coverage: 'unknown' }, targetedIdentities: [] },
     ], 'inconclusive', why, []);
 
-    if (!run.suiteDefinitionId || !row.suite_name || !row.script_name || !row.required_count) return inconclusive('suite_not_configured');
-    if (row.base_source_digest !== run.baseSnapshotDigest) return inconclusive('approved_base_digest_mismatch');
-    if (row.candidate_source_digest !== run.candidateTreeDigest) return inconclusive('candidate_digest_mismatch');
-    if (row.script_name !== 'test') return inconclusive('runner_profile_script_mismatch');
+    const admission = { suiteConfigured: Boolean(run.suiteDefinitionId && row.suite_name && row.script_name && row.required_count), baseDigestMatches: row.base_source_digest === run.baseSnapshotDigest, candidateDigestMatches: row.candidate_source_digest === run.candidateTreeDigest, scriptName: typeof row.script_name === 'string' ? row.script_name : null, gateOpen: true };
+    const preflightReason = validationAdmissionReason(admission);
+    if (preflightReason) return inconclusive(preflightReason);
     const gate = await (options.runnerGate ?? checkRunnerGate)();
-    if (gate.status !== 'open') return inconclusive('runner_gate_closed');
+    const gateReason = validationAdmissionReason({ ...admission, gateOpen: gate.status === 'open' });
+    if (gateReason) return inconclusive(gateReason);
     const base = customerSourceSnapshotSchema.parse(row.base_body); const candidate = customerSourceSnapshotSchema.parse(row.candidate_body);
     const suite = validationSuiteDefinitionSchema.parse({ id: run.suiteDefinitionId, organizationId: run.organizationId, applicationId: run.applicationId, repositoryLinkId: String(row.repository_link_id ?? '00000000-0000-0000-0000-000000000000'), version: run.suiteVersion, profile: row.profile, scriptName: row.script_name, suiteName: row.suite_name, requiredCount: Number(row.required_count), regressionTestPath: row.regression_test_path, createdAt: run.queuedAt });
     if (suite.regressionTestPath && !base.files.some(file => file.path === suite.regressionTestPath)) return inconclusive('regression_test_missing');
@@ -122,7 +129,8 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     const runVm = async (bytes: Buffer) => {
       const objectId = randomUUID(); inputObjects.set(`${run.organizationId}:${objectId}`, bytes);
       const job = runnerJobSchema.parse({ jobId: randomUUID(), organizationId: run.organizationId, profile: run.runnerProfile, input: { objectId, sha256: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length }, limits: run.limits, networkPolicy: { mode: 'deny' } });
-      try { return runnerResultSchema.parse(await vmRunner.runJob(job, options.shutdownSignal ? { signal: options.shutdownSignal } : {})); } finally { inputObjects.delete(`${run.organizationId}:${objectId}`); }
+      const runJob = options.runnerJobAdapter ?? ((runnerJob, runnerOptions) => vmRunner.runJob(runnerJob, runnerOptions));
+      try { return await runValidatedRunnerJob(runJob, job, options.shutdownSignal ? { signal: options.shutdownSignal } : {}); } finally { inputObjects.delete(`${run.organizationId}:${objectId}`); }
     };
     const results: RunnerResult[] = [];
     try {
@@ -150,11 +158,13 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
         return [...new Set((internal?.findings ?? []).filter(finding => finding.id === run.targetFindingId).map(finding => finding.correlationKey).filter((item): item is string => typeof item === 'string'))];
       });
       const baseEvidence = suiteCounts(baseResult); const regressionEvidence = suiteCounts(candidateRegression); const counts = suiteCounts(candidateSuite);
+      const suiteShrank = counts !== null && baseEvidence !== null && (counts.counts.passed + counts.counts.failed + counts.counts.skipped < baseEvidence.counts.passed + baseEvidence.counts.failed + baseEvidence.counts.skipped || counts.counts.skipped > baseEvidence.counts.skipped);
+      const rescan = scoreIndependentRescan({ before, after, targetedIdentities: selected });
       const evidence: ValidationEvidence[] = [
         { kind: 'base_reproduction', result: suite.regressionTestPath && baseEvidence?.regression === 'failed_for_target' ? 'failed_for_target' : suite.regressionTestPath && baseEvidence?.regression === 'passed' ? 'passed' : 'unavailable', exitCode: baseResult.status === 'completed' ? baseResult.exitCode : null, durationMs: baseResult.durationMs },
         { kind: 'candidate_regression', result: testPassed(candidateRegression) && (!suite.regressionTestPath || regressionEvidence?.regression === 'passed') ? 'passed' : candidateRegression.status === 'completed' ? 'failed' : 'unavailable', exitCode: candidateRegression.status === 'completed' ? candidateRegression.exitCode : null, durationMs: candidateRegression.durationMs },
-        { kind: 'functional_suite', suiteName: suite.suiteName, result: counts ? (testPassed(candidateSuite) && counts.counts.passed >= suite.requiredCount && !(counts.counts.skipped > 0 && counts.counts.passed === 0) ? 'passed' : 'failed') : 'inconclusive', counts: counts?.counts ?? { passed: 0, failed: 0, skipped: 0 }, requiredCounts: suite.requiredCount },
-        { kind: 'independent_rescan', result: before.coverage === 'complete' && after.coverage === 'complete' ? 'passed' : 'inconclusive', before, after, targetedIdentities: selected },
+        { kind: 'functional_suite', suiteName: suite.suiteName, result: counts ? (testPassed(candidateSuite) && !suiteShrank && counts.counts.passed >= suite.requiredCount && !(counts.counts.skipped > 0 && counts.counts.passed === 0) ? 'passed' : 'failed') : 'inconclusive', counts: counts?.counts ?? { passed: 0, failed: 0, skipped: 0 }, ...(baseEvidence ? { baseCounts: baseEvidence.counts } : {}), requiredCounts: suite.requiredCount },
+        { kind: 'independent_rescan', result: rescan.result, before, after, targetedIdentities: selected },
       ];
       const score = scoreValidation(evidence);
       await finish(run, claim.leaseToken, evidence, score.state, score.reason, results);
