@@ -71,10 +71,10 @@ export async function checkRunnerGate(options: RunnerGateOptions = {}): Promise<
     const lock = imageLockSchema.parse(lockRaw);
 
     await access(kvm, constants.R_OK | constants.W_OK);
-    const firecrackerArchive = join(cache, `firecracker-v${lock.firecracker.version}-x86_64.tgz`);
-    const kernel = join(cache, `vmlinux-${lock.kernel.version}`);
-    const rootfs = join(cache, 'rootfs.ext4');
-    const firecracker = join(cache, `firecracker-v${lock.firecracker.version}-x86_64`);
+    const firecrackerArchive = join(cache, `firecracker-${lock.firecracker.archiveSha256}.tgz`);
+    const kernel = join(cache, `vmlinux-${lock.kernel.sha256}`);
+    const rootfs = join(cache, `rootfs-${lock.rootfs.sha256}.ext4`);
+    const firecracker = join(cache, `firecracker-${lock.firecracker.binarySha256}`);
     await access('/usr/bin/bwrap', constants.X_OK);
     await access('/usr/bin/systemd-run', constants.X_OK);
 

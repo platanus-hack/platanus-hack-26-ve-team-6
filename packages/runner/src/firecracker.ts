@@ -94,7 +94,7 @@ async function inspectSandboxScope(unit: string, expected: { memoryMiB: number; 
       for (const pid of pids) {
         try {
           const executable = (await readlink(`/proc/${pid}/exe`)).split('/').at(-1);
-          if (executable === 'firecracker' || executable?.startsWith('firecracker-v')) vmmPids.push(pid);
+          if (executable === 'firecracker' || executable?.startsWith('firecracker-')) vmmPids.push(pid);
         } catch { /* process can exit while the scope is inspected */ }
       }
       if (vmmPids.length > 0) break;

@@ -26,7 +26,7 @@ Requirements: Linux x86_64, KVM, Docker, `mkfs.ext4`, curl and sha256sum. Set up
 pnpm --filter @gotchu/runner prepare:images
 ```
 
-The script downloads the official Firecracker `v1.17.0` release archive and checks its published SHA-256 before extraction. It pins a Firecracker CI kernel by exact URL and SHA-256 and pulls the Node base image by platform digest. It exports the rootfs without running customer files, adds the fixed init/agent, normalizes timestamps, builds an ext4 image without root, and writes the resulting rootfs hash to `images.lock.json`. Review and commit that digest change with any base-image or guest-init update. Binaries and disk images live only under `~/.cache/gotchu-runner/` and are never committed.
+The script downloads the official Firecracker `v1.17.0` release archive and checks its published SHA-256 before extraction. It pins a Firecracker CI kernel by exact URL and SHA-256 and pulls the Node base image by platform digest. It exports the rootfs without running customer files, adds the fixed init/agent, normalizes file metadata and ordering, then builds an ext4 image without root. `prepare:images` verifies that image against the committed rootfs digest. After reviewing an intentional base-image or guest-init change, run `pnpm --filter @gotchu/runner pin:images` to update the lock; it prints the old and new digests. Binaries and disk images live only under `~/.cache/gotchu-runner/`, in digest-named files, and are never committed.
 
 Preparation is a networked maintainer action. It does not enable the gate. The cache should be deleted and rebuilt after changing any locked source or guest init/agent file.
 

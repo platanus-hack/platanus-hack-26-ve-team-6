@@ -55,9 +55,9 @@ export async function prepareVmBootFiles(
   lock: RunnerImageLock,
   npmDependencies: FetchedNpmDependencies,
 ): Promise<VmBootFiles> {
-  const kernel = join(cacheDir, `vmlinux-${lock.kernel.version}`);
-  const baseRootfs = join(cacheDir, 'rootfs.ext4');
-  const firecracker = join(cacheDir, `firecracker-v${lock.firecracker.version}-x86_64`);
+  const kernel = join(cacheDir, `vmlinux-${lock.kernel.sha256}`);
+  const baseRootfs = join(cacheDir, `rootfs-${lock.rootfs.sha256}.ext4`);
+  const firecracker = join(cacheDir, `firecracker-${lock.firecracker.binarySha256}`);
   for (const path of [kernel, baseRootfs, firecracker, '/dev/kvm']) await access(path, constants.R_OK);
   await access('/dev/kvm', constants.W_OK);
   if (sha256(await readFile(kernel)) !== lock.kernel.sha256 || sha256(await readFile(baseRootfs)) !== lock.rootfs.sha256) {
