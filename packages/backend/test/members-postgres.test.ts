@@ -48,7 +48,8 @@ live('workspace invitations and membership lifecycle on real Postgres', () => {
       const owners = await f.admin.query("SELECT owner_count,(SELECT count(*)::int FROM gotchu.memberships WHERE organization_id=$1 AND role='owner') AS actual FROM gotchu.organizations WHERE id=$1", [f.a.organizationId]);
       expect(owners.rows[0]).toEqual({ owner_count: 1, actual: 1 });
     } finally {
-      await f.admin.query("UPDATE gotchu.memberships SET role=CASE WHEN user_id=$2 THEN 'owner' ELSE 'viewer' END WHERE organization_id=$1 AND user_id IN ($2,$3)", [f.a.organizationId, f.a.userId, owner]);
+      await f.admin.query("UPDATE gotchu.memberships SET role='owner' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
+      await f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, owner]);
     }
   });
 
