@@ -23,7 +23,7 @@ type OperationReadiness = z.infer<typeof operationReadinessSchema>;
 
 const providerNames = { cloudflare: 'Cloudflare', railway: 'Railway' } as const;
 const statusNames: Record<OperationCoverage['status'], string> = {
-  not_configured: 'Sin configurar', pending: 'En proceso', active: 'Ejecución completada', degraded: 'Cobertura incompleta', stale: 'Evidencia atrasada',
+  not_configured: 'Sin configurar', pending: 'En proceso', active: 'Ejecución completada', degraded: 'Cobertura incompleta', stale: 'Evidencia atrasada', stopped: 'Vigilancia detenida',
 };
 const observationNames: Record<OperationAlert['observation']['kind'], string> = {
   repository_change: 'Cambio en el repositorio', dependency_advisory: 'Aviso de dependencia', public_surface: 'Superficie pública',
@@ -88,6 +88,7 @@ function suggestedPlan(alert: OperationAlert): PlanKind {
 }
 
 function coverageTone(coverage: OperationCoverage) {
+  if (coverage.status === 'stopped') return 'customer-ops-status-stopped';
   if (coverage.status === 'degraded' || coverage.status === 'stale' || !coverage.scopeCurrent) return 'customer-ops-status-warning';
   if (coverage.status === 'active' && coverage.observations.fresh > 0 && coverage.observations.stale === 0) return 'customer-ops-status-ready';
   return 'customer-ops-status-muted';

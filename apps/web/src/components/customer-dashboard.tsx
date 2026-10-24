@@ -17,6 +17,7 @@ import {
 import { CustomerApiError, customerApi, type CustomerJob, type CustomerScanProfile, type CustomerSession } from './customer-client';
 import { OperationsPanel } from './operations-panel';
 import { ProtectionPanel } from './protection-panel';
+import { NotificationsPanel } from './notifications-panel';
 import { ReportRecommendations } from './report-recommendations';
 import { ComparisonPresence, ComparisonSummary, ComparisonVerification, ExternalHttpsEvidence } from './customer-report-components';
 import { exploitabilityLabel } from './customer-report-model';
@@ -601,7 +602,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
               {canManage && <StepUpPanel key={`${userId}:${organizationId}`} organizationId={organizationId} />}
             </>}
 
-            {page === 'operations' && <><IncidentList organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} /><ProtectionPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:protection`} scope={{ organizationId, applicationId: selectedApplication.applicationId }} canManage={canManage && !selectedApplication.archived} /><OperationsPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} /></>}
+            {page === 'operations' && <><IncidentList organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} /><ProtectionPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:protection`} scope={{ organizationId, applicationId: selectedApplication.applicationId }} canManage={canManage && !selectedApplication.archived} /><OperationsPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} /><NotificationsPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:notifications`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} /></>}
 
           {page === 'reports' && <>
             {report.data && <section className="customer-card customer-next-actions"><div><span className="customer-eyebrow">INFORME DISPONIBLE</span><h2>¿Qué quieres hacer ahora?</h2><p>Las recomendaciones y su cobertura aparecen dentro del informe. Incidentes y vigilancia están en el área operativa.</p></div><button className="customer-button customer-button-primary" onClick={() => document.getElementById('recommendations-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Ver recomendaciones</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Ver incidentes</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Configurar vigilancia</button></section>}

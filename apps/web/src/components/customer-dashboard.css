@@ -463,7 +463,24 @@ body { margin: 0; }
 .customer-ops-card h2 { overflow-wrap: anywhere; }
 .customer-ops-status-ready { border-color: #d6e9d9; background: #eef7ef; color: #397049; }
 .customer-ops-status-warning { border-color: #efe1c2; background: #fbf5e7; color: #876b31; }
+.customer-ops-status-stopped { border-color: #ebd8d2; background: #fff3ef; color: #8c4537; }
 .customer-ops-status-muted { border-color: #e3e8e3; background: #f7f8f6; color: #6e7c72; }
+.customer-liveness-banner { margin: 12px 0; border: 1px solid #ebd8d2; border-radius: 7px; background: #fff3ef; color: #8c4537; padding: 12px; }
+.customer-liveness-banner p { margin: 5px 0; line-height: 1.5; }
+.customer-liveness-banner small { color: #98695e; }
+.customer-liveness-banner-late { border-color: #efe1c2; background: #fbf5e7; color: #876b31; }
+.customer-notifications-card { min-width: 0; }
+.customer-notification-form { max-width: 680px; margin-top: 15px; }
+.customer-notification-section { margin-top: 20px; border-top: 1px solid #edf1ed; padding-top: 14px; }
+.customer-notification-section h3, .customer-notification-form h3 { margin: 0 0 8px; color: #486451; font-size: 13px; }
+.customer-notification-channel, .customer-notification-delivery { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
+.customer-notification-channel > div:first-child, .customer-notification-delivery > div { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.customer-notification-channel small, .customer-notification-delivery small { color: #78867c; font-size: 10px; line-height: 1.5; }
+.customer-notification-actions { display: flex; flex-wrap: wrap; align-items: start; justify-content: end; gap: 8px; }
+.customer-notification-secret { margin: 12px 0; border: 1px solid #d8e8d7; border-radius: 7px; background: #f4faf2; padding: 12px; color: #47634b; }
+.customer-notification-secret p { margin: 5px 0; color: #718176; font-size: 11px; }
+.customer-notification-secret code { display: block; overflow-wrap: anywhere; margin: 8px 0; color: #35513c; }
+@media (max-width: 620px) { .customer-notification-channel { flex-direction: column; } .customer-notification-actions { justify-content: start; } }
 .customer-ops-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .customer-ops-facts p { margin: 0; border: 1px solid #e5ebe5; border-radius: 6px; background: #fafcfa; color: #718076; padding: 11px; font-size: 11px; line-height: 1.7; }
 .customer-ops-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0 5px; }
