@@ -88,3 +88,4 @@ export * from './operations.js';
 export * from './telemetry.js';
 export * from './context.js';
 export * from './step-up.js';
+export * from './triage.js';
