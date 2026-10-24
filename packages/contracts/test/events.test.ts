@@ -33,4 +33,9 @@ describe('external event contract', () => {
     expect(job.id).toBe(event.id);
     expect(eventBatchSchema.parse({ ...batch, applicationId: upper }).applicationId).toBe(upper);
   });
+
+  it('rejects year zero before an event reaches PostgreSQL time-window processing', () => {
+    expect(eventBatchSchema.safeParse({ ...batch, events: [{ ...event, occurredAt: '0000-01-01T00:00:00Z' }] }).success).toBe(false);
+    expect(eventBatchSchema.safeParse({ ...batch, events: [{ ...event, occurredAt: '0001-01-01T00:00:00Z' }] }).success).toBe(true);
+  });
 });

@@ -8,9 +8,9 @@ import { Queue, Worker } from 'bullmq';
 import { encode } from '@auth/core/jwt';
 import { exportPKCS8, generateKeyPair } from 'jose';
 import { z } from 'zod';
-import { createBackend, enqueue, type JobClaim } from '@gotchu/backend';
+import { createBackend, enqueue, signEventBody, type JobClaim } from '@gotchu/backend';
 import { createDatabase, provisionRuntimeLogin, type Database } from '@gotchu/database';
-import { investigationResultSchema } from '@gotchu/agent';
+import { investigationResultSchema, safeCheckpointSchema } from '@gotchu/agent';
 import { createHttpInvestigator, dispatchOutbox, ensureQueueDelivery, finalizeInvestigation, processDurableJob, reconcileDurableDeliveries, type CoordinatorDependencies } from '@gotchu/coordinator';
 import { createGatewayService, startGatewayServer } from '@gotchu/gateway';
 import { migrateGateway } from '@gotchu/gateway/migrate';
@@ -183,6 +183,33 @@ live('signed intake through durable delivery and isolated HTTP investigation', (
     await expect(processDurableJob(dependencies, { version: 1, id: jobId, organizationId: f.a.organizationId, applicationId: f.b.applicationId, kind: 'events.aggregate' })).rejects.toMatchObject({ code: 'job_scope_mismatch' });
   });
 
+  it('rejects signed year-zero input before persisting either events or job intent', async () => {
+    const body = JSON.stringify({ applicationId: f.a.applicationId, events: [{ ...present(events(1)[0]), occurredAt: '0000-01-01T00:00:00Z' }] });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const response = await api(new Request(`${origin}/api/v1/events`, { method: 'POST', body,
+      headers: { 'content-type': 'application/json', 'X-Gotchu-Integration': f.a.integrationId, 'X-Gotchu-Timestamp': timestamp,
+        'X-Gotchu-Signature': signEventBody(secret, f.a.integrationId, timestamp, Buffer.from(body)) },
+    }));
+    expect(response.status).toBe(400);
+    expect((await f.admin.query('SELECT id FROM gotchu.events WHERE organization_id=$1', [f.a.organizationId])).rowCount).toBe(0);
+    expect((await f.admin.query('SELECT id FROM gotchu.jobs WHERE organization_id=$1', [f.a.organizationId])).rowCount).toBe(0);
+  });
+
+  it('quarantines legacy incompatible timestamps while later batches still produce incidents', async () => {
+    const legacy = await ingest(events(1, 'legacy'));
+    // Fault fixture represents input accepted by the earlier ISO-only contract.
+    await f.admin.query(`UPDATE gotchu.events SET payload=jsonb_set(payload,'{occurredAt}','"0000-01-01T00:00:00Z"'::jsonb) WHERE organization_id=$1`, [f.a.organizationId]);
+    const envelope = (id: string): JobEnvelope => ({ version: 1, id, organizationId: f.a.organizationId, applicationId: f.a.applicationId, kind: 'events.aggregate' });
+    await processDurableJob(dependencies, envelope(present(legacy.jobId)));
+    expect(await state(present(legacy.jobId))).toBe('succeeded');
+    const fresh = await ingest(events(5));
+    await processDurableJob(dependencies, envelope(present(fresh.jobId)));
+    expect((await f.admin.query('SELECT id FROM gotchu.incidents WHERE organization_id=$1', [f.a.organizationId])).rowCount).toBe(1);
+    expect((await f.admin.query('SELECT id FROM gotchu.events WHERE organization_id=$1', [f.a.organizationId])).rowCount).toBe(6);
+    const coverage = await f.admin.query<{ state: string; reason: string }>('SELECT state,reason FROM gotchu.coverage WHERE organization_id=$1 AND capability=\'login_failure_detection\'', [f.a.organizationId]);
+    expect(coverage.rows[0]).toMatchObject({ state: 'degraded', reason: expect.stringContaining('quarantined') });
+  });
+
   async function newRun() {
     const jobId = randomUUID();
     await f.databases.gotchu_coordinator.tenant(f.a.organizationId, (tx) => enqueue(tx, { organizationId: f.a.organizationId, applicationId: f.a.applicationId, id: jobId, kind: 'investigation', idempotencyKey: randomUUID(), payload: { incidentId: randomUUID(), evidenceIds: [randomUUID()] } }));
@@ -218,6 +245,22 @@ live('signed intake through durable delivery and isolated HTTP investigation', (
     await reconcileDurableDeliveries(f.databases.gotchu_coordinator, f.a.organizationId, async (envelope) => { published.push(envelope); });
     expect(published).toHaveLength(0); expect(await state(claim.envelope.id)).toBe('failed');
     expect((await f.admin.query<{ amount: string }>('SELECT model_reserved_micros AS amount FROM gotchu.organizations WHERE id=$1', [f.a.organizationId])).rows[0]?.amount).toBe('10');
+  });
+
+  it('recovers a saved terminal checkpoint after the coordinator crashes before finalization', async () => {
+    const { claim, run } = await newRun();
+    const checkpoint = safeCheckpointSchema.parse({ version: 1, scope: { organizationId: f.a.organizationId, applicationId: f.a.applicationId, runId: run.runId },
+      sequence: 1, stage: 'delayed', modelCalls: 0, additionalReadToolCalls: 0, tokensUsed: 0, spendMicroUsd: 0, result: delayedResult });
+    await coordinator.runs.checkpoint({ organizationId: f.a.organizationId, runId: run.runId, expectedVersion: 0, checkpoint });
+    await f.admin.query("UPDATE gotchu.jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE organization_id=$1 AND id=$2", [f.a.organizationId, claim.envelope.id]);
+    await f.admin.query("UPDATE gotchu.agent_runs SET deadline=clock_timestamp()-interval '1 second' WHERE organization_id=$1 AND id=$2", [f.a.organizationId, run.runId]);
+    let calls = 0;
+    await processDurableJob({ ...dependencies, investigator: { investigate: async () => { calls++; throw new Error('Saved terminal work must not execute again'); } } }, claim.envelope);
+    expect(calls).toBe(0);
+    expect(await state(claim.envelope.id)).toBe('succeeded');
+    expect((await coordinator.runs.load({ organizationId: f.a.organizationId, runId: run.runId })).state).toBe('unavailable');
+    const job = await createBackend({ database: f.databases.gotchu_api }).web.getJob({ userId: f.a.userId }, { organizationId: f.a.organizationId, jobId: claim.envelope.id });
+    expect(job).toMatchObject({ outcome: 'delayed', reasonCode: 'model_unavailable' });
   });
 
   it('serializes concurrent aggregation so an older five-event snapshot cannot overwrite ten', async () => {

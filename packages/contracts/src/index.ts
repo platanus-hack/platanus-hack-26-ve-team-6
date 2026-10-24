@@ -25,7 +25,7 @@ export const securityEventSchema = z.object({
   id: idSchema,
   type: eventTypeSchema,
   source: z.enum(['application', 'cloudflare']),
-  occurredAt: z.iso.datetime(),
+  occurredAt: z.iso.datetime().refine((value) => !value.startsWith('0000-'), 'Event timestamps require a year from 0001 through 9999'),
   actor: z.object({
     accountId: z.string().min(1).max(128).optional(),
     ip: z.union([z.ipv4(), z.ipv6()]).optional(),

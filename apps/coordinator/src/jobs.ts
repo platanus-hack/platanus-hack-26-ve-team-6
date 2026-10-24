@@ -7,6 +7,8 @@ import { z } from 'zod';
 
 const WINDOW_MS = 600_000;
 const MAX_WINDOW_EVENTS = 10_000;
+// CASE guards the cast even when PostgreSQL reorders query predicates.
+const eventTimeSql = "CASE WHEN pg_input_is_valid(payload->>'occurredAt','timestamptz') THEN (payload->>'occurredAt')::timestamptz END";
 const payloadSchema = z.object({ incidentId: z.uuid(), evidenceIds: z.array(z.uuid()).min(1).max(20) }).strict();
 export interface Investigator {
   investigate(input: { organizationId: string; applicationId: string; runId: string; deadline: Date; evidenceIds: readonly string[] }): Promise<InvestigationResult>;
@@ -25,11 +27,19 @@ async function aggregate(dependencies: CoordinatorDependencies, claim: JobClaim)
     if (fence.rowCount !== 1) throw new BackendError('stale_lease', 'Job claim is no longer current', 409);
     // Serialize all windows for this application before reading counters.
     await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`gotchu:aggregation:${organizationId}:${applicationId}`]);
-    const input = await tx.query<{ payload: unknown }>('SELECT payload FROM gotchu.events WHERE organization_id=$1 AND application_id=$2 AND job_id=$3', [organizationId, applicationId, jobId]);
+    const invalid = await tx.query<{ quarantined: boolean }>(`SELECT EXISTS(SELECT 1 FROM gotchu.events WHERE organization_id=$1 AND application_id=$2
+      AND pg_input_is_valid(payload->>'occurredAt','timestamptz') IS NOT TRUE) AS quarantined`, [organizationId, applicationId]);
+    const quarantined = invalid.rows[0]?.quarantined === true;
+    if (quarantined) {
+      await tx.query(`INSERT INTO gotchu.coverage(organization_id,application_id,capability,state,reason,checked_at) VALUES ($1,$2,'login_failure_detection','degraded','Incompatible event timestamps quarantined from detector windows; original events retained',clock_timestamp())
+        ON CONFLICT (organization_id,application_id,capability) DO UPDATE SET state=EXCLUDED.state,reason=EXCLUDED.reason,checked_at=EXCLUDED.checked_at`, [organizationId, applicationId]);
+    }
+    const input = await tx.query<{ payload: unknown }>(`SELECT payload FROM gotchu.events WHERE organization_id=$1 AND application_id=$2 AND job_id=$3
+      AND pg_input_is_valid(payload->>'occurredAt','timestamptz') IS TRUE`, [organizationId, applicationId, jobId]);
     const current = input.rows.map((row) => securityEventSchema.parse(row.payload));
     const auth = current.filter((event) => event.type === 'auth.login_failed' || event.type === 'auth.login_succeeded');
     if (auth.length === 0) {
-      await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', incidents: 0 } });
+      await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', incidents: 0, quarantinedTimestamps: quarantined } });
       return;
     }
     const times = auth.map((event) => Date.parse(event.occurredAt));
@@ -37,7 +47,7 @@ async function aggregate(dependencies: CoordinatorDependencies, claim: JobClaim)
     const until = new Date((Math.floor(Math.max(...times) / WINDOW_MS) + 1) * WINDOW_MS);
     const rows = await tx.query<{ payload: unknown }>(`SELECT payload FROM gotchu.events WHERE organization_id=$1 AND application_id=$2
       AND payload->>'type' IN ('auth.login_failed','auth.login_succeeded')
-      AND (payload->>'occurredAt')::timestamptz >= $3 AND (payload->>'occurredAt')::timestamptz < $4
+      AND ${eventTimeSql} >= $3 AND ${eventTimeSql} < $4
       ORDER BY received_at,id LIMIT $5`, [organizationId, applicationId, from, until, MAX_WINDOW_EVENTS + 1]);
     if (rows.rows.length > MAX_WINDOW_EVENTS) {
       await tx.query(`INSERT INTO gotchu.coverage(organization_id,application_id,capability,state,reason,checked_at) VALUES ($1,$2,'login_failure_detection','degraded','Detector window exceeds the bounded processing limit',clock_timestamp())
@@ -67,9 +77,9 @@ async function aggregate(dependencies: CoordinatorDependencies, claim: JobClaim)
         await tx.query('UPDATE gotchu.incidents SET summary=$5 WHERE organization_id=$1 AND application_id=$2 AND rule_id=$3 AND dedupe_key=$4', [organizationId, applicationId, ruleId, incident.incidentId, summary]);
       }
     }
-    await tx.query(`INSERT INTO gotchu.coverage(organization_id,application_id,capability,state,reason,checked_at) VALUES ($1,$2,'login_failure_detection','active','Account and IP failure detectors v1 only; thresholds are pilot defaults',clock_timestamp())
+    if (!quarantined) await tx.query(`INSERT INTO gotchu.coverage(organization_id,application_id,capability,state,reason,checked_at) VALUES ($1,$2,'login_failure_detection','active','Account and IP failure detectors v1 only; thresholds are pilot defaults',clock_timestamp())
       ON CONFLICT (organization_id,application_id,capability) DO UPDATE SET state=EXCLUDED.state,reason=EXCLUDED.reason,checked_at=EXCLUDED.checked_at`, [organizationId, applicationId]);
-    await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', createdIncidents: created, blockedAttempts: result.blockedAttempts } });
+    await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', createdIncidents: created, blockedAttempts: result.blockedAttempts, quarantinedTimestamps: quarantined } });
   });
 }
 
@@ -109,12 +119,12 @@ async function investigate(dependencies: CoordinatorDependencies, claim: JobClai
   const { organizationId, applicationId, id: jobId } = claim.envelope;
   const run = await dependencies.backend.runs.start({ organizationId, applicationId, jobId, leaseToken: claim.leaseToken });
   const currentRun = await dependencies.backend.runs.load({ organizationId, runId: run.runId });
-  if (currentRun.state !== 'running') {
-    const saved = safeCheckpointSchema.safeParse(currentRun.checkpoint);
-    const checkpoint = saved.success ? saved.data : undefined;
-    const canRecover = (currentRun.state === 'succeeded' || currentRun.state === 'unavailable') && checkpoint && checkpoint.stage !== 'running' && checkpoint.result
+  const saved = safeCheckpointSchema.safeParse(currentRun.checkpoint);
+  const checkpoint = saved.success ? saved.data : undefined;
+  const canRecover = ['running', 'succeeded', 'unavailable'].includes(currentRun.state) && checkpoint && checkpoint.stage !== 'running' && checkpoint.result
       && checkpoint.scope.organizationId === organizationId && checkpoint.scope.applicationId === applicationId && checkpoint.scope.runId === run.runId
       && checkpoint.result.citedEvidenceIds.every((id) => payload.evidenceIds.includes(id));
+  if (canRecover || currentRun.state !== 'running') {
     await finalizeInvestigation(dependencies, claim, run.runId, canRecover && checkpoint?.result
       ? { status: 'result', result: checkpoint.result }
       : { status: 'failed', reasonCode: 'investigation_reconciliation_required' });
