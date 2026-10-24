@@ -8,7 +8,7 @@ const scopeSchema = z.object({ organizationId: z.uuid(), applicationId: z.uuid()
 const configureSchema = validationSuiteConfigSchema;
 const defaultLimits = { vcpu: 1, memMiB: 1024, pids: 128, wallMs: 120_000, outputBytes: 262_144, diskMiB: 2048 } as const;
 
-export function scoreValidation(evidence: readonly ValidationEvidence[]): { state: 'passed' | 'failed' | 'inconclusive'; reason: string | null } {
+export function scoreValidation(evidence: readonly ValidationEvidence[], mode: 'correction' | 'dependency' = 'correction'): { state: 'passed' | 'failed' | 'inconclusive'; reason: string | null } {
   const base = evidence.find(item => item.kind === 'base_reproduction');
   const regression = evidence.find(item => item.kind === 'candidate_regression');
   const suite = evidence.find(item => item.kind === 'functional_suite');
@@ -21,26 +21,37 @@ export function scoreValidation(evidence: readonly ValidationEvidence[]): { stat
   const rescanScore = scoreIndependentRescan(rescan);
   if (rescanScore.result === 'failed') return { state: 'failed', reason: rescanScore.reason };
   if (rescan.result !== 'passed' || rescanScore.result !== 'passed') return { state: 'inconclusive', reason: rescanScore.reason ?? 'rescan_coverage_unknown' };
-  if (base?.result !== 'failed_for_target') return { state: 'inconclusive', reason: 'base_reproduction_not_confirmed' };
+  if (mode === 'correction' && base?.result !== 'failed_for_target') return { state: 'inconclusive', reason: 'base_reproduction_not_confirmed' };
+  if (mode === 'dependency' && base?.result !== 'not_required') return { state: 'inconclusive', reason: 'dependency_validation_mode_missing' };
   if (regression.result !== 'passed' || suite.result !== 'passed') return { state: 'inconclusive', reason: 'required_test_not_passed' };
   return { state: 'passed', reason: null };
 }
 
 /** Add a validation record in the same transaction as a private correction candidate. */
 export async function enqueueValidation(tx: Transaction, input: {
-  organizationId: string; applicationId: string; candidateSourceId: string; baseSourceId: string; targetFindingId: string; baseDigest: string; candidateDigest: string; patchDigest: string;
+  organizationId: string; applicationId: string; candidateSourceId: string; baseSourceId: string; targetFindingId: string; targetFindingIds?: readonly string[]; baseDigest: string; candidateDigest: string; patchDigest: string; repositoryLinkId?: string; mode?: 'correction' | 'dependency'; dependencyAllowlist?: readonly { name: string; section: 'dependencies' | 'devDependencies' | 'optionalDependencies'; version: string }[];
 }) {
   const repository = await tx.query<{ id: string }>(`SELECT id FROM gotchu.application_repository_links
-    WHERE organization_id=$1 AND application_id=$2 AND NOT revoked ORDER BY created_at,id LIMIT 1`, [input.organizationId, input.applicationId]);
+    WHERE organization_id=$1 AND application_id=$2 AND NOT revoked
+      AND ($4::boolean=false OR (state='verified' AND read_access='granted'))
+      AND ($3::uuid IS NULL OR id=$3) ORDER BY created_at,id LIMIT 2`, [input.organizationId, input.applicationId, input.repositoryLinkId ?? null, input.mode === 'dependency']);
+  if (repository.rows.length > 1) throw new BackendError('repository_link_ambiguous', 'Independent validation requires one exact repository link', 409);
   const linkId = repository.rows[0]?.id;
   const suite = linkId ? await tx.query<{ id: string; version: number; repository_link_id: string }>(`SELECT id,version,repository_link_id FROM gotchu.validation_suite_definitions
     WHERE organization_id=$1 AND application_id=$2 AND repository_link_id=$3 ORDER BY version DESC LIMIT 1`, [input.organizationId, input.applicationId, linkId]) : null;
   const selectedSuite = suite?.rows[0];
+  if (input.mode === 'dependency' && !selectedSuite) throw new BackendError('validation_suite_missing', 'A dependency candidate requires a configured validation suite', 409);
   const id = randomUUID();
-  await tx.query(`INSERT INTO gotchu.validation_runs(organization_id,application_id,id,action_ref,target_finding_id,candidate_source_id,base_source_id,
+  const targetFindingIds = [...new Set(input.targetFindingIds ?? [input.targetFindingId])];
+  const dependencyAllowlist = input.dependencyAllowlist ?? [];
+  if (!targetFindingIds.length || targetFindingIds.length > 20 || dependencyAllowlist.length > 20
+    || (input.mode ?? 'correction') === 'dependency' && dependencyAllowlist.length !== 1) {
+    throw new BackendError('validation_scope_invalid', 'Independent validation scope is invalid', 409);
+  }
+  await tx.query(`INSERT INTO gotchu.validation_runs(organization_id,application_id,id,action_ref,target_finding_id,target_finding_ids,validation_mode,dependency_allowlist,candidate_source_id,base_source_id,
     suite_repository_link_id,suite_definition_id,suite_version,base_snapshot_digest,candidate_tree_digest,patch_digest,state,reason,runner_profile,sandbox_kind,limits,finished_at)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'node24-npm-test','bwrap+systemd-scope',$16::jsonb,CASE WHEN $14='inconclusive' THEN clock_timestamp() ELSE NULL END)`,
-  [input.organizationId, input.applicationId, id, input.candidateSourceId, input.targetFindingId, input.candidateSourceId, input.baseSourceId,
+    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'node24-npm-test','bwrap+systemd-scope',$19::jsonb,CASE WHEN $17='inconclusive' THEN clock_timestamp() ELSE NULL END)`,
+  [input.organizationId, input.applicationId, id, input.candidateSourceId, input.targetFindingId, JSON.stringify(targetFindingIds), input.mode ?? 'correction', JSON.stringify(dependencyAllowlist), input.candidateSourceId, input.baseSourceId,
     selectedSuite?.repository_link_id ?? null, selectedSuite?.id ?? null, selectedSuite?.version ?? null, input.baseDigest, input.candidateDigest, input.patchDigest,
     selectedSuite ? 'queued' : 'inconclusive', selectedSuite ? null : 'suite_not_configured', JSON.stringify(defaultLimits)]);
   return id;

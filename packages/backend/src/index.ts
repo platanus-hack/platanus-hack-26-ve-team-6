@@ -23,6 +23,7 @@ import { createWorkflowExceptionService } from './workflow-exceptions.js';
 import { createProtectionService } from './protection.js';
 import { createDecisionRecordService } from './decision-records.js';
 import { createNotificationService, type NotificationSecretStore, type WebhookAddressValidator } from './notifications.js';
+import type { NpmRegistryPort } from './npm-dependency-fix.js';
 export * from './core.js';
 export * from './events.js';
 export * from './jobs.js';
@@ -46,11 +47,13 @@ export * from './protection.js';
 export * from './action-verifier.js';
 export * from './github-connections.js';
 export * from './execution-artifacts.js';
+export * from './git-commit.js';
+export * from './npm-dependency-fix.js';
 export * from './workflow-exceptions.js';
 export * from './decision-records.js';
 export * from './notifications.js';
 export * from './notification-secrets-file.js';
-export interface BackendDependencies { database: Database; clock?: Clock; credentials?: CredentialStore; notificationSecrets?: NotificationSecretStore; webhookValidator?: WebhookAddressValidator; eventCredentials?: WritableEventCredentials; stepUpVerifier?: StepUpVerifier; proposalVerifier?: ProposalVerifier; customerDnsVerifier?: CustomerDnsVerifier; webAuthn?: { rpID: string; origin: string; rpName?: string; verifyPassword?: (userId: string, password: string) => Promise<boolean | null> }; actionVerifier?: ActionVerifier }
+export interface BackendDependencies { database: Database; clock?: Clock; credentials?: CredentialStore; notificationSecrets?: NotificationSecretStore; webhookValidator?: WebhookAddressValidator; eventCredentials?: WritableEventCredentials; stepUpVerifier?: StepUpVerifier; proposalVerifier?: ProposalVerifier; customerDnsVerifier?: CustomerDnsVerifier; npmRegistry?: NpmRegistryPort; webAuthn?: { rpID: string; origin: string; rpName?: string; verifyPassword?: (userId: string, password: string) => Promise<boolean | null> }; actionVerifier?: ActionVerifier }
 export function createBackend(deps: BackendDependencies) {
   const stepUp = deps.webAuthn ? createWebAuthnStepUpService({ ...deps, webAuthn: deps.webAuthn }) : null;
   const stepUpVerifier = stepUp?.verifier ?? deps.stepUpVerifier;
