@@ -34,7 +34,6 @@ import { ApprovalPanel } from './approval-panel';
 import { GitHubRepositoryPanel, Onboarding } from './onboarding';
 import { WorkflowExceptions } from './workflow-exceptions';
 import { DecisionRecordHistory } from './decision-record-history';
-import { DependencyInventoryPanel, LicensePolicyPanel } from './customer-supply-chain';
 import { InvestigationActionButton, InvestigationModelSettings, InvestigationsTimeline } from './investigations-panel';
 import { DependencyInventoryPanel, LicensePolicyPanel, RetentionPolicyPanel } from './customer-supply-chain';
 import './customer-dashboard.css';
