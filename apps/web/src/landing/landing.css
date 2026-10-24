@@ -81,25 +81,26 @@
   .gl .gl-mark { -webkit-box-decoration-break: clone; box-decoration-break: clone; transition: background-size 700ms var(--sweep) var(--gl-delay, 0ms); }
   .gl .gl-mark--body { padding: 0 .1em; margin: 0 -.1em; color: var(--band-foreground); background: linear-gradient(var(--band), var(--band)) no-repeat 0 90% / 100% .82em; }
   .gl[data-motion='on'] .gl-mark--body:not(.gl-mark--load):not([data-on='true']) { background-size: 0% .82em; color: inherit; }
-  /* Large phrases: a magenta band behind porcelain type. Three layers so type and band switch in lock-step. */
-  .gl .gl-mark--big {
-    padding: 0 .06em;
-    margin: 0 -.06em;
-    color: transparent;
-    background-image: linear-gradient(var(--on-brand), var(--on-brand)), linear-gradient(var(--foreground), var(--foreground)), linear-gradient(var(--brand), var(--brand));
-    background-repeat: no-repeat;
-    background-position: 0 0, 0 0, 0 52%;
-    background-size: 100% 100%, 100% 100%, 100% .78em;
-    -webkit-background-clip: text, text, border-box;
-    background-clip: text, text, border-box;
+  /* Large phrases: a magenta band behind porcelain type. The band (outer span) and the type colour (inner span)
+     are two single-layer backgrounds with the same hard-edged gradient sliding in lock-step, so the type is never
+     transparent and no multi-value `background-clip` is needed (Firefox and Safari painted the unclipped layer as
+     a solid block). Position 100% = band not yet swept, 0% = swept. */
+  .gl .gl-mark--big { margin: 0 -.06em; background: linear-gradient(90deg, var(--brand) 50%, transparent 50%) no-repeat 0% 52% / 200% .78em; transition: background-position 700ms var(--sweep) var(--gl-delay, 0ms); }
+  .gl .gl-mark-ink { padding: 0 .06em; -webkit-box-decoration-break: clone; box-decoration-break: clone; color: var(--foreground); background: linear-gradient(90deg, var(--on-brand) 50%, var(--foreground) 50%) no-repeat 0% 0 / 200% 100%; transition: background-position 700ms var(--sweep) var(--gl-delay, 0ms); }
+  @supports ((-webkit-background-clip: text) or (background-clip: text)) {
+    .gl .gl-mark-ink { color: transparent; -webkit-background-clip: text; background-clip: text; }
   }
-  .gl[data-motion='on'] .gl-mark--big:not(.gl-mark--load):not([data-on='true']) { background-size: 0% 100%, 100% 100%, 0% .78em; }
-  .gl .gl-mark--big.gl-mark--hover { background-size: 0% 100%, 100% 100%, 0% .78em; transition-duration: 450ms; }
-  .gl .gl-sweep-host:hover .gl-mark--hover, .gl .gl-sweep-host:focus-within .gl-mark--hover { background-size: 100% 100%, 100% 100%, 100% .78em; }
-  @media (hover: none) { .gl .gl-mark--hover[data-on='true'] { background-size: 100% 100%, 100% 100%, 100% .78em; } }
-  @keyframes gl-sweep-big { from { background-size: 0% 100%, 100% 100%, 0% .78em; } }
-  .gl .gl-mark--load { animation: gl-sweep-big 800ms var(--sweep) 650ms backwards; }
-  @media (forced-colors: active) { .gl .gl-mark--big { color: CanvasText; background: none; } }
+  /* Not swept yet (scroll reveal pending, or a hover phrase at rest): band parked off to the left, type in ink colour. */
+  .gl[data-motion='on'] .gl-mark--big:not(.gl-mark--load):not(.gl-mark--hover):not([data-on='true']),
+  .gl[data-motion='on'] .gl-mark--big:not(.gl-mark--load):not(.gl-mark--hover):not([data-on='true']) .gl-mark-ink,
+  .gl .gl-mark--hover, .gl .gl-mark--hover .gl-mark-ink { background-position-x: 100%; }
+  .gl .gl-mark--hover, .gl .gl-mark--hover .gl-mark-ink { transition-duration: 450ms; }
+  .gl .gl-sweep-host:hover .gl-mark--hover, .gl .gl-sweep-host:focus-within .gl-mark--hover,
+  .gl .gl-sweep-host:hover .gl-mark--hover .gl-mark-ink, .gl .gl-sweep-host:focus-within .gl-mark--hover .gl-mark-ink { background-position-x: 0%; }
+  @media (hover: none) { .gl .gl-mark--hover[data-on='true'], .gl .gl-mark--hover[data-on='true'] .gl-mark-ink { background-position-x: 0%; } }
+  @keyframes gl-sweep-big { from { background-position-x: 100%; } }
+  .gl .gl-mark--load, .gl .gl-mark--load .gl-mark-ink { animation: gl-sweep-big 800ms var(--sweep) 650ms backwards; }
+  @media (forced-colors: active) { .gl .gl-mark--big, .gl .gl-mark-ink { background: none; } .gl .gl-mark-ink { color: CanvasText; } }
 
   /* ── Sections ─────────────────────────────────────────────────────────────── */
   .gl .gl-section { position: relative; padding: clamp(48px, 6vw, 88px) 0; border-top: 2px solid var(--foreground); scroll-margin-top: calc(var(--header-h) + 16px); }
