@@ -56,7 +56,12 @@ Acordado el 24 de octubre de 2026: no bloquean el cierre del núcleo.
 - Informes de cumplimiento.
 - Precios, medición de uso y facturación.
 
-## 6. Al final: laboratorio de explotación en sandbox
+## 6. Integraciones futuras
+
+- **Servidor MCP de Gotchu.** Exponer a asistentes y agentes de IA (Claude, Codex, IDEs) herramientas acotadas por espacio de trabajo: consultar informes, hallazgos, alertas y su estado, y pedir un análisis. Todo con las mismas autorizaciones del servidor. Las acciones que escriben (aprobar, PR) siguen exigiendo la aprobación exacta del Owner con segundo factor, nunca desde el MCP.
+- **Integración con WhatsApp.** Canal de notificaciones para alertas, "Vigilancia detenida" y resultados de análisis, junto al email y el webhook existentes. Debe usar la WhatsApp Business Platform oficial mediante un adaptador sustituible, con verificación del número, consentimiento explícito y plantillas aprobadas. Una respuesta por WhatsApp nunca debe conceder permisos de acción.
+
+## 7. Al final: laboratorio de explotación en sandbox
 
 Decisión del 24 de octubre de 2026: el primer mecanismo de pruebas activas será un laboratorio dentro del runner Firecracker existente. El DAST contra un staging del cliente queda para una segunda fase.
 
