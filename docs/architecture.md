@@ -2,7 +2,7 @@
 
 Gotchu's current product combines authenticated source/public HTTPS assessments, scoped periodic monitoring, signed runtime alerts and exact private correction preparation. Customers manage their own workspaces and applications, submit source snapshots, verify authorized HTTPS origins, and review persisted evidence-backed reports. The fictional vulnerable/corrected application is a regression fixture only; customer assessments accept customer-provided snapshots and verified targets.
 
-The current supported runtime is local development. AWS is the eventual primary hosting target, with portable contracts and replaceable adapters. No cloud deployment or production-service claim is made here.
+The customer runtime is currently local development. AWS is the eventual primary hosting target, with portable contracts and replaceable adapters. A production-mode scanner and coordinator completed a local TLS assessment with durable database-backed work before a small CA PEM canonicalization correction; final focused reruns and review are pending. This is not a cloud deployment or a production-service guarantee.
 
 ## Customer assessment flow
 
@@ -23,7 +23,7 @@ flowchart LR
   customer --> auth --> web --> backend
   backend -->|transactional request and outbox| pg
   pg --> redis --> coordinator
-  coordinator -->|exact durable request| scanner --> engine
+  coordinator -->|exact durable request · HTTPS/HMAC| scanner --> engine
   engine -->|uploaded source only| tools
   engine -->|independent consented HTTPS profile| target
   engine -->|validated report| scanner
@@ -40,13 +40,15 @@ The backend stores assessment intent and a durable outbox record in one transact
 
 ### Accounts and workspaces
 
-Auth.js owns session handling. The local development runtime enables a Credentials provider backed by local email/password accounts; passwords use a bounded scrypt profile and authentication attempts are rate-limited. Local registration requires both `NODE_ENV=development` and an explicit configuration flag. It is not enabled for production. No OAuth provider is required for local development. OIDC and GitHub OAuth can be configured as Auth.js providers, but no live production identity configuration is claimed.
+Auth.js owns session handling. The development runtime enables a Credentials provider backed by local email/password accounts; passwords use a bounded scrypt profile and authentication attempts are rate-limited. Registration requires both `NODE_ENV=development` and an explicit configuration flag. Local sign-in can be configured outside development, while production identity-provider configuration and operations have not been certified. No OAuth provider is required for local development. OIDC and GitHub OAuth can be configured as Auth.js providers, but no live production identity configuration is claimed. WebAuthn factor enrollment, recovery codes, and action-bound step-up proofs are implemented; step-up is not a general approval path and its production lifecycle has not been validated.
 
-New accounts start without a seeded workspace. A user can create and list workspaces; the creator receives the Owner role. The current customer API supports application create/list, rename, archive, and restore operations. Workspace invitation and member-management flows are not implemented. Archived applications cannot accept new sources or assessments until restored.
+New accounts start without a seeded workspace. A user can create and list workspaces; the creator receives the Owner role. The current customer API supports application create/list, rename, archive, and restore operations. Workspace invitations and member-management operations are implemented and tenant-scoped: Owners can invite, change roles, and remove members; Operators and Viewers can leave. Email delivery and production identity validation remain open. Archived applications cannot accept new sources or assessments until restored.
 
 ### Source snapshots
 
 Customers submit normalized source snapshots directly to an application. The shared contract allows up to 4 MiB serialized per snapshot, 1,000 files, and 1 MiB per file; paths are restricted to supported relative JS/TS, JSON, YAML, and TOML files. The backend sorts files, calculates a canonical digest, deduplicates active identical snapshots, and stores source bytes in Postgres. No repository provider is required.
+
+This is a bounded source-file profile, not whole-application or all-language coverage. Exact dependency inventory currently recognizes npm `package-lock.json` v2/v3 only; pnpm, Yarn, Python, Java, and other package formats are unsupported and remain unknown.
 
 Owners and Operators can delete a snapshot. Deletion clears its stored body and hides the snapshot from active lists, but is rejected while a queued or running job depends on it. Assessments recheck that the stored snapshot still matches the durable digest. Customer code, package scripts, package installation, builds, and customer tests are never run.
 
@@ -66,7 +68,7 @@ The request contract binds source and target inputs to the selected mode:
 | `external` | Not used | Required |
 | `both` | Required | Required |
 
-The internal and external branches collect evidence independently. Internal work uses bounded parsers against uploaded bytes. The current local scanner profile includes Semgrep CE 1.90.0, Gitleaks 8.28.0, Trivy 0.67.2, and an optional OSV-compatible package-lock lookup. It does not inspect installed packages or prove reachability. The OSV adapter sends package names and exact versions only. Semgrep 1.90.0 is enforced as development/test-only; the production runtime cannot execute this profile or receive green aggregate scanner readiness. A maintained scanner replacement and representative validation are required before production internal scanning.
+The internal and external branches collect evidence independently. Internal work uses bounded parsers against uploaded bytes. The pinned scanner profile includes Semgrep CE 1.182.0, Gitleaks 8.28.0, Trivy 0.67.2, and an optional OSV lookup over supported exact-version npm lockfile entries. It does not inspect installed packages or prove reachability. The OSV adapter sends package names and exact versions only. A production-mode scanner runtime completed a local Linux/amd64 TLS-to-durable-report check with the actual pinned Docker profiles before the CA PEM canonicalization correction; final focused reruns are pending. This is evidence for that runtime path and controlled input, not a general accuracy or capacity guarantee; source-format coverage remains deliberately limited.
 
 ### Deterministic scanner pipeline
 
@@ -96,21 +98,21 @@ Renewal and revocation return `409 target_assessment_in_progress` while the targ
 
 ## Local runtime
 
-The customer development launcher starts the web app on `127.0.0.1:3000`, the coordinator on `127.0.0.1:3003`, and the scanner service on `127.0.0.1:4400` by default. Ports can be overridden with `GOTCHU_DEV_WEB_PORT`, `GOTCHU_DEV_COORDINATOR_PORT`, and `GOTCHU_DEV_SCANNER_PORT`. It starts local Postgres and Redis data services, builds the required packages, and starts the services after their readiness checks pass. It does not seed the fictional target or create customer accounts/workspaces.
+The customer development launcher starts the web app on `127.0.0.1:3000`, the coordinator on `127.0.0.1:3003`, and the scanner service on `127.0.0.1:4400` by default. Ports can be overridden with `GOTCHU_DEV_WEB_PORT`, `GOTCHU_DEV_COORDINATOR_PORT`, and `GOTCHU_DEV_SCANNER_PORT`. It starts local Postgres and Redis data services, builds the required packages, and starts the services after their readiness checks pass. It does not seed the fictional target or create customer accounts/workspaces. In this local launcher the scanner uses HTTP on loopback; the standalone scanner entry point requires TLS in `NODE_ENV=production` and supports a coordinator-scoped CA for HTTPS.
 
 Postgres, Redis, and their volumes are local development data. `pnpm dev:stop` stops only the recorded app processes; data services remain available until separately stopped. The launcher stores process records, logs, and the scanner credential under `.local/dev`. See [local development instructions](development.md) for the complete lifecycle.
 
-The scanner engine runs fixed, digest-pinned Docker parser images without network access, as a nonroot user, with bounded CPU, memory, process count, output, and wall time. These containers parse uploaded data; they are not a demonstrated VM-class isolation boundary. The scanner service must be placed behind an operator-controlled TLS terminator for production; the current local HTTP endpoint is loopback-only. External assessment itself uses verified HTTPS to the enrolled target.
+The scanner engine runs fixed, digest-pinned Docker parser images without network access, as a nonroot user, with bounded CPU, memory, process count, output, and wall time. These containers parse uploaded data; they are not a demonstrated VM-class isolation boundary. The scanner service can terminate TLS itself; the coordinator's optional private CA is scoped to that scanner client and requires an HTTPS scanner origin. The current local launcher still uses loopback HTTP. External assessment independently uses verified HTTPS to the enrolled target. The controlled DNS/TLS fixture validates this transport path; no live customer-owned domain DNS proof is claimed.
 
 ## Portability and release gates
 
 Core contracts and service ports are independent of AWS. AWS remains the planned primary hosting target, and no deployment or live AWS validation has been performed. Production requirements remain open, including:
 
-- replace Semgrep 1.90.0 with a maintained production profile and validate accuracy, resource bounds, and readiness;
+- extend representative accuracy, resource-bound, and readiness validation for the maintained Semgrep 1.182.0 profile across the supported input set, architectures, and intended hosted runtime;
 - demonstrate disposable VM-class isolation before enabling any customer-code execution;
-- provide production TLS ingress for the web and scanner services;
+- provide and validate hosted TLS ingress for the web app, cloud network policy, and production secret/certificate lifecycle; scanner TLS termination and scoped coordinator CA trust are implemented and locally exercised;
 - define and demonstrate backup, restore, and authorization reconciliation;
-- implement production identity controls, including MFA and workspace invitations/member management;
+- validate production identity-provider configuration and the WebAuthn step-up/recovery lifecycle; invitation and member-management APIs exist, but email delivery and hosted operation are not validated;
 - add independent provider-write adapters and exact approval semantics before any provider changes.
 
 Customer monitoring and in-app alerts now use the durable event and assessment paths. Model investigation, external notifications, provider writes and recovery still have separate unavailable release gates. See [implementation status and gates](implementation-plan.md), the [architecture overview](architecture-overview.html), and the [historical product decisions and correction](definition-interview.md#current-user-correction-actual-customer-application-in-development).
