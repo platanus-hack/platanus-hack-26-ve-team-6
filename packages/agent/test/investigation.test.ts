@@ -3,6 +3,7 @@ import { SignJWT } from 'jose';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
 import {
+  DEFAULT_INVESTIGATION_LIMITS,
   runBoundedInvestigation,
   type InvestigationInput,
   type InvestigationLimits,
@@ -134,6 +135,16 @@ function makeDependencies(options: {
 }
 
 describe('bounded LangGraph investigation', () => {
+  it('starts with the agreed bounded limits', () => {
+    expect(DEFAULT_INVESTIGATION_LIMITS).toEqual({
+      maxModelCalls: 4,
+      maxAdditionalReadToolCalls: 8,
+      maxActiveMs: 300_000,
+      maxTokens: 20_000,
+      maxSpendMicroUsd: 250_000,
+    });
+  });
+
   it('runs a validated candidate investigation and checkpoints no capability or excerpt', async () => {
     const fixture = makeDependencies();
     const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
@@ -249,6 +260,43 @@ describe('bounded LangGraph investigation', () => {
     const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
 
     expect(output).toMatchObject({ status: 'delayed', reasonCode: 'model_budget_exhausted' });
+    expect(fixture.modelCalls).toHaveLength(1);
+    expect(fixture.readCalls).toHaveLength(1);
+  });
+
+  it('stops at four model calls even when each call asks for another authorized read', async () => {
+    const fixture = makeDependencies({
+      model: async () => candidateReply([baseEvidenceId], [
+        { name: 'auth.events.read', evidenceId: extraEvidenceId },
+      ]),
+    });
+    const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
+
+    expect(output).toMatchObject({ status: 'delayed', reasonCode: 'model_budget_exhausted', counters: { modelCalls: 4 } });
+    expect(fixture.modelCalls).toHaveLength(4);
+    expect(fixture.readCalls).toHaveLength(4);
+  });
+
+  it('enforces the eight additional read cap with persisted gateway counters', async () => {
+    const fixture = makeDependencies({
+      loadCheckpoint: async () => ({
+        version: 1,
+        scope: { organizationId, applicationId, runId },
+        sequence: 3,
+        stage: 'running',
+        modelCalls: 0,
+        additionalReadToolCalls: 7,
+        tokensUsed: 0,
+        spendMicroUsd: 0,
+      }),
+      model: async () => candidateReply([baseEvidenceId], [
+        { name: 'auth.events.read', evidenceId: extraEvidenceId },
+        { name: 'evidence.read', evidenceId: secondExtraEvidenceId },
+      ]),
+    });
+    const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
+
+    expect(output).toMatchObject({ status: 'delayed', reasonCode: 'read_budget_exhausted', counters: { additionalReadToolCalls: 7 } });
     expect(fixture.modelCalls).toHaveLength(1);
     expect(fixture.readCalls).toHaveLength(1);
   });

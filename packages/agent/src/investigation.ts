@@ -651,10 +651,10 @@ export async function runBoundedInvestigation(
       lastSummary: sanitizeText(modelOutput.summary),
       lastCitations: modelOutput.citedEvidenceIds,
       terminalStatus: outputRequests.length > 0
-        ? state.terminalStatus
+        ? 'investigated' as const
         : modelOutput.assessment === 'inconclusive' ? 'inconclusive' as const : 'investigated' as const,
       terminalReason: outputRequests.length > 0
-        ? state.terminalReason
+        ? 'completed' as const
         : modelOutput.assessment === 'inconclusive' ? 'model_inconclusive' as const : 'completed' as const,
     };
     await writeCheckpoint('running', {
