@@ -77,6 +77,37 @@ try {
   for (const secret of secrets) assert.equal(`${first.stdout}${first.stderr}`.includes(secret), false);
   const scannerSecret = await readFile(join(stateDir, 'scanner.secret'));
   assert.equal((await stat(join(stateDir, 'scanner.secret'))).mode & 0o777, 0o600);
+
+  const cryptoInput = join(temp, 'backup-input');
+  const encrypted = join(temp, 'backup.gotchu');
+  const decrypted = join(temp, 'backup-output');
+  const payload = 'private database and local secrets';
+  const passphrase = 'a long local backup passphrase';
+  await writeFile(cryptoInput, payload);
+  const encryptedResult = spawnSync('node', [join(root, 'scripts/gotchu-backup-crypto.mjs'), 'encrypt', cryptoInput, encrypted], { input: `${passphrase}\n`, encoding: 'utf8' });
+  assert.equal(encryptedResult.status, 0, encryptedResult.stderr);
+  assert.equal((await stat(encrypted)).mode & 0o777, 0o600);
+  assert.equal((await readFile(encrypted)).includes(Buffer.from(payload)), false);
+  const decryptedResult = spawnSync('node', [join(root, 'scripts/gotchu-backup-crypto.mjs'), 'decrypt', encrypted, decrypted], { input: `${passphrase}\n`, encoding: 'utf8' });
+  assert.equal(decryptedResult.status, 0, decryptedResult.stderr);
+  assert.equal(await readFile(decrypted, 'utf8'), payload);
+  const rejectedPassphrase = spawnSync('node', [join(root, 'scripts/gotchu-backup-crypto.mjs'), 'decrypt', encrypted, join(temp, 'wrong-passphrase')], { input: 'a wrong passphrase with length\n', encoding: 'utf8' });
+  assert.notEqual(rejectedPassphrase.status, 0);
+  const existingOutput = join(temp, 'existing-backup-output');
+  await writeFile(existingOutput, 'preserve an existing destination');
+  const refusedOverwrite = spawnSync('node', [join(root, 'scripts/gotchu-backup-crypto.mjs'), 'encrypt', cryptoInput, existingOutput], { input: `${passphrase}\n`, encoding: 'utf8' });
+  assert.notEqual(refusedOverwrite.status, 0);
+  assert.equal(await readFile(existingOutput, 'utf8'), 'preserve an existing destination');
+  const backupEnvironment = join(temp, 'backup.env');
+  const mergedEnvironment = join(temp, 'restored.env');
+  await writeFile(backupEnvironment, envBefore.replace(/^AUTH_SECRET=.*$/mu, 'AUTH_SECRET=backup-session-secret'));
+  const merged = spawnSync('node', [join(root, 'scripts/gotchu-restore-env.mjs'), backupEnvironment, join(stateDir, '.env'), mergedEnvironment], { encoding: 'utf8' });
+  assert.equal(merged.status, 0, merged.stderr);
+  const restoredSettings = new Map((await readFile(mergedEnvironment, 'utf8')).trim().split(/\r?\n/u).map(line => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
+  assert.equal(restoredSettings.get('AUTH_SECRET'), 'backup-session-secret');
+  assert.equal(restoredSettings.get('POSTGRES_PASSWORD'), new Map(envBefore.trim().split(/\r?\n/u).map(line => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)])).get('POSTGRES_PASSWORD'));
+  assert.equal((await stat(mergedEnvironment)).mode & 0o777, 0o600);
+
   const second = run(['up'], configuredPorts);
   assert.notEqual(second.status, 0);
   assert.equal(await readFile(join(stateDir, '.env'), 'utf8'), envBefore);
@@ -106,4 +137,4 @@ try {
 } finally {
   await rm(temp, { recursive: true, force: true });
 }
-process.stdout.write('Self-host script tests passed (scanner TLS readiness, private secrets, idempotent state, occupied ports, GitHub and Google callback instructions, missing Docker).\n');
+process.stdout.write('Self-host script tests passed (scanner TLS readiness, private secrets, encrypted backup format, environment restore, idempotent state, occupied ports, GitHub and Google callback instructions, missing Docker).\n');
