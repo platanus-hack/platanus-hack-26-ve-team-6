@@ -34,6 +34,8 @@ createAuthorizedHttpsHealthAdapter wraps the existing customer-assessment HTTPS 
 
 Adapters return MonitoringCandidate values with kind, summary, severity, confidence, observation/freshness timestamps, and evidence fields (source, reference, SHA-256 checksum, collectedAt, adapter, and adapterVersion). They do not add tenant scope, basis, runId, leaseToken, or idempotency keys. The coordinator must bind candidates to the current MonitorWork claim before calling recordObservation. Repository changes and advisory metadata are observations, not proof of deployment or exploitation.
 
+The integrated scheduler uses canonical customer audit jobs for HTTPS checks, including their target revocation/quarantine fence. It projects their persisted reports using assessment-basis evidence. The standalone authorized HTTPS health helper is not used to bypass that workflow; its raw response-summary evidence is not accepted as monitor-basis assessment evidence by the backend.
+
 ## Source references
 
 - [Customer snapshot limits and validation](../contracts/src/customer-assessment.ts)

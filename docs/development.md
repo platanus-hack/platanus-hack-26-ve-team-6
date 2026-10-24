@@ -28,3 +28,9 @@ Useful local locations:
 - `.local/dev/web.log`, `.local/dev/coordinator.log`, `.local/dev/scanner.log` — private service logs.
 - `.local/dev/scanner.secret` — raw 32-byte shared scanner credential; do not copy or commit it.
 - `infra/.env` — private local infrastructure and Auth.js credentials.
+
+## Monitoring configuration
+
+The launcher enables the persisted monitoring scheduler and metadata-only OSV repository checks. To expose allowed repositories in **Vigilancia**, set an operator-managed `GOTCHU_MONITORING_CONFIG_FILE` before startup; the launcher passes that path to the web and coordinator. The catalog reloads per operation and binds each entry to its exact workspace/application. No model or GitHub account is mandatory; local managed bare Git repositories are supported. See [operational setup](operations.md).
+
+Signed telemetry credentials are stored as private local files under `.local/dev/event-credentials`. The dashboard shows a new key once; the trusted application server uses it through `@gotchu/sdk`. This development store is not an encrypted hosted credential service. Disabling/rotating the integration stops acceptance under the old persisted key. Runtime telemetry and periodic source/HTTPS monitoring expose independent coverage.

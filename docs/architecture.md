@@ -1,6 +1,6 @@
 # Gotchu customer application architecture
 
-Gotchu's current product is an authenticated customer application for scoped source and public HTTPS assessments. Customers manage their own workspaces and applications, submit source snapshots, verify authorized HTTPS origins, and review persisted evidence-backed reports. The fictional vulnerable/corrected application is a regression fixture only; customer assessments accept customer-provided snapshots and verified targets.
+Gotchu's current product combines authenticated source/public HTTPS assessments, scoped periodic monitoring, signed runtime alerts and exact private correction preparation. Customers manage their own workspaces and applications, submit source snapshots, verify authorized HTTPS origins, and review persisted evidence-backed reports. The fictional vulnerable/corrected application is a regression fixture only; customer assessments accept customer-provided snapshots and verified targets.
 
 The current supported runtime is local development. AWS is the eventual primary hosting target, with portable contracts and replaceable adapters. No cloud deployment or production-service claim is made here.
 
@@ -25,7 +25,7 @@ flowchart LR
   pg --> redis --> coordinator
   coordinator -->|exact durable request| scanner --> engine
   engine -->|uploaded source only| tools
-  engine -->|independent root GET| target
+  engine -->|independent consented HTTPS profile| target
   engine -->|validated report| scanner
   scanner -->|bounded result| coordinator
   coordinator -->|atomic report and job completion| backend
@@ -54,7 +54,7 @@ Owners and Operators can delete a snapshot. Deletion clears its stored body and 
 
 Enrollment accepts a canonical public HTTPS origin only: a DNS hostname, no credentials, path, query, fragment, or custom port. The customer must affirm authorization, then publish the issued random TXT challenge at `_gotchu.<hostname>`. The challenge expires after 30 minutes. Successful verification records the actor and time and authorizes the target for seven days. Customers can revoke authorization sooner; enrolling again creates a new version. Only one target is active for an application.
 
-At scan time, the trusted HTTPS transport resolves the hostname again, rejects nonpublic or reserved answers, pins a validated public IP, verifies the certificate and original hostname, and honors the target's expiration deadline. It sends no customer credentials or cookies, does not follow redirects, and makes one bounded GET to `/`. DNS, TLS, scope, or deadline failures remain unknown coverage. External assessment needs no source snapshot.
+At scan time, the trusted HTTPS transport resolves the hostname again, rejects nonpublic or reserved answers, pins a validated public IP, verifies the certificate and original hostname, and honors the target's expiration deadline. It sends no customer credentials or cookies, does not follow redirects, and uses the exact consented profile. Root consent permits one GET to `/`; `public_surface` permits bounded fixed paths and same-origin discoveries, capped at ten requests and a total response budget. DNS, TLS, scope, cap or deadline failures remain unknown coverage. External assessment needs no source snapshot.
 
 ## Assessment modes and reports
 
@@ -95,4 +95,14 @@ Core contracts and service ports are independent of AWS. AWS remains the planned
 - implement production identity controls, including MFA and workspace invitations/member management;
 - add independent provider-write adapters and exact approval semantics before any provider changes.
 
-The existing event intake, investigation, and executor code remains a separate foundation; it does not make monitoring, model investigation, remediation, or provider recovery available through customer assessment. See [implementation status and gates](implementation-plan.md), the [architecture overview](architecture-overview.html), and the [historical product decisions and correction](definition-interview.md#current-user-correction-actual-customer-application-in-development).
+Customer monitoring and in-app alerts now use the durable event and assessment paths. Model investigation, external notifications, provider writes and recovery still have separate unavailable release gates. See [implementation status and gates](implementation-plan.md), the [architecture overview](architecture-overview.html), and the [historical product decisions and correction](definition-interview.md#current-user-correction-actual-customer-application-in-development).
+
+## Continuous selected-input monitoring and correction preparation
+
+An operator-scoped local Git/GitHub catalog binds every repository key to an organization and application. The scheduler claims one persisted monitor run at a time, revalidates the configuring membership and current inputs, reads exact commits and current advisory/status metadata, then atomically materializes a canonical customer audit/request/outbox. Leases and heartbeats fence writes; configuration changes cannot silently invalidate admitted active work. The existing audit lane executes the scanner, not the scheduler's HTTP lifetime. Unchanged commits still receive advisory queries and scheduled assessments.
+
+Signed runtime events are durably authenticated before aggregation. Bounded versioned rules distinguish error/latency/resource pressure, supported suspicious behavior and provider context. Authentication detection, investigations, assessments and report-to-alert projections have separate delivery slots. Quota exhaustion degrades optional projection without blocking accepted baseline authentication detection. Permanent stale/archived report projections record terminal reasons and durable coverage gaps.
+
+The dashboard displays alerts, evidence, freshness, coverage and advisory plans. Exact correction preparation loads the canonical report/request/source within tenant scope, selects a deterministic versioned recipe from the real finding and literal project context, then atomically stores a separate candidate source and queues an internal rescan. Replays bind the patch hash. No original repository, production deployment, secret issuer or provider is modified. Behavioral tests are not run.
+
+Capacity and migration plans bind revisions/hashes. Customer checklist entries remain self-reported; readiness cannot enable production execution. Public provider status never proves application impact. See [operational setup and actual button effects](operations.md) for coverage and retention limits.

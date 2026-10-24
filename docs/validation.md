@@ -1,5 +1,29 @@
 # Verification record
 
+
+## Continuous monitoring and dashboard corrections — 2026-10-24
+
+This milestone supersedes the manual-only capability descriptions below. All checks use local development infrastructure; no AWS deployment, live customer GitHub/provider availability guarantee or production write is claimed.
+
+| Check | Observed result |
+| --- | --- |
+| `pnpm check` | Workspace build, strict typechecks and default package suites passed: 329 tests passed and 128 infrastructure-gated cases were explicitly skipped at that checkpoint. Later claim/provider fixes were covered by the focused and live commands below; these counts are not a final unique-case total. |
+| Final `pnpm typecheck` | Passed across the entire workspace and root integration-test project after the final claim/provider fixes. |
+| `pnpm --filter @gotchu/database test:postgres` | **115 passed**: 12 database and 103 backend cases, including 107 actual PostgreSQL checks and 8 units. Covers monitoring RLS/leases/materialization, signed telemetry lifecycle, exact correction atomicity and migration 013 claim settlement. Synthetic scanner/status/MFA ports are labeled fixtures. |
+| `GOTCHU_TEST_SCANNERS=1 pnpm test:integration` | **52 passed, zero skips** against fresh PostgreSQL/Redis, actual BullMQ, built Nitro/coordinator processes, Auth.js cookies, HMAC scanner, cached Docker tools, real OSV metadata and controlled DNS/TLS. Includes all six assessment combinations plus an exact TLS correction and actual independent rescan. |
+| Final monitoring/provider checks | Monitoring **21 tests passed**; coordinator/monitoring source+test typechecks and builds passed. The subsequent scheduled-monitoring integration rerun passed **4/4**, including simultaneous known Railway outage and separate unknown coverage. Provider feeds are synthetic fixtures, not live provider availability evidence. |
+| Web checks | **60 tests passed**, including recommendations/selection contracts, same-origin APIs, no caller authority overrides and alert response handling. Actual API+Postgres regressions verify acknowledgment/resolution and refreshed session cookies. |
+| Packaging | `docker build --check .` and normalized all-profile Compose policy checks passed. Updated images were not built or deployed; disk pressure made a full image rebuild inappropriate. Native Node compiled runtime behavior was checked separately. |
+| Development lifecycle/browser | `pnpm dev:start` reached actual scanner/coordinator/web readiness. Chromium registered a fresh account, created a workspace/app, sent authenticated telemetry, acknowledged an alert, checked advisory capacity readiness, uploaded a source folder, confirmed a private correction, observed its rescan, disabled telemetry and signed out. Desktop and 390px mobile layouts had no horizontal overflow or displayed application errors. Signing keys were hidden before captures. |
+
+The full integration run precedes the last mixed-provider coverage fix; the four-case live scheduler rerun and 21 adapter tests cover that final change. Counts overlap and must not be added as unique cases. The updated backend suite includes the newer eleven monitor-claim settlement cases even though they were not present when the default checkpoint collected its skipped tests.
+
+The process integration found two real integration defects: bundling TypeScript's CommonJS compiler into Nitro ESM broke runtime readiness, and Semgrep's `profile.` rule prefix prevented recipe matching. Native compiler tracing and exact known-prefix matching fix both. The actual scanner-to-button-to-rescan path passed after those fixes, without changing the original snapshot or claiming behavioral tests.
+
+Independent Astra reviews drove fixes for alert quota isolation, permanent projection settlement, acknowledged-alert responses, GitHub aggregate memory limits, Railway freshness/mixed evidence, Git submodule exclusion, recovered unknown monitoring, current-revision coverage, distinct dependency versions and revoked monitor claims. The fourth scoped review reported no findings; its conclusion is code-review evidence, not an independently rerun live suite.
+
+Provider writes, production MFA/approval adapters, behavioral customer tests, complete dependency-source auditing, broad company asset discovery, external notifications, VM-class execution isolation, measured capacity, retention maintenance and recovery drills remain unavailable or unproven. In-app triage and self-reported migration checklists do not establish completed remediation or migration. The production Semgrep profile gate remains closed.
+
 ## Actual customer application in development — 2026-10-24
 
 This record supersedes the fixture-only milestone below. The product now accepts customer-created accounts, workspaces, applications, source snapshots, and DNS-verified public HTTPS origins. The fictional application remains a regression target. No cloud deployment was performed.

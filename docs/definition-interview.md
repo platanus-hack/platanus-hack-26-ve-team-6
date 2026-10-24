@@ -255,3 +255,9 @@ The previous rounds remain the record of broader product intent and the reasons 
 ## Current user correction: actual customer application in development
 
 On 2026-10-24 the user clarified that the goal is the actual Gotchu application implemented correctly toward production readiness. The fictional application is a regression/test target, not the customer product. Build authenticated workspaces, real authorized application enrollment, real source and external assessments, and usable customer flows. Work locally in development; ignore cloud deployment for now. Keep focused commits and push changes to main. Do not label local tests or unimplemented integrations as production readiness. The AWS-first, provider-portable direction and independent authorization requirements remain.
+
+## Current direction — continuous evidence and dashboard actions
+
+The user requested periodic company repository/dependency and authorized public-surface review, runtime errors/common attack scenarios, private alerts and button-driven correction or recovery guidance. The selected implementation combines versioned detectors/recipes with literal repository context and persisted evidence. It does not let a model invent executable commands or expand permissions.
+
+The local customer product now includes selected-input monitoring, signed telemetry, in-app alerts, exact private correction candidates with rescans, and advisory capacity/migration preparation. A public provider outage remains unverified customer impact. Repository onboarding requires an operator-scoped catalog. Additional company origins require separate authorization. Actual production deployment, automatic containment and provider migration remain separate gates and were not authorized as cloud operations for this development task.
