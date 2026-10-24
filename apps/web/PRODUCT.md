@@ -26,9 +26,9 @@ TanStack Start, React, Auth.js, pnpm, Node 24 and strict TypeScript are establis
 
 ## Brand Commitments
 
-Jenn's supplied cybersecurity prototype informs the palette: magenta #E7147D, graphite #191923, off-white #FFFEFA and silver #C7BFBD; futuristic, digital, professional typography and precise controls. Its composition and assets are not a template to reproduce. The revised direction uses original evidence-lens geometry, spatial depth and responsive motion inspired by Apple product storytelling, without an initial loader. The cream/coral Zcash editorial identity is a different project and is not applicable.
+Jenn's supplied cybersecurity prototype informs the palette: magenta #E7147D, graphite #191923, off-white #FFFEFA and silver #C7BFBD; futuristic, digital, professional typography and precise controls. Its composition and assets are not a template to reproduce. The current direction is a working brand board: the `[◆]` scope mark, giant wide display type, drenched magenta panels, a blueprint grid, ASCII and dot-matrix art, and nothing realistic (no photos, metal, glass or camera-like objects), without an initial loader. The user supplied a brand board, firecrawl.dev and exa.ai as references for type, elements and feel; colours stay as above. The cream/coral Zcash editorial identity is a different project and is not applicable.
 
-Gotchu is the repository/application name; the reference's earlier “Prototipo” label is not retained. AIRNT is a visual reference, not a licensed commercial web asset. Oxanium is the self-hosted OFL-licensed implementation alternative; do not distribute AIRNT without license evidence.
+Gotchu is the repository/application name; the reference's earlier “Prototipo” label is not retained. AIRNT is a visual reference, not a licensed commercial web asset. Goldman is the self-hosted OFL display face chosen as the closest open match to AIRNT; do not distribute AIRNT without license evidence.
 
 ## Evidence on Hand
 

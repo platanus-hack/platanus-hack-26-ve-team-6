@@ -21,12 +21,12 @@ Read the installed Impeccable skill before using its CLI. Run context for the ex
 
 Before adding motion, load Emil's `find-animation-opportunities`, then `animate` and the relevant recipes. Use `apple-design` for physical continuity and `animation-performance` for the compositor/React cost model. `review-animations` is user-invoked only; ask for it before delivery. Do not animate functional text, add a loader, or hide content pending an entrance.
 
-Objects may follow the pointer across the page: subscribe through `pointer-field.ts` (one shared listener), write transforms on Motion's render frame, never set React state per frame, pause off screen and freeze under reduced motion. Primary actions carry `data-lens-focus` so every lens narrows on them. The pinned convergence stage runs only on screens at least 761x560 with motion allowed; every other case keeps the stacked layout with the same content.
+Objects may follow the pointer across the page: subscribe through `pointer-field.ts` (one shared listener), write transforms on Motion's render frame, never set React state per frame, pause off screen and freeze under reduced motion. Primary actions carry `data-catch` so the ASCII mark's brackets close on the finding while they are hovered. Keep visuals non-realistic: flat cards, ASCII, dot-matrix and grid art; no photos, metal, glass or camera-like objects. The pinned convergence stage runs only on screens at least 761x560 with motion allowed; every other case keeps the stacked layout with the same content.
 
 After the finished surface, run the detector and triage real findings rather than suppressing them broadly:
 
 ```sh
-.hermes/skills/impeccable/scripts/impeccable detect --json apps/web/src/components/{landing,convergence,lens-eye,spatial-objects,product-flow}.{tsx,css}
+.hermes/skills/impeccable/scripts/impeccable detect --json apps/web/src/components/{landing,hero,convergence,ascii-mark,dot-matrix,wordmark-rows,blueprint-grid,product-flow}.{tsx,css}
 ```
 
 The shared `.impeccable/config.json` enables supported design hooks. Automatic invocation depends on the current agent host; when context requests a manual detector pass, run it explicitly. Do not claim hooks fired when they did not.
@@ -48,4 +48,4 @@ Playwright starts/reuses a loopback-only preview on port 3085. Its tests exercis
 
 Write direct Spanish about implemented features. Never insert artwork explanation, meta/helper copy or mock-analysis instructions. Do not invent scanner output, scores, testimonials, uptime or results: abstract original product assets remove the need for such disclaimers. Genuine scope limits belong in a normal product answer, not captions attached to art.
 
-Static assets are authored and reproducible via `python3 scripts/generate-landing-assets.py`; animated geometry (aperture blades, globe projection) is computed in components. Do not reuse the old reference sculpture, Apple product images, Churupitos assets, or unlicensed AIRNT. Respect the OFL file alongside the self-hosted Oxanium font. Keep installed skill engines, local credentials and test traces out of Git.
+The landing ships no raster or SVG artwork files: the mark, ASCII render, pictograms and grid are authored in components (`gotchu-mark.tsx` holds the shared geometry). Do not reuse reference-site assets or unlicensed AIRNT. Respect the OFL files alongside the self-hosted Goldman and Oxanium fonts. Small text never sits on `#e7147d`; use the action shade, ink or silver. Keep installed skill engines, local credentials and test traces out of Git.
