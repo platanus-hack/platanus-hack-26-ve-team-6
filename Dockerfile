@@ -35,6 +35,9 @@ COPY --from=web-production-dependencies --chown=node:node /workspace/packages/co
 COPY --from=web-build --chown=node:node /workspace/packages/backend/package.json /workspace/packages/backend/package.json
 COPY --from=web-build --chown=node:node /workspace/packages/backend/dist /workspace/packages/backend/dist
 COPY --from=web-production-dependencies --chown=node:node /workspace/packages/backend/node_modules /workspace/packages/backend/node_modules
+COPY --from=web-build --chown=node:node /workspace/packages/triage/package.json /workspace/packages/triage/package.json
+COPY --from=web-build --chown=node:node /workspace/packages/triage/dist /workspace/packages/triage/dist
+COPY --from=web-production-dependencies --chown=node:node /workspace/packages/triage/node_modules /workspace/packages/triage/node_modules
 COPY --from=web-build --chown=node:node /workspace/packages/database/package.json /workspace/packages/database/package.json
 COPY --from=web-build --chown=node:node /workspace/packages/database/dist /workspace/packages/database/dist
 COPY --from=web-production-dependencies --chown=node:node /workspace/packages/database/node_modules /workspace/packages/database/node_modules
@@ -66,6 +69,9 @@ COPY --from=coordinator-production-dependencies --chown=node:node /workspace/pac
 COPY --from=coordinator-build --chown=node:node /workspace/packages/backend/package.json /workspace/packages/backend/package.json
 COPY --from=coordinator-build --chown=node:node /workspace/packages/backend/dist /workspace/packages/backend/dist
 COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/backend/node_modules /workspace/packages/backend/node_modules
+COPY --from=coordinator-build --chown=node:node /workspace/packages/triage/package.json /workspace/packages/triage/package.json
+COPY --from=coordinator-build --chown=node:node /workspace/packages/triage/dist /workspace/packages/triage/dist
+COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/triage/node_modules /workspace/packages/triage/node_modules
 COPY --from=coordinator-build --chown=node:node /workspace/packages/contracts/package.json /workspace/packages/contracts/package.json
 COPY --from=coordinator-build --chown=node:node /workspace/packages/contracts/dist /workspace/packages/contracts/dist
 COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/contracts/node_modules /workspace/packages/contracts/node_modules

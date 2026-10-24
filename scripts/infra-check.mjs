@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const composeText = await readFile(new URL('../infra/compose.yaml', import.meta.url), 'utf8');
+const dockerfileText = await readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
 const configText = readFileSync(0, 'utf8');
 let compose;
 try {
@@ -52,7 +53,24 @@ requireValue(Object.hasOwn(coordinatorEnvironment, 'GOTCHU_COORDINATOR_DATABASE_
 requireValue((services.postgres.volumes ?? []).some(({ target }) => target === '/var/lib/postgresql/data'), 'Postgres data must retain its persistent volume.');
 requireValue((services.redis.volumes ?? []).some(({ target }) => target === '/data'), 'Redis data must retain its persistent volume.');
 
-process.stdout.write('Demo, identity, database, and private-port Compose checks passed.\n');
+for (const stage of ['web', 'coordinator']) {
+  const marker = ` AS ${stage}\n`;
+  const markerIndex = dockerfileText.indexOf(marker);
+  requireValue(markerIndex >= 0, `Dockerfile must define the ${stage} runtime image.`);
+  const contentStart = markerIndex + marker.length;
+  const nextStage = dockerfileText.indexOf('\nFROM ', contentStart);
+  const runtimeStage = dockerfileText.slice(contentStart, nextStage < 0 ? undefined : nextStage);
+  for (const [sourceStage, path, description] of [
+    [`${stage}-build`, 'package.json', 'manifest'],
+    [`${stage}-build`, 'dist', 'built files'],
+    [`${stage}-production-dependencies`, 'node_modules', 'production dependencies'],
+  ]) {
+    const copy = `COPY --from=${sourceStage} --chown=node:node /workspace/packages/triage/${path} /workspace/packages/triage/${path}`;
+    requireValue(runtimeStage.includes(copy), `${stage} runtime image must include @gotchu/triage ${description}.`);
+  }
+}
+
+process.stdout.write('Demo, identity, database, private-port, and runtime package image checks passed.\n');
 
 const image = process.argv[2];
 if (!image) {
@@ -64,8 +82,27 @@ const imageCheck = `
 import assert from 'node:assert/strict';
 import { createControlledAssessmentRunner, controlledTargetKey } from '@gotchu/assessment';
 import { startDemoTargetServer } from '@gotchu/demo-target';
+import { triageRevisionSchema } from '@gotchu/triage';
 
 assert.equal(process.getuid?.(), 1000, 'coordinator image must run this check as the nonroot Node user');
+const triageRevision = triageRevisionSchema.parse({
+  id: 'runtime-package-smoke',
+  revision: 1,
+  previousRevisionId: null,
+  rulesVersion: 'runtime-package-smoke',
+  inputDigest: 'runtime-package-smoke',
+  impact: {
+    observed: 'unknown',
+    affectedServices: [],
+    window: { startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:01:00.000Z' },
+    checkedPoints: [],
+    missingData: [],
+  },
+  hypotheses: [],
+  unknownInvestigable: [],
+});
+assert.equal(triageRevision.id, 'runtime-package-smoke');
+process.stdout.write('Runtime @gotchu/triage import and schema check passed.\\n');
 const target = await startDemoTargetServer({ host: '127.0.0.1', port: 0 });
 try {
   const runner = createControlledAssessmentRunner({ origin: target.origin });
