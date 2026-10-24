@@ -200,10 +200,12 @@ La migración 017 descarta expresamente las tablas de la migración 015, que no 
 
 Trabajo:
 
+- [x] Añadir `ActionVerifier` con una consulta de candidato privado/digest, lectura de base y un `ValidationFactsPort` con schema local estricto. El runtime web lo conecta fail-closed; por ahora retorna `null` hasta que la integración D05 provea hechos firmados.
+- [x] Añadir persistencia restringida por tenant para intentos del executor, con transiciones `claimed → branch_published → pr_opened → verified` y estados inciertos/reconciliación.
 - [ ] Guardar patches, árboles/commits candidatos y attestations de D05 con acceso privado, integridad verificable y retención. El modelo no puede editar el registro de validación ni marcarse elegible.
-- [ ] Conectar un `ProposalVerifier` real que lea base actual, política, artefactos, rescan, suite relevante y aislamiento del runner. El texto de una recomendación o el `patchHash` de la UI no basta.
-- [ ] Crear el proceso de executor y su entrada durable autorizada, lifecycle, readiness y apagado. Hoy existe la biblioteca pero no el consumidor que atienda esta capacidad desde el producto.
-- [ ] Reutilizar ledger/claims y outbox; credenciales de escritura sólo en el executor y sólo para los recursos aprobados. Registrar intentos por etapa sin source, tokens ni secretos en logs.
+- [ ] Conectar el `ValidationFactsPort` con `backend.validations.getValidationFacts(actionRef)`; D05 aún no está integrado en esta rama.
+- [ ] Crear el proceso consumidor de executor, su lifecycle completo, readiness y apagado. La biblioteca y el ledger existen, pero esta rama todavía no conecta un worker a la cola de ejecuciones.
+- [ ] Reutilizar claims/outbox desde el proceso independiente; credenciales de escritura sólo en el executor y sólo para los recursos aprobados. Registrar intentos por etapa sin source, tokens ni secretos en logs.
 - [ ] Extender máquina de estados y reconciliación a escrituras de varios pasos. Tras timeout consultar estado remoto antes de retry; una respuesta desconocida conserva bloqueo y no permite una segunda acción.
 - [ ] Mantener freeze tras restore, epoch de recuperación y verificación independiente del efecto. Las conexiones del worker/modelo siguen siendo de lectura.
 
@@ -213,9 +215,10 @@ Trabajo:
 
 Trabajo:
 
-- [ ] Implementar un adaptador GitHub opcional para el primer PR real y una salida local Git para desarrollo portable. Resolver repositorio/branch por instalación autorizada, nunca por texto del modelo.
-- [ ] Publicar exactamente el commit validado en una rama determinista y abrir un único PR identificado por ejecución/hash. Verificar después head, patch, base y checks esperados.
-- [ ] Comprobar automatizaciones del repo: publicar una rama/PR puede activar CI con secretos o despliegues. Negar la acción si no se puede demostrar el perfil de automatización permitido.
+- [x] Implementar `@gotchu/git-adapters` con salida local Git y GitHub App, ramas deterministas, creación condicional de ref y búsqueda de PR por branch tras entregas repetidas.
+- [x] Añadir checks de paths `.github/workflows/**` y triggers `pull_request_target`/`gotchu/**`, además de reconciliar una respuesta perdida después de crear la rama o el PR. La prueba opt-in real confirmó head/base y limpió sus recursos.
+- [ ] Integrar el adaptador con el executor, publicar artefactos D05 almacenados y verificar digest exacto del diff/commit desde el proveedor.
+- [ ] Comprobar automatizaciones del repo con una política explícita. El runtime lector actual no puede leer workflows y permanece fail-closed; la prueba GitHub adapter directa no sustituye esa integración.
 - [ ] Definir operaciones condicionales reales por proveedor. Un lock de Postgres y leer el head antes de escribir no bloquean un editor remoto. GitHub no ofrece un parámetro universal de expected-old-SHA para todas las operaciones; revisar capacidades concretas y cerrar las que no garanticen la política. Referencia: [Git refs REST](https://docs.github.com/en/rest/git/refs?apiVersion=2022-11-28).
 - [ ] Si cambia la base, invalidar y regenerar aprobación. Si el cambio se descubre después de crear el PR, conservarlo como obsoleto y bloquear merge/deploy hasta validar de nuevo; no describir ese caso como libre de carreras.
 - [ ] Gestionar permiso revocado, PR cerrado, conflicto, branch borrada y reconciliación de resultado incierto sin repetir la publicación.

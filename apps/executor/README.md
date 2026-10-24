@@ -34,7 +34,7 @@ const executor = createExecutor({ ledger }); // Disabled: no production provider
 // The process owns database.close() during shutdown.
 ```
 
-This server-only adapter requires the backend instance with its isolated executor login. Every execution method explicitly checks the trusted `database.role`; `createDatabase` verifies that the runtime login belongs to only that service role. The existing table grants and FORCE RLS remain in force. Never send this adapter, execution records, or claim tokens through a public route. No migration or additional SQL privilege is required.
+This server-only adapter requires the backend instance with its isolated executor login. Every execution method explicitly checks the trusted `database.role`; `createDatabase` verifies that the runtime login belongs to only that service role. The existing FORCE RLS remains in force. Migration 023 adds the executor attempt ledger and grants access only to `gotchu_executor`. Never send this adapter, execution records, or claim tokens through a public route.
 
 The port intentionally returns `unknown` across the adapter boundary. The adapter validates the complete stored action union (v1 or v2) and recomputes its version-specific epoch-bound hash. V1 remains executable through the existing gate. V2 claims are recognized structurally but return `ExecutionLedgerError('no_adapter')` before any provider adapter can run; the backend refuses them before consuming approval. Jobs use lowercase UUIDs: the adapter rejects non-normalized organization/approval spellings before claiming because the executor compares strings. Backend ledger methods normalize valid UUID spellings for database identity checks without changing hashed proposal bodies.
 
@@ -47,7 +47,19 @@ Stale head, policy, artifacts, failed eligibility, and invalidation map to `Exec
 
 ## Provider adapter
 
-There is no production GitHub writer yet. If `ProviderAdapter` is omitted, `execute()` returns `disabled` before consuming approval or calling the ledger. The fake adapters in the tests are test fixtures only.
+`@gotchu/git-adapters` now contains local Git and GitHub App adapters, but the executor process has not been wired to them. If `ProviderAdapter` is omitted, `execute()` returns `disabled` before consuming approval or calling the ledger. The fake adapters in the ledger tests remain test fixtures; the separate opt-in GitHub adapter suite is labeled as a real provider check.
+
+## Writer App credentials for the sandbox check
+
+Keep the Writer App JSON outside the repository with mode `0600`. The live adapter test reads its path from `GOTCHU_TEST_GITHUB_WRITER_APP`; it validates `id` and `privateKeyPem` without printing either value. The authorized sandbox installation and repository are fixed in that test. Run it with:
+
+```sh
+GOTCHU_TEST_GITHUB=1 \
+GOTCHU_TEST_GITHUB_WRITER_APP=/absolute/path/to/gotchu-dev-writer-0bkevin.json \
+pnpm --filter @gotchu/git-adapters test
+```
+
+`loadGitHubWriterCredentials(path, target)` is the executor-only credential loader for a future process entry point. It rejects symlinked or broadly readable files. Configure the future service with `GOTCHU_GITHUB_WRITER_APP=/absolute/path/to/writer-app.json`; the path is read only by the executor process. The long-lived executor service is not implemented in this change, so setting this variable does not enable application writes.
 
 An enabled adapter must implement:
 
@@ -57,7 +69,7 @@ An enabled adapter must implement:
 
 On a publish timeout the executor reconciles before retrying. It permits one retry with the same execution ID only when reconciliation proves that the first request was not applied and `assertWritable` succeeds again. An unknown result is durably marked uncertain; duplicate deliveries only reconcile and never publish. A provider response alone never yields `verified`; independent post-write verification must match the exact action hash, base SHA, candidate SHA, and provider reference.
 
-Customer-code execution has no implementation and stays disabled until a disposable VM-class boundary is independently demonstrated. This executor also does not enable a real GitHub adapter; repository automation safety, race handling, and exact artifact publication remain release gates.
+Customer-code execution has no implementation and stays disabled until a disposable VM-class boundary is independently demonstrated. The GitHub adapter package does not yet enable writes from the product executor; wiring, D05 artifact persistence, diff-digest verification, safe workflow inspection in the web verifier, and the durable worker remain release gates.
 
 ## Validation limits
 
