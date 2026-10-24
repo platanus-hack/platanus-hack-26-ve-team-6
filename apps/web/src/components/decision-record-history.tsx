@@ -27,6 +27,7 @@ const actionLabels: Record<DecisionRecord['action'], string> = {
   'context.environment_created': 'Añadió un entorno', 'context.environment_updated': 'Actualizó un entorno', 'context.environment_archived': 'Archivó un entorno',
   'context.service_created': 'Añadió un servicio', 'context.service_updated': 'Actualizó un servicio',
   'context.repository_linked': 'Vinculó un repositorio', 'context.repository_revoked': 'Revocó un repositorio', 'context.deployment_created': 'Registró un despliegue',
+  'context.repository_write_access_granted': 'Concedió escritura al Writer App', 'context.repository_write_access_revoked': 'Revocó la escritura del Writer App',
   'context.dependency_created': 'Declaró una dependencia', 'context.origin_created': 'Declaró un origen',
   'member.invitation_created': 'Invitó a una persona', 'member.invitation_revoked': 'Revocó una invitación', 'member.invitation_accepted': 'Se aceptó una invitación',
   'member.role_changed': 'Cambió el rol de una persona', 'member.removed': 'Retiró a una persona del espacio',

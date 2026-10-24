@@ -1,5 +1,6 @@
 import { createActionVerifier, createBackend, createModelEndpointValidator, createValidationService, issueModelProbeToken, readPinnedRootfsDigest, type Backend, type CredentialStore, type ModelProbeClient } from '@gotchu/backend';
 import { actionPolicyVersion, createActionVerifier, createBackend, createValidationService, readPinnedRootfsDigest, type Backend, type CredentialStore } from '@gotchu/backend';
+import { actionPolicyVersion, BackendError, createActionVerifier, createBackend, createValidationService, readPinnedRootfsDigest, type Backend, type CredentialStore } from '@gotchu/backend';
 import { createDatabase } from '@gotchu/database';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -109,6 +110,32 @@ function githubReaderApp(env: NodeJS.ProcessEnv) {
   return { appId, installationId, privateKeyPem };
 }
 
+function repositoryWriteAccessVerifier(env: NodeJS.ProcessEnv) {
+  const internalUrl = env.GOTCHU_EXECUTOR_INTERNAL_URL;
+  const token = env.GOTCHU_EXECUTOR_INTERNAL_TOKEN;
+  if (!internalUrl && !token) return undefined;
+  if (!internalUrl || !token || !/^[a-f0-9]{64}$/.test(token)) throw new Error('executor_internal_authentication_invalid');
+  const endpoint = new URL('/internal/repositories/verify-write-access', internalUrl);
+  if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+    throw new Error('executor_internal_url_invalid');
+  }
+  const responseSchema = z.object({ installationId:z.string().regex(/^[0-9]{1,20}$/),baseCommit:z.string().regex(/^[a-f0-9]{40,64}$/) }).strict();
+  return async (input: { organizationId:string; applicationId:string; repositoryLinkId:string; repositoryKey:string; branch:string }) => {
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method:'POST',headers:{ authorization:`Bearer ${token}`,'content-type':'application/json' },
+        body:JSON.stringify(input),signal:AbortSignal.timeout(10_000),redirect:'error',
+      });
+    } catch (cause) {
+      throw new BackendError('repository_writer_unavailable','The independent Writer App could not verify repository access',503,{cause});
+    }
+    if (!response.ok) throw new BackendError('repository_writer_unavailable','The independent Writer App could not verify repository access',503);
+    const payload: unknown = await response.json();
+    return responseSchema.parse(payload);
+  };
+}
+
 async function githubReaderAdapter(env: NodeJS.ProcessEnv, credentials: ReturnType<typeof githubReaderApp>, scope: { organizationId:string; applicationId:string; repositoryKey:string }) {
   if (!credentials || !env.GOTCHU_MONITORING_CONFIG_FILE) throw new Error('repository_reader_unavailable');
   const catalog = await loadMonitoringRepositoryCatalog(env.GOTCHU_MONITORING_CONFIG_FILE);
@@ -171,6 +198,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const dnsServers = env.GOTCHU_DNS_SERVERS_JSON ? z.array(z.string().min(1).max(100)).max(5).parse(JSON.parse(env.GOTCHU_DNS_SERVERS_JSON)) : [];
   const eventCredentials = env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY ? createFileEventCredentials(env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY) : undefined;
   const readerApp = githubReaderApp(env);
+  const verifyRepositoryWriteAccess = repositoryWriteAccessVerifier(env);
   const notificationSecretDirectory=env.GOTCHU_NOTIFICATION_SECRET_DIRECTORY??(env.NODE_ENV==='production'?undefined:resolve('.local/dev/notification-secrets'));
   const notificationSecrets=notificationSecretDirectory?createFileNotificationSecretStore(notificationSecretDirectory):undefined;
   const modelSecretDirectory=env.GOTCHU_MODEL_SECRET_DIRECTORY??(env.NODE_ENV==='production'?undefined:resolve('.local/dev/model-secrets'));
@@ -178,6 +206,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const modelProbeClient = gatewayModelProbeClient(env);
   const validationService = apiDatabase ? createValidationService({ database: apiDatabase }) : undefined;
   const actionVerifier = apiDatabase ? createActionVerifier({ database: apiDatabase, pinnedRootfsDigest: readPinnedRootfsDigest(), repository: {
+    ...(env.GOTCHU_GITHUB_WRITER_INSTALLATION_ID ? { writerInstallationId:env.GOTCHU_GITHUB_WRITER_INSTALLATION_ID } : {}),
     async readHead(scope) {
       if (!env.GOTCHU_MONITORING_CONFIG_FILE) throw new Error('repository_reader_unavailable');
       const catalog = await loadMonitoringRepositoryCatalog(env.GOTCHU_MONITORING_CONFIG_FILE);
@@ -211,7 +240,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   }, validationFacts: {
     getFacts: input => validationService?.getValidationFacts(input) ?? Promise.resolve(null),
   } }) : undefined;
-  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), customerDnsVerifier: createCustomerDnsVerifier(dnsServers), webhookValidator: createNotificationWebhookValidator(dnsServers), modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true' }), ...(notificationSecrets ? { notificationSecrets } : {}), ...(modelSecrets ? { modelSecrets } : {}), ...(modelProbeClient ? { modelProbeClient } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), customerDnsVerifier: createCustomerDnsVerifier(dnsServers), webhookValidator: createNotificationWebhookValidator(dnsServers), modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true' }), ...(notificationSecrets ? { notificationSecrets } : {}), ...(modelSecrets ? { modelSecrets } : {}), ...(modelProbeClient ? { modelProbeClient } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(verifyRepositoryWriteAccess ? { repositoryWriteAccessVerifier: verifyRepositoryWriteAccess } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
   const stepUp = web?.stepUp;
   const settings = authSettings(env, accounts, stepUp ? userId => stepUp.invalidateSession(userId) : undefined);
   const auth = createAuthService(settings);

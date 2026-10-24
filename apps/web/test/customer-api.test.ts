@@ -468,6 +468,8 @@ describe('authenticated context inventory HTTP adapter', () => {
       updateService: async () => undefined,
       createRepositoryLink,
       revokeRepositoryLink: async () => undefined,
+      getRepositoryWriteAccessChallenge: async () => ({ actionHash: 'a'.repeat(64) }),
+      setRepositoryWriteAccess: async () => undefined,
       createDeployment: async () => undefined,
       createDependency: async () => undefined,
       createOriginCandidate: async () => undefined,
@@ -511,6 +513,8 @@ describe('authenticated context inventory HTTP adapter', () => {
       createEnvironment: async () => undefined, updateEnvironment, archiveEnvironment,
       createService: async () => undefined, updateService: async () => undefined,
       createRepositoryLink: async () => undefined, revokeRepositoryLink: async () => undefined,
+      getRepositoryWriteAccessChallenge: async () => ({ actionHash: 'a'.repeat(64) }),
+      setRepositoryWriteAccess: async () => undefined,
       createDeployment: async () => undefined, createDependency: async () => undefined, createOriginCandidate: async () => undefined,
     };
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });

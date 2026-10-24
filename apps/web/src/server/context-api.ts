@@ -14,6 +14,8 @@ const uuid = z.uuid();
 const updateEnvironmentBodySchema = z.object({
   name: environmentSchema.shape.name.optional(), kind: environmentSchema.shape.kind.optional(),
 }).strict().refine(value => value.name !== undefined || value.kind !== undefined);
+const writeAccessChallengeBodySchema = z.object({ grant:z.boolean() }).strict();
+const writeAccessChangeBodySchema = z.object({ grant:z.boolean(),actionHash:z.string().regex(/^[a-f0-9]{64}$/),stepUpProof:z.string().min(1).max(512) }).strict();
 async function readBody(request: Request): Promise<unknown> {
   if (request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') throw new HttpError(415, 'content_type', 'Utiliza application/json.');
   try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await readBoundedBody(request, 16_384))); }
@@ -64,6 +66,14 @@ export async function handleContextApi(request: Request, identity: Identity, ser
     if (resource === 'repositories' && parts.length === 10 && parts[9] === 'revoke' && request.method === 'POST') {
       parse(z.object({}).strict(), await readBody(request));
       return json(repositoryLinkSchema.parse(await service.revokeRepositoryLink(identity, { ...scope, repositoryLinkId: parse(uuid, parts[8]) })));
+    }
+    if (resource === 'repositories' && parts.length === 11 && parts[9] === 'write-access' && parts[10] === 'challenge' && request.method === 'POST') {
+      const body=parse(writeAccessChallengeBodySchema,await readBody(request));
+      return json(z.object({actionHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict().parse(await service.getRepositoryWriteAccessChallenge(identity,{...scope,repositoryLinkId:parse(uuid,parts[8]),...body})));
+    }
+    if (resource === 'repositories' && parts.length === 10 && parts[9] === 'write-access' && request.method === 'POST') {
+      const body=parse(writeAccessChangeBodySchema,await readBody(request));
+      return json(repositoryLinkSchema.parse(await service.setRepositoryWriteAccess(identity,{...scope,repositoryLinkId:parse(uuid,parts[8]),...body})));
     }
     if (resource === 'deployments' && parts.length === 8 && request.method === 'POST') {
       const input = parse(createDeploymentSchema.omit({ organizationId: true, applicationId: true }), await readBody(request));
