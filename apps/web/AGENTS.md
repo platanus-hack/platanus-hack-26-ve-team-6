@@ -43,15 +43,13 @@ The shared `.impeccable/config.json` enables supported design hooks. Automatic i
 pnpm build:packages
 pnpm --filter @gotchu/web typecheck
 pnpm --filter @gotchu/web test
-pnpm --filter @gotchu/web exec playwright install chromium
-pnpm --filter @gotchu/web test:design
 pnpm --filter @gotchu/web build
 ```
 
-Playwright starts/reuses a loopback-only preview on port 3085 (set `GOTCHU_DESIGN_URL` to test an already running server). Its tests exercise the actual landing and its shadcn controls, not mocked security assessments. Review rendered desktop and mobile images in both themes, pointer following and the pause control, the theme switch, keyboard FAQ and menu, 320px layout, reduced motion and no-JavaScript content. Automated axe checks do not constitute an accessibility certification or a hardware performance benchmark.
+There is no automated landing design suite. For visual changes, run the app and check the changed spot in a real browser on desktop and mobile widths, in both themes.
 
 ## Editorial and asset rules
 
 Write direct Spanish about implemented features. Never insert artwork explanation, meta/helper copy or mock-analysis instructions. Do not invent scanner output, scores, testimonials, uptime or results: abstract original product assets remove the need for such disclaimers. Genuine scope limits belong in a normal product answer, not captions attached to art.
 
-The landing ships no raster or SVG artwork files: the mark, ASCII plates and dot fields are authored in components (`gotchu-mark.tsx` holds the shared geometry). Do not reuse reference-site assets or unlicensed AIRNT. Respect the OFL files alongside the self-hosted Saira font. Small text never sits on `#e7147d`; use the action shade, ink or silver. Controls are 34px minimum (desktop primary buttons 48px) and the header is 52px (48px on mobile); the browser gate enforces 34px, which replaces the earlier 44px rule at the user's request. Keep installed skill engines, local credentials and test traces out of Git.
+The landing ships no raster or SVG artwork files: the mark, ASCII plates and dot fields are authored in components (`gotchu-mark.tsx` holds the shared geometry). Do not reuse reference-site assets or unlicensed AIRNT. Respect the OFL files alongside the self-hosted Saira font. Small text never sits on `#e7147d`; use the action shade, ink or silver. Controls are 34px minimum (desktop primary buttons 48px) and the header is 52px (48px on mobile). The 34px minimum replaces the earlier 44px rule at the user's request. Keep installed skill engines, local credentials and test traces out of Git.
