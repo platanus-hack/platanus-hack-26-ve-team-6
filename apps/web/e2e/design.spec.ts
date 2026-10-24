@@ -21,6 +21,12 @@ async function revealAll(page: Page) {
   });
 }
 const background = (page: Page) => page.locator('.gl').first().evaluate(element => getComputedStyle(element).backgroundColor);
+async function openThemeMenu(page: Page) {
+  const trigger = page.getByRole('button', { name: 'Tema', exact: true });
+  if (!(await trigger.first().isVisible())) await page.getByRole('button', { name: 'Menú', exact: true }).click();
+  await trigger.locator('visible=true').click();
+  await expect(page.getByRole('menu')).toBeVisible();
+}
 
 test('landing is server-rendered without a loader, fabricated results or explanatory artwork captions', async ({ page }, info) => {
   const errors: string[] = []; const apiRequests: string[] = [];
@@ -53,6 +59,8 @@ test('the theme switch moves between pure white, pure black and the system prefe
   await trigger.locator('visible=true').click();
   await page.getByRole('menuitemradio', { name: 'Oscuro' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toBeHidden();
   expect(await background(page)).toBe('rgb(0, 0, 0)');
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -69,22 +77,34 @@ test('the theme switch moves between pure white, pure black and the system prefe
 
   // Back to "system": it follows the operating system as that changes.
   await page.evaluate(() => scrollTo(0, 0));
+  await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
   await expect(page.locator('.gl-header')).not.toHaveClass(/is-tucked/);
-  if (!(await group.isVisible())) await page.getByRole('button', { name: 'Menú', exact: true }).click();
-  const visibleTheme = page.getByRole('group', { name: 'Tema' }).locator('visible=true');
-  await visibleTheme.getByRole('button', { name: 'Tema claro' }).click();
+  await openThemeMenu(page);
+  await page.getByRole('menuitemradio', { name: 'Claro', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toBeHidden();
   if (isMobile) {
-    const lightSwitches = page.locator('.gl-theme [aria-label="Tema claro"]');
-    await expect(lightSwitches).toHaveCount(2);
-    await expect(lightSwitches.nth(0)).toHaveAttribute('aria-pressed', 'true');
-    await expect(lightSwitches.nth(1)).toHaveAttribute('aria-pressed', 'true');
+    await openThemeMenu(page);
+    await expect(page.getByRole('menuitemradio', { name: 'Claro', exact: true })).toBeChecked();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toBeHidden();
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error('Theme synchronization needs a configured viewport');
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await openThemeMenu(page);
+    await expect(page.getByRole('menuitemradio', { name: 'Claro', exact: true })).toBeChecked();
+    await page.keyboard.press('Escape');
+    await page.setViewportSize(viewport);
   }
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.emulateMedia({ colorScheme: 'light' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await visibleTheme.getByRole('button', { name: 'Tema del sistema' }).click();
+  await openThemeMenu(page);
+  await page.getByRole('menuitemradio', { name: 'Sistema', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -111,8 +131,8 @@ test('the mobile menu stays attached to the header and remains modal across them
   expect(await panel.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(await page.evaluate(() => innerHeight));
   await checkA11y(page);
 
-  const theme = dialog.getByRole('group', { name: 'Tema' });
-  await theme.getByRole('button', { name: 'Tema oscuro' }).click();
+  await dialog.getByRole('button', { name: 'Tema', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Oscuro', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await checkA11y(page);
 
