@@ -10,9 +10,9 @@ live('real Postgres durable model budgets and bounded private checkpoints', () =
   afterAll(async () => { await f?.close(); });
   async function start(tenant = f.a) {
     await f.admin.query('UPDATE gotchu.organizations SET model_opt_in=true,model_token_budget=100000 WHERE id=$1', [tenant.organizationId]);
-    await f.admin.query(`INSERT INTO gotchu.investigation_model_settings(organization_id,provider,endpoint,model_id,consent_to_external_processing,data_scopes,input_price_micro_usd_per_million_tokens,output_price_micro_usd_per_million_tokens,updated_by)
-      VALUES($1,'openai_compatible','http://localhost:11434/v1','fixture-model',true,'["runtime_summaries"]'::jsonb,0,0,$2)
-      ON CONFLICT(organization_id) DO UPDATE SET provider=EXCLUDED.provider,endpoint=EXCLUDED.endpoint,model_id=EXCLUDED.model_id,secret_ref=NULL,
+    await f.admin.query(`INSERT INTO gotchu.investigation_model_settings(organization_id,provider,provider_preset_id,endpoint,model_id,consent_to_external_processing,data_scopes,input_price_micro_usd_per_million_tokens,output_price_micro_usd_per_million_tokens,updated_by)
+      VALUES($1,'openai_compatible','custom_openai_compatible','https://models.example/v1','fixture-model',true,'["runtime_summaries"]'::jsonb,0,0,$2)
+      ON CONFLICT(organization_id) DO UPDATE SET provider=EXCLUDED.provider,provider_preset_id=EXCLUDED.provider_preset_id,endpoint=EXCLUDED.endpoint,model_id=EXCLUDED.model_id,secret_ref=NULL,
         consent_to_external_processing=true,data_scopes=EXCLUDED.data_scopes,input_price_micro_usd_per_million_tokens=0,output_price_micro_usd_per_million_tokens=0`, [tenant.organizationId, tenant.userId]);
     const jobId = randomUUID();
     await f.databases.gotchu_coordinator.tenant(tenant.organizationId, tx => enqueue(tx, { organizationId: tenant.organizationId, applicationId: tenant.applicationId, id: jobId, kind: 'investigation', idempotencyKey: jobId }));
@@ -23,7 +23,7 @@ live('real Postgres durable model budgets and bounded private checkpoints', () =
     return { ...run, organizationId: tenant.organizationId };
   }
   function reservation(run: Awaited<ReturnType<typeof start>>, reservationId: string, maxCostMicros: number) {
-    const configuration = { provider: 'openai_compatible' as const, endpoint: 'http://localhost:11434/v1', modelId: 'fixture-model',
+    const configuration = { provider: 'openai_compatible' as const, providerPresetId: 'custom_openai_compatible' as const, endpoint: 'https://models.example/v1', modelId: 'fixture-model',
       secretRef: null, consentToExternalProcessing: true, dataScopes: ['runtime_summaries' as const],
       inputPriceMicroUsdPerMillionTokens: 0, outputPriceMicroUsdPerMillionTokens: 0 };
     return { organizationId: run.organizationId, runId: run.runId, reservationId, maxCostMicros, reserveTokens: 1_000,
