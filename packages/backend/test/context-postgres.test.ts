@@ -6,7 +6,12 @@ live('tenant application context on real PostgreSQL', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
   let backend: ReturnType<typeof createBackend>;
   beforeAll(async () => { f = await fixture(); backend = createBackend({ database: f.databases.gotchu_api }); });
-  beforeEach(async () => { await f.admin.query('UPDATE gotchu.applications SET archived=false WHERE organization_id=$1 AND id=$2', [f.a.organizationId, f.a.applicationId]); });
+  beforeEach(async () => {
+    await f.admin.query('UPDATE gotchu.applications SET archived=false WHERE organization_id=$1 AND id=$2', [f.a.organizationId, f.a.applicationId]);
+    for (const table of ['application_origin_candidates', 'application_dependencies', 'application_deployments', 'application_repository_links', 'application_services', 'application_environments'] as const) {
+      await f.admin.query(`DELETE FROM gotchu.${table} WHERE organization_id=$1 AND application_id=$2`, [f.a.organizationId, f.a.applicationId]);
+    }
+  });
   afterAll(async () => { await f?.close(); });
   const identity = () => ({ userId: f.a.userId });
   const scope = () => ({ organizationId: f.a.organizationId, applicationId: f.a.applicationId });
