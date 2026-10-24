@@ -29,6 +29,7 @@ function publicProjection(row: z.infer<typeof actionRowSchema>, details: { path?
     'MFA requerido': 'Hace falta una verificación de seguridad reciente antes de aprobar.',
     'vínculo de repositorio sin verificar': 'Verifica el vínculo del repositorio en el contexto de la aplicación.',
     'validaciones pendientes': 'Completa el reanálisis objetivo y la suite pertinente antes de solicitar aprobación.',
+    'base cambió desde la propuesta': 'La rama base cambió. Prepara y valida una propuesta nueva antes de aprobar.',
   };
   return {
     id: row.id, actionHash: row.actionHash, kind: row.action.kind, state: row.state,
