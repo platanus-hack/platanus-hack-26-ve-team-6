@@ -1,5 +1,19 @@
 # Verification record
 
+## Real-app triage measurement — 2026-10-24
+
+This is a local evaluation of the deterministic evidence path, not a production-accuracy or capacity claim. The separate `apps/demo-target` process uses the Gotchu SDK and runtime guard; it sends signed events to the HTTP intake and coordinator backed by disposable PostgreSQL and Redis/BullMQ. Provider availability and target HTTPS results come from explicitly marked local fixtures.
+
+| Check | Observed result |
+| --- | --- |
+| `pnpm eval:triage` | The live integration test passed and ran 140 app/windows (14 tuning + 14 holdout cases × 5 repetitions). The persisted report contains **2 labelled alert mismatches** in holdout; this test's safety assertions pass independently of report correctness metrics. |
+| Holdout metrics in [triage-evaluation.md](triage-evaluation.md) | Alerts P/R 100%/98.8% (79/79/80), causes P/R 100%/100% (25/25/25), false alarms 0/70 app-windows, confidence errors 1/85, impact errors 0/70, unknown coverage 10/10, decision p50/p95 228/2,637 ms, per-window runtime p50/p95 261/2,664 ms. |
+| Earlier same-matrix holdout readings | An isolated holdout preflight missed event-loop pressure once. A first combined run missed the CPU resource signal in 3/5 repetitions; the final combined run missed it in 1/5. Results remain separate in [triage-evaluation-holdout-repeat-v1.0.2.json](triage-evaluation-holdout-repeat-v1.0.2.json), not pooled. No triage rule or threshold changed after observing holdout. |
+| Coordinator | Build and strict typecheck passed; focused `operational-detectors.test.ts` passed **6/6**. |
+| Demo target and integration project | Demo target build and strict source/test typecheck passed; `pnpm exec tsc -p test/tsconfig.json --noEmit` passed. The earlier full `pnpm build` and `pnpm typecheck` also passed. |
+
+The tuning-only fixes were justified before holdout: the resource-pressure confidence was raised to the detector's high-confidence semantics, the event-loop injection was bounded to cross the measured p95 threshold, and scenario truth labels were corrected. The final holdout's intermittent `runtime.resources.v1` omission remains unresolved because it did not occur in the frozen tuning result; no holdout-derived threshold change was made. The report records `worktreeDirty: true`: D15 documentation was being updated during the run, and pnpm rewrote the shared lockfile; the lockfile diff was restored and not committed. The evaluation used zero model calls/tokens. SQLi/path-traversal probes were blocked before local sinks; traffic-spike controls did not produce attack alerts; stale/missing telemetry retained unknown coverage. Exploitability, real provider behavior, browser workflow, repair time, representative customer traffic, and production capacity remain unmeasured.
+
 ## Maintained scanner, production TLS, and real-source verification — 2026-10-24
 
 The final functional code revision is `51c42303bda1a16793fd9efa46e127c821b2b060`. It includes canonicalization of validated PEM certificates in the coordinator-scoped scanner CA bundle. The following is local Linux/amd64 evidence for the exercised paths, not a cloud deployment, broad scanner-accuracy guarantee, or production-capacity claim.
