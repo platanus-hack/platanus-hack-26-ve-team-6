@@ -360,6 +360,13 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
     const stored=await f.admin.query<{body:unknown}>('SELECT body FROM gotchu.proposals WHERE organization_id=$1 AND id=$2',[f.a.organizationId,proposed.proposalId]);
     const action=actionV2Schema.parse(present(stored.rows[0]).body);
     if (action.kind!=='dependency_pull_request') throw new Error('D06 proposal did not create a dependency PR action');
+    const actionRef=present(action.evidence[0]?.id);
+    const validationFacts=await api.validations.getValidationFacts({organizationId:f.a.organizationId,actionRef});
+    const validationRun=await f.admin.query<{id:string;state:string;sandbox_kind:string;cleanup_verified:boolean;rootfs_digest:string|null}>(
+      'SELECT id,state,sandbox_kind,cleanup_verified,rootfs_digest FROM gotchu.validation_runs WHERE organization_id=$1 AND action_ref=$2',[f.a.organizationId,actionRef]);
+    expect(actionRef).toBe(preparation.candidateSourceId);
+    expect(validationFacts?.state).toBe('passed');
+    expect(validationRun.rows[0]).toMatchObject({id:validationFacts?.runId,state:'passed',sandbox_kind:'bwrap+systemd-scope',cleanup_verified:true,rootfs_digest:readPinnedRootfsDigest()});
     expect(action.changes).toEqual([{name:vulnerable.packageName,from:preparation.fromVersion,to:preparation.toVersion}]);
     const artifact=await executor.executionArtifacts.readForExecutor({organizationId:f.a.organizationId,applicationId:f.a.applicationId,candidateSourceId:preparation.candidateSourceId});
     expect(artifact.files.map(file=>file.path).sort()).toEqual(['package-lock.json','package.json']);
