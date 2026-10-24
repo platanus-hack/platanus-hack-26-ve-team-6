@@ -68,9 +68,9 @@ function outcomeFor(action: string) {
   if (action.endsWith('.uncertain')) return 'uncertain';
   if (action === 'execution.succeeded') return 'completed';
   if (action.endsWith('.queued') || action.endsWith('.requested') || action.endsWith('.proposed')) return 'requested';
-  if (action.endsWith('.updated') || action.endsWith('.revoked') || action.endsWith('.disabled') || action.endsWith('.deleted') || action.endsWith('.changed') || action.endsWith('.archived')) return 'changed';
-  if (action.endsWith('.reconciled')) return 'completed';
-  if (action.endsWith('.created') || action.endsWith('.recorded') || action.endsWith('.configured') || action.endsWith('.prepared') || action.endsWith('.attested') || action.endsWith('.enrolled') || action.endsWith('.verified') || action.endsWith('.accepted') || action.endsWith('.uploaded') || action.endsWith('.connected') || action.endsWith('.claimed')) return 'recorded';
+  if (action.endsWith('.updated') || action.endsWith('.revoked') || action.endsWith('.disabled') || action.endsWith('.deleted') || action.endsWith('.removed') || action.endsWith('.changed') || action.endsWith('.archived') || action.endsWith('.invalidated')) return 'changed';
+  if (action.endsWith('.reconciled') || action.endsWith('.settled')) return 'completed';
+  if (action.endsWith('.created') || action.endsWith('.recorded') || action.endsWith('.configured') || action.endsWith('.prepared') || action.endsWith('.attested') || action.endsWith('.enrolled') || action.endsWith('.verified') || action.endsWith('.accepted') || action.endsWith('.uploaded') || action.endsWith('.connected') || action.endsWith('.claimed') || action.endsWith('.materialized')) return 'recorded';
   return 'unknown';
 }
 

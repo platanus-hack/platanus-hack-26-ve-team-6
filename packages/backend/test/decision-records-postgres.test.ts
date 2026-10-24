@@ -63,10 +63,12 @@ live('customer decision records with real Postgres tenant RLS', () => {
     await insertRecord(f.a.organizationId, {
       actorId: 'future-worker', action: 'future.audit_action', detail: { token: 'unknown-action-secret' },
     });
+    await insertRecord(f.a.organizationId, { action: 'member.removed' });
 
     const page = await api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'target', limit: 10 });
     const unknown = await api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'other', limit: 10 });
-    const serialized = JSON.stringify({ page, unknown });
+    const member = await api.decisionRecords.list({ userId: f.a.userId }, { organizationId: f.a.organizationId, subjectType: 'member', limit: 10 });
+    const serialized = JSON.stringify({ page, unknown, member });
     expect(serialized).not.toContain('credential-secret');
     expect(serialized).not.toContain('api-secret');
     expect(serialized).not.toContain('192.0.2.45');
@@ -76,5 +78,6 @@ live('customer decision records with real Postgres tenant RLS', () => {
     expect(unknown.records).toEqual(expect.arrayContaining([
       expect.objectContaining({ actor: { kind: 'member', displayName: 'Miembro anterior' }, action: 'future.audit_action', summary: 'Esta actividad quedó registrada en el historial del espacio.', subject: { type: 'other' } }),
     ]));
+    expect(member.records).toEqual([expect.objectContaining({ outcome: 'changed', summary: 'Se retiró a una persona del espacio de trabajo.' })]);
   });
 });
