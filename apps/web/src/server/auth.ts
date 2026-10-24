@@ -24,7 +24,7 @@ export type AuthSettings = AuthBase & (
   | { localAccounts: LocalAccounts; oidc?: OidcSettings; githubClientId?: never; githubClientSecret?: never }
 );
 
-export interface SessionIdentity { userId: string; cookies: string[] }
+export interface SessionIdentity { userId: string; cookies: string[]; displayName?: string }
 export interface AuthService {
   enabled: boolean;
   handle(request: Request): Promise<Response>;
@@ -160,9 +160,14 @@ export function createAuthService(settings: AuthSettings | null): AuthService {
       const headers = validateOrigin(request);
       const response = await Auth(new Request(`${settings.origin}/api/auth/session`, { headers }), config);
       if (!response.ok) throw new HttpError(503, 'auth_unavailable', 'Session validation is unavailable');
-      const session = z.object({ user: z.object({ id: z.string().min(1).max(256) }).passthrough() }).passthrough().safeParse(await response.json());
+      const session = z.object({ user: z.object({
+        id: z.string().min(1).max(256),
+        name: z.string().max(200).nullable().optional(),
+        email: z.string().max(254).nullable().optional(),
+      }).passthrough() }).passthrough().safeParse(await response.json());
       if (!session.success) return null;
-      return { userId: session.data.user.id, cookies: response.headers.getSetCookie() };
+      const displayName = session.data.user.name?.trim() || session.data.user.email?.trim();
+      return { userId: session.data.user.id, cookies: response.headers.getSetCookie(), ...(displayName ? { displayName } : {}) };
     },
     accountEmail: async userId => settings.localAccounts ? settings.localAccounts.accountEmail(userId) : null,
   };
