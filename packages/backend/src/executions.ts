@@ -8,6 +8,16 @@ const claimSchema = z.object({ organizationId: uuid, approvalId: uuid }).strict(
 const executionTokenSchema = z.object({ organizationId: uuid, executionId: uuid, claimToken: uuid }).strict();
 const executionStateSchema = z.enum(['claimed', 'succeeded', 'failed', 'uncertain']);
 const providerReferenceSchema = z.string().min(1).max(1000).refine(value => value.trim() === value, 'Provider references must not have surrounding whitespace');
+const attemptStateSchema = z.enum(['claimed','branch_published','pr_opened','verified','uncertain','reconciliation_required']);
+const attemptStepSchema = z.enum(['claim','publish_branch','open_pr','verify']);
+const attemptDetailSchema = z.object({ reasonCode: z.string().max(100).optional(), branch: z.string().max(300).optional(), pullRequestNumber: z.number().int().positive().optional() }).strict();
+const attemptTransition: Record<z.infer<typeof attemptStateSchema>, readonly z.infer<typeof attemptStateSchema>[]> = {
+  claimed: ['claimed','branch_published','uncertain','reconciliation_required'],
+  branch_published: ['branch_published','pr_opened','uncertain','reconciliation_required'],
+  pr_opened: ['pr_opened','verified','uncertain','reconciliation_required'],
+  verified: ['verified'], uncertain: ['uncertain','reconciliation_required','verified'],
+  reconciliation_required: ['reconciliation_required','verified','uncertain'],
+};
 const storedExecutionSchema = z.object({
   organizationId: uuid, applicationId: uuid, approvalId: uuid, executionId: uuid, claimToken: uuid,
   actionHash: z.string().regex(/^[0-9a-f]{64}$/), recoveryEpoch: z.string().regex(/^[1-9][0-9]*$/),
@@ -52,6 +62,33 @@ export function createExecutionService(deps: ApprovalDependencies) {
       });
       if (outcome instanceof BackendError) throw outcome;
       return outcome;
+    },
+    /** Durable per-attempt lifecycle. Details intentionally exclude patches and provider credentials. */
+    async recordAttempt(input: { organizationId: string; executionId: string; attempt: number; step: string; state: string; providerReference?: string; detail?: unknown }): Promise<void> {
+      requireExecutor();
+      const value = parse(z.object({ organizationId: z.uuid(), executionId: z.uuid(), attempt: z.number().int().positive(), step: attemptStepSchema, state: attemptStateSchema, providerReference: providerReferenceSchema.optional(), detail: attemptDetailSchema.default({}) }).strict(), input);
+      await deps.database.tenant(value.organizationId, async tx => {
+        const current = await tx.query<{ state: string; step: string }>('SELECT state,step FROM gotchu.executor_attempts WHERE organization_id=$1 AND execution_id=$2 AND attempt=$3 FOR UPDATE', [value.organizationId,value.executionId,value.attempt]);
+        const previous = current.rows[0];
+        if (previous) {
+          const previousState = attemptStateSchema.parse(previous.state);
+          if (!attemptTransition[previousState].includes(value.state)) throw new BackendError('invalid_attempt_transition', 'Executor attempt transition is not allowed', 409);
+          const rank: Record<z.infer<typeof attemptStepSchema>, number> = { claim:0,publish_branch:1,open_pr:2,verify:3 };
+          if (rank[value.step] < rank[attemptStepSchema.parse(previous.step)]) throw new BackendError('invalid_attempt_transition', 'Executor attempt step cannot move backwards', 409);
+          await tx.query('UPDATE gotchu.executor_attempts SET state=$4,step=$5,provider_reference=$6,detail=$7::jsonb,updated_at=clock_timestamp() WHERE organization_id=$1 AND execution_id=$2 AND attempt=$3', [value.organizationId,value.executionId,value.attempt,value.state,value.step,value.providerReference ?? null,JSON.stringify(value.detail)]);
+        } else {
+          if (value.state !== 'claimed' || value.step !== 'claim') throw new BackendError('invalid_attempt_transition', 'An attempt must begin at the claimed state', 409);
+          await tx.query('INSERT INTO gotchu.executor_attempts(organization_id,execution_id,attempt,state,step,provider_reference,detail) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)', [value.organizationId,value.executionId,value.attempt,value.state,value.step,value.providerReference ?? null,JSON.stringify(value.detail)]);
+        }
+      });
+    },
+    async listAttempts(input: { organizationId: string; executionId: string }) {
+      requireExecutor();
+      const value = parse(z.object({ organizationId: z.uuid(), executionId: z.uuid() }).strict(), input);
+      return deps.database.tenant(value.organizationId, async tx => {
+        const result = await tx.query<{ attempt: number; state: string; step: string; provider_reference: string | null; detail: unknown; started_at: Date; updated_at: Date }>('SELECT attempt,state,step,provider_reference,detail,started_at,updated_at FROM gotchu.executor_attempts WHERE organization_id=$1 AND execution_id=$2 ORDER BY attempt', [value.organizationId,value.executionId]);
+        return result.rows.map(row => ({ attempt:row.attempt,state:attemptStateSchema.parse(row.state),step:attemptStepSchema.parse(row.step),providerReference:row.provider_reference,detail:attemptDetailSchema.parse(row.detail),startedAt:row.started_at,updatedAt:row.updated_at }));
+      });
     },
     /** Restricted read for reconciliation, including expired/invalidated proposals and frozen recovery. */
     async findByApproval(input: { organizationId: string; approvalId: string }): Promise<StoredExecution | undefined> {

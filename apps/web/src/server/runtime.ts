@@ -1,4 +1,4 @@
-import { createBackend, type Backend, type CredentialStore } from '@gotchu/backend';
+import { createActionVerifier, createBackend, type Backend, type CredentialStore } from '@gotchu/backend';
 import { createDatabase } from '@gotchu/database';
 import { z } from 'zod';
 import { createApi, type ApiOperation } from './api.js';
@@ -9,7 +9,7 @@ import { createLocalAccounts } from './local-accounts.js';
 import { createCustomerApi } from './customer-api.js';
 import { createCustomerDnsVerifier } from './customer-dns.js';
 import { createFileEventCredentials } from './event-credentials.js';
-import { loadMonitoringRepositoryCatalog } from '@gotchu/monitoring';
+import { createGitHubRepositoryReader, createLocalGitRepositoryReader, loadMonitoringRepositoryCatalog } from '@gotchu/monitoring';
 
 function credentialStore(value: string | undefined): CredentialStore | undefined {
   if (!value) return undefined;
@@ -66,7 +66,27 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const accounts = apiDatabase && env.GOTCHU_LOCAL_AUTH_ENABLED === 'true' ? createLocalAccounts(apiDatabase) : undefined;
   const dnsServers = env.GOTCHU_DNS_SERVERS_JSON ? z.array(z.string().min(1).max(100)).max(5).parse(JSON.parse(env.GOTCHU_DNS_SERVERS_JSON)) : [];
   const eventCredentials = env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY ? createFileEventCredentials(env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY) : undefined;
-  const web = apiDatabase ? createBackend({ database: apiDatabase, webAuthn: { rpID, origin, rpName: 'Gotchu', ...(accounts ? { verifyPassword: (userId, password) => accounts.reauthenticate(userId, password) } : {}) }, customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const actionVerifier = apiDatabase ? createActionVerifier({ database: apiDatabase, repository: {
+    async readHead(scope) {
+      if (!env.GOTCHU_MONITORING_CONFIG_FILE) throw new Error('repository_reader_unavailable');
+      const catalog = await loadMonitoringRepositoryCatalog(env.GOTCHU_MONITORING_CONFIG_FILE);
+      const entry = catalog.resolve(scope, scope.repositoryKey);
+      if (entry.provider === 'github') {
+        if (entry.ref && entry.ref !== scope.branch) throw new Error('repository_branch_mismatch');
+        const reader = createGitHubRepositoryReader(catalog);
+        return (await reader.read({ ...scope, previousRevision: null })).commit.sha;
+      }
+      if (entry.ref !== scope.branch) throw new Error('repository_branch_mismatch');
+      const reader = createLocalGitRepositoryReader(catalog);
+      return (await reader.read({ ...scope, previousRevision: null })).commit.sha;
+    },
+    // The product policy registry is not wired yet; action eligibility stays closed.
+    async isPolicyCurrent() { return false; },
+    // Until the reader can inspect workflow contents at the pinned commit, automation is unknown.
+    async isAutomationSafe() { return false; },
+  // D05 integration binds getFacts to backend.validations.getValidationFacts(actionRef).
+  }, validationFacts: { getFacts: async () => null } }) : undefined;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, webAuthn: { rpID, origin, rpName: 'Gotchu', ...(accounts ? { verifyPassword: (userId, password) => accounts.reauthenticate(userId, password) } : {}) }, customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(actionVerifier ? { actionVerifier } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
   const stepUp = web?.stepUp;
   const settings = authSettings(env, accounts, stepUp ? userId => stepUp.invalidateSession(userId) : undefined);
   const auth = createAuthService(settings);

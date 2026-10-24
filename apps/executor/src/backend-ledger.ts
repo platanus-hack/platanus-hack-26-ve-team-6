@@ -32,7 +32,7 @@ async function ledgerCall<T>(work: () => Promise<T>): Promise<T> {
 }
 
 /** Server-only adapter. Supply executions from a backend using the isolated gotchu_executor login. */
-export function createBackendExecutionLedger(executions: Backend['executions']): ExecutionLedgerPort {
+export function createBackendExecutionLedger(executions: Pick<Backend['executions'], 'claim'|'findByApproval'|'assertWritable'|'finish'|'resolveUncertain'>): ExecutionLedgerPort {
   return {
     claim: input => ledgerCall(async () => {
       const request = parse(approvalRequestSchema, input);

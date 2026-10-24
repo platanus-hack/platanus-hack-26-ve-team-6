@@ -4,6 +4,7 @@ import type { Transaction } from '@gotchu/database';
 import { z } from 'zod';
 import { audit, authorize, BackendError, canonicalJson, parse, sha256, systemClock, type BaseDependencies, type Identity } from './core.js';
 import { APPROVAL_TTL_MS, STEP_UP_MAX_AGE_MS, assertStepUp, verifiedStepUpSchema, type StepUpVerifier } from './proposals.js';
+import { enqueue } from './jobs.js';
 
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
 const actionHashSchema = digest;
@@ -75,6 +76,7 @@ async function loadCandidate(tx: Transaction, scope: { organizationId: string; a
   });
   const blockingReasons = [
     ...(link.state !== 'verified' ? ['vínculo de repositorio sin verificar'] : []),
+    ...(link.write_access !== 'granted' ? ['permiso de escritura del repositorio no concedido'] : []),
     'validaciones pendientes',
     'validación en VM no disponible',
     'sin adaptador de escritura',
@@ -195,6 +197,7 @@ export function createActionService(deps: ActionDependencies) {
         const action = parse(actionV2Schema, row.body);
         const actionHash = hashActionV2(action, String(row.recovery_epoch));
         if (actionHash !== row.action_hash || actionHash !== value.actionHash) throw new BackendError('hash_mismatch', 'Approval must bind the exact stored action hash', 409);
+        if (action.kind === 'source_patch_pull_request') throw new BackendError('proposal_ineligible','The exact approved base commit is missing from this action',409);
         if (String(row.recovery_epoch) !== String(current.recovery_epoch)) {
           await tx.query(`UPDATE gotchu.proposals SET state='invalidated',invalidated_at=clock_timestamp(),invalidation_reason='recovery_epoch_changed',blocking_reasons='["propuesta invalidada tras una recuperación"]'::jsonb WHERE organization_id=$1 AND id=$2`, [value.organizationId,value.proposalId]);
           return new BackendError('stale_epoch', 'A new proposal is required after recovery', 409);
@@ -216,6 +219,8 @@ export function createActionService(deps: ActionDependencies) {
         if (!inserted.rowCount) throw new BackendError('proof_replayed', 'Second-factor proof has already been used', 409);
         await tx.query("UPDATE gotchu.proposals SET state='approved' WHERE organization_id=$1 AND id=$2", [value.organizationId,value.proposalId]);
         await audit(tx, value.organizationId, identity.userId, 'action.approved', approvalId, { proposalId: value.proposalId, actionHash });
+        if (action.kind !== 'dependency_pull_request') throw new BackendError('proposal_ineligible','This action kind has no executor queue adapter',409);
+        await enqueue(tx, { id:randomUUID(),organizationId:value.organizationId,applicationId:value.applicationId,kind:'execution',idempotencyKey:`execution:${approvalId}`,payload:{approvalId,expectedActionHash:actionHash,expectedResourceVersion:action.baseCommit} });
         return { approvalId, expiresAt };
       });
       if (result instanceof BackendError) throw result;

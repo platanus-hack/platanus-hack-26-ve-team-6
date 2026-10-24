@@ -16,7 +16,7 @@ function fixture() {
     assertWritable: vi.fn<Backend['executions']['assertWritable']>(async () => {}),
     finish: vi.fn<Backend['executions']['finish']>(async () => {}),
     resolveUncertain: vi.fn<Backend['executions']['resolveUncertain']>(async () => {}),
-  } satisfies Backend['executions'];
+  } satisfies Pick<Backend['executions'], 'claim'|'findByApproval'|'assertWritable'|'finish'|'resolveUncertain'>;
   return { request, claim, stored, executions, ledger: createBackendExecutionLedger(executions) };
 }
 
