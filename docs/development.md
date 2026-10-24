@@ -24,6 +24,8 @@ Deterministic source/HTTPS assessments do not need a model key. Keep `LANGSMITH_
 
 If a pinned image is missing, startup stops before launching the Node services and names the missing image. `dev:prepare` builds the small profile package and checks Docker storage before pulling only missing pinned scanner and data-service images. It requires at least 5 GiB free in Docker storage before beginning any pull. With less free space, it pulls nothing and asks you to free space first. The scanner profile pins Semgrep 1.90.0 and is enforced as development/test-only; scanner production readiness is not established.
 
+An authorized `public_surface` assessment stays on the consented origin and makes at most ten serial GETs, reading up to 64 KiB total and 16 KiB per response. It discovers safe same-origin links from HTML, robots, and sitemap responses without JavaScript execution. It does not query APIs, inspect subdomains, use authentication, or follow redirects. Only complete TLS responses support path-specific CSP, HSTS, and nosniff observations; these do not prove software identity or exploitation.
+
 Useful local locations:
 
 - `.local/dev/state.json` — tracked processes, ports, and log paths.
@@ -36,3 +38,5 @@ Useful local locations:
 The launcher enables the persisted monitoring scheduler and metadata-only OSV repository checks. To expose allowed repositories in **Vigilancia**, set an operator-managed `GOTCHU_MONITORING_CONFIG_FILE` before startup; the launcher passes that path to the web and coordinator. The catalog reloads per operation and binds each entry to its exact workspace/application. No model or GitHub account is mandatory; local managed bare Git repositories are supported. See [operational setup](operations.md).
 
 Signed telemetry credentials are stored as private local files under `.local/dev/event-credentials`. The dashboard shows a new key once; the trusted application server uses it through `@gotchu/sdk`. This development store is not an encrypted hosted credential service. Disabling/rotating the integration stops acceptance under the old persisted key. Runtime telemetry and periodic source/HTTPS monitoring expose independent coverage.
+
+Runtime metric windows are fixed at ten minutes and retain the first immutable metrics snapshot. Later event batches rerun detectors against the expanded window. This is not a continuously refreshed same-window metric or a recovery measurement.
