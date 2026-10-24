@@ -2,7 +2,7 @@
 
 Gotchu's current product combines authenticated source/public HTTPS assessments, scoped periodic monitoring, signed runtime alerts and exact private correction preparation. Customers manage their own workspaces and applications, submit source snapshots, verify authorized HTTPS origins, and review persisted evidence-backed reports. The fictional vulnerable/corrected application is a regression fixture only; customer assessments accept customer-provided snapshots and verified targets.
 
-The customer runtime is currently local development. AWS is the eventual primary hosting target, with portable contracts and replaceable adapters. The production-mode scanner and coordinator completed local TLS assessment and durable database-backed work after CA certificate canonicalization on Linux/amd64. This is not a cloud deployment or a production-service guarantee; see the [verification record](validation.md) for the exercised scope and limits.
+The customer runtime is currently local development. AWS is the eventual primary hosting target, with portable contracts and replaceable adapters. The production-mode scanner and coordinator completed local TLS assessment and durable database-backed work after CA certificate canonicalization on Linux/amd64. This is not a cloud deployment or a production-service guarantee.
 
 ## Customer assessment flow
 
@@ -70,7 +70,7 @@ The request contract binds source and target inputs to the selected mode:
 | `external` | Not used | Required |
 | `both` | Required | Required |
 
-The internal and external branches collect evidence independently. Internal work uses bounded parsers against uploaded bytes. The pinned scanner profile includes Semgrep CE 1.182.0, Gitleaks 8.28.0, Trivy 0.67.2, and an optional OSV lookup over supported exact-version npm lockfile entries. It does not inspect installed packages or prove reachability. The OSV adapter sends package names and exact versions only. The production-mode scanner completed local Linux/amd64 TLS-to-durable-report checks with the pinned Docker profiles after CA certificate canonicalization. This validates the exercised runtime path, not general accuracy or capacity; source-format coverage remains deliberately limited. See the [verification record](validation.md) for detailed evidence.
+The internal and external branches collect evidence independently. Internal work uses bounded parsers against uploaded bytes. The pinned scanner profile includes Semgrep CE 1.182.0, Gitleaks 8.28.0, Trivy 0.67.2, and an optional OSV lookup over supported exact-version npm lockfile entries. It does not inspect installed packages or prove reachability. The OSV adapter sends package names and exact versions only. The production-mode scanner completed local Linux/amd64 TLS-to-durable-report checks with the pinned Docker profiles after CA certificate canonicalization. This validates the exercised runtime path, not general accuracy or capacity; source-format coverage remains deliberately limited.
 
 ### Deterministic scanner pipeline
 

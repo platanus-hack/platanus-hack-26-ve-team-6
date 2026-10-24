@@ -1,12 +1,12 @@
 # Plan de defensa autónoma y diferenciación de Gotchu
 
-> **Actualización (24 de octubre de 2026):** este plan conserva como línea base el último commit del archivo, `ce281c9`. Las afirmaciones de esa línea base sobre Semgrep 1.90.0 como perfil sólo de desarrollo/pruebas, el bloqueo de escaneo en producción y los gates equivalentes del scanner quedaron superadas para el alcance local Linux/amd64 validado por el pin Semgrep 1.182.0 y las pruebas finales del flujo scanner/coordinator TLS con persistencia durable. No se afirma despliegue cloud ni cobertura general. Consulta el [registro de validación](validation.md) para la evidencia actual. Las demás prioridades y análisis históricos no se reescribieron.
+> **Actualización (24 de octubre de 2026):** este plan conserva como línea base el último commit del archivo, `ce281c9`. Las afirmaciones de esa línea base sobre Semgrep 1.90.0 como perfil sólo de desarrollo/pruebas, el bloqueo de escaneo en producción y los gates equivalentes del scanner quedaron superadas para el alcance local Linux/amd64 validado por el pin Semgrep 1.182.0 y las pruebas finales del flujo scanner/coordinator TLS con persistencia durable. No se afirma despliegue cloud ni cobertura general. Las demás prioridades y análisis históricos no se reescribieron.
 
 **Estado adicional (24 de octubre de 2026):** D06/D08/D09 incorporan la ejecución independiente de PR draft de código fuente y de candidatos npm del proyecto raíz. El Writer App sólo llega al executor; el Owner concede o revoca el permiso de escritura para cada repositorio tras una verificación de cobertura del Writer App y una prueba WebAuthn fresca. Las suites PostgreSQL/Redis pasan y la prueba live verificó un PR draft de código fuente, su árbol remoto y la entrega duplicada. El sandbox configurado no tiene `scripts.test`; por eso la prueba live de D06 se detiene antes de escanear dependencias y no acredita una publicación de PR npm. Esto no habilita merge, deploy ni ejecución general de código cliente.
 
 Fecha: 24 de octubre de 2026. Base revisada: `68e19c5c6d099a1fc8b6c5feb5e823afd27cd895`.
 
-Este documento convierte las nuevas direcciones del producto en trabajo verificable. Se revisaron implementación, contratos, consumidores, pruebas y límites documentados. **Es un plan pendiente de ejecución; su publicación no habilita estas capacidades.** La revisión fue de código y documentación: no se volvieron a ejecutar las suites de infraestructura ni se probaron productos competidores. Los resultados anteriores están en el [registro de validación](validation.md).
+Este documento convierte las nuevas direcciones del producto en trabajo verificable. Se revisaron implementación, contratos, consumidores, pruebas y límites documentados. **Es un plan pendiente de ejecución; su publicación no habilita estas capacidades.** La revisión fue de código y documentación: no se volvieron a ejecutar las suites de infraestructura ni se probaron productos competidores.
 
 La aplicación real es el producto. Una empresa ficticia, repositorios controlados y fallos sembrados sirven para probar esa misma aplicación, sin introducir un flujo privilegiado que sustituya al de clientes. Seguimos en desarrollo local; crear recursos AWS o desplegar producción queda fuera del trabajo actual.
 
@@ -430,7 +430,7 @@ Registrar por entrega:
 - Navegador: registro/login, permisos, carga/error, evidencia, aprobación y acciones inversas.
 - Recuperación: backup/restore aislado, freeze y rechazo de permisos anteriores; RPO/RTO medidos.
 
-Guardar commit, entorno, comandos, resultados, skips, recursos temporales y limitaciones en [validation.md](validation.md). No sumar suites solapadas como si fueran muestras independientes. Parar y limpiar sólo los procesos/recursos propios.
+Registrar commit, entorno, comandos, resultados, skips, recursos temporales y limitaciones junto a la entrega. No sumar suites solapadas como si fueran muestras independientes. Parar y limpiar sólo los procesos/recursos propios.
 
 ## 11. Secuencia de commits y organización del trabajo
 

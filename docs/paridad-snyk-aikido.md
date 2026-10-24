@@ -1,6 +1,6 @@
 # Paridad de capacidades: Snyk, Aikido y Gotchu
 
-> **Actualización (24 de octubre de 2026):** esta matriz conserva la línea base comparativa previa, pero las filas SAST, secretos, IaC e imagen de contenedor reflejan los perfiles locales que ahora ejecuta el flujo de evaluación de clientes. Las pruebas live ejercitan los scanners fijados y la ruta de imagen con Postgres/Redis; esto no acredita despliegue cloud, precisión general ni cobertura de todos los ecosistemas. Véase el [registro de validación](validation.md) para las comprobaciones de plataforma ya documentadas. No se actualizó la investigación comparativa de competidores.
+> **Actualización (24 de octubre de 2026):** esta matriz conserva la línea base comparativa previa, pero las filas SAST, secretos, IaC e imagen de contenedor reflejan los perfiles locales que ahora ejecuta el flujo de evaluación de clientes. Las pruebas live ejercitan los scanners fijados y la ruta de imagen con Postgres/Redis; esto no acredita despliegue cloud, precisión general ni cobertura de todos los ecosistemas. No se actualizó la investigación comparativa de competidores.
 
 Fecha de revisión: 24 de octubre de 2026. Se consultaron páginas oficiales de producto, ayuda, precios y documentación técnica de Snyk y Aikido en esa fecha. La comparación describe capacidades anunciadas por sus proveedores, no una prueba de calidad ni una auditoría de sus productos. Las funciones sujetas a plan, región o disponibilidad se señalan como tales.
 
