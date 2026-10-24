@@ -2,10 +2,9 @@
 
 Estado al 24 de octubre de 2026. Lista viva de lo que falta, ordenada por prioridad. El detalle de cada entrega D01–D16 está en el [plan de defensa autónoma](plan-defensa-autonoma.md); la comparación con competidores, en [paridad Snyk/Aikido](paridad-snyk-aikido.md). Al cerrar un punto, muévelo al plan o al registro de [validación](validation.md) con su evidencia y bórralo de aquí.
 
-## 1. Núcleo: terminar antes de cualquier capacidad nueva
+## 1. Núcleo
 
-- **Integrar el executor con D12.** Integrar el worker independiente, el registro de políticas, los permisos de escritura verificados (migración 038) y la alcanzabilidad de dependencias (migración 043) sobre la topología nueva del instalador. Falta la prueba en vivo de un PR de dependencia npm en el sandbox; el PR de corrección de código ya se probó.
-- **Historial de commits.** Actualizar `commit-history*.md` y documentar las excepciones de tamaño: `lockfiles.ts` (501 líneas) y el gateway de D11 (445 líneas).
+Cerrado el 24 de octubre de 2026 en `89c4df4`. El executor y D12 están integrados, con PRs reales de corrección de código (#36) y de dependencia npm (#37) verificados en el sandbox. El instalador arranca con todos los servicios y el historial de commits está extendido hasta la integración. Lo que sigue abierto está en las secciones siguientes.
 
 ## 2. Al pasar a producción y al final
 
