@@ -336,7 +336,7 @@ Mono 12.5px muted notes, led by a superscript number in action/pink ink that mat
 Each line unmasks upward from a clip (800ms `cubic-bezier(.23, 1, .32, 1)`, 90ms stagger, 0.3em rise). The hero reveals on load; sections reveal on entering the viewport. Content is present without JS and under reduced motion.
 
 ### Plates
-- **ASCII plates:** `pre` art in mono clamp(9.5px, 2.4vw, 12.5px)/1.18 in foreground with the `◆` finding in action/pink ink. The Venn plate slides its two circles together (900ms), then fills the lens row by row with the body band and clips its labels in; the "En ambas" label is bold.
+- **ASCII plates:** `pre` art in mono clamp(9.5px, 2.4vw, 12.5px)/1.18 in foreground with the `◆` finding in action/pink ink. The Venn plate slides its two circles together (900ms), then fills the lens row by row with the body band and clips its labels in; the "Señales compartidas" label is bold.
 - **Dot fields:** canvas plates of square pixels and mono glyphs in six theme tones (`--dot-1` to `--dot-6`). Particles fly in on first view, ripple from a fine pointer within 120px, gather on `data-catch`, and sleep off screen, in hidden tabs, when paused and under reduced motion (which paints the settled frame). No React state per frame.
 
 ### Ruled lists and exhibits
