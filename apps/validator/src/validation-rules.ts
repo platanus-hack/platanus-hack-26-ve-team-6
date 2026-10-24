@@ -23,6 +23,10 @@ export function validationAdmissionReason(input: { suiteConfigured: boolean; bas
   return null;
 }
 
+export function rescanCoverage(states: readonly ('inspected' | 'not_requested' | 'unsupported' | 'unavailable')[]): 'complete' | 'partial' {
+  return states.length > 0 && states.every(state => state === 'inspected' || state === 'not_requested') ? 'complete' : 'partial';
+}
+
 function suiteFile(path: string): boolean {
   return path.startsWith('test/') || path.startsWith('tests/') || path.includes('/__tests__/') || path.startsWith('__tests__/') || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path);
 }

@@ -10,7 +10,7 @@ import { scoreValidation } from '@gotchu/backend';
 import { sourceArchive } from './archive.js';
 import { signAttestation, type ValidatorKey } from './keys.js';
 import { createValidationInputRegistry } from './input-registry.js';
-import { suiteModifiedByCandidate, validationAdmissionReason } from './validation-rules.js';
+import { rescanCoverage, suiteModifiedByCandidate, validationAdmissionReason } from './validation-rules.js';
 
 const leaseMs = 300_000;
 const scanner = createCustomerAssessmentRunner({ advisory: createOsvAdapter() });
@@ -24,7 +24,7 @@ function scanIdentities(report: unknown) {
   if (!analysis || analysis.status !== 'completed') return { identities: [] as string[], coverage: 'unknown' as const };
   return {
     identities: [...new Set(analysis.findings.map(finding => finding.correlationKey))].sort(),
-    coverage: analysis.coverage.length > 0 && analysis.coverage.every(item => item.state === 'inspected') ? 'complete' as const : 'partial' as const,
+    coverage: rescanCoverage(analysis.coverage.map(item => item.state)),
   };
 }
 
