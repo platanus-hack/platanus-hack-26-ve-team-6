@@ -19,15 +19,18 @@ import { ReportRecommendations } from './report-recommendations';
 import { ContextPanel } from './context-panel';
 import { IncidentList } from './incident-card';
 import { StepUpPanel } from './step-up-panel';
+import { MembersPanel } from './members-panel';
+import { membersApi } from './members-client';
 import './customer-dashboard.css';
 
-type Page = 'overview' | 'applications' | 'operations' | 'reports';
+type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members';
 
 const pages: { id: Page; label: string; glyph: string }[] = [
   { id: 'overview', label: 'Inicio', glyph: '⌂' },
   { id: 'applications', label: 'Aplicaciones', glyph: '▦' },
   { id: 'operations', label: 'Vigilancia', glyph: '◉' },
   { id: 'reports', label: 'Informes', glyph: '≋' },
+  { id: 'members', label: 'Equipo', glyph: '♧' },
 ];
 
 const modeLabels: Record<AssessmentMode, string> = {
@@ -409,7 +412,7 @@ function AssessmentForm({ organizationId, applicationId, sources, targets, canMa
   </section>;
 }
 
-function CustomerWorkspace({ session, userId }: { session: CustomerSession; userId: string }) {
+function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMessage }: { session: CustomerSession; userId: string; acceptedInvitationId: string | null; invitationMessage: string | null }) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState<Page>('overview');
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
@@ -418,6 +421,12 @@ function CustomerWorkspace({ session, userId }: { session: CustomerSession; user
   const [activeJob, setActiveJob] = useState<{ organizationId: string; applicationId: string; jobId: string; purpose: 'assessment' | 'correction' } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!acceptedInvitationId) return;
+    setSelectedWorkspaceId(acceptedInvitationId);
+    queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught)));
+  }, [acceptedInvitationId, queryClient, userId]);
 
   const workspaces = useQuery({ queryKey: ['customer-data', userId, 'workspaces'], queryFn: customerApi.workspaces, retry: false });
   const organizationId = selectedWorkspaceId ?? workspaces.data?.[0]?.id ?? null;
@@ -525,9 +534,11 @@ function CustomerWorkspace({ session, userId }: { session: CustomerSession; user
     <div className="customer-main-column">
       <header className="customer-topbar"><span className="customer-breadcrumb">{workspace?.name ?? 'Tu organización'} <span>/</span><strong>{pageTitle}</strong></span><span className="customer-mode-pill"><i />Evaluación en observación</span></header>
       <main className="customer-main">
+        {invitationMessage && <div className="customer-success" role="status">{invitationMessage}</div>}
         {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}>×</button></div>}
         {operationError && <ErrorNotice message={operationError} retry={() => { setPageError(null); refreshApplicationData(); workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} />}
-        {!organizationId ? <section className="customer-empty-state"><span className="customer-empty-mark">+</span><span className="customer-eyebrow">TU CUENTA</span><h1>Crea un espacio de trabajo</h1><p>Organiza tus aplicaciones y sus evaluaciones en un mismo espacio.</p><WorkspaceCreate disabled={false} onCreated={created => { setSelectedWorkspaceId(created.id); queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); }} /></section>
+        {page === 'members' && organizationId && workspace ? <MembersPanel organizationId={organizationId} userId={userId} role={workspace.role} />
+        : !organizationId ? <section className="customer-empty-state"><span className="customer-empty-mark">+</span><span className="customer-eyebrow">TU CUENTA</span><h1>Crea un espacio de trabajo</h1><p>Organiza tus aplicaciones y sus evaluaciones en un mismo espacio.</p><WorkspaceCreate disabled={false} onCreated={created => { setSelectedWorkspaceId(created.id); queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); }} /></section>
         : applications.isPending ? <Loading label="Cargando aplicaciones…" />
         : applications.error ? <ErrorNotice message={readableError(applications.error)} retry={() => { applications.refetch().catch(caught => setPageError(readableError(caught))); }} />
         : !selectedApplication ? <section className="customer-empty-state"><span className="customer-empty-mark">+</span><span className="customer-eyebrow">{workspace?.name}</span><h1>Añade tu primera aplicación</h1><p>Después podrás compartir código fuente o verificar un origen HTTPS para definir el alcance de una evaluación.</p><ApplicationCreate organizationId={organizationId} disabled={!canManage} onCreated={id => { setSelectedApplicationId(id); applications.refetch().catch(caught => setPageError(readableError(caught))); setPage('applications'); }} /></section>
@@ -587,8 +598,42 @@ function JobStatusBanner({ purpose, job, error, retry }: { purpose: 'assessment'
 export function CustomerDashboard() {
   const queryClient = useQueryClient();
   const session = useQuery({ queryKey: ['customer-session'], queryFn: customerApi.session, retry: false, staleTime: 30_000 });
+  const [invitationToken, setInvitationToken] = useState<string | null>(null);
+  const [invitationError, setInvitationError] = useState<string | null>(null);
+  const [acceptedInvitation, setAcceptedInvitation] = useState<{ organizationId: string; role: 'operator' | 'viewer' } | null>(null);
+  const [acceptAttempt, setAcceptAttempt] = useState(0);
+  const accepting = useRef<string | null>(null);
+  useEffect(() => {
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const fragmentToken = fragment.get('invitation');
+    const token = fragmentToken && /^[A-Za-z0-9_-]{43}$/.test(fragmentToken)
+      ? fragmentToken
+      : sessionStorage.getItem('gotchu.pending-invitation');
+    if (token) {
+      sessionStorage.setItem('gotchu.pending-invitation', token);
+      setInvitationToken(token);
+    }
+    if (fragmentToken) window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+  }, []);
+  useEffect(() => {
+    if (!invitationToken || !session.data?.user || accepting.current === invitationToken) return;
+    accepting.current = invitationToken;
+    setInvitationError(null);
+    membersApi.accept(invitationToken).then(result => {
+      sessionStorage.removeItem('gotchu.pending-invitation');
+      setAcceptedInvitation(result);
+      setInvitationToken(null);
+      return queryClient.invalidateQueries({ queryKey: ['customer-data', session.data.user?.id, 'workspaces'] });
+    }).catch(caught => {
+      setInvitationError(readableError(caught));
+      accepting.current = null;
+    });
+  }, [acceptAttempt, invitationToken, queryClient, session.data?.user]);
+  const invitationMessage = acceptedInvitation ? 'Invitación aceptada. Se abrió el nuevo espacio de trabajo.' : null;
+  const invitationBanner = invitationError ? <div role="alert" className="customer-error"><p>No se pudo aceptar la invitación: {invitationError}</p><button type="button" className="customer-link-button" onClick={() => setAcceptAttempt(value => value + 1)}>Volver a intentar</button></div>
+    : invitationToken && !session.data?.user ? <p role="status" className="customer-success">Inicia sesión con la cuenta invitada para aceptar esta invitación.</p> : null;
   if (session.isPending) return <main className="customer-auth-page"><Loading label="Comprobando tu sesión…" /></main>;
-  if (session.error) return <main className="customer-auth-page"><section className="customer-auth-card"><a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a><ErrorNotice message={readableError(session.error)} retry={() => session.refetch()} /></section></main>;
-  if (!session.data.user) return <AuthPanel session={session.data} onAuthenticated={value => { queryClient.setQueryData(['customer-session'], value); }} />;
-  return <CustomerWorkspace key={session.data.user.id} session={session.data} userId={session.data.user.id} />;
+  if (session.error) return <main className="customer-auth-page"><section className="customer-auth-card"><a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a>{invitationBanner}<ErrorNotice message={readableError(session.error)} retry={() => session.refetch()} /></section></main>;
+  if (!session.data.user) return <>{invitationBanner}<AuthPanel session={session.data} onAuthenticated={value => { queryClient.setQueryData(['customer-session'], value); }} /></>;
+  return <><CustomerWorkspace key={session.data.user.id} session={session.data} userId={session.data.user.id} acceptedInvitationId={acceptedInvitation?.organizationId ?? null} invitationMessage={invitationMessage} />{invitationBanner}</>;
 }
