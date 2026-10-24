@@ -42,6 +42,7 @@
     "@gotchu/scanner": "workspace:*",
     "@gotchu/monitoring": "workspace:*",
     "@gotchu/scenarios": "workspace:*",
-    "@gotchu/contracts": "workspace:*"
+    "@gotchu/contracts": "workspace:*",
+    "@gotchu/triage": "workspace:*"
   }
 }
