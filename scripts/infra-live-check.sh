@@ -22,17 +22,21 @@ docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-
   node:24.18.1-bookworm-slim node --version >/dev/null
 printf '%s\n' 'Node 24 runtime image pulled and booted with no network or elevated privileges.'
 
-free_loopback_port() {
-  node --input-type=module -e 'import net from "node:net"; const server = net.createServer(); server.listen(0, "127.0.0.1", () => { console.log(server.address().port); server.close(); });'
-}
-
-test_pg_port="$(free_loopback_port)"
-test_redis_port="$(free_loopback_port)"
-test_web_port="$(free_loopback_port)"
-test_coordinator_port="$(free_loopback_port)"
-while [[ "$test_pg_port" == "$test_redis_port" || "$test_pg_port" == "$test_web_port" || "$test_pg_port" == "$test_coordinator_port" || "$test_redis_port" == "$test_web_port" || "$test_redis_port" == "$test_coordinator_port" || "$test_web_port" == "$test_coordinator_port" ]]; do
-  test_coordinator_port="$(free_loopback_port)"
-done
+read -r test_pg_port test_redis_port test_web_port test_coordinator_port < <(node --input-type=module <<'NODE'
+import { createServer } from 'node:net';
+import { once } from 'node:events';
+// Reserve all four simultaneously so an earlier pair cannot collide forever.
+const servers = Array.from({ length: 4 }, () => createServer());
+await Promise.all(servers.map(async (server) => { server.listen(0, '127.0.0.1'); await once(server, 'listening'); }));
+const ports = servers.map((server) => {
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Loopback port reservation failed');
+  return address.port;
+});
+console.log(ports.join(' '));
+await Promise.all(servers.map((server) => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))));
+NODE
+)
 test_pg_password="$(openssl rand -hex 32)"
 test_redis_password="$(openssl rand -hex 32)"
 test_api_password="$(openssl rand -hex 32)"
