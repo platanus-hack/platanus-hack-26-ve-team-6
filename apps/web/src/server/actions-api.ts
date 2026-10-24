@@ -4,7 +4,10 @@ import { HttpError, json, readBoundedBody } from './http.js';
 
 const id = z.uuid().transform(value => value.toLowerCase());
 const proposalIdSchema = z.object({ proposalId: id, actionHash: z.string().regex(/^[0-9a-f]{64}$/) }).strict();
-const proposalSchema = z.object({ kind: z.literal('source_patch_pull_request'), sourceRef: z.object({ type: z.literal('correction_candidate'), candidateId: id }).strict() }).strict();
+const proposalSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('source_patch_pull_request'), sourceRef: z.object({ type: z.literal('correction_candidate'), candidateId: id }).strict() }).strict(),
+  z.object({ kind: z.literal('dependency_pull_request'), sourceRef: z.object({ type: z.literal('dependency_candidate'), candidateId: id }).strict() }).strict(),
+]);
 async function readJson(request: Request): Promise<unknown> {
   if (request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') throw new HttpError(415, 'content_type', 'Utiliza application/json.');
   try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await readBoundedBody(request, 8_192))); }

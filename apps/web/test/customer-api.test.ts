@@ -62,7 +62,7 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     const selection = { recipeId: 'tls-certificate-verification', findingId, expectedSourceDigest: 'a'.repeat(64) };
     const result = { sourceId: randomUUID(), jobId: randomUUID(), changes: [{ path: 'src/tls.ts', description: 'Enable certificate verification.' }], patchHash: 'b'.repeat(64) };
     const prepare = vi.fn(async () => result);
-    services.corrections = { prepare, recommendations: async () => { throw new Error('Unexpected recommendations read'); } };
+    services.corrections = { prepare, prepareDependencyFix: async () => { throw new Error('Unexpected dependency fix preparation'); }, recommendations: async () => { throw new Error('Unexpected recommendations read'); } };
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
     const path = `workspaces/${organizationId}/applications/${applicationId}/reports/${reportId}/corrections`;
     for (const extra of [{ verified: true }, { command: 'arbitrary command' }, { organizationId: randomUUID() }, { source: { files: [] } }]) {
@@ -77,7 +77,7 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     const { services, auth } = ports();
     const candidateSourceId = randomUUID(); const repositoryLinkId = randomUUID();
     const validationStatus = vi.fn(async () => null);
-    services.corrections = { recommendations: async () => { throw new Error('Unexpected recommendations read'); }, prepare: async () => { throw new Error('Unexpected correction preparation'); }, validationStatus };
+    services.corrections = { recommendations: async () => { throw new Error('Unexpected recommendations read'); }, prepare: async () => { throw new Error('Unexpected correction preparation'); }, prepareDependencyFix: async () => { throw new Error('Unexpected dependency fix preparation'); }, validationStatus };
     const suite = { id: randomUUID(), organizationId, applicationId, repositoryLinkId, version: 1, profile: 'node24-npm-test' as const, scriptName: 'test', suiteName: 'API tests', requiredCount: 4, regressionTestPath: null, createdAt: new Date().toISOString() };
     const configureSuite = vi.fn(async () => suite);
     services.validations = { configureSuite, getStatus: async () => null, getValidationFacts: async () => null };

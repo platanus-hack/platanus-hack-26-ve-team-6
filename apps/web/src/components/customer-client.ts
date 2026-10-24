@@ -24,6 +24,11 @@ import {
   type CustomerWorkspace,
   githubConnectionSchema,
   githubRepositorySchema,
+  dependencyFixPreparationRequestSchema,
+  dependencyFixPreparationResponseSchema,
+  validationPublicProjectionSchema,
+  type DependencyFixPreparationRequest,
+  type DependencyFixPreparationResponse,
 } from '@gotchu/contracts';
 import {
   prepareCorrectionRequestSchema,
@@ -252,11 +257,28 @@ export const customerApi = {
       201,
     );
   },
+  prepareDependencyFix(input: { organizationId: string; applicationId: string; reportId: string; request: DependencyFixPreparationRequest }): Promise<DependencyFixPreparationResponse> {
+    const params = reportRecommendationsParamsSchema.parse({ reportId: input.reportId });
+    const body = dependencyFixPreparationRequestSchema.parse(input.request);
+    return request(
+      `${applicationPath(input.organizationId, input.applicationId)}/reports/${encodeURIComponent(params.reportId)}/dependency-fixes`,
+      dependencyFixPreparationResponseSchema,
+      { method: 'POST', ...jsonBody(body) },
+      201,
+    );
+  },
+  validationStatus(organizationId: string, applicationId: string, candidateSourceId: string) {
+    const sourceId = z.uuid().parse(candidateSourceId);
+    return request(`${applicationPath(organizationId, applicationId)}/corrections/${encodeURIComponent(sourceId)}`, validationPublicProjectionSchema.nullable());
+  },
   actionProposals(organizationId: string, applicationId: string) {
     return request(`${applicationPath(organizationId, applicationId)}/actions`, actionListSchema);
   },
   proposeCorrectionAction(input: { organizationId: string; applicationId: string; candidateId: string }) {
     return request(`${applicationPath(input.organizationId, input.applicationId)}/actions`, z.object({ proposalId: z.uuid(), actionHash: z.string().regex(/^[0-9a-f]{64}$/) }).strict(), { method: 'POST', ...jsonBody({ kind: 'source_patch_pull_request', sourceRef: { type: 'correction_candidate', candidateId: input.candidateId } }) }, 201);
+  },
+  proposeDependencyAction(input: { organizationId: string; applicationId: string; candidateId: string }) {
+    return request(`${applicationPath(input.organizationId, input.applicationId)}/actions`, z.object({ proposalId: z.uuid(), actionHash: z.string().regex(/^[0-9a-f]{64}$/) }).strict(), { method: 'POST', ...jsonBody({ kind: 'dependency_pull_request', sourceRef: { type: 'dependency_candidate', candidateId: input.candidateId } }) }, 201);
   },
   getActionEligibility(organizationId: string, applicationId: string, proposalId: string) {
     return request(`${applicationPath(organizationId, applicationId)}/actions/${encodeURIComponent(proposalId)}/eligibility`, actionEligibilitySchema, { method: 'POST', ...jsonBody({}) });

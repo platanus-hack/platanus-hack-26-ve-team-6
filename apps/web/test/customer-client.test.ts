@@ -31,6 +31,7 @@ const recommendationsResponse = {
     frameworks: ['tanstack-start'], infrastructureAreas: [],
   },
   coverage: [],
+  dependencyFixes: [],
   recommendations: [{
     recipeId: 'tls-certificate-verification', recipeVersion: '1.0.0', title: 'Habilitar verificación TLS',
     risk: { severity: 'high', confidence: 'observed', exploitability: 'unknown', summary: 'La configuración puede omitir la verificación del certificado.' },

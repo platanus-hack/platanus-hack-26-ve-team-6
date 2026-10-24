@@ -11,6 +11,8 @@ import {
   operationPlanSchema, operationPlanKindSchema, operationPlanBindingSchema, operationPlanStepSchema, operationReadinessSchema,
   validationPublicProjectionSchema, validationSuiteConfigSchema, validationSuiteDefinitionSchema,
   decisionRecordPageSchema, decisionRecordQuerySchema,
+  dependencyFixPreparationRequestSchema, dependencyFixPreparationResponseSchema,
+  type DependencyFixPreparationRequest, type DependencyFixPreparationResponse,
 } from '@gotchu/contracts';
 import { type Identity, type Backend } from '@gotchu/backend';
 import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, reportRecommendationsResponseSchema, type PrepareCorrectionRequest, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
@@ -32,6 +34,7 @@ export interface CustomerServices {
   corrections?: {
     recommendations(identity: Identity, input: { organizationId: string; applicationId: string; reportId: string }): Promise<ReportRecommendationsResponse>;
     prepare(identity: Identity, input: PrepareCorrectionRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<PrepareCorrectionResponse>;
+    prepareDependencyFix(identity: Identity, input: DependencyFixPreparationRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<DependencyFixPreparationResponse>;
     validationStatus?(identity: Identity, input: { organizationId: string; applicationId: string; candidateSourceId: string }): Promise<unknown>;
   };
   validations?: Backend['validations'];
@@ -318,13 +321,17 @@ export function createCustomerApi(options: {
         headers.set('Cache-Control', 'private, no-store');
         return new Response(null, { status: 204, headers });
       }
-      if (parts.length === 9 && parts[6] === 'reports' && ['recommendations', 'corrections'].includes(parts[8] ?? '')) {
+      if (parts.length === 9 && parts[6] === 'reports' && ['recommendations', 'corrections', 'dependency-fixes'].includes(parts[8] ?? '')) {
         if (!services.corrections) throw new HttpError(503, 'corrections_not_configured', 'La preparación de correcciones no está configurada.');
         const reportScope = { ...scope, reportId: parse(uuid, parts[7]) };
         if (parts[8] === 'recommendations' && request.method === 'GET') return send(reportRecommendationsResponseSchema.parse(await services.corrections.recommendations(identity, reportScope)));
         if (parts[8] === 'corrections' && request.method === 'POST') {
           const selection = parse(prepareCorrectionRequestSchema, await body(request));
           return send(prepareCorrectionResponseSchema.parse(await services.corrections.prepare(identity, { ...reportScope, ...selection })), 201);
+        }
+        if (parts[8] === 'dependency-fixes' && request.method === 'POST') {
+          const selection = parse(dependencyFixPreparationRequestSchema, await body(request));
+          return send(dependencyFixPreparationResponseSchema.parse(await services.corrections.prepareDependencyFix(identity, { ...reportScope, ...selection })), 201);
         }
       }
       if (parts.length === 8 && parts[6] === 'sources' && request.method === 'DELETE') {
