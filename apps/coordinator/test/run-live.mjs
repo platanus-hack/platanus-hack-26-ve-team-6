@@ -37,7 +37,7 @@ try {
   const redisPort = command('docker', ['port', redis, '6379/tcp']).split(':').at(-1);
   if (!pgPort || !redisPort || !/^\d+$/.test(pgPort) || !/^\d+$/.test(redisPort)) throw new Error('Invalid Docker loopback mapping');
   console.log(`Live assessment persistence/delivery checks: Postgres 127.0.0.1:${pgPort}, Redis 127.0.0.1:${redisPort}; synthetic runner evidence.`);
-  const result = spawnSync('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/coordinator', 'test'], {
+  const result = spawnSync('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/coordinator', 'test', '--', '--fileParallelism=false'], {
     cwd: root, stdio: 'inherit', env: { ...process.env,
       GOTCHU_TEST_DATABASE_URL: `postgres://postgres:${pgPassword}@127.0.0.1:${pgPort}/gotchu_test_assessments`,
       GOTCHU_TEST_REDIS_URL: `redis://:${redisPassword}@127.0.0.1:${redisPort}/0`,
