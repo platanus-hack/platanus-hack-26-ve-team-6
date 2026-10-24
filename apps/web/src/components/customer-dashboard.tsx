@@ -442,7 +442,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
       canManage={canManage}
       archived={archived}
       onQueued={onCorrectionQueued}
-    />
+    />}
     </div>}
     <section className="customer-report-section customer-coverage"><div className="customer-section-heading"><div><span className="customer-eyebrow">COBERTURA</span><h3>Qué se evaluó</h3></div></div>
       <div className="customer-analysis-grid">{originSections.map(({ origin, analysis }) => <article className="customer-analysis-card" key={origin}><div className="customer-card-heading"><h4>{report.subject.containerImageDigest && origin === 'internal' ? 'Imagen' : sourceLabels[origin]}</h4><span className="customer-status customer-status-muted">{analysis ? analysisLabels[analysis.status] : 'No solicitado'}</span></div>{analysis ? <><p>{analysis.tool.name} · v{analysis.tool.version}</p><ul>{analysis.coverage.map(item => <li key={item.capability}><span><strong>{coverageCapabilityLabel(item.capability)}</strong><small>{item.detail}</small></span><span className="customer-status customer-status-muted">{coverageLabels[item.state]}</span></li>)}</ul>{analysis.limitations.length > 0 && <details className="customer-analysis-limits"><summary>Límites del perfil ({analysis.limitations.length})</summary><ul>{analysis.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></details>}</> : <p>Esta perspectiva no se solicitó para este informe.</p>}</article>)}</div>
