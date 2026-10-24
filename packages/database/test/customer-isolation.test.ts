@@ -74,6 +74,13 @@ live('application context RLS', () => {
   afterAll(async () => { await f?.close(); });
   it('forces tenant RLS across every context inventory table', async () => {
     const tables = ['application_environments', 'application_services', 'application_repository_links', 'application_deployments', 'application_dependencies', 'application_origin_candidates'] as const;
+    const environmentId = randomUUID(); const serviceId = randomUUID(); const deploymentId = randomUUID();
+    await f.admin.query("INSERT INTO gotchu.application_environments(organization_id,application_id,id,name,kind,source) VALUES($1,$2,$3,'production','production','customer_declared')", [f.a.organizationId,f.a.applicationId,environmentId]);
+    await f.admin.query("INSERT INTO gotchu.application_services(organization_id,application_id,environment_id,id,name,kind,state,source) VALUES($1,$2,$3,$4,'api','api','declared','customer_declared')", [f.a.organizationId,f.a.applicationId,environmentId,serviceId]);
+    await f.admin.query("INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access) VALUES($1,$2,$3,'repo-test','main','granted')", [f.a.organizationId,f.a.applicationId,randomUUID()]);
+    await f.admin.query("INSERT INTO gotchu.application_deployments(organization_id,application_id,service_id,environment_id,id,release_id,deployed_at,state,source) VALUES($1,$2,$3,$4,$5,'release',now(),'declared','customer_declared')", [f.a.organizationId,f.a.applicationId,serviceId,environmentId,deploymentId]);
+    await f.admin.query("INSERT INTO gotchu.application_dependencies(organization_id,application_id,environment_id,service_id,id,kind,provider,component,state,source) VALUES($1,$2,$3,$4,$5,'package','other','library','declared','customer_declared')", [f.a.organizationId,f.a.applicationId,environmentId,serviceId,randomUUID()]);
+    await f.admin.query("INSERT INTO gotchu.application_origin_candidates(organization_id,application_id,environment_id,id,origin,discovery_source,ownership,state,source) VALUES($1,$2,$3,$4,'https://example.com','customer_inventory','claimed','declared','customer_declared')", [f.a.organizationId,f.a.applicationId,environmentId,randomUUID()]);
     for (const table of tables) {
       const rows = await f.databases.gotchu_api.tenant(f.b.organizationId, tx => tx.query(`SELECT * FROM gotchu.${table} WHERE organization_id=$1`, [f.a.organizationId]));
       expect(rows.rows).toEqual([]);
