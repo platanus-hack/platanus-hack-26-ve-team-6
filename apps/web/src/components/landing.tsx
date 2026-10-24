@@ -1,7 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { Brand, UiIcon } from './ui';
-import { EvidenceLens, useChapterTracking } from './evidence-lens';
-import { ProductFlow } from './product-flow';
+import { Convergence } from './convergence';
+import { ProductFlow, useChapterTracking } from './product-flow';
 import './landing.css';
 
 const perspectives = [
@@ -42,22 +42,16 @@ export function LandingPage() {
       <div className="g-nav-shell"><Brand />
         <button ref={menuButton} className="g-menu-button" type="button" aria-expanded={menuOpen} aria-controls="gotchu-nav" onKeyDown={event => { if (event.key === 'Escape') closeMenu(); }} onClick={() => setMenuOpen(!menuOpen)}><UiIcon name={menuOpen ? 'close' : 'grid'} />{menuOpen ? 'Cerrar' : 'Menú'}</button>
         <nav id="gotchu-nav" className={menuOpen ? 'g-nav is-open' : 'g-nav'} aria-label="Navegación principal" onKeyDown={event => { if (event.key === 'Escape') { setMenuOpen(false); menuButton.current?.focus(); } }}>
-          <a href="#perspectivas" onClick={closeMenu}>Qué revisamos</a><a href="#evidencia" onClick={closeMenu}>La evidencia</a><a href="#preguntas" onClick={closeMenu}>Preguntas</a>
-          <a className="g-button g-button-small" href="/dashboard">Abrir Gotchu <UiIcon name="arrow" /></a>
+          <a href="#codigo" onClick={closeMenu}>Cómo funciona</a><a href="#perspectivas" onClick={closeMenu}>Alcance</a><a href="#preguntas" onClick={closeMenu}>Preguntas</a>
+          <a className="g-button g-button-small" href="/dashboard" data-lens-focus>Abrir Gotchu <UiIcon name="arrow" /></a>
         </nav>
       </div>
     </header>
     <main id="contenido" tabIndex={-1}>
-      <section className="g-hero" aria-labelledby="hero-title">
-        <h1 id="hero-title">Tu código y tu web.<br /><span>Bajo la misma lupa.</span></h1>
-        <p className="g-hero-description">Carga una versión del código o autoriza tu dominio por DNS. Revisa los hallazgos, su evidencia y lo que no se pudo comprobar.</p>
-        <div className="g-hero-actions"><a className="g-button" href="/dashboard">Revisar mi aplicación <UiIcon name="arrow" /></a><a className="g-secondary-link" href="#perspectivas">Conocer Gotchu <UiIcon name="chevron" /></a></div>
-        <EvidenceLens />
-        <div className="g-hero-foot"><span>Código fuente</span><span>HTTPS autorizado</span><span>Evidencia trazable</span></div>
-      </section>
-      <section ref={container} className="g-journey g-container" aria-label="Del análisis a la evidencia">
-        <div className="g-journey-visual"><ProductFlow step={active} /><div className="g-chapter-marker" aria-hidden="true">{chapters.map((chapter, index) => <span key={chapter.id} className={active === index ? 'is-current' : ''}><span />{chapter.detail}</span>)}</div></div>
-        <div className="g-chapters">{chapters.map((chapter, index) => <article key={chapter.id} id={chapter.id} data-chapter={index}><h2>{chapter.title}</h2><p>{chapter.text}</p><ProductFlow step={index} className="g-mobile-flow" /></article>)}</div>
+      <Convergence />
+      <section ref={container} className="g-journey g-container" aria-label="Cómo entra cada perspectiva">
+        <div className="g-journey-visual"><ProductFlow step={active} /><div className="g-chapter-marker" aria-hidden="true">{chapters.map((chapter, index) => <span key={chapter.id} className={active === index ? 'is-current' : active > index ? 'is-done' : ''}><span />{chapter.detail}</span>)}</div></div>
+        <div className="g-chapters">{chapters.map((chapter, index) => <article key={chapter.id} id={chapter.id} data-chapter={index} className={active === index ? 'is-current' : ''}><h2>{chapter.title}</h2><p>{chapter.text}</p><ProductFlow step={index} className="g-mobile-flow" /></article>)}</div>
       </section>
       <section id="perspectivas" className="g-perspectives" aria-labelledby="perspectives-title">
         <div className="g-container"><div className="g-perspectives-heading"><h2 id="perspectives-title">Empieza donde<br />lo necesitas.</h2><p>Una aplicación. Tres formas de revisarla.<br />Tú eliges el alcance.</p></div>
@@ -69,7 +63,7 @@ export function LandingPage() {
       </section>
       <section className="g-workflow g-container" aria-labelledby="workflow-title"><h2 id="workflow-title">Cada revisión, en su sitio.</h2><dl><div><dt>Espacios y aplicaciones</dt><dd>Organiza tus aplicaciones por espacio de trabajo y conserva los permisos de cada rol.</dd></div><div><dt>Historial de evaluaciones</dt><dd>Sigue los trabajos en cola o en curso y vuelve a consultar los informes guardados.</dd></div><div><dt>Exportación JSON</dt><dd>Descarga el informe completo con sus hallazgos, evidencia, cobertura y limitaciones.</dd></div></dl><a className="g-secondary-link" href="/dashboard">Ir a mis aplicaciones <UiIcon name="arrow" /></a></section>
       <section id="preguntas" className="g-faq g-container" aria-labelledby="faq-title"><h2 id="faq-title">Antes de<br />dar el paso.</h2><div>{questions.map(([question, answer]) => <details key={question}><summary>{question}<span aria-hidden="true"><UiIcon name="plus" /></span></summary><p>{answer}</p></details>)}</div></section>
-      <section className="g-closing" aria-labelledby="closing-title"><div className="g-container"><h2 id="closing-title">La próxima decisión.<br /><span>Con la evidencia a mano.</span></h2><a className="g-button" href="/dashboard">Empezar mi revisión <UiIcon name="arrow" /></a></div></section>
+      <section className="g-closing" aria-labelledby="closing-title"><div className="g-container"><h2 id="closing-title">La próxima decisión.<br /><span>Con la evidencia a mano.</span></h2><a className="g-button" href="/dashboard" data-lens-focus>Empezar mi revisión <UiIcon name="arrow" /></a></div></section>
     </main>
     <footer className="g-footer g-container"><a href="#contenido" aria-label="Gotchu, volver al inicio" className="g-footer-wordmark">gotchu<span>.</span></a><div><p>Código. HTTPS. Evidencia.</p><a href="/dashboard">Abrir Gotchu <UiIcon name="arrow" /></a></div></footer>
   </div>;
