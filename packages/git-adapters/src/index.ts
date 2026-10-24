@@ -1,7 +1,7 @@
 import { createPrivateKey } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { SignJWT, importPKCS8 } from 'jose';
 import { load as parseYaml } from 'js-yaml';
@@ -86,14 +86,16 @@ function containsForbiddenSecret(value: unknown): boolean {
   return false;
 }
 
-async function git(cwd: string, args: readonly string[]): Promise<string> {
+async function git(cwd: string, args: readonly string[], options: { env?: NodeJS.ProcessEnv; stdin?: string } = {}): Promise<string> {
   return await new Promise((resolvePromise, reject) => {
-    const child = spawn('git', [...args], { cwd, stdio: ['ignore','pipe','pipe'], shell: false });
+    const child = spawn('git', [...args], { cwd, env: options.env, stdio: [options.stdin === undefined ? 'ignore' : 'pipe','pipe','pipe'], shell: false });
     const out: Buffer[] = []; const err: Buffer[] = [];
-    child.stdout.on('data', chunk => out.push(Buffer.from(chunk)));
-    child.stderr.on('data', chunk => err.push(Buffer.from(chunk)));
+    child.stdout?.on('data', chunk => out.push(Buffer.from(chunk)));
+    child.stderr?.on('data', chunk => err.push(Buffer.from(chunk)));
+    child.stdin?.on('error', reject);
     child.once('error', reject);
     child.once('close', code => code === 0 ? resolvePromise(Buffer.concat(out).toString('utf8').trim()) : reject(new Error(`git_failed:${Buffer.concat(err).toString('utf8').slice(0,300)}`)));
+    if (options.stdin !== undefined) child.stdin?.end(options.stdin);
   });
 }
 
@@ -112,12 +114,16 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
       assertWorkflowPatchSafe(input.files);
       const branch = deterministicBranch(input.actionHash); const base = sha.parse(await git(root,['--git-dir',bare,'rev-parse',`refs/heads/${input.baseBranch}`]));
       if (base !== input.baseSha) throw new GitAdapterError('conflict');
-      const dir = await mkdtemp(join(workRoot,'gotchu-')); const wt = join(dir,'checkout');
+      const dir = await mkdtemp(join(workRoot,'gotchu-'));
       try {
-        await git(root,['--git-dir',bare,'worktree','add','--detach',wt,base]);
-        for (const file of input.files) { const path = pathSchema.parse(file.path); const target = resolve(wt,path); if (!target.startsWith(wt + sep)) throw new Error('unsafe_path'); await mkdir(join(target,'..'),{recursive:true}); await writeFile(target,file.content); }
-        await git(wt,['add','--all']); await git(wt,['-c','user.name=Gotchu','-c','user.email=gotchu@localhost','commit','-m',`Gotchu approved action ${input.actionHash}`]);
-        const treeSha = sha.parse(await git(wt,['rev-parse','HEAD^{tree}']));
+        const indexEnv = { ...process.env, GIT_INDEX_FILE: join(dir,'index') };
+        await git(root,['--git-dir',bare,'read-tree',base],{env:indexEnv});
+        for (const file of input.files) {
+          const path = pathSchema.parse(file.path);
+          const blob = sha.parse(await git(root,['--git-dir',bare,'hash-object','-w','--stdin'],{stdin:file.content}));
+          await git(root,['--git-dir',bare,'update-index','--add','--cacheinfo',file.mode ?? '100644',blob,path],{env:indexEnv});
+        }
+        const treeSha = sha.parse(await git(root,['--git-dir',bare,'write-tree'],{env:indexEnv}));
         const existing = await git(root,['--git-dir',bare,'rev-parse',`refs/heads/${branch}`]).catch(()=>null);
         if (existing) {
           const existingTree = await git(root,['--git-dir',bare,'rev-parse',`${existing}^{tree}`]);
@@ -125,7 +131,7 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
           if (existingTree !== treeSha || existingParent !== base) throw new GitAdapterError('conflict');
           return { branch,commitSha:sha.parse(existing) };
         }
-        const commitSha = sha.parse(await git(wt,['rev-parse','HEAD']));
+        const commitSha = sha.parse(await git(root,['--git-dir',bare,'-c','user.name=Gotchu','-c','user.email=gotchu@localhost','commit-tree',treeSha,'-p',base,'-m',`Gotchu approved action ${input.actionHash}`]));
         try { await git(root,['--git-dir',bare,'update-ref',`refs/heads/${branch}`,commitSha,'']); }
         catch {
           const raced = await git(root,['--git-dir',bare,'rev-parse',`refs/heads/${branch}`]).catch(()=>undefined);
@@ -135,7 +141,7 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
         }
         return { branch,commitSha };
       } catch (error) { if (error instanceof GitAdapterError) throw error; throw error; }
-      finally { await git(root,['--git-dir',bare,'worktree','remove','--force',wt]).catch(()=>undefined); await rm(dir,{recursive:true,force:true}); }
+      finally { await rm(dir,{recursive:true,force:true}); }
     },
     async openOrFindPullRequest(input) {
       evidenceSummarySchema.parse(input.evidenceSummary);
