@@ -1,6 +1,6 @@
 # Gotchu: single-server AWS deployment
 
-The operator selected the **$24/month, 4 GB Lightsail server** for the first Venezuelan users. This supersedes the research report's initial 8 GB recommendation. Keep this topology small and measure before increasing concurrency. There is one host and no failover; a host or availability-zone outage interrupts the application.
+The operator selected the **$24/month, 4 GB Lightsail server** for the first Venezuelan users. Keep this topology small and measure before increasing concurrency. There is one host and no failover; a host or availability-zone outage interrupts the application.
 
 ## Resources and costs
 
@@ -65,20 +65,4 @@ Restore procedure:
 
 Ten-minute scheduling supports the prior pilot recovery objective only while backups are completing successfully. It is not a measured fifteen-minute RPO or four-hour clean-host RTO guarantee. Full clean-host recovery, Venezuelan latency and representative capacity remain separate validation work.
 
-## Initial deployment verification — 2026-10-24
-
-- Local production build and workspace typecheck passed. Scanner package checks: 29 passed, one optional live smoke skipped. Customer integration: five passed, one optional scanner case skipped, using disposable real PostgreSQL/Redis; these local runs are not AWS evidence.
-- Live AWS: pinned Semgrep, Gitleaks, Trivy, image database and npm advisory readiness passed. A signed TLS request with isolated synthetic scope returned both expected eval/TLS findings in 17.518 seconds. A second 3,600,485-byte synthetic snapshot returned them in 6.493 seconds with at least 2,432 MiB host memory available during sampling; `oom_kill` remained zero. These small controlled cases justify the selected pilot size, not a customer throughput/accuracy guarantee.
-- Live HTTPS landing and sign-in rendered in Chromium; the dashboard displayed its logged-out form without JavaScript errors. The canonical credential-provider URL remained HTTPS with spoofed forwarding headers; a cross-origin workspace write returned 403. Private ports 3000/3003/4400/5432/55432/6379/56379 were closed/filtered from the public IP.
-- Automatic startup failure retries were observed while tuning cold-start admission; final scanner/coordinator/web units were active, with no restarts after the permission fix. Cold scanner startup took about one minute. A host reboot and recovery under real customer load were not tested.
-- The first 75,686-byte encrypted backup uploaded to both S3 prefixes, downloaded and authenticated/decrypted. Its PostgreSQL dump restored with original roles into a disposable database on this host; recovery epoch increment and write freeze succeeded there, then the disposable database was removed. The initial dump had no customer reports. This is not clean-host disaster recovery or proof of restoring populated customer data.
-- DNS was verified directly with Cloudflare authoritative/public resolvers. The collaborative browser twice returned `ERR_NAME_NOT_RESOLVED` because of negative DNS caching; browser verification used standalone Chromium with the hostname mapped to the independently verified static IP and normal certificate validation.
-
-The initial checks above preceded public signup. Public signup keeps the existing global registration/login admission limits and workspace quotas; these bounds are not aggregate host-capacity guarantees. Keep optional integrations and release gates described above visible rather than presenting them as deployed capabilities.
-
-## Public signup verification — 2026-10-24
-
-- Web runtime updated to explicit public mode, retaining the existing production secret, database and TLS configuration. No infrastructure was added. A completed encrypted backup preceded the update; the prior web output and private-mode environment were retained for rollback.
-- Web typecheck/build and 54 focused runtime/auth/API tests passed. The built production-public customer suite passed five tests against disposable real PostgreSQL/Redis, with one optional scanner case skipped; it exercised account signup/login, workspace creation, tenant isolation and durable reports.
-- Live collaborative Chromium completed normal-form registration, CSRF-protected sign-in, sign-out and a second sign-in. The synthetic account saw zero existing workspaces and was deleted afterward after checking it owned no data. No operator account/password was chosen.
-- The old setup route redirected to `/dashboard` without retaining its test query; setup POST returned 404. The 375 px signup form had no horizontal overflow and no browser console errors. All four runtime units remained active and the web unit reported zero restarts. This does not validate sustained public capacity or clean-host recovery.
+Public signup keeps the existing global registration/login admission limits and workspace quotas; these bounds are not aggregate host-capacity guarantees. Keep optional integrations and release gates described above visible rather than presenting them as deployed capabilities.
