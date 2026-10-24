@@ -13,10 +13,13 @@ import {
   customerTargetSchema,
   customerWorkspaceSchema,
   customerQueueSchema,
+  customerScopeSchema,
   customerUpdateApplicationSchema,
   customerUploadSourceSchema,
+  licensePolicySchema,
   decisionRecordPageSchema,
   decisionRecordQuerySchema,
+  workspaceLicensePolicySchema,
   type AssessmentMode,
   type CustomerApplication,
   type CustomerAssessmentReport,
@@ -159,6 +162,31 @@ function jsonBody(body: unknown): Pick<RequestInit, 'headers' | 'body'> {
 const organizationPath = (organizationId: string) => `/api/customer/workspaces/${encodeURIComponent(organizationId)}`;
 const applicationPath = (organizationId: string, applicationId: string) => `${organizationPath(organizationId)}/applications/${encodeURIComponent(applicationId)}`;
 
+async function downloadCycloneDx(organizationId: string, applicationId: string, reportId: string) {
+  const scope = customerScopeSchema.parse({ organizationId, applicationId });
+  const id = z.uuid().parse(reportId);
+  let response: Response;
+  try {
+    response = await fetch(`${applicationPath(scope.organizationId, scope.applicationId)}/reports/${encodeURIComponent(id)}/sbom.cyclonedx.json`, {
+      credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(20_000),
+    });
+  } catch {
+    throw new CustomerApiError(0, 'network_error', 'No se pudo descargar el SBOM. Comprueba tu conexión e inténtalo de nuevo.');
+  }
+  if (!response.ok) {
+    let payload: unknown;
+    try { payload = await response.json(); } catch { payload = undefined; }
+    const error = errorSchema.safeParse(payload);
+    throw new CustomerApiError(response.status, error.success ? error.data.error.code : 'request_failed', error.success ? error.data.error.message : 'No se pudo descargar el SBOM.');
+  }
+  if (response.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/vnd.cyclonedx+json') {
+    throw new CustomerApiError(response.status, 'invalid_response', 'El servidor devolvió un formato SBOM inesperado.');
+  }
+  const blob = await response.blob();
+  if (blob.size === 0 || blob.size > 4_194_304) throw new CustomerApiError(response.status, 'invalid_response', 'El SBOM supera el tamaño permitido o está vacío.');
+  return blob;
+}
+
 export const customerApi = {
   session: () => request('/api/customer/session', customerSessionSchema),
   async signIn(email: string, password: string) {
@@ -200,6 +228,8 @@ export const customerApi = {
       method: 'PATCH', ...jsonBody({ ...(validated.name !== undefined ? { name: validated.name } : {}), ...(validated.archived !== undefined ? { archived: validated.archived } : {}) }),
     });
   },
+  licensePolicy: (organizationId: string) => request(`${organizationPath(organizationId)}/license-policy`, workspaceLicensePolicySchema),
+  updateLicensePolicy: (organizationId: string, policy: unknown) => request(`${organizationPath(organizationId)}/license-policy`, workspaceLicensePolicySchema, { method: 'PUT', ...jsonBody(licensePolicySchema.parse(policy)) }),
   targets: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/targets`, targetListSchema),
   enrollTarget: (input: { organizationId: string; applicationId: string; origin: string; authorized: true; scanProfile?: CustomerScanProfile }) => {
     const { organizationId, applicationId, origin, authorized, scanProfile } = input;
@@ -253,6 +283,7 @@ export const customerApi = {
     return request(`${organizationPath(organizationId)}/decision-records?${params}`, decisionRecordPageSchema);
   },
   recordReportDownload: (organizationId: string, applicationId: string, reportId: string) => request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(z.uuid().parse(reportId))}/download`, z.undefined(), { method: 'POST', ...jsonBody({}) }),
+  downloadSbom: downloadCycloneDx,
   async reportRecommendations(organizationId: string, applicationId: string, reportId: string) {
     const params = reportRecommendationsParamsSchema.parse({ reportId });
     const recommendations = await request(

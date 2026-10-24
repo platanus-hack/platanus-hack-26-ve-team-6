@@ -15,6 +15,7 @@ import {
   decisionRecordPageSchema, decisionRecordQuerySchema,
   dependencyFixPreparationRequestSchema, dependencyFixPreparationResponseSchema,
   type DependencyFixPreparationRequest, type DependencyFixPreparationResponse,
+  licensePolicySchema, workspaceLicensePolicySchema,
 } from '@gotchu/contracts';
 import { type Identity, type Backend } from '@gotchu/backend';
 import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, reportRecommendationsResponseSchema, type PrepareCorrectionRequest, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
@@ -48,6 +49,9 @@ export interface CustomerServices {
   decisionRecords?: Backend['decisionRecords'];
   notifications?: Backend['notifications'];
   triage?: Backend['triage'];
+  getLicensePolicy?: Backend['customers']['getLicensePolicy'];
+  updateLicensePolicy?: Backend['customers']['updateLicensePolicy'];
+  exportSbom?: Backend['customers']['exportSbom'];
   actions?: Backend['actions'];
   github?: Backend['github'];
   workflowExceptions?: Backend['workflowExceptions'];
@@ -213,6 +217,17 @@ export function createCustomerApi(options: {
       }
       if (parts[0] !== 'api' || parts[1] !== 'customer' || parts[2] !== 'workspaces') throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
       const organizationId = parse(uuid, parts[3]);
+      if (parts.length === 5 && parts[4] === 'license-policy') {
+        if (request.method === 'GET') {
+          if (!services.getLicensePolicy) throw new HttpError(503, 'license_policy_not_configured', 'La política de licencias no está configurada.');
+          return send(workspaceLicensePolicySchema.parse(await services.getLicensePolicy(identity, { organizationId })));
+        }
+        if (request.method === 'PUT') {
+          if (!services.updateLicensePolicy) throw new HttpError(503, 'license_policy_not_configured', 'La política de licencias no está configurada.');
+          const value = parse(licensePolicySchema, await body(request));
+          return send(workspaceLicensePolicySchema.parse(await services.updateLicensePolicy(identity, { organizationId, policy: value })));
+        }
+      }
       if (parts.length === 5 && parts[4] === 'decision-records' && request.method === 'GET') {
         if (!services.decisionRecords) throw new HttpError(503, 'decision_records_not_configured', 'El historial de decisiones no está configurado.');
         const query = parse(decisionRecordQuerySchema, Object.fromEntries(url.searchParams.entries()));
@@ -341,6 +356,15 @@ export function createCustomerApi(options: {
         return new Response(null, { status: 204, headers });
       }
       if (parts.length === 8 && parts[6] === 'reports' && request.method === 'GET') return send(customerAssessmentReportSchema.parse(await services.getReport(identity, { ...scope, reportId: parse(uuid, parts[7]) })));
+      if (parts.length === 9 && parts[6] === 'reports' && parts[8] === 'sbom.cyclonedx.json' && request.method === 'GET') {
+        if (!services.exportSbom) throw new HttpError(503, 'sbom_not_configured', 'La exportación SBOM no está configurada.');
+        const reportId = parse(uuid, parts[7]);
+        const sbom = await services.exportSbom(identity, { ...scope, reportId });
+        headers.set('Cache-Control', 'private, no-store');
+        headers.set('Content-Type', 'application/vnd.cyclonedx+json');
+        headers.set('Content-Disposition', `attachment; filename="gotchu-${reportId}.cdx.json"`);
+        return new Response(JSON.stringify(sbom), { status: 200, headers });
+      }
       if (parts.length === 9 && parts[6] === 'reports' && parts[8] === 'download' && request.method === 'POST') {
         parse(z.object({}).strict(), await body(request));
         await services.recordReportDownload(identity, { ...scope, reportId: parse(uuid, parts[7]) });
