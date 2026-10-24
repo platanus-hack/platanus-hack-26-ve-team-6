@@ -148,7 +148,7 @@
     "typographyMeta": {
       "display": {
         "displayName": "Display",
-        "purpose": "Hero headline only; Goldman 700 uppercase, two-tone porcelain then magenta."
+        "purpose": "Hero headline only; Gotchu Display (Archivo at 118% width) 700 uppercase, porcelain then a magenta accent clause."
       },
       "headline": {
         "displayName": "Headline",
@@ -164,7 +164,7 @@
       },
       "body": {
         "displayName": "Body",
-        "purpose": "Reading copy in silver on dark, on-silver on silver."
+        "purpose": "Reading copy in Gotchu Text (Archivo at 100% width), silver on dark, on-silver on silver."
       },
       "lead": {
         "displayName": "Lead",
@@ -172,11 +172,11 @@
       },
       "tag": {
         "displayName": "Bracket Tag",
-        "purpose": "Mono [ bracketed ] labels naming real things, frame labels, scope row."
+        "purpose": "Mono [ bracketed ] labels naming real things; 10px in the hero mark labels and foot."
       },
       "nav": {
         "displayName": "Nav",
-        "purpose": "Header links with 10px pink-ink numbers."
+        "purpose": "Header links with 10px pink-ink numbers, hidden below 1180px."
       },
       "code": {
         "displayName": "Code",
@@ -185,13 +185,13 @@
     },
     "shadows": [
       {
-        "name": "hard-offset-porcelain",
-        "value": "4px 4px 0 #fffefa",
+        "name": "offset-porcelain",
+        "value": "4px 4px 0 #fffefa40",
         "purpose": "Hover on the action-magenta primary button, with translate(-2px, -2px)."
       },
       {
-        "name": "hard-offset-magenta",
-        "value": "4px 4px 0 #e7147d",
+        "name": "offset-magenta",
+        "value": "4px 4px 0 #e7147dcc",
         "purpose": "Hover on paper, small and ink buttons, with translate(-2px, -2px)."
       },
       {
@@ -202,7 +202,7 @@
       {
         "name": "blueprint-cell",
         "value": "inset 0 0 0 1px #e7147d66",
-        "purpose": "Lit blueprint cell under a fine pointer, with #e7147d14 fill."
+        "purpose": "Lit 96px blueprint cell under a fine pointer, with #e7147d14 fill."
       }
     ],
     "motion": [
@@ -223,8 +223,8 @@
       },
       {
         "name": "scan",
-        "value": "4.8s linear infinite, translateY over the frame height",
-        "purpose": "Magenta scan line in the hero frame; pausable, still under reduced motion."
+        "value": "7s cubic-bezier(.77, 0, .175, 1) infinite, 1px line, translateY 0 to 100svh",
+        "purpose": "Magenta scan line across the whole hero; paused by the hero control, still under reduced motion."
       },
       {
         "name": "radar",
@@ -233,7 +233,7 @@
       },
       {
         "name": "band-underline",
-        "value": "260ms ease-out-strong scaleX 0 to 1 from the left",
+        "value": "260ms ease-out-strong, 3px bar scaleX 0 to 1 from the left",
         "purpose": "Flow-band hover bar."
       },
       {
@@ -259,8 +259,16 @@
     ],
     "breakpoints": [
       {
+        "name": "nav-numbers",
+        "value": "1180px"
+      },
+      {
         "name": "tablet",
         "value": "1050px"
+      },
+      {
+        "name": "nav-collapse",
+        "value": "960px"
       },
       {
         "name": "mobile",
@@ -281,90 +289,98 @@
       "name": "Paper Button",
       "kind": "button",
       "refersTo": "button-paper",
-      "description": "Porcelain near-square button for the hero path; magenta hard offset on hover; carries data-catch.",
-      "html": "<div class=\"ds-wrap\"><a class=\"ds-btn-paper\" href=\"#\" data-catch>Revisar mi aplicación <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></a></div>",
-      "css": ".ds-wrap { padding: 32px; background: #191923; } .ds-btn-paper { display: inline-flex; align-items: center; gap: 26px; min-height: 54px; padding: 14px 26px; background: #fffefa; color: #191923; border-radius: 2px; font: 700 14px/1 Goldman, Oxanium, sans-serif; letter-spacing: .03em; text-transform: uppercase; text-decoration: none; transition: transform 160ms cubic-bezier(0.23,1,0.32,1), background-color 160ms ease, box-shadow 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-paper svg { transition: transform 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-paper:hover { transform: translate(-2px, -2px); background: #c7bfbd; box-shadow: 4px 4px 0 #e7147d; } .ds-btn-paper:hover svg { transform: translateX(4px); } .ds-btn-paper:active { transform: scale(.97); } .ds-btn-paper:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
+      "description": "Porcelain 8px button for the hero path; translucent magenta offset on hover; carries data-catch.",
+      "html": "<div class=\"ds-wrap-paper\"><a class=\"ds-btn-paper\" href=\"#\" data-catch>Revisar mi aplicación <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></a></div>",
+      "css": ".ds-wrap-paper { padding: 32px; background: #191923; } .ds-btn-paper { display: inline-flex; align-items: center; gap: 26px; min-height: 54px; padding: 14px 26px; background: #fffefa; color: #191923; border-radius: 8px; font: 700 14px/1 'Gotchu Display', 'Archivo', sans-serif; font-stretch: 118%; letter-spacing: .03em; text-transform: uppercase; text-decoration: none; transition: transform 160ms cubic-bezier(0.23,1,0.32,1), background-color 160ms ease, box-shadow 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-paper svg { transition: transform 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-paper:hover { transform: translate(-2px, -2px); background: #c7bfbd; box-shadow: 4px 4px 0 #e7147dcc; } .ds-btn-paper:hover svg { transform: translateX(4px); } .ds-btn-paper:active { transform: scale(.97); } .ds-btn-paper:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
     },
     {
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Action-magenta near-square button; porcelain hard offset on hover.",
-      "html": "<div class=\"ds-wrap\"><a class=\"ds-btn-primary\" href=\"#\" data-catch>Abrir Gotchu <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></a></div>",
-      "css": ".ds-wrap { padding: 32px; background: #191923; } .ds-btn-primary { display: inline-flex; align-items: center; gap: 26px; min-height: 54px; padding: 14px 26px; background: #c80c68; color: #fffefa; border-radius: 2px; font: 700 14px/1 Goldman, Oxanium, sans-serif; letter-spacing: .03em; text-transform: uppercase; text-decoration: none; transition: transform 160ms cubic-bezier(0.23,1,0.32,1), background-color 160ms ease, box-shadow 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-primary svg { transition: transform 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-primary:hover { transform: translate(-2px, -2px); background: #ac0957; box-shadow: 4px 4px 0 #fffefa; } .ds-btn-primary:hover svg { transform: translateX(4px); } .ds-btn-primary:active { transform: scale(.97); } .ds-btn-primary:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
+      "description": "Action-magenta 8px button; translucent porcelain offset on hover.",
+      "html": "<div class=\"ds-wrap-primary\"><a class=\"ds-btn-primary\" href=\"#\" data-catch>Abrir Gotchu <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></a></div>",
+      "css": ".ds-wrap-primary { padding: 32px; background: #191923; } .ds-btn-primary { display: inline-flex; align-items: center; gap: 26px; min-height: 54px; padding: 14px 26px; background: #c80c68; color: #fffefa; border-radius: 8px; font: 700 14px/1 'Gotchu Display', 'Archivo', sans-serif; font-stretch: 118%; letter-spacing: .03em; text-transform: uppercase; text-decoration: none; transition: transform 160ms cubic-bezier(0.23,1,0.32,1), background-color 160ms ease, box-shadow 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-primary svg { transition: transform 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-primary:hover { transform: translate(-2px, -2px); background: #ac0957; box-shadow: 4px 4px 0 #fffefa40; } .ds-btn-primary:hover svg { transform: translateX(4px); } .ds-btn-primary:active { transform: scale(.97); } .ds-btn-primary:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
     },
     {
       "name": "Ink Button",
       "kind": "button",
       "refersTo": "button-ink",
-      "description": "Graphite near-square button on magenta fields; magenta hard offset on hover.",
-      "html": "<div class=\"ds-ink-wrap\"><a class=\"ds-btn-ink\" href=\"#\" data-catch>Empezar mi revisión <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></a></div>",
-      "css": ".ds-ink-wrap { padding: 32px; background: linear-gradient(125deg, #e7147d 0%, #e7147d 38%, #c80c68 68%, #191923 118%); } .ds-btn-ink { display: inline-flex; align-items: center; gap: 26px; min-height: 54px; padding: 14px 26px; background: #191923; color: #fffefa; border-radius: 2px; font: 700 14px/1 Goldman, Oxanium, sans-serif; letter-spacing: .03em; text-transform: uppercase; text-decoration: none; transition: transform 160ms cubic-bezier(0.23,1,0.32,1), background-color 160ms ease, box-shadow 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-ink svg { transition: transform 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-ink:hover { transform: translate(-2px, -2px); background: #2b2b3a; box-shadow: 4px 4px 0 #e7147d; } .ds-btn-ink:hover svg { transform: translateX(4px); } .ds-btn-ink:active { transform: scale(.97); } .ds-btn-ink:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
+      "description": "Graphite 8px button on magenta fields; translucent magenta offset on hover.",
+      "html": "<div class=\"ds-wrap-ink\"><a class=\"ds-btn-ink\" href=\"#\" data-catch>Empezar mi revisión <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></a></div>",
+      "css": ".ds-wrap-ink { padding: 32px; background: linear-gradient(125deg, #e7147d 0%, #e7147d 38%, #c80c68 68%, #191923 118%); } .ds-btn-ink { display: inline-flex; align-items: center; gap: 26px; min-height: 54px; padding: 14px 26px; background: #191923; color: #fffefa; border-radius: 8px; font: 700 14px/1 'Gotchu Display', 'Archivo', sans-serif; font-stretch: 118%; letter-spacing: .03em; text-transform: uppercase; text-decoration: none; transition: transform 160ms cubic-bezier(0.23,1,0.32,1), background-color 160ms ease, box-shadow 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-ink svg { transition: transform 160ms cubic-bezier(0.23,1,0.32,1); } .ds-btn-ink:hover { transform: translate(-2px, -2px); background: #2b2b3a; box-shadow: 4px 4px 0 #e7147dcc; } .ds-btn-ink:hover svg { transform: translateX(4px); } .ds-btn-ink:active { transform: scale(.97); } .ds-btn-ink:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
     },
     {
       "name": "Navigation",
       "kind": "nav",
-      "refersTo": "button-small",
-      "description": "Solid graphite bar with hairline: mark lockup, numbered mono links, small porcelain button.",
-      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-brand\" href=\"#\"><svg width=\"30\" height=\"30\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"currentColor\"><rect x=\"1\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"1\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"1\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/><rect x=\"19.6\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"14.2\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"14.2\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/></g><path d=\"M12 7.9L16.1 12L12 16.1L7.9 12Z\" fill=\"#e7147d\"/></svg>Gotchu</a><div class=\"ds-nav-links\"><a href=\"#\"><span aria-hidden=\"true\">01 /</span>Cómo funciona</a><a href=\"#\"><span aria-hidden=\"true\">02 /</span>Alcance</a><a href=\"#\"><span aria-hidden=\"true\">03 /</span>Preguntas</a><a class=\"ds-nav-cta\" href=\"#\" data-catch>Abrir Gotchu <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></a></div></nav>",
-      "css": ".ds-nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 80px; padding: 0 clamp(20px, 4.2vw, 68px); background: #191923; border-bottom: 1px solid #c7bfbd35; color: #fffefa; } .ds-nav-brand { display: inline-flex; align-items: center; gap: 12px; color: #fffefa; text-decoration: none; font: 700 22px/1 Goldman, Oxanium, sans-serif; letter-spacing: .01em; text-transform: uppercase; } .ds-nav-links { display: flex; align-items: center; gap: 32px; } .ds-nav-links > a:not(.ds-nav-cta) { display: inline-flex; align-items: center; min-height: 44px; color: #c7bfbd; text-decoration: none; font: 600 12px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; transition: color 160ms ease; } .ds-nav-links > a > span { margin-right: 6px; color: #ff8fbe; font-size: 10px; } .ds-nav-links > a:not(.ds-nav-cta):hover { color: #fffefa; } .ds-nav-cta { display: inline-flex; align-items: center; gap: 16px; min-height: 44px; padding: 10px 18px; border-radius: 2px; background: #fffefa; color: #191923; text-decoration: none; font: 700 12px/1 Goldman, Oxanium, sans-serif; letter-spacing: .03em; text-transform: uppercase; transition: transform 160ms cubic-bezier(0.23,1,0.32,1), background-color 160ms ease, box-shadow 160ms ease; } .ds-nav-cta:hover { transform: translate(-2px, -2px); background: #c7bfbd; box-shadow: 4px 4px 0 #e7147d; } .ds-nav a:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
+      "refersTo": "header",
+      "description": "Solid 64px graphite bar with hairline: mark lockup, numbered mono links, 44px small porcelain button.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-brand\" href=\"#\"><span class=\"ds-nav-mark\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"currentColor\"><rect x=\"1\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"1\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"1\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/><rect x=\"19.6\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"14.2\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"14.2\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/></g><path d=\"M12 7.9L16.1 12L12 16.1L7.9 12Z\" fill=\"#e7147d\"/></svg></span>Gotchu</a><div class=\"ds-nav-links\"><a href=\"#\"><span aria-hidden=\"true\">01 /</span>Cómo funciona</a><a href=\"#\"><span aria-hidden=\"true\">02 /</span>Alcance</a><a href=\"#\"><span aria-hidden=\"true\">03 /</span>Preguntas</a><a class=\"ds-nav-cta\" href=\"#\" data-catch>Abrir Gotchu <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></a></div></nav>",
+      "css": ".ds-nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 64px; padding: 0 clamp(20px, 4.2vw, 68px); background: #191923; border-bottom: 1px solid #c7bfbd35; color: #fffefa; } .ds-nav-brand { display: inline-flex; align-items: center; gap: 12px; min-height: 44px; color: #fffefa; text-decoration: none; font: 700 22px/1 'Gotchu Display', 'Archivo', sans-serif; font-stretch: 118%; letter-spacing: .01em; text-transform: uppercase; } .ds-nav-mark svg { display: block; width: 28px; height: 28px; } .ds-nav-links { display: flex; align-items: center; gap: 28px; } .ds-nav-links > a:not(.ds-nav-cta) { display: inline-flex; align-items: center; min-height: 44px; color: #c7bfbd; text-decoration: none; font: 600 12px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; transition: color 160ms ease; } .ds-nav-links > a > span { margin-right: 6px; color: #ff8fbe; font-size: 10px; } .ds-nav-links > a:not(.ds-nav-cta):hover { color: #fffefa; } .ds-nav-cta { display: inline-flex; align-items: center; gap: 14px; min-height: 44px; padding: 8px 16px; border-radius: 8px; background: #fffefa; color: #191923; text-decoration: none; font: 700 12px/1 'Gotchu Display', 'Archivo', sans-serif; font-stretch: 118%; letter-spacing: .03em; text-transform: uppercase; transition: transform 160ms cubic-bezier(0.23,1,0.32,1), background-color 160ms ease, box-shadow 160ms cubic-bezier(0.23,1,0.32,1); } .ds-nav-cta:hover { transform: translate(-2px, -2px); background: #c7bfbd; box-shadow: 4px 4px 0 #e7147dcc; } .ds-nav a:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
     },
     {
-      "name": "Hero Frame",
+      "name": "Hero Field",
       "kind": "custom",
-      "refersTo": "hero-frame",
-      "description": "Square framed blueprint panel with corner ticks, magenta scan line and the mark.",
-      "html": "<div class=\"ds-frame ds-ticks\"><svg class=\"ds-frame-bp\" viewBox=\"0 0 600 490\" preserveAspectRatio=\"xMidYMid slice\" aria-hidden=\"true\"><defs><pattern id=\"ds-grid\" width=\"30\" height=\"30\" patternUnits=\"userSpaceOnUse\"><path d=\"M30 0H0V30\" fill=\"none\" stroke=\"#c7bfbd\" stroke-opacity=\".1\" stroke-width=\".6\"/></pattern></defs><rect x=\"40\" y=\"40\" width=\"520\" height=\"410\" fill=\"url(#ds-grid)\"/><g fill=\"none\" stroke=\"#c7bfbd\" stroke-opacity=\".26\" stroke-width=\".8\"><rect x=\"132\" y=\"77\" width=\"336\" height=\"336\"/><rect x=\"112\" y=\"57\" width=\"376\" height=\"376\" stroke-dasharray=\"2 9\"/><path d=\"M75 245h450M300 38v414\"/></g><g fill=\"none\" stroke=\"#e7147d\" stroke-width=\"1.2\"><path d=\"M128 245h20M452 245h20M300 73v20M300 397v20\"/></g></svg><span class=\"ds-scan\" aria-hidden=\"true\"></span><svg class=\"ds-frame-mark\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"#fffefa\"><rect x=\"1\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"1\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"1\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/><rect x=\"19.6\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"14.2\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"14.2\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/></g><path d=\"M12 7.9L16.1 12L12 16.1L7.9 12Z\" fill=\"#e7147d\"/></svg></div>",
-      "css": ".ds-ticks { position: relative; } .ds-ticks::before, .ds-ticks::after { content: ''; position: absolute; z-index: 3; width: 10px; height: 10px; pointer-events: none; } .ds-ticks::before { left: -1px; top: -1px; border-left: 2px solid #c7bfbd; border-top: 2px solid #c7bfbd; } .ds-ticks::after { right: -1px; bottom: -1px; border-right: 2px solid #c7bfbd; border-bottom: 2px solid #c7bfbd; } .ds-frame { height: 360px; border: 1px solid #c7bfbd35; overflow: hidden; background: radial-gradient(ellipse 60% 55% at 52% 46%, #e7147d2e, transparent 70%), linear-gradient(160deg, #21212e, #191923 55%, #0f0f16); } .ds-frame-bp { position: absolute; inset: 0; width: 100%; height: 100%; } .ds-frame-mark { position: absolute; inset: 0; margin: auto; width: 34%; height: 34%; } .ds-scan { position: absolute; z-index: 2; left: 0; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, transparent, #e7147d 20%, #e7147d 80%, transparent); opacity: .7; } @media (prefers-reduced-motion: no-preference) { .ds-scan { animation: ds-scan 4.8s linear infinite; } } @keyframes ds-scan { to { transform: translateY(360px); } }"
+      "refersTo": "hero-mark",
+      "description": "Unframed hero: radially masked blueprint grid, faint magenta glow, the mark large on the right, a 1px scan line and a quiet pause control.",
+      "html": "<section class=\"ds-hero\"><div class=\"ds-hero-grid\" aria-hidden=\"true\"></div><span class=\"ds-hero-glow\" aria-hidden=\"true\"></span><span class=\"ds-hero-scan\" aria-hidden=\"true\"></span><div class=\"ds-hero-mark\"><span class=\"ds-hero-svg\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"currentColor\"><rect x=\"1\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"1\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"1\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/><rect x=\"19.6\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"14.2\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"14.2\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/></g><path d=\"M12 7.9L16.1 12L12 16.1L7.9 12Z\" fill=\"#e7147d\"/></svg></span><p class=\"ds-hero-l\">[ Código ]</p><p class=\"ds-hero-r\">[ HTTPS ]</p></div><div class=\"ds-hero-foot\"><span>Código fuente · Orígenes HTTPS</span><button type=\"button\" class=\"ds-hero-pause\" aria-pressed=\"false\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 14 14\" aria-hidden=\"true\"><path d=\"M3 1.5h3v11H3zM8 1.5h3v11H8z\" fill=\"currentColor\"/></svg>Pausar</button></div></section>",
+      "css": ".ds-hero { position: relative; isolation: isolate; overflow: hidden; height: 400px; background: #191923; color: #fffefa; } .ds-hero-grid { position: absolute; inset: 0; z-index: 0; background: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cpath d='M0 5h10M5 0v10' stroke='%23fffefa' stroke-opacity='.32'/%3E%3C/svg%3E\") -5px -5px / 96px 96px, linear-gradient(90deg, #fffefa10 1px, transparent 1px) 0 0 / 96px 96px, linear-gradient(#fffefa10 1px, transparent 1px) 0 0 / 96px 96px; -webkit-mask: radial-gradient(ellipse 70% 80% at 70% 45%, #000 20%, transparent 80%); mask: radial-gradient(ellipse 70% 80% at 70% 45%, #000 20%, transparent 80%); } .ds-hero-glow { position: absolute; z-index: -1; right: -8%; top: 8%; width: 62%; height: 84%; background: radial-gradient(closest-side, #e7147d24, transparent); } .ds-hero-scan { position: absolute; z-index: 0; left: 0; right: 0; top: 0; height: 1px; background: linear-gradient(90deg, transparent 30%, #e7147d 70%, transparent); opacity: .55; } .ds-hero-mark { position: absolute; right: 0; top: 0; bottom: 60px; width: 58%; z-index: 1; } .ds-hero-svg svg { position: absolute; inset: 0; margin: auto; width: 46%; height: 46%; color: #fffefa; } .ds-hero-mark p { position: absolute; bottom: 6%; margin: 0; color: #b5b1bb; font: 600 10px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; } .ds-hero-l { left: 18%; } .ds-hero-r { right: 18%; } .ds-hero-foot { position: absolute; z-index: 1; left: 24px; right: 24px; bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 8px 0; border-top: 1px solid #c7bfbd40; color: #b5b1bb; font: 600 10px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; } .ds-hero-pause { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 4px; border: 0; background: none; color: #b5b1bb; font: inherit; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; transition: color 160ms ease; } .ds-hero-pause:hover { color: #fffefa; } .ds-hero-pause:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; } @media (prefers-reduced-motion: no-preference) { .ds-hero-scan { animation: ds-hero-scan 7s cubic-bezier(.77,0,.175,1) infinite; } } @keyframes ds-hero-scan { to { transform: translateY(400px); } }"
     },
     {
       "name": "Flow Band",
       "kind": "nav",
       "refersTo": "signal-band",
-      "description": "Full-bleed magenta-to-action band of flow links; hover draws a graphite bar.",
-      "html": "<nav class=\"ds-band\" aria-label=\"Flujo\"><a href=\"#\">Subir<span aria-hidden=\"true\">↗</span></a><a href=\"#\">Autorizar<span aria-hidden=\"true\">↗</span></a><a href=\"#\">Evaluar<span aria-hidden=\"true\">↗</span></a><a href=\"#\">Exportar<span aria-hidden=\"true\">↗</span></a></nav>",
-      "css": ".ds-band { display: grid; grid-template-columns: repeat(4, 1fr); background: linear-gradient(100deg, #e7147d 0%, #e7147d 55%, #c80c68 100%); } .ds-band a { position: relative; display: flex; align-items: center; justify-content: center; gap: 22px; min-height: 84px; color: #191923; text-decoration: none; font: 700 clamp(1.2rem, 2.3vw, 2rem)/1 Goldman, Oxanium, sans-serif; letter-spacing: .01em; text-transform: uppercase; overflow: hidden; } .ds-band a + a { border-left: 1px solid #19192355; } .ds-band a::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: #191923; transform: scaleX(0); transform-origin: left; transition: transform 260ms cubic-bezier(0.23,1,0.32,1); } .ds-band a > span { font: 400 .8em/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: transform 200ms cubic-bezier(0.23,1,0.32,1); } .ds-band a:hover::before { transform: scaleX(1); } .ds-band a:hover > span { transform: translate(3px, -3px); } .ds-band a:focus-visible { outline: 2px solid #ffabd0; outline-offset: -4px; }"
+      "description": "Full-bleed 64px magenta-to-action band of left-aligned flow links; hover draws a 3px graphite bar.",
+      "html": "<nav class=\"ds-band\" aria-label=\"Flujo\"><a href=\"#\">Subir<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M7 17 17 7M8 7h9v9\"/></svg></a><a href=\"#\">Autorizar<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M7 17 17 7M8 7h9v9\"/></svg></a><a href=\"#\">Evaluar<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M7 17 17 7M8 7h9v9\"/></svg></a><a href=\"#\">Exportar<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><path d=\"M7 17 17 7M8 7h9v9\"/></svg></a></nav>",
+      "css": ".ds-band { display: grid; grid-template-columns: repeat(4, 1fr); background: linear-gradient(100deg, #e7147d, #e7147d 60%, #c80c68); } .ds-band a { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding-inline: clamp(18px, 2.6vw, 40px); color: #191923; text-decoration: none; font: 700 clamp(1.2rem, 1.7vw, 1.5rem)/1 'Gotchu Display', 'Archivo', sans-serif; font-stretch: 118%; letter-spacing: .04em; text-transform: uppercase; overflow: hidden; } .ds-band a + a { border-left: 1px solid #19192340; } .ds-band a::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #191923; transform: scaleX(0); transform-origin: left; transition: transform 260ms cubic-bezier(0.23,1,0.32,1); } .ds-band a svg { flex-shrink: 0; transition: transform 200ms cubic-bezier(0.23,1,0.32,1); } .ds-band a:hover::before { transform: scaleX(1); } .ds-band a:hover svg { transform: translate(3px, -3px); } .ds-band a:focus-visible { outline: 2px solid #ffabd0; outline-offset: -4px; }"
     },
     {
       "name": "Perspective Tabs",
       "kind": "custom",
       "refersTo": "tab-track",
-      "description": "Square silver-track bar with a sliding square graphite indicator.",
+      "description": "Silver-track bar (12px) with a sliding graphite indicator (8px).",
       "html": "<div class=\"ds-tabs\" role=\"tablist\"><span class=\"ds-tabs-indicator\"></span><button role=\"tab\" aria-selected=\"true\">Código</button><button role=\"tab\" aria-selected=\"false\">HTTPS</button><button role=\"tab\" aria-selected=\"false\">Ambas</button></div>",
-      "css": ".ds-tabs { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); width: min(560px, 100%); padding: 6px; border-radius: 0; background: #b3aaab; } .ds-tabs-indicator { position: absolute; top: 6px; bottom: 6px; left: 6px; width: calc((100% - 12px) / 3); border-radius: 0; background: #191923; transition: transform 300ms cubic-bezier(.77,0,.175,1); } .ds-tabs button { position: relative; z-index: 1; min-height: 52px; padding: 10px 16px; border: 0; border-radius: 0; background: transparent; color: #191923; font: 700 15px/1.2 Goldman, Oxanium, sans-serif; text-transform: uppercase; letter-spacing: .02em; cursor: pointer; transition: color 200ms ease; } .ds-tabs button[aria-selected=true] { color: #fffefa; } .ds-tabs button:not([aria-selected=true]):hover { color: #2b2b3a; } .ds-tabs button:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
+      "css": ".ds-tabs { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); width: min(560px, 100%); padding: 6px; border-radius: 12px; background: #b3aaab; } .ds-tabs-indicator { position: absolute; top: 6px; bottom: 6px; left: 6px; width: calc((100% - 12px) / 3); border-radius: 8px; background: #191923; transition: transform 300ms cubic-bezier(.77,0,.175,1); } .ds-tabs button { position: relative; z-index: 1; min-height: 52px; padding: 10px 16px; border: 0; border-radius: 8px; background: transparent; color: #191923; font: 700 15px/1.2 'Gotchu Display', 'Archivo', sans-serif; font-stretch: 118%; text-transform: uppercase; letter-spacing: .02em; cursor: pointer; transition: color 200ms ease; } .ds-tabs button[aria-selected=true] { color: #fffefa; } .ds-tabs button:not([aria-selected=true]):hover { color: #2b2b3a; } .ds-tabs button:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; }"
+    },
+    {
+      "name": "Report Card",
+      "kind": "card",
+      "refersTo": "report-card",
+      "description": "14px ink sheet with a line border: bracket tag and JSON chip header, display terms over silver values.",
+      "html": "<article class=\"ds-report\"><header><span class=\"ds-tag\">[ Informe de evaluación ]</span><span class=\"ds-tag ds-json\">JSON</span></header><dl><div><dt>Severidad</dt><dd>alta</dd></div><div><dt>Confianza</dt><dd>confirmada</dd></div></dl></article>",
+      "css": ".ds-report { max-width: 520px; border: 1px solid #646174; border-radius: 14px; background: #0f0f16; overflow: hidden; } .ds-report header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 22px; border-bottom: 1px solid #3d3b4c; color: #b5b1bb; } .ds-tag { font: 600 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; } .ds-json { padding: 5px 10px; border-radius: 6px; background: #c80c68; color: #fffefa; } .ds-report dl { margin: 0; } .ds-report dl > div { display: grid; grid-template-columns: 120px 1fr; gap: 16px; padding: 16px 22px; border-bottom: 1px solid #3d3b4c; } .ds-report dl > div:last-child { border-bottom: 0; } .ds-report dt { font: 700 14px/1.4 'Gotchu Display', 'Archivo', sans-serif; font-stretch: 118%; text-transform: uppercase; color: #fffefa; } .ds-report dd { margin: 0; font: 14px/1.65 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #c7bfbd; }"
     },
     {
       "name": "Closing Card with Square Radar",
       "kind": "card",
       "refersTo": "card-magenta",
-      "description": "Diagonal brand gradient panel; porcelain squares widen from the flat mark.",
-      "html": "<section class=\"ds-closing\"><div class=\"ds-radar\" aria-hidden=\"true\"><span></span><span></span><span></span><span></span><svg width=\"30\" height=\"30\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"currentColor\"><rect x=\"1\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"1\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"1\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/><rect x=\"19.6\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"14.2\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"14.2\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/></g><path d=\"M12 7.9L16.1 12L12 16.1L7.9 12Z\" fill=\"#e7147d\"/></svg></div><h2>La próxima decisión.<br><span>Con la evidencia a mano.</span></h2></section>",
-      "css": ".ds-closing { position: relative; isolation: isolate; overflow: hidden; display: grid; align-content: end; min-height: 360px; padding: clamp(32px, 5vw, 72px); background: linear-gradient(125deg, #e7147d 0%, #e7147d 38%, #c80c68 68%, #191923 118%); } .ds-closing h2 { margin: 0; max-width: 13ch; color: #191923; font: 700 clamp(2.2rem, 5vw, 4.4rem)/.92 Goldman, Oxanium, sans-serif; letter-spacing: -.025em; text-transform: uppercase; } .ds-closing h2 > span { color: #fffefa; } .ds-radar { position: absolute; z-index: -1; right: 9%; top: 50%; width: min(38vw, 300px); aspect-ratio: 1; translate: 0 -50%; display: grid; place-items: center; } .ds-radar > span { position: absolute; inset: 0; border: 2px solid #fffefa; opacity: .3; transform: scale(.6); } .ds-radar svg { position: relative; width: 22%; height: 22%; color: #191923; } .ds-radar svg path { fill: #fffefa; } @media (prefers-reduced-motion: no-preference) { .ds-radar > span { animation: ds-radar 4.8s linear infinite; } .ds-radar > span:nth-child(2) { animation-delay: 1.2s; } .ds-radar > span:nth-child(3) { animation-delay: 2.4s; } .ds-radar > span:nth-child(4) { animation-delay: 3.6s; } } @keyframes ds-radar { from { opacity: .7; transform: scale(.18); } to { opacity: 0; transform: scale(1); } }"
+      "description": "16px diagonal brand-gradient panel; porcelain squares widen from the flat mark.",
+      "html": "<section class=\"ds-closing\"><div class=\"ds-radar\" aria-hidden=\"true\"><span></span><span></span><span></span><span></span><i><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"currentColor\"><rect x=\"1\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"1\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"1\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/><rect x=\"19.6\" y=\"2.4\" width=\"3.4\" height=\"19.2\"/><rect x=\"14.2\" y=\"2.4\" width=\"8.8\" height=\"3.4\"/><rect x=\"14.2\" y=\"18.2\" width=\"8.8\" height=\"3.4\"/></g><path d=\"M12 7.9L16.1 12L12 16.1L7.9 12Z\" fill=\"#e7147d\"/></svg></i></div><h2>La próxima decisión.<br><span>Con la evidencia a mano.</span></h2></section>",
+      "css": ".ds-closing { position: relative; isolation: isolate; overflow: hidden; display: grid; align-content: end; min-height: 360px; padding: clamp(32px, 5vw, 72px); border-radius: 16px; background: linear-gradient(125deg, #e7147d 0%, #e7147d 38%, #c80c68 68%, #191923 118%); } .ds-closing h2 { margin: 0; max-width: 13ch; color: #191923; font: 700 clamp(2.2rem, 5vw, 4.4rem)/.92 'Gotchu Display', 'Archivo', sans-serif; font-stretch: 118%; letter-spacing: -.025em; text-transform: uppercase; } .ds-closing h2 > span { color: #fffefa; } .ds-radar { position: absolute; z-index: -1; right: 9%; top: 50%; width: min(38vw, 300px); aspect-ratio: 1; translate: 0 -50%; display: grid; place-items: center; } .ds-radar > span { position: absolute; inset: 0; border: 2px solid #fffefa; opacity: .3; transform: scale(.6); } .ds-radar i svg { display: block; width: 66px; height: 66px; color: #fffefa; } @media (prefers-reduced-motion: no-preference) { .ds-radar > span { animation: ds-radar 4.8s linear infinite; } .ds-radar > span:nth-child(2) { animation-delay: 1.2s; } .ds-radar > span:nth-child(3) { animation-delay: 2.4s; } .ds-radar > span:nth-child(4) { animation-delay: 3.6s; } } @keyframes ds-radar { from { opacity: .7; transform: scale(.18); } to { opacity: 0; transform: scale(1); } }"
     },
     {
       "name": "Ink Card with Pixel Pictogram",
       "kind": "card",
       "refersTo": "card-ink",
-      "description": "Square ink workflow card: one dominant 11x11 square-pixel pictogram, Goldman title, silver body.",
-      "html": "<article class=\"ds-card-ink\"><div class=\"ds-dots\" aria-hidden=\"true\"></div><div><h3>Espacios y aplicaciones</h3><p>Organiza tus aplicaciones por espacio de trabajo y conserva los permisos de cada rol.</p></div></article>",
-      "css": ".ds-card-ink { display: flex; flex-direction: column; gap: 40px; padding: 32px; border-radius: 0; background: #0f0f16; color: #fffefa; box-shadow: inset 0 0 0 1px #fffefa14; } .ds-card-ink h3 { margin: 0 0 12px; font: 700 22px/1.1 Goldman, Oxanium, sans-serif; text-transform: uppercase; letter-spacing: -.005em; } .ds-card-ink p { margin: 0; color: #c7bfbd; font: 15px/1.65 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } .ds-dots { width: 132px; aspect-ratio: 1; background: linear-gradient(90deg, transparent 13%, #e7147d 13% 87%, transparent 87%) 0 0 / calc(100% / 11) calc(100% / 11); -webkit-mask: linear-gradient(transparent 13%, #000 13% 87%, transparent 87%) 0 0 / calc(100% / 11) calc(100% / 11); mask: linear-gradient(transparent 13%, #000 13% 87%, transparent 87%) 0 0 / calc(100% / 11) calc(100% / 11); clip-path: polygon(0 0, 100% 0, 0 100%); }"
+      "description": "16px ink workflow card: one dominant 11x11 pictogram of 2px-radius pixels, display title, silver text.",
+      "html": "<article class=\"ds-card-ink\"><div class=\"ds-dots\" aria-hidden=\"true\"><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i><i class=\"on\"></i><i></i><i></i></div><div><h3>Espacios y aplicaciones</h3><p>Organiza tus aplicaciones por espacio de trabajo y conserva los permisos de cada rol.</p></div></article>",
+      "css": ".ds-card-ink { display: flex; flex-direction: column; gap: 40px; max-width: 420px; padding: 32px; border-radius: 16px; background: #0f0f16; color: #fffefa; box-shadow: inset 0 0 0 1px #fffefa14; } .ds-card-ink h3 { margin: 0 0 12px; font: 700 22px/1.1 'Gotchu Display', 'Archivo', sans-serif; font-stretch: 118%; text-transform: uppercase; letter-spacing: -.005em; } .ds-card-ink p { margin: 0; color: #c7bfbd; font: 15px/1.65 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } .ds-dots { display: grid; grid-template-columns: repeat(11, 1fr); width: 132px; aspect-ratio: 1; } .ds-dots i { margin: 13%; border-radius: 2px; } .ds-dots i.on { background: #e7147d; }"
     },
     {
       "name": "FAQ Disclosure",
       "kind": "custom",
-      "description": "Native details row; the square control turns magenta and rotates 45 degrees into a diamond when open.",
+      "description": "Native details row; the 8px control turns magenta and rotates 45 degrees into a diamond when open.",
       "html": "<details class=\"ds-faq\"><summary>¿Tengo que compartir mi código?<span aria-hidden=\"true\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 5v14M5 12h14\"/></svg></span></summary><p>No. Puedes evaluar únicamente un origen HTTPS autorizado.</p></details>",
-      "css": ".ds-faq { border-top: 1px solid #646174; border-bottom: 1px solid #646174; background: #191923; color: #fffefa; } .ds-faq summary { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; list-style: none; cursor: pointer; font: 600 18px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: color 160ms ease; } .ds-faq summary::-webkit-details-marker { display: none; } .ds-faq summary:hover { color: #ff8fbe; } .ds-faq summary:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; } .ds-faq summary > span { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 0; background: #2b2b3a; color: #fffefa; transition: transform 240ms cubic-bezier(0.23,1,0.32,1), background-color 200ms ease, color 200ms ease; } .ds-faq[open] summary > span { transform: rotate(45deg); background: #e7147d; color: #191923; } .ds-faq p { margin: 0; padding: 0 60px 26px 0; color: #c7bfbd; font: 16px/1.75 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }"
+      "css": ".ds-faq { border-top: 1px solid #646174; border-bottom: 1px solid #646174; background: #191923; color: #fffefa; } .ds-faq summary { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; list-style: none; cursor: pointer; font: 600 18px/1.4 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: color 160ms ease; } .ds-faq summary::-webkit-details-marker { display: none; } .ds-faq summary:hover { color: #ff8fbe; } .ds-faq summary:focus-visible { outline: 2px solid #ffabd0; outline-offset: 4px; } .ds-faq summary > span { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 8px; background: #2b2b3a; color: #fffefa; transition: transform 240ms cubic-bezier(0.23,1,0.32,1), background-color 200ms ease, color 200ms ease; } .ds-faq[open] summary > span { transform: rotate(45deg); background: #e7147d; color: #191923; } .ds-faq p { margin: 0; padding: 0 60px 26px 0; color: #c7bfbd; font: 16px/1.75 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }"
     }
   ],
   "narrative": {
     "northStar": "The Square Brand Board",
-    "overview": "Gotchu speaks like an identity system that also does the job, cut square: one bold mark, wide uppercase type, drenched colour fields and technical blueprint detail, all on straight lines. Panels, cards, tabs, chips and pixels have no radius; framed panels carry corner ticks; hover answers with a hard offset shadow. Art is digital and authored from the world's own materials (the ASCII mark, square dot-matrix pictograms, hairline blueprint grids, square radar motion), never solid 3D objects or realistic renders. Content is real product vocabulary (SHA-256, `_gotchu.<dominio>`, report enums, JSON export keys) and is never padded with invented results.\n\nThe mark `[◆]` is two scope brackets closing on a magenta finding. It is the only symbol of the world and carries the signature behaviour: the brackets spread and snap shut. The interface stays clean: few elements, each at full size, with no captions explaining the artwork.\n\nThe landing tokens are scoped to `.g-page`; customer and demo surfaces keep their own styles until they are deliberately moved into this world.",
+    "overview": "Gotchu speaks like an identity system that also does the job: one bold mark, wide uppercase type, drenched colour fields and technical blueprint detail, all on straight lines with corners only just softened. The geometry stays brutalist (flat fields, hairlines, a hard-edged hover offset) and every corner carries a small, very smooth radius from a fixed scale; nothing becomes a pill or a circle. Art is digital and authored from the world's own materials (the ASCII mark, square dot-matrix pictograms, hairline blueprint grids, square radar motion), never solid 3D objects or realistic renders. Content is real product vocabulary (SHA-256, `_gotchu.<dominio>`, report enums, JSON export keys) and is never padded with invented results.\n\nThe mark `[◆]` is two scope brackets closing on a magenta finding. It is the only symbol of the world and carries the signature behaviour: the brackets spread and snap shut. It lives in the hero itself, large and unframed, over the blueprint grid. The interface stays clean: few elements, each at full size, with no captions explaining the artwork.\n\nThe landing tokens are scoped to `.g-page`; customer and demo surfaces keep their own styles until they are deliberately moved into this world.",
     "keyCharacteristics": [
       "Graphite ground, magenta display fields, silver and ink panels, porcelain type.",
-      "Goldman 700 uppercase for everything that speaks; platform sans for reading; ui-monospace for tags, nav and numbers.",
-      "Square geometry: 0 radius everywhere, 2px on buttons; corner ticks on framed panels; hard 4px offset shadows on hover.",
-      "ASCII and pixel art only: the ASCII mark, 11×11 square-dot pictograms, blueprint grids.",
+      "One Archivo variable file in two faces: Gotchu Display (118% width, 700, uppercase) for everything that speaks, Gotchu Text (100% width) for reading; ui-monospace for tags, nav and numbers.",
+      "Near-square geometry: a small radius scale from 2px pixels to 16px section cards; flat fields and hairlines; a hard-edged, translucent 4px offset on hover.",
+      "ASCII and pixel art only: the ASCII mark, 11×11 dot pictograms, blueprint grids.",
       "Motion moves in straight lines and squares (scan lines, widening square radar, sliding bars); every moving piece has a still equivalent."
     ],
     "rules": [
@@ -375,7 +391,7 @@
       },
       {
         "name": "The Brand Gradient Rule",
-        "body": "Gradients run only between brand colours: magenta to action (flow band, 100°), magenta to action to graphite (closing card, 125°), surface to graphite to ink with a magenta glow (hero frame), magenta fading to transparent (scan line). No other hue ever enters a gradient.",
+        "body": "Gradients run only between brand colours: magenta to action (flow band, 100°), magenta to action to graphite (closing card, 125°), a faint radial magenta glow fading to transparent (hero), magenta fading out at both ends (scan line), silver fading along a hairline (hero foot rule). No other hue ever enters a gradient.",
         "section": "colors"
       },
       {
@@ -384,50 +400,57 @@
         "section": "colors"
       },
       {
-        "name": "The Uppercase Voice Rule",
-        "body": "Goldman is always 700 and always uppercase, with negative tracking at headline sizes and positive tracking at label sizes. Body copy is never set in Goldman.",
+        "name": "The Two-Width Rule",
+        "body": "Both faces come from one variable file: Display is always 118% width, 700 and uppercase, with negative tracking at headline sizes and positive tracking at label sizes; Text is 100% width for every reading line. Reading copy is never set in the display cut.",
         "section": "typography"
       },
       {
         "name": "The Licence Rule",
-        "body": "AIRNT is a visual reference only. Ship Goldman (OFL, licence file alongside the woff2); never embed or distribute AIRNT without licence evidence.",
+        "body": "AIRNT is a visual reference only. Ship Archivo (OFL, licence file alongside the woff2); never embed or distribute AIRNT without licence evidence.",
         "section": "typography"
       },
       {
         "name": "The Hard Offset Rule",
-        "body": "Shadows are never blurred and never ambient. The only drop shadow is the 4px hard offset on hover, in porcelain or magenta; reduced motion removes both the shift and the shadow.",
+        "body": "Shadows are never blurred and never ambient. The only drop shadow is the 4px hard-edged offset on hover, porcelain at 25% or magenta at 80%; reduced motion removes both the shift and the shadow.",
         "section": "elevation"
       },
       {
         "name": "The Flat Panel Rule",
         "body": "Panels are colour fields, not objects. No bevels, gloss, metal, glass, blur or realistic lighting, and no solid 3D renders.",
         "section": "elevation"
+      },
+      {
+        "name": "The Small Radius Rule",
+        "body": "Radius never exceeds 16px and always comes from the scale; a radius exists to soften a corner, not to change the silhouette. No pills, no circles.",
+        "section": "shapes"
       }
     ],
     "dos": [
-      "Do keep every panel, card, tab, chip and pixel square (0) and buttons at 2px; frame panels with corner ticks.",
-      "Do answer button hover with the hard 4px offset shadow, porcelain on action magenta and magenta on light or ink buttons.",
-      "Do put small text on action magenta, graphite, ink or silver, never on signal magenta.",
-      "Do run gradients only between brand colours: magenta, action, graphite, surface, ink.",
-      "Do move motion graphics in straight lines and squares: scan lines, widening squares, sliding bars.",
-      "Do set every display line in Goldman 700 uppercase and every reading line in the platform sans.",
-      "Do label with real product vocabulary in mono bracket tags attached to the thing they name.",
-      "Do mark every primary path into the product with `data-catch` so the mark catches it.",
-      "Do give every moving piece a still equivalent for reduced motion, small or short viewports and no-JS.",
-      "Do make art from ASCII and pixels: the ASCII mark, square dot pictograms, the blueprint grid."
+      "**Do** take every radius from the scale: 2px pixels and bars, 6px chips, 8px controls, 10–14px panels, 16px section cards.",
+      "**Do** answer button hover with the hard-edged 4px offset, porcelain at 25% on action magenta and magenta at 80% on light or ink buttons.",
+      "**Do** put small text on action magenta, graphite, ink or silver, never on signal magenta.",
+      "**Do** run gradients only between brand colours: magenta, action, graphite, silver, surface, ink.",
+      "**Do** move motion graphics in straight lines and squares: scan lines, widening squares, sliding bars.",
+      "**Do** set every display line in Gotchu Display 700 uppercase and every reading line in Gotchu Text.",
+      "**Do** label with real product vocabulary in mono bracket tags attached to the thing they name.",
+      "**Do** draw arrows and icons as inline SVG.",
+      "**Do** mark every primary path into the product with `data-catch` so the mark catches it.",
+      "**Do** give every moving piece a still equivalent and a visible pause where it loops in the first viewport.",
+      "**Do** make art from ASCII and pixels: the ASCII mark, dot pictograms, the blueprint grid."
     ],
     "donts": [
-      "Don't round panels, chips or controls, or use pills and circles.",
-      "Don't blur a shadow or use ambient, glow-style elevation; don't make the header translucent.",
-      "Don't use solid 3D objects, prisms, photos, metal, glass or any realistic render.",
-      "Don't add captions or helper copy that explain the artwork or the page.",
-      "Don't bring a non-brand hue into a gradient.",
-      "Don't show a loader or splash before content.",
-      "Don't invent results, metrics, findings, customers or animated pseudo-data; show product structure instead.",
-      "Don't set small text on signal magenta (#e7147d) or graphite text on action magenta (#c80c68).",
-      "Don't ship or embed AIRNT; Goldman is the licensed face.",
-      "Don't use custom cursors, scroll snapping or hijacking, or particles that cover content.",
-      "Don't use a bracket tag as a kicker above a section headline."
+      "**Don't** use pills, circles or any radius above 16px.",
+      "**Don't** blur a shadow or use ambient, glow-style elevation; don't make the header translucent.",
+      "**Don't** frame the hero mark in a panel or add corner ticks.",
+      "**Don't** use solid 3D objects, prisms, photos, metal, glass or any realistic render.",
+      "**Don't** add captions or helper copy that explain the artwork or the page.",
+      "**Don't** bring a non-brand hue into a gradient.",
+      "**Don't** show a loader or splash before content.",
+      "**Don't** invent results, metrics, findings, customers or animated pseudo-data; show product structure instead.",
+      "**Don't** set small text on signal magenta (#e7147d) or graphite text on action magenta (#c80c68).",
+      "**Don't** ship or embed AIRNT; Archivo is the licensed face.",
+      "**Don't** use custom cursors, scroll snapping or hijacking, or particles that cover content.",
+      "**Don't** put a tag or mono line above a headline as a kicker."
     ]
   }
 }
