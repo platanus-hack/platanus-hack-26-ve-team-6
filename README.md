@@ -14,8 +14,7 @@
   <a href="#ejecutar-en-tu-máquina">Ejecutar</a> ·
   <a href="docs/self-hosting.md">Self-hosting</a> ·
   <a href="docs/architecture.md">Arquitectura</a> ·
-  <a href="docs/implementation-plan.md">Estado</a> ·
-  <a href="docs/validation.md">Verificación</a>
+  <a href="docs/implementation-plan.md">Estado</a>
 </p>
 
 <p align="center">
