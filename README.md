@@ -46,20 +46,11 @@ Gotchu responde a esa pregunta. Revisa el código fuente, el origen HTTPS o los 
 
 Abre `/dashboard` y elige **Crear una cuenta**. Cada cuenta nueva crea su propio espacio de trabajo aislado. El runbook de producción está en [infra/aws](infra/aws/README.md).
 
+![Producción en AWS Lightsail: Caddy, web, coordinator, PostgreSQL, Redis y scanner en un servidor, con backups cifrados en S3](docs/diagrams/arquitectura-produccion.svg)
+
 ## Cómo funciona
 
-```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#fffefa','primaryTextColor':'#191923','primaryBorderColor':'#e7147d','lineColor':'#e7147d','fontFamily':'Saira, Helvetica, sans-serif'}}}%%
-flowchart LR
-  A[Espacio de trabajo] --> B[Aplicación]
-  B --> C[Código fuente<br/>internal]
-  B --> D[Origen HTTPS verificado<br/>external]
-  C --> E[Evaluación]
-  D --> E
-  E --> F[Reporte con evidencia]
-  F --> G[Alertas y vigilancia]
-  F --> H[Corrección y nueva evaluación]
-```
+![Flujo de Gotchu en seis pasos: espacio de trabajo, código fuente, origen HTTPS, evaluación, reporte y corrección](docs/diagrams/flujo-evaluacion.svg)
 
 | Paso | Qué hace Gotchu |
 |---|---|
@@ -83,6 +74,8 @@ flowchart LR
 | Correcciones | Recetas versionadas para hallazgos de Semgrep (TLS desactivado) y de Trivy (KSV001, KSV012, KSV014, KSV017). Los otros hallazgos solo reciben guía. |
 
 ## Qué no afirma Gotchu
+
+![Cómo leer un reporte: confirmado, indicio y desconocido, con severidad, confianza y explotabilidad](docs/diagrams/reporte-evidencia.svg)
 
 - Una coincidencia no prueba que el código esté desplegado.
 - Un paquete vulnerable no prueba que el código vulnerable se pueda alcanzar.
