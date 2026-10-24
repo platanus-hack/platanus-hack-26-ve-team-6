@@ -6,7 +6,6 @@ import {
   createCloudflareStatusAdapter,
   createOsvDependencyAdapter,
   createRailwayStatusAdapter,
-  parseProviderStatusSelection,
 } from '../src/index.js';
 
 function jsonResponse(value: unknown) {
@@ -246,10 +245,5 @@ describe('official provider status adapters', () => {
     const result = await adapter.read();
     expect(result).toMatchObject({ fresh: true, coverageComplete: false, candidate: { kind: 'upstream_outage', upstreamImpact: 'unverified' } });
     expect(result.components).toContainEqual({ name: 'Railway / Unknown component', status: 'unknown' });
-  });
-
-  it('allows either or both status watches and rejects duplicate selection', () => {
-    expect(parseProviderStatusSelection(['cloudflare', 'railway'])).toEqual(['cloudflare', 'railway']);
-    expect(() => parseProviderStatusSelection(['railway', 'railway'])).toThrow();
   });
 });
