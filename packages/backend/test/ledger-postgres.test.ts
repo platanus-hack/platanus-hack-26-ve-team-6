@@ -102,6 +102,106 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
     try { await expect(f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId])).rejects.toMatchObject({ code: '55P03' }); }
     finally { await f.admin.query('ROLLBACK'); release(); await holding; }
   });
+  it('restricts lookup and ledger mutations to the executor role and exact tenant/approval', async () => {
+    const a = await approved();
+    const request = { organizationId: f.a.organizationId, approvalId: a.approvalId };
+    const claim = await executor.executions.claim(request);
+    const token = { organizationId: f.a.organizationId, executionId: claim.executionId, claimToken: claim.claimToken };
+    expect(await executor.executions.findByApproval(request)).toMatchObject({ ...claim, ...request, applicationId: f.a.applicationId, state: 'claimed' });
+    expect(await executor.executions.findByApproval({ organizationId: f.b.organizationId, approvalId: a.approvalId })).toBeUndefined();
+    expect(await executor.executions.findByApproval({ ...request, approvalId: randomUUID() })).toBeUndefined();
+    for (const role of ['gotchu_api', 'gotchu_ingest', 'gotchu_coordinator'] as const) {
+      const service = createBackend({ database: f.databases[role] }).executions;
+      await expect(service.findByApproval(request)).rejects.toMatchObject({ code: 'forbidden' });
+      await expect(service.claim(request)).rejects.toMatchObject({ code: 'forbidden' });
+      await expect(service.assertWritable(token)).rejects.toMatchObject({ code: 'forbidden' });
+      await expect(service.finish({ ...token, outcome: 'failed' })).rejects.toMatchObject({ code: 'forbidden' });
+      await expect(service.resolveUncertain({ ...token, outcome: 'failed' })).rejects.toMatchObject({ code: 'forbidden' });
+    }
+    for (const patch of [{ organizationId: f.b.organizationId }, { claimToken: randomUUID() }, { executionId: randomUUID() }]) {
+      await expect(executor.executions.assertWritable({ ...token, ...patch })).rejects.toMatchObject({ code: 'stale_execution' });
+      await expect(executor.executions.finish({ ...token, ...patch, outcome: 'failed' })).rejects.toMatchObject({ code: 'stale_execution' });
+      await expect(executor.executions.resolveUncertain({ ...token, ...patch, outcome: 'failed' })).rejects.toMatchObject({ code: 'stale_execution' });
+    }
+    await executor.executions.assertWritable(token);
+  });
+  it('validates stored proposals and binding even when looking up an existing execution', async () => {
+    const a = await approved();
+    const request = { organizationId: f.a.organizationId, approvalId: a.approvalId };
+    await executor.executions.claim(request);
+    const stored = present(await executor.executions.findByApproval(request));
+    const damaged = [
+      {},
+      { ...stored.proposal, applicationId: f.b.applicationId },
+      { ...stored.proposal, policyVersion: 'tampered-policy' },
+    ];
+    for (const body of damaged) {
+      await f.admin.query('UPDATE gotchu.proposals SET body=$2::jsonb WHERE id=$1', [a.proposalId, JSON.stringify(body)]);
+      await expect(executor.executions.findByApproval(request)).rejects.toMatchObject({ code: 'execution_corrupt' });
+    }
+    await f.admin.query('UPDATE gotchu.proposals SET body=$2::jsonb,invalidated_at=now() WHERE id=$1', [a.proposalId, JSON.stringify(stored.proposal)]);
+    expect(await executor.executions.findByApproval(request)).toEqual(stored);
+  });
+  it('normalizes UUID spelling and atomically settles uncertainty without reviving a write', async () => {
+    const a = await approved();
+    const request = { organizationId: f.a.organizationId.toUpperCase(), approvalId: a.approvalId.toUpperCase() };
+    const claim = await executor.executions.claim(request);
+    const token = { organizationId: request.organizationId, executionId: claim.executionId.toUpperCase(), claimToken: claim.claimToken.toUpperCase() };
+    await executor.executions.assertWritable(token);
+    await expect(executor.executions.resolveUncertain({ ...token, outcome: 'failed' })).rejects.toMatchObject({ code: 'stale_execution' });
+    await executor.executions.finish({ ...token, outcome: 'uncertain' });
+    const settlement = { ...token, outcome: 'succeeded' as const, providerReference: 'test-only:independently-observed-pr/42' };
+    await Promise.all([executor.executions.resolveUncertain(settlement), executor.executions.resolveUncertain(settlement)]);
+    const settled = present(await executor.executions.findByApproval(request));
+    expect(settled).toMatchObject({ organizationId: f.a.organizationId, approvalId: a.approvalId, state: 'succeeded', providerReference: settlement.providerReference });
+    const before = await f.admin.query('SELECT finished_at FROM gotchu.executions WHERE id=$1', [claim.executionId]);
+    await executor.executions.resolveUncertain(settlement);
+    expect((await f.admin.query('SELECT finished_at FROM gotchu.executions WHERE id=$1', [claim.executionId])).rows).toEqual(before.rows);
+    expect((await f.admin.query("SELECT id FROM gotchu.audit_records WHERE subject_id=$1 AND action='execution.reconciled'", [claim.executionId])).rowCount).toBe(1);
+    await expect(executor.executions.resolveUncertain({ ...settlement, outcome: 'failed' })).rejects.toMatchObject({ code: 'stale_execution' });
+    await expect(executor.executions.resolveUncertain({ ...settlement, providerReference: 'test-only:different-pr' })).rejects.toMatchObject({ code: 'stale_execution' });
+    await expect(executor.executions.assertWritable(token)).rejects.toMatchObject({ code: 'stale_execution' });
+    await expect(executor.executions.finish({ ...token, outcome: 'uncertain' })).rejects.toMatchObject({ code: 'stale_execution' });
+  });
+  it('rejects unknown settlement states, missing success references, and forged identities', async () => {
+    const a = await approved();
+    const claim = await executor.executions.claim({ organizationId: f.a.organizationId, approvalId: a.approvalId });
+    const token = { organizationId: f.a.organizationId, executionId: claim.executionId, claimToken: claim.claimToken };
+    await executor.executions.finish({ ...token, outcome: 'uncertain' });
+    for (const outcome of ['claimed', 'uncertain', 'unknown']) {
+      await expect(executor.executions.resolveUncertain(Object.assign({ ...token, outcome: 'failed' as const }, { outcome }))).rejects.toMatchObject({ code: 'invalid_input' });
+    }
+    for (const providerReference of [undefined, '', '   ']) {
+      await expect(executor.executions.resolveUncertain({ ...token, outcome: 'succeeded', ...(providerReference === undefined ? {} : { providerReference }) })).rejects.toMatchObject({ code: 'invalid_input' });
+    }
+    for (const patch of [{ organizationId: f.b.organizationId }, { claimToken: randomUUID() }, { executionId: randomUUID() }]) {
+      await expect(executor.executions.resolveUncertain({ ...token, ...patch, outcome: 'failed' })).rejects.toMatchObject({ code: 'stale_execution' });
+    }
+    await expect(f.admin.query("UPDATE gotchu.executions SET state='unknown' WHERE id=$1", [claim.executionId])).rejects.toMatchObject({ code: '23514' });
+    await executor.executions.resolveUncertain({ ...token, outcome: 'failed' });
+    await executor.executions.resolveUncertain({ ...token, outcome: 'failed' });
+    await expect(executor.executions.assertWritable(token)).rejects.toMatchObject({ code: 'stale_execution' });
+  });
+  it('records reconciliation during frozen recovery without changing recovery or approval authority', async () => {
+    const a = await approved();
+    const request = { organizationId: f.a.organizationId, approvalId: a.approvalId };
+    const claim = await executor.executions.claim(request);
+    const token = { organizationId: f.a.organizationId, executionId: claim.executionId, claimToken: claim.claimToken };
+    await executor.executions.finish({ ...token, outcome: 'uncertain' });
+    await setRecoveryState({ connectionString: present(liveUrl), mode: 'freeze' });
+    try {
+      const frozen = await f.admin.query('SELECT * FROM gotchu.platform_state');
+      await executor.executions.resolveUncertain({ ...token, outcome: 'succeeded', providerReference: 'test-only:verified-during-recovery' });
+      expect(await executor.executions.findByApproval(request)).toMatchObject({ state: 'succeeded' });
+      await expect(executor.executions.assertWritable(token)).rejects.toMatchObject({ code: 'writes_frozen' });
+      await expect(executor.executions.claim(request)).rejects.toMatchObject({ code: 'approval_used' });
+      expect((await f.admin.query('SELECT * FROM gotchu.platform_state')).rows).toEqual(frozen.rows);
+      expect((await f.admin.query('SELECT consumed_at FROM gotchu.approvals WHERE id=$1', [a.approvalId])).rows[0].consumed_at).not.toBeNull();
+    } finally {
+      await setRecoveryState({ connectionString: present(liveUrl), mode: 'reconciled', reconciliationReference: 'TEST ONLY cleanup; fake provider observations' });
+    }
+    await expect(executor.executions.assertWritable(token)).rejects.toMatchObject({ code: 'stale_execution' });
+  });
   it('freezes provider writes and prevents old approvals from reviving after recovery', async () => {
     const a = await approved();
     await setRecoveryState({ connectionString: present(liveUrl), mode: 'freeze' });
