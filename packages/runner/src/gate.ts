@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -38,10 +38,26 @@ export interface RunnerGateOptions {
 }
 
 export type RunnerGate = { status: 'open' } | { status: 'closed'; reason: string };
+const SELF_TEST_TTL_MS = 15 * 60 * 1000;
 
 async function sha256(path: string): Promise<string> {
   const bytes = await readFile(path);
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+async function sandboxFingerprint(root: string, sandbox: unknown, lock: z.infer<typeof imageLockSchema>): Promise<string> {
+  const [launcher, vmConfig] = await Promise.all([
+    sha256(join(root, 'dist', 'firecracker.js')),
+    sha256(join(root, 'dist', 'vm-config.js')),
+  ]);
+  return createHash('sha256').update(JSON.stringify({
+    sandbox,
+    firecracker: lock.firecracker.binarySha256,
+    kernel: lock.kernel.sha256,
+    rootfs: lock.rootfs.sha256,
+    launcher,
+    vmConfig,
+  })).digest('hex');
 }
 
 export async function checkRunnerGate(options: RunnerGateOptions = {}): Promise<RunnerGate> {
@@ -78,11 +94,30 @@ export async function checkRunnerGate(options: RunnerGateOptions = {}): Promise<
     if (!sandbox.executionEnabled) {
       return { status: 'closed', reason: 'Host sandbox self-test has not passed; execution remains disabled.' };
     }
-    return { status: 'closed', reason: 'Host sandbox self-test has not passed within the required verification window.' };
+    const selfTestPath = join(cache, 'host-sandbox-self-test.json');
+    const selfTest: unknown = JSON.parse(await readFile(selfTestPath, 'utf8'));
+    if (typeof selfTest !== 'object' || selfTest === null || !('checkedAt' in selfTest) || !('fingerprint' in selfTest)
+      || typeof selfTest.checkedAt !== 'number' || typeof selfTest.fingerprint !== 'string') {
+      return { status: 'closed', reason: 'Host sandbox self-test record is invalid.' };
+    }
+    const fingerprint = await sandboxFingerprint(root, sandbox, lock);
+    if (selfTest.fingerprint !== fingerprint || Date.now() - selfTest.checkedAt > SELF_TEST_TTL_MS || selfTest.checkedAt > Date.now()) {
+      return { status: 'closed', reason: 'Host sandbox self-test has not passed within the required verification window.' };
+    }
+    return { status: 'open' };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown runner readiness error';
     return { status: 'closed', reason: `Runner prerequisites are unavailable or invalid: ${message}` };
   }
+}
+
+export async function recordRunnerSelfTest(cacheDir: string, packageDir: string): Promise<void> {
+  const sandboxRaw: unknown = JSON.parse(await readFile(join(packageDir, 'sandbox.json'), 'utf8'));
+  const sandbox = sandboxSchema.parse(sandboxRaw);
+  const lockRaw: unknown = JSON.parse(await readFile(join(packageDir, 'images.lock.json'), 'utf8'));
+  const lock = imageLockSchema.parse(lockRaw);
+  const fingerprint = await sandboxFingerprint(packageDir, sandbox, lock);
+  await writeFile(join(cacheDir, 'host-sandbox-self-test.json'), JSON.stringify({ checkedAt: Date.now(), fingerprint }), { mode: 0o600 });
 }
 
 export const runnerPackageRoot = packageRoot;

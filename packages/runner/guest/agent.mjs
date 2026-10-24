@@ -1,4 +1,5 @@
-import { mkdir, readFile, chown } from 'node:fs/promises';
+import { mkdir, readFile, chown, lstat, readdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
@@ -48,6 +49,7 @@ function execute(args) {
 let status = 'completed';
 let exitCode = 0;
 let resource;
+let infrastructureReason;
 try {
   let result = { code: 0, signal: null };
   for (const entry of cacheManifest.entries) {
@@ -74,17 +76,60 @@ try {
   outputs.stderr.push(Buffer.from(value.slice(0, 1024)));
   captured.stderr += Math.min(value.length, 1024);
   exitCode = 127;
+  infrastructureReason = value.slice(0, 512);
 }
 
 const stdout = Buffer.concat(outputs.stdout).toString('utf8');
 const stderr = Buffer.concat(outputs.stderr).toString('utf8');
-const payload = {
+const artifactPolicy = { roots: ['test-results', 'coverage'], maxCount: 10, maxBytes: 256 * 1024 };
+const artifacts = [];
+let artifactBytes = 0;
+async function collectArtifacts(directory, relative = '') {
+  for (const entry of (await readdir(directory)).sort()) {
+    const path = relative ? `${relative}/${entry}` : entry;
+    if (entry === '.' || entry === '..' || path.includes('\\')) throw new Error('Unsafe artifact path');
+    const fullPath = `${directory}/${entry}`;
+    const stat = await lstat(fullPath);
+    if (stat.isSymbolicLink()) throw new Error(`Artifact symlinks are not allowed: ${path}`);
+    if (stat.isDirectory()) await collectArtifacts(fullPath, path);
+    else if (stat.isFile()) {
+      const bytes = await readFile(fullPath);
+      artifactBytes += bytes.length;
+      if (artifacts.length >= artifactPolicy.maxCount || artifactBytes > artifactPolicy.maxBytes) {
+        const error = new Error('Artifact count or byte limit exceeded');
+        error.code = 'ARTIFACT_LIMIT';
+        throw error;
+      }
+      artifacts.push({ path, sizeBytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), contentBase64: bytes.toString('base64') });
+    }
+  }
+}
+try {
+  for (const root of artifactPolicy.roots) {
+    const path = `${work}/${root}`;
+    try {
+      if ((await lstat(path)).isDirectory()) await collectArtifacts(path, root);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+} catch (error) {
+  if (error?.code === 'ARTIFACT_LIMIT') {
+    status = 'resource_exceeded';
+    resource = 'artifact';
+    artifacts.length = 0;
+  } else {
+    status = 'infrastructure_failed';
+    infrastructureReason = (error instanceof Error ? error.message : 'Artifact collection failed').slice(0, 512);
+  }
+}
+const payload = status === 'infrastructure_failed' ? { status, reason: infrastructureReason ?? 'Guest execution failed' } : {
   status,
   exitCode,
   ...(resource ? { resource } : {}),
   stdout,
   stderr,
-  artifacts: [],
+  artifacts,
   lockfileSha256: cacheManifest.lockfileSha256,
   tarballSetSha256: cacheManifest.tarballSetSha256,
 };

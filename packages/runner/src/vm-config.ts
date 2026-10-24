@@ -40,7 +40,7 @@ async function createNpmCacheDisk(stage: string, dependencies: FetchedNpmDepende
   const entries = dependencies.tarballs.map((tarball) => ({ file: `${tarball.sha256}.tgz`, integrity: tarball.integrity }));
   await Promise.all(dependencies.tarballs.map((tarball) => writeFile(join(cacheStage, 'tarballs', `${tarball.sha256}.tgz`), tarball.bytes, { mode: 0o444 })));
   await writeFile(join(cacheStage, 'manifest.json'), JSON.stringify({ lockfileSha256: dependencies.lockfileSha256, tarballSetSha256: dependencies.tarballSetSha256, entries }), { mode: 0o444 });
-  const image = join(stage, '..', 'npm-cache.ext4');
+  const image = join(stage, 'npm-cache.ext4');
   const size = Math.max(16, Math.ceil((dependencies.tarballs.reduce((total, item) => total + item.bytes.length, 0) + 4096) / (1024 * 1024)) + 8);
   await runBuildCommand('truncate', ['-s', `${size}M`, image]);
   await runBuildCommand('mkfs.ext4', ['-q', '-F', '-d', cacheStage, image]);
@@ -87,5 +87,12 @@ export async function prepareVmBootFiles(
   };
   const configPath = join(tempDir, 'firecracker.json');
   await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
-  return { executable: firecracker, args: ['--no-api', '--config-file', '/job/firecracker.json'], kernel, baseRootfs, memoryMiB: job.limits.memMiB, vcpu: job.limits.vcpu };
+  return {
+    executable: firecracker,
+    args: ['--no-api', '--log-path', '/job/firecracker.log', '--metrics-path', '/job/firecracker.metrics', '--config-file', '/job/firecracker.json'],
+    kernel,
+    baseRootfs,
+    memoryMiB: job.limits.memMiB,
+    vcpu: job.limits.vcpu,
+  };
 }

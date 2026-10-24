@@ -23,7 +23,7 @@ const guestPayloadSchema = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('resource_exceeded'),
     exitCode: z.number().int(),
-    resource: z.enum(['pids', 'memory', 'disk', 'output', 'cpu']),
+    resource: z.enum(['pids', 'memory', 'disk', 'output', 'cpu', 'artifact']),
     lockfileSha256: z.string().regex(/^[a-f0-9]{64}$/),
     tarballSetSha256: z.string().regex(/^[a-f0-9]{64}$/),
     ...guestOutputFields,

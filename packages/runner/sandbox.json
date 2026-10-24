@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "executionEnabled": false,
+  "executionEnabled": true,
   "hostSandboxSelfTestRequired": true,
   "networkMode": "none",
   "seccomp": "firecracker-default",

@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 import { type ChildProcess } from 'node:child_process';
-import { runnerResultSchema, type RunnerJob, type RunnerResult } from './contracts.js';
+import { runnerArtifactSchema, runnerResultSchema, type RunnerJob, type RunnerResult } from './contracts.js';
 import { makeOutput, type GuestPayload } from './protocol.js';
 import { isolationEvidence } from './images.js';
+import { isAllowedArtifactPath, NODE24_NPM_TEST_PROFILE } from './profile.js';
 
 export const MAX_SERIAL_BYTES = 8 * 1024 * 1024;
 
@@ -28,6 +30,21 @@ export function parseResult(payload: GuestPayload, job: RunnerJob, durationMs: n
     const output = makeOutput(value, maxPerStream);
     return guestCappedOutput ? { ...output, truncated: true } : output;
   };
+  const artifactPaths = new Set<string>();
+  const artifacts = payload.artifacts.map((item) => {
+    const artifact = runnerArtifactSchema.parse(item);
+    if (!isAllowedArtifactPath(artifact.path)) throw new Error(`Guest returned an artifact outside the profile allowlist: ${artifact.path}`);
+    if (artifactPaths.has(artifact.path)) throw new Error(`Guest returned a duplicate artifact path: ${artifact.path}`);
+    artifactPaths.add(artifact.path);
+    const bytes = Buffer.from(artifact.contentBase64, 'base64');
+    if (bytes.toString('base64') !== artifact.contentBase64 || bytes.length !== artifact.sizeBytes || createHash('sha256').update(bytes).digest('hex') !== artifact.sha256) {
+      throw new Error(`Guest artifact digest or size is invalid: ${artifact.path}`);
+    }
+    return artifact;
+  });
+  if (artifacts.length > NODE24_NPM_TEST_PROFILE.artifacts.maxCount || artifacts.reduce((sum, item) => sum + item.sizeBytes, 0) > NODE24_NPM_TEST_PROFILE.artifacts.maxBytes) {
+    throw new Error('Guest artifacts exceed the profile count or byte limit');
+  }
   const stdout = captured(payload.stdout);
   const stderr = captured(payload.stderr);
   if (payload.status === 'timed_out') return runnerResultSchema.parse({ status: 'timed_out', durationMs, isolation, stdout, stderr });
@@ -37,7 +54,7 @@ export function parseResult(payload: GuestPayload, job: RunnerJob, durationMs: n
     });
   }
   return runnerResultSchema.parse({
-    status: 'completed', exitCode: payload.exitCode, durationMs, isolation, stdout, stderr, artifacts: [],
+    status: 'completed', exitCode: payload.exitCode, durationMs, isolation, stdout, stderr, artifacts,
   });
 }
 

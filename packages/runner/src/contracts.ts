@@ -40,10 +40,11 @@ const outputSchema = z.object({
   bytes: z.number().int().nonnegative().max(1024 * 1024),
 }).strict();
 
-const artifactSchema = z.object({
+export const runnerArtifactSchema = z.object({
   path: z.string().min(1).max(512),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
-  sizeBytes: z.number().int().nonnegative().max(64 * 1024 * 1024),
+  sizeBytes: z.number().int().nonnegative().max(256 * 1024),
+  contentBase64: z.string().max(350_000),
 }).strict();
 
 const isolationSchema = z.object({
@@ -70,7 +71,7 @@ export const runnerResultSchema = z.discriminatedUnion('status', [
     exitCode: z.number().int(),
     stdout: outputSchema,
     stderr: outputSchema,
-    artifacts: z.array(artifactSchema).max(1000),
+    artifacts: z.array(runnerArtifactSchema).max(10),
   }),
   timed.extend({
     status: z.literal('timed_out'),
@@ -79,7 +80,7 @@ export const runnerResultSchema = z.discriminatedUnion('status', [
   }),
   timed.extend({
     status: z.literal('resource_exceeded'),
-    resource: z.enum(['pids', 'memory', 'disk', 'output', 'cpu']),
+    resource: z.enum(['pids', 'memory', 'disk', 'output', 'cpu', 'artifact']),
     stdout: outputSchema,
     stderr: outputSchema,
   }),

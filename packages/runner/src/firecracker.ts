@@ -1,9 +1,9 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { access, mkdtemp, readFile, readlink, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { runnerJobSchema, runnerResultSchema, type RunnerJob, type RunnerResult } from './contracts.js';
-import { checkRunnerGate, runnerPackageRoot } from './gate.js';
+import { checkRunnerGate, recordRunnerSelfTest, runnerPackageRoot } from './gate.js';
 import { parseGuestFrame, validateGuestPayload } from './protocol.js';
 import { readArchiveFiles, validateInputArchive } from './archive.js';
 import { fetchNpmDependencies } from './npm-cache.js';
@@ -67,7 +67,67 @@ class Semaphore {
   }
 }
 
-async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signal?: AbortSignal): Promise<VmOutcome> {
+interface HostSandboxProbe {
+  readonly networkIsolated: boolean;
+  readonly homeHidden: boolean;
+  readonly scopeLimitsApplied: boolean;
+}
+
+async function inspectSandboxScope(unit: string, expected: { memoryMiB: number; tasks: number; cpuPercent: number }): Promise<HostSandboxProbe> {
+  let values: Record<string, string> = {};
+  let vmmPids: string[] = [];
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const show = await new Promise<string>((resolve, reject) => {
+      const check = spawn('/usr/bin/systemctl', ['--user', 'show', '--property=ActiveState', '--property=MemoryMax', '--property=TasksMax', '--property=CPUQuotaPerSecUSec', '--property=ControlGroup', unit], { stdio: ['ignore', 'pipe', 'ignore'] });
+      let output = '';
+      check.stdout?.on('data', (chunk: Buffer) => { output += chunk.toString('utf8'); });
+      check.once('error', reject);
+      check.once('close', (code) => code === 0 ? resolve(output.trim()) : reject(new Error('Could not inspect runner scope limits')));
+    });
+    values = Object.fromEntries(show.split('\n').map((line) => {
+      const separator = line.indexOf('=');
+      return [line.slice(0, separator), line.slice(separator + 1)];
+    }));
+    if (values.ActiveState === 'active' && values.ControlGroup) {
+      const pids = (await readFile(`/sys/fs/cgroup${values.ControlGroup}/cgroup.procs`, 'utf8')).trim().split('\n').filter(Boolean);
+      vmmPids = [];
+      for (const pid of pids) {
+        try {
+          const executable = (await readlink(`/proc/${pid}/exe`)).split('/').at(-1);
+          if (executable === 'firecracker' || executable?.startsWith('firecracker-v')) vmmPids.push(pid);
+        } catch { /* process can exit while the scope is inspected */ }
+      }
+      if (vmmPids.length > 0) break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const controlGroup = values.ControlGroup;
+  if (!controlGroup || vmmPids.length === 0) throw new Error('Firecracker did not become visible inside the runner scope for the sandbox self-test');
+  const hostNetwork = await readlink('/proc/self/ns/net');
+  let networkIsolated = true;
+  let homeHidden = true;
+  for (const pid of vmmPids) {
+    const namespace = await readlink(`/proc/${pid}/ns/net`);
+    const routes = (await readFile(`/proc/${pid}/net/route`, 'utf8')).trim().split('\n').slice(1).filter(Boolean);
+    const interfaces = (await readFile(`/proc/${pid}/net/dev`, 'utf8')).trim().split('\n').slice(2).map((line) => line.split(':')[0]?.trim()).filter(Boolean);
+    networkIsolated &&= namespace !== hostNetwork && routes.length === 0 && interfaces.every((name) => name === 'lo');
+    try {
+      await access(`/proc/${pid}/root${homedir()}`);
+      homeHidden = false;
+    } catch (error) {
+      homeHidden &&= error instanceof Error && 'code' in error && error.code === 'ENOENT';
+    }
+  }
+  return {
+    networkIsolated,
+    homeHidden,
+    scopeLimitsApplied: values.MemoryMax === String(expected.memoryMiB * 1024 * 1024)
+      && values.TasksMax === String(expected.tasks)
+      && values.CPUQuotaPerSecUSec === `${expected.cpuPercent / 100}s`,
+  };
+}
+
+async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signal?: AbortSignal, onSpawn?: (unit: string) => Promise<HostSandboxProbe>): Promise<VmOutcome & { readonly hostProbe?: HostSandboxProbe }> {
   const archive = validateInputArchive(input);
   const packageLock = readArchiveFiles(archive.tarBytes).get('package-lock.json');
   if (!packageLock) throw new Error('node24-npm-test requires package-lock.json');
@@ -80,12 +140,14 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
   let exit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
   let exitPromise: Promise<{ code: number | null; signal: NodeJS.Signals | null }> | undefined;
   let serial: Uint8Array = new Uint8Array(0);
+  let firecrackerStderr = '';
   let imagesVerified = false;
   let timedOut = false;
   let outputExceeded = false;
   let timeout: NodeJS.Timeout | undefined;
   let onAbort: (() => void) | undefined;
   let cleanupVerified = false;
+  let hostProbe: HostSandboxProbe | undefined;
   const unit = `gotchu-runner-${job.jobId}.scope`;
   let outcome: RunnerResult;
 
@@ -101,7 +163,7 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
     }
     const bwrapArgs = [
       '--unshare-all', '--die-with-parent', '--new-session', '--clearenv', '--cap-drop', 'ALL',
-      '--ro-bind', '/usr', '/usr', '--ro-bind', '/lib', '/lib', '--ro-bind', '/lib64', '/lib64', '--ro-bind', '/etc', '/etc',
+      '--ro-bind', '/usr', '/usr', '--ro-bind', '/lib', '/lib', '--ro-bind', '/lib64', '/lib64', '--ro-bind', '/etc/ld.so.cache', '/etc/ld.so.cache',
       '--proc', '/proc', '--dev', '/dev', '--dev-bind', '/dev/kvm', '/dev/kvm', '--tmpfs', '/tmp',
       '--dir', '/runner', '--ro-bind', bootFiles.executable, '/runner/firecracker',
       '--ro-bind', bootFiles.kernel, '/runner/kernel', '--ro-bind', bootFiles.baseRootfs, '/runner/rootfs-base',
@@ -115,7 +177,7 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
     ];
     child = spawn('/usr/bin/systemd-run', scopeArgs, {
       cwd: tempDir,
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
     });
     exitPromise = waitForExit(child);
@@ -123,6 +185,8 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
       outputExceeded = true;
       killProcessGroup(child);
     });
+    child.stderr?.on('data', (chunk: Buffer) => { firecrackerStderr = (firecrackerStderr + chunk.toString('utf8')).slice(-16 * 1024); });
+    if (onSpawn) hostProbe = await onSpawn(unit);
     onAbort = () => {
       killProcessGroup(child);
     };
@@ -154,7 +218,11 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
       outcome = runnerResultSchema.parse({ ...parsed, isolation: isolationEvidence(job, lock, true, false) });
     }
   } catch (error) {
-    const reason = error instanceof Error ? error.message : 'Unknown Firecracker adapter failure';
+    const message = error instanceof Error ? error.message : 'Unknown Firecracker adapter failure';
+    const diagnostics = firecrackerStderr
+      ? `; Firecracker stderr: ${firecrackerStderr.slice(-220)}`
+      : serial.length > 0 ? `; Serial tail: ${Buffer.from(serial).toString('utf8').slice(-220)}` : '';
+    const reason = `${message.slice(0, 280)}${diagnostics}`;
     if (timedOut) {
       outcome = runnerResultSchema.parse({
         status: 'timed_out', durationMs: Date.now() - started,
@@ -210,7 +278,58 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
     }
   }
 
-  return finalResult(outcome, cleanupVerified);
+  return { ...finalResult(outcome, cleanupVerified), ...(hostProbe ? { hostProbe } : {}) };
+}
+
+function tarFile(path: string, text: string): Buffer {
+  const body = Buffer.from(text);
+  const header = Buffer.alloc(512);
+  header.write(path, 0, 100, 'utf8');
+  header.write('0000644\0', 100, 8, 'ascii');
+  header.write('0000000\0', 108, 8, 'ascii');
+  header.write('0000000\0', 116, 8, 'ascii');
+  header.write(`${body.length.toString(8).padStart(11, '0')}\0`, 124, 12, 'ascii');
+  header.write('00000000000\0', 136, 12, 'ascii');
+  header.fill(32, 148, 156);
+  header.write('0', 156, 1, 'ascii');
+  header.write('ustar\0', 257, 6, 'ascii');
+  let checksum = 0;
+  for (const byte of header) checksum += byte;
+  header.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 8, 'ascii');
+  const block = Buffer.alloc(Math.ceil(body.length / 512) * 512);
+  body.copy(block);
+  return Buffer.concat([header, block]);
+}
+
+function selfTestArchive(): Buffer {
+  const manifest = JSON.stringify({ name: 'gotchu-host-sandbox-canary', version: '1.0.0', scripts: { test: 'node test.js' } });
+  const lock = JSON.stringify({ name: 'gotchu-host-sandbox-canary', version: '1.0.0', lockfileVersion: 3, requires: true, packages: { '': { name: 'gotchu-host-sandbox-canary', version: '1.0.0' } } });
+  const source = "const assert=require('assert');const net=require('net');assert.equal(process.env.HOME,'/scratch/home');const s=net.connect({host:'1.1.1.1',port:80});s.setTimeout(300);s.on('connect',()=>process.exit(2));s.on('timeout',()=>{s.destroy();process.exit(0)});s.on('error',()=>process.exit(0));setTimeout(()=>process.exit(0),500);";
+  return Buffer.concat([tarFile('package.json', manifest), tarFile('package-lock.json', lock), tarFile('test.js', source), Buffer.alloc(1024)]);
+}
+
+export async function selfTest(options: { cacheDir?: string; signal?: AbortSignal } = {}): Promise<{ status: 'passed' } | { status: 'failed'; reason: string }> {
+  const cacheDir = options.cacheDir ?? join(homedir(), '.cache', 'gotchu-runner');
+  const archive = selfTestArchive();
+  const job: RunnerJob = {
+    jobId: 'c30f04a6-3ef2-4cab-9541-fc907748c463',
+    organizationId: 'dc7dc303-1601-4d3e-ae5a-611839b33167',
+    profile: 'node24-npm-test',
+    input: { objectId: 'f937cc40-a51e-4c16-b8e9-64e8d6054ef2', sha256: sha256(archive), sizeBytes: archive.length },
+    limits: { vcpu: 1, memMiB: 512, pids: 64, wallMs: 45_000, outputBytes: 16_384, diskMiB: 2048 },
+    networkPolicy: { mode: 'deny' },
+  };
+  try {
+    const result = await runMicroVm(job, archive, cacheDir, options.signal, (unit) => inspectSandboxScope(unit, { memoryMiB: 1024, tasks: 80, cpuPercent: 100 }));
+    if (result.result.status !== 'completed' || result.result.exitCode !== 0 || !result.cleanupVerified
+      || !result.hostProbe?.networkIsolated || !result.hostProbe.homeHidden || !result.hostProbe.scopeLimitsApplied) {
+      return { status: 'failed', reason: `Sandbox canary did not verify all controls: ${JSON.stringify({ result: result.result.status, exitCode: result.result.status === 'completed' ? result.result.exitCode : undefined, cleanup: result.cleanupVerified, probe: result.hostProbe })}`.slice(0, 512) };
+    }
+    await recordRunnerSelfTest(cacheDir, runnerPackageRoot);
+    return { status: 'passed' };
+  } catch (error) {
+    return { status: 'failed', reason: error instanceof Error ? error.message.slice(0, 512) : 'Unknown sandbox self-test failure' };
+  }
 }
 
 export function createFirecrackerRunner(options: RunnerOptions) {
@@ -283,4 +402,5 @@ export const runJob = defaultRunner.runJob;
 
 export const __testOnly = {
   runMicroVm,
+  inspectSandboxScope,
 };
