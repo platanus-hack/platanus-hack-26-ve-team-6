@@ -139,6 +139,14 @@ function dependencyFindingGroups(input: CustomerRunInput, report: CustomerAssess
   return [...groups.values()].sort((left, right) => left.packageName.localeCompare(right.packageName) || left.fromVersion.localeCompare(right.fromVersion)).slice(0, 20);
 }
 
+function hasCompleteNpmLockfileCoverage(report: CustomerAssessmentReport) {
+  const internal = report.internal;
+  const inventory = internal?.dependencyInventory;
+  return inventory?.complete === true
+    && internal?.coverage.some(item => item.capability === 'dependency_inventory' && item.state === 'inspected') === true
+    && inventory.lockfiles.some(file => file.state === 'inspected' && (file.format === 'npm-v2' || file.format === 'npm-v3'));
+}
+
 function recommendation(group: DependencyFindingGroup, status: 'eligible' | 'guidance_only', reason: NpmFixReason | null, toVersion: string | null,
   candidate?: Pick<DependencyCandidateRow, 'candidate_source_id' | 'validation_run_id' | 'validation_state'>, diffSummary?: string | null): DependencyFixRecommendation {
   return {
@@ -207,9 +215,8 @@ export function createCorrectionService(deps: BaseDependencies & { npmRegistry?:
       if (!context.validationSuiteConfigured) return recommendation(group, 'guidance_only', 'validation_suite_missing', null);
       if (group.relationship === 'transitive') return recommendation(group, 'guidance_only', 'transitive_override_not_supported', null);
       const internal = context.assessment.report.internal;
-      const lockCoverage = internal?.coverage.find(item => item.capability === 'npm_lockfile')?.state;
       const advisoryCoverage = internal?.coverage.find(item => item.capability === 'dependency_advisories')?.state;
-      if (lockCoverage !== 'inspected' || advisoryCoverage !== 'inspected') return recommendation(group, 'guidance_only', 'source_incomplete', null);
+      if (!hasCompleteNpmLockfileCoverage(context.assessment.report) || advisoryCoverage !== 'inspected') return recommendation(group, 'guidance_only', 'source_incomplete', null);
       const existing = context.candidates.find(candidate => candidate.package_name === group.packageName && candidate.from_version === group.fromVersion);
       if (existing) return recommendation(group, 'eligible', null, existing.to_version, existing);
       if (group.advisoryIds.length > 20 || group.advisories.length !== group.advisoryIds.length || group.advisories.some(item => item === null)) return recommendation(group, 'guidance_only', 'advisory_metadata_missing', null);
@@ -269,8 +276,8 @@ export function createCorrectionService(deps: BaseDependencies & { npmRegistry?:
     });
     if (initial.group.relationship !== 'direct') throw new BackendError('dependency_guidance_only', 'Transitive upgrades require a safe npm override and remain guidance only', 409);
     const internal = initial.context.assessment.report.internal;
-    if (internal?.coverage.find(item => item.capability === 'npm_lockfile')?.state !== 'inspected'
-      || internal.coverage.find(item => item.capability === 'dependency_advisories')?.state !== 'inspected') {
+    if (!hasCompleteNpmLockfileCoverage(initial.context.assessment.report)
+      || internal?.coverage.find(item => item.capability === 'dependency_advisories')?.state !== 'inspected') {
       throw new BackendError('dependency_guidance_only', 'The source or advisory coverage is incomplete', 409);
     }
     if (initial.group.advisories.some(item => item === null) || initial.group.advisories.length !== initial.group.advisoryIds.length) {
