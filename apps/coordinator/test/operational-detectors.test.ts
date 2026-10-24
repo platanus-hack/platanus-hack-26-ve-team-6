@@ -16,6 +16,7 @@ describe('contextual operational detectors', () => {
     const signals = detectOperationalSignals([...requests, ...requests], from, until);
     expect(signals.map(x => x.rule)).toEqual(['http.errors.v1', 'runtime.pressure.v1']);
     expect(signals[1]?.metrics).toMatchObject({ requestCount: 20, errorCount: 20, latencyP95Ms: 1300, capacityUtilization: .9 });
+    expect(signals[1]?.confidence).toBe('high');
     expect(detectOperationalSignals(requests.slice(0, 19), from, until)).toEqual([]);
   });
   it('detects common authentication and route patterns without treating blocked WAF matches as compromise', () => {
@@ -31,7 +32,9 @@ describe('contextual operational detectors', () => {
     const errors = Array.from({ length: 3 }, () => event('app.error', { outcome: 'failure', attributes: { category: 'database' } }));
     const resources = Array.from({ length: 5 }, () => event('runtime.resource', { attributes: { memoryUtilization: .95 } }));
     const expected = event('auth.privilege_changed', { attributes: { expected: true } });
-    expect(detectOperationalSignals([...errors, ...resources, expected], from, until).map(x => x.rule)).toEqual(['app.error.database.v1', 'runtime.resources.v1']);
+    const signals = detectOperationalSignals([...errors, ...resources, expected], from, until);
+    expect(signals.map(x => x.rule)).toEqual(['app.error.database.v1', 'runtime.resources.v1']);
+    expect(signals[1]?.confidence).toBe('high');
     expect(detectOperationalSignals([event('auth.privilege_changed')], from, until)[0]?.confidence).toBe('low');
   });
   it('turns runtime protection attempts into indications and retains blocked outcomes separately', () => {

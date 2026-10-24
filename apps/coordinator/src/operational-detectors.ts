@@ -45,7 +45,7 @@ export function detectOperationalSignals(input: readonly SecurityEvent[], window
     const slow = metrics.latencyP95Ms !== null && metrics.latencyP95Ms > 1000;
     const saturated = metrics.capacityUtilization !== null && metrics.capacityUtilization > .8;
     if (failing) add('http.errors.v1', 'application', 'application_error', `${errors.length}/${measured.length} observed signed requests returned 5xx. Investigate the failure cause; customer impact and an attack are not established.`, measured, 'high', metrics);
-    if (slow || saturated || failing && measured.length >= 100) add('runtime.pressure.v1', 'application', 'traffic_pressure', `Observed service pressure: ${measured.length} requests, ${errors.length} 5xx, p95 ${metrics.latencyP95Ms ?? 'unknown'} ms. Check code, database, queues and capacity before choosing rate limits, replicas or a load balancer.`, measured, 'high', metrics);
+    if (slow || saturated || failing && measured.length >= 100) add('runtime.pressure.v1', 'application', 'traffic_pressure', `Observed service pressure: ${measured.length} requests, ${errors.length} 5xx, p95 ${metrics.latencyP95Ms ?? 'unknown'} ms. Check code, database, queues and capacity before choosing rate limits, replicas or a load balancer.`, measured, 'high', metrics, 'high');
   }
   const applicationErrors = new Map<string, SecurityEvent[]>();
   const runtimeAttacks = new Map<string, SecurityEvent[]>();
@@ -81,7 +81,7 @@ export function detectOperationalSignals(input: readonly SecurityEvent[], window
     const blocked = group.filter(event => event.outcome === 'blocked').length;
     add(`runtime.attack.${kind}.v1`, `${kind}:${route}`, 'security_finding', `${group.length} runtime indications of ${kind} on ${route}; ${blocked} attempts were blocked. This does not establish exploitation or compromise.`, group, 'medium', null, 'medium');
   }
-  if (resources.length >= 5) add('runtime.resources.v1', 'application', 'application_error', `${resources.length} signed resource observations exceeded 90% utilization. Inspect memory, CPU or connection pools; scaling is one option, not a verified correction.`, resources, 'high');
+  if (resources.length >= 5) add('runtime.resources.v1', 'application', 'application_error', `${resources.length} signed resource observations exceeded 90% utilization. Inspect memory, CPU or connection pools; scaling is one option, not a verified correction.`, resources, 'high', null, 'high');
   for (const [ip, group] of failures) if (group.length >= 10 && new Set(group.map(e => e.actor?.accountId)).size >= 5) add('auth.password_spray.v1', ip, 'security_finding', 'Repeated failed authentication across multiple accounts from one observed IP. Possible password spraying; blocked attempts and compromise remain distinct.', group, 'high');
   for (const [ip, group] of routes) if (group.length >= 20 && new Set(group.flatMap(e => e.resource?.id ? [e.resource.id] : [])).size >= 10) add('http.route_enumeration.v1', ip, 'security_finding', 'Many distinct missing routes from one observed IP. Possible enumeration or a broken client; validate proxy attribution and legitimate traffic first.', group);
   if (privilege.length) add('auth.privilege_change.v1', 'application', 'security_finding', `${privilege.length} privilege changes without a declared expected-change marker. Confirm the actor and business authorization; compromise is unverified.`, privilege, 'medium', null, 'low');
