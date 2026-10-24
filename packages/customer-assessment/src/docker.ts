@@ -9,7 +9,7 @@ import { customerSourceSnapshotSchema, CUSTOMER_MAX_SOURCE_FILE_BYTES, type Cust
 import { sha256 } from './common.js';
 
 export const profiles = {
-  semgrep: { image:'semgrep/semgrep@sha256:7b625711ba9b6d1a543e308967b18c01b59932490a5536a06422666474bf6ee4', version:'1.90.0', config:'semgrep.yaml' },
+  semgrep: { image:'semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af', version:'1.182.0', config:'semgrep.yaml' },
   gitleaks: { image:'zricethezav/gitleaks@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854',version:'8.28.0',config:'gitleaks.toml' },
   trivy: { image:'aquasec/trivy@sha256:e2b22eac59c02003d8749f5b8d9bd073b62e30fefaef5b7c8371204e0a4b0c08',version:'0.67.2',config:null },
 } as const;
@@ -67,7 +67,6 @@ export function createDockerScanners(): ScannerAdapter {
     async run(name,source,parentSignal) {
       if (cleanupFault) throw cleanupFault;
       parentSignal.throwIfAborted();
-      if (name === 'semgrep' && process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') throw new Error('development_scanner_profile_not_allowed');
       customerSourceSnapshotSchema.parse({revision:source.revision,files:source.files});
       const profile = profiles[name]; const id = `gotchu-scan-${randomUUID()}`;
       const directory = await mkdtemp(join(tmpdir(),'gotchu-scanner-'));
