@@ -3,7 +3,8 @@ ALTER TABLE gotchu.proposals
   ADD COLUMN kind text NOT NULL DEFAULT 'dependency_pull_request',
   ADD COLUMN capability_id text NOT NULL DEFAULT 'repository.dependency_pr',
   ADD COLUMN state text NOT NULL DEFAULT 'proposed',
-  ADD COLUMN source_ref jsonb;
+  ADD COLUMN source_ref jsonb,
+  ADD COLUMN blocking_reasons jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(blocking_reasons)='array');
 
 ALTER TABLE gotchu.proposals
   ADD CONSTRAINT proposals_action_kind CHECK (kind IN ('dependency_pull_request','source_patch_pull_request','merge_pull_request','deploy_release','rollback_release','provider_response')),
@@ -26,6 +27,10 @@ INSERT INTO gotchu.action_capabilities(kind,capability_id) VALUES
  ('deploy_release','environment.deploy'),
  ('rollback_release','environment.rollback'),
  ('provider_response','provider.response');
+ALTER TABLE gotchu.action_capabilities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gotchu.action_capabilities FORCE ROW LEVEL SECURITY;
+CREATE POLICY action_capabilities_read ON gotchu.action_capabilities FOR SELECT USING (true);
+CREATE POLICY action_capabilities_owner_all ON gotchu.action_capabilities FOR ALL TO gotchu_owner USING (true) WITH CHECK (true);
 
 GRANT SELECT ON gotchu.action_capabilities TO gotchu_api, gotchu_executor;
-GRANT UPDATE (state, invalidated_at, invalidation_reason) ON gotchu.proposals TO gotchu_api, gotchu_executor;
+GRANT UPDATE (state, invalidated_at, invalidation_reason, blocking_reasons) ON gotchu.proposals TO gotchu_api, gotchu_executor;

@@ -28,7 +28,7 @@ export async function migrate(options: { connectionString: string }): Promise<vo
     await client.query('ALTER DEFAULT PRIVILEGES IN SCHEMA gotchu REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC');
     await client.query('CREATE TABLE IF NOT EXISTS gotchu.schema_migrations (name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())');
     const directory = new URL('../migrations/', import.meta.url);
-    for (const name of (await readdir(directory)).filter((name) => /^\d+_[a-z_]+\.sql$/.test(name)).sort()) {
+    for (const name of (await readdir(directory)).filter((name) => /^\d+_[a-z0-9_]+\.sql$/.test(name)).sort()) {
       const sql = await readFile(new URL(name, directory), 'utf8');
       const checksum = createHash('sha256').update(sql).digest('hex');
       const existing = await client.query<{ checksum: string }>('SELECT checksum FROM gotchu.schema_migrations WHERE name = $1', [name]);
