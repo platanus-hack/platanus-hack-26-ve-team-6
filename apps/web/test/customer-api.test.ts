@@ -186,6 +186,14 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
 });
 
 describe('authenticated context inventory HTTP adapter', () => {
+  it('does not dispatch unrelated paths that merely contain the context prefix', async () => {
+    const { services, auth } = ports();
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const response = await handle(new Request(`${origin}/api/customer/workspaces/${organizationId}/applications/${applicationId}/contexts`));
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ error: { code: 'not_found' } });
+  });
+
   it('uses the session identity, validates response contracts, and restricts repositories to the operator catalog', async () => {
     const { services, auth } = ports();
     const inventory = { environments: [], services: [], repositoryLinks: [], deployments: [], dependencies: [], origins: [] };

@@ -94,7 +94,9 @@ export function createCustomerApi(options: {
         const response = await handleStepUpApi(request, identity, stepUp);
         if (response) return response;
       }
-      if (url.pathname.includes('/context')) {
+      const pathParts = url.pathname.split('/').filter(Boolean);
+      if (pathParts.length >= 7 && pathParts[0] === 'api' && pathParts[1] === 'customer'
+        && pathParts[2] === 'workspaces' && pathParts[4] === 'applications' && pathParts[6] === 'context') {
         if (!services.context) throw new HttpError(503, 'context_not_configured', 'El inventario de contexto no está configurado.');
         const contextResponse = await handleContextApi(request, identity, services.context, services.repositoryCatalog);
         if (contextResponse) {
