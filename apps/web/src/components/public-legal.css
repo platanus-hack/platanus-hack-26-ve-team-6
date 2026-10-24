@@ -1,15 +1,20 @@
-.customer-legal-page { min-height: 100vh; background: var(--background); color: var(--foreground); padding: 48px 20px; font: 16px/1.7 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-.customer-legal-page *, .customer-legal-page *::before, .customer-legal-page *::after { box-sizing: border-box; }
-.customer-legal-document { width: min(720px, 100%); margin: 0 auto; border: 1px solid var(--border); border-top: 2px solid var(--foreground); border-radius: 12px; background: var(--background); padding: clamp(24px, 5vw, 42px); }
-.customer-legal-brand { display: inline-flex; align-items: center; gap: 9px; margin-bottom: 28px; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: .08em; text-decoration: none; text-transform: uppercase; }
-.customer-legal-brand-mark { display: grid; width: 30px; height: 33px; place-items: center; border-radius: 8px; background: var(--foreground); color: var(--background); font-size: 21px; font-weight: 600; }
-.customer-legal-page h1 { margin: 0 0 14px; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(26px, 5vw, 34px); font-weight: 700; line-height: 1.15; letter-spacing: .02em; text-transform: uppercase; }
-.customer-legal-draft { margin: 0 0 25px; border: 1px solid var(--brand-ink); border-radius: 6px; background: transparent; color: var(--foreground); padding: 10px 12px; font-size: 14px; line-height: 1.6; }
-.customer-legal-page h2 { margin: 25px 0 7px; color: var(--foreground); font-size: 19px; font-weight: 600; line-height: 1.35; }
-.customer-legal-page p, .customer-legal-page ul { max-width: 62ch; color: var(--muted-foreground); }
-.customer-legal-page ul { padding-left: 22px; }
-.customer-legal-page a { color: var(--foreground); text-decoration-thickness: 2px; text-underline-offset: .28em; }
-.customer-legal-page a:hover { color: var(--brand-ink); text-decoration-color: var(--brand); }
-.customer-legal-back { display: inline-block; margin-top: 25px; font-size: 15px; }
-.customer-legal-page :focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }
-@media (max-width: 560px) { .customer-legal-page { padding: 12px; } .customer-legal-document { padding: 22px 18px; } }
+/* Signed-out pages (privacy, terms, setup): the landing's dossier language on a pure ground. */
+.pub-page { box-sizing: border-box; min-height: 100vh; background: var(--background); color: var(--foreground); padding: 0 clamp(20px, 4vw, 48px) clamp(48px, 6vw, 88px); font: 400 17px/1.65 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.pub-page *, .pub-page *::before, .pub-page *::after { box-sizing: border-box; }
+.pub-page ::selection { background: var(--band); color: var(--band-foreground); }
+.pub-page :where(a, button, input, summary):focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }
+.pub-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1400px; min-height: 52px; margin: 0 auto clamp(28px, 5vw, 64px); }
+.pub-brand { display: inline-flex; align-items: center; gap: 10px; min-height: 34px; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: .08em; text-decoration: none; text-transform: uppercase; }
+.pub-link { color: var(--foreground); font-weight: 500; text-decoration: underline; text-decoration-color: var(--brand); text-decoration-thickness: 2px; text-underline-offset: .28em; transition: color 160ms var(--ease); }
+.pub-link:hover { color: var(--brand-ink); }
+
+.pub-doc { max-width: 62ch; margin: 0 auto 0 max(0px, calc((100% - 1400px) / 2)); }
+.pub-doc h1 { margin: 0 0 clamp(20px, 3vw, 32px); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(28px, 4.4vw, 64px); font-weight: 700; line-height: 1.02; letter-spacing: -.015em; text-transform: uppercase; text-wrap: balance; }
+.pub-doc h2 { margin: clamp(32px, 4vw, 48px) 0 14px; padding-top: 14px; border-top: 2px solid var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(18px, 1.9vw, 24px); font-weight: 700; line-height: 1.1; letter-spacing: -.005em; text-transform: uppercase; }
+.pub-doc p, .pub-doc ul { margin: 0 0 1em; }
+.pub-note { margin: 0 0 clamp(24px, 3vw, 40px) !important; padding-left: 14px; border-left: 2px solid var(--brand); color: var(--muted-foreground); font: 400 12.5px/1.55 var(--mono); }
+.pub-note strong { color: var(--foreground); font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+.pub-doc ul { display: grid; gap: 10px; padding: 0; list-style: none; }
+.pub-doc li { position: relative; padding-left: 26px; }
+.pub-doc li::before { content: ''; position: absolute; left: 0; top: .6em; width: 8px; height: 8px; background: var(--brand); transform: rotate(45deg); }
+.pub-doc .pub-link { display: inline-block; margin-top: 12px; font-size: 15px; }
