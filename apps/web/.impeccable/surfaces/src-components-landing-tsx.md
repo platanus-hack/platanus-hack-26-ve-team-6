@@ -7,18 +7,18 @@ related_targets: []
 
 # Landing `/`
 
-Scope: public landing, Persuade. Audience: people maintaining a business application. Job: understand that Gotchu reviews a source snapshot and an authorized HTTPS origin and returns evidence with its limits; act: open `/dashboard`. Proof: real product structure (snapshot revision/SHA-256, `_gotchu.<dominio>` TXT, report fields, JSON export). Constraints: no loader, no helper/artwork captions, no invented results.
+Scope: public landing, Persuade. Audience: people maintaining a business application. Job: understand that Gotchu reviews a source snapshot and an authorized HTTPS origin and returns evidence with its limits; act: open `/dashboard`. Proof: real product structure (snapshot revision/SHA-256, `_gotchu.<dominio>` TXT, report vocabulary, JSON export keys). Constraints: no loader, no helper/artwork captions, no invented results, nothing realistic (no photos, metal, glass or camera-like objects).
 
 ## Direction contract
 
-THESIS: Two planes, one focus. The visitor's code and their live web float on either side of a machined lens-eye; scrolling pulls both into the lens and the lens returns the report. Refuses the centred headline over a product shot followed by a card grid.
+THESIS: A brand board that works. Gotchu speaks like an identity system: one bold mark, giant wide type, drenched magenta fields and technical blueprint detail. User-pinned references: the VAULTXO brand board (type, mark, panels), firecrawl.dev (blueprint grid, bracket labels, ASCII and pixel art), exa.ai (dot fields, mono tags). Refuses the centred headline over a product render.
 
-OWN-WORLD: Graphite ground, porcelain change of pace for scope, magenta reserved for the rim, the iris glint and the primary action. Brushed conic metal, dark glass, aperture blades, CSS-3D slabs with real thickness. Oxanium display at full width; platform sans body.
+OWN-WORLD: Graphite #191923 ground, magenta #e7147d display fields, action #c80c68 where small text sits on magenta, silver #c7bfbd and ink #0f0f16 cards, 28px radii, pill controls. Goldman 700 uppercase display, platform sans body, ui-monospace bracket tags. The `[◆]` mark, ASCII 3D render, 11×11 dot pictograms, hairline 96px grid with plus marks.
 
-STORY: See both planes caught by one lens, understand how each enters (snapshot, DNS), see the report with evidence and coverage, choose scope, read limits, open Gotchu.
+STORY: See the claim and the mark; scroll as the brackets split into Código and HTTPS and close on one finding (GOTCHU); see the report vocabulary; learn how each perspective enters; choose scope; read limits; open Gotchu.
 
-FIRST VIEWPORT: "Tu código." top-left and "Tu web." top-right at ~5vw; code slab under the left word, wireframe HTTPS globe under the right; lens-eye centred between them at ~42vh; "Bajo la misma lupa." in accent under the lens, one-line lead, primary CTA centred below.
+FIRST VIEWPORT: Bento under the header. Left two-thirds: magenta card, giant uppercase "TU CÓDIGO. TU WEB." in graphite and "BAJO LA MISMA LUPA." in porcelain over drifting GOTCHU rows, ink "[ Solo observación ]" pill. Right top: ink card with the ASCII mark between [ Código ] and [ HTTPS ]. Right bottom: silver card with the lockup, lead and ink primary action.
 
-FORM: Convergence (dealt lead, position 3 of 7 on the grounded list). seed:178bb61682de2680. Signature interaction: the lens-eye's iris tracks the pointer across the page and narrows on primary actions; pinned scroll converges both objects into it and emits the report sheet.
+FORM: User-pinned direction from supplied references (supersedes the convergence roll). seed: none (unavailable). Signature interaction: the ASCII mark turns toward the pointer and its brackets snap shut on any `data-catch` action; the pinned stage spreads and closes them with a GOTCHU flash.
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance

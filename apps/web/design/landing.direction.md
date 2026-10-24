@@ -1,40 +1,37 @@
 # Landing direction contract
 
-- **Surface and mode:** `/`, Persuade → Understand → Act. A person maintaining a real application should understand that Gotchu puts a source snapshot and an authorized HTTPS origin under one lens, see what the report keeps, and reach `/dashboard` without a fabricated result or forced tour.
-- **Visual authority:** graphite/magenta/porcelain with Oxanium, unchanged. The world is a machined lens-eye: brushed conic metal, dark glass, aperture blades, CSS-3D objects with real thickness. Apple (MacBook Pro) informs the pinned product story and physical springs; Churupitos informs objects that respond to the visitor. No borrowed artwork, code or initial loader.
-- **Content:** compare source and HTTPS observations with evidence; never claim ongoing monitoring, automated fixes, attack confirmation or complete coverage. No explanatory artwork captions, meta copy or mock-analysis instructions anywhere. Object labels name real product concepts (`SHA-256`, `TXT _gotchu.<dominio>`, report keys) and never invent values.
-- **Signature moment:** the headline "Tu código. ◉ Tu web." sets the lens inside the sentence. Its iris follows the pointer across the whole page, blinks once after hydration and narrows on primary actions (`data-lens-focus`). Scrolling the pinned stage parts the words, draws the code slab and HTTPS globe into the opening, then moves the lens aside and returns the report along a beam.
+- **Surface and mode:** `/`, Persuade → Understand → Act. A person maintaining a real application should understand that Gotchu reviews a source snapshot and an authorized HTTPS origin, see what the report keeps, and reach `/dashboard` without a fabricated result or forced tour.
+- **Visual authority:** the user pinned this world with three references: a brand board (wide techno type, one bold mark, drenched colour panels, repeated wordmark, rounded bento cards), firecrawl.dev (hairline blueprint grid, bracketed mono labels, ASCII and pixel art) and exa.ai (dot fields, mono tags on solid blocks). Colours stay graphite/magenta/porcelain/silver. Nothing realistic: no photos, metal, glass or camera-like objects.
+- **Content:** compare source and HTTPS observations with evidence; never claim ongoing monitoring, automated fixes, attack confirmation or complete coverage. No explanatory artwork captions, meta copy or mock-analysis instructions. Labels use real product vocabulary (`SHA-256`, `_gotchu.<dominio>`, severity/confidence/coverage enums, JSON export keys) and never invent values.
+- **Signature moment:** the `[◆]` mark rendered in 3D ASCII turns toward the pointer; its brackets snap shut on the finding whenever a `data-catch` action is hovered. The pinned stage spreads the brackets under [ Código ] and [ HTTPS ], closes them behind a giant GOTCHU flash, then hands over to the report panel.
 - **Boundaries:** landing, local design context, presentation helpers and tests only. Customer/demo UI, backend, permissions, auth and deployment remain untouched.
 
 ## Motion decisions
 
 | Location | Purpose | Frequency | Implementation |
 | --- | --- | --- | --- |
-| Hero entrance | Arrival | Once | Opacity .35→1, 14px, 4px blur, 700ms strong ease-out, 70ms stagger, `backwards` fill so scroll transforms take over |
-| Lens blink | Delight, signals the object is alive | Once per load | Aperture .72→.04→.72 in 750ms, 500ms after hydration |
-| Pointer following | Spatial delight on a marketing page | Continuous while pointer moves | One shared window listener; per-object springs `duration .5, bounce .15`; ±13–22° tilt; iris translate; metal sheen turns with tilt; paused off screen |
-| Iris focus | Feedback on primary actions | Occasional | Spring to .22 opening (`duration .45, bounce .2`), back with bounce 0 |
-| Convergence | Explanation of the product mechanism | Once per visit | 340svh native sticky stage; smoothed scroll spring `duration .3`; transforms/opacity written directly per frame; cubic ease-in-out segments |
-| Chapter sheet | Prevent a jarring panel swap | Per chapter | `@starting-style` opacity + 28px + rotateY(-10°) + 6px blur, 320–420ms |
-| Scope regroup | Spatial consistency between tabs | Occasional | Transform/opacity 640ms `cubic-bezier(.77,0,.175,1)`; indicator 300ms |
-| Press / hover | Feedback | Frequent | .97 press; fine-pointer lift 2px, glint sweep 700ms, arrow 4px |
-| FAQ | State indication | Occasional | 240ms native disclosure, ringed control rotates 45° |
+| Hero entrance | Arrival | Once | Opacity .35→1, 18px, 4px blur, 700ms strong ease-out, 70ms stagger, `backwards` fill |
+| ASCII mark | Delight, product metaphor | While visible | Canvas ray-march per character cell; finding spins slowly; pointer springs `duration .5, bounce .15`; paused off screen and when the tab is hidden; single static frame under reduced motion |
+| Catch | Feedback on primary actions | Occasional | Bracket separation springs to 0 (`duration .35, bounce .35`) on `[data-catch]` hover |
+| Wordmark rows | Brand texture | Scroll-linked | Alternate rows translate ±11% with section progress and ±3% with pointer; held still under reduced motion |
+| Pinned stage | Explanation of the mechanism | Once per visit | 360svh native sticky; smoothed scroll spring `duration .3`; brackets spread (0–.30), close (.42–.50), GOTCHU flash (.47–.66), report enters (.62–.84) |
+| Blueprint cell | Spatial delight | Pointer move | Cell under a fine pointer lights magenta; 140ms transform |
+| Dot pictograms | State change / delight | Per tab or chapter | Dots morph 620ms `cubic-bezier(.77,0,.175,1)` with 5ms stagger; dots shy 220ms from a fine pointer |
+| Chapter sheet | Prevent a jarring swap | Per chapter | `@starting-style` opacity + 18px + 6px blur |
+| Press / hover | Feedback | Frequent | .97 press; fine-pointer 2px lift, arrow 4px; nav brackets slide in |
+| FAQ | State indication | Occasional | 240ms native disclosure, filled control rotates 45° |
 
-Rejected: perpetual rotation or idle loops, page loader, custom cursor, scroll snapping or hijacking, magnetic buttons, animated invented metrics, particles. The pinned sequence never blocks scrolling, and focus on a faded hero action scrolls back to the start.
+Rejected: loaders, custom cursors, scroll snapping or hijacking, particles that obscure content, photographic or metallic rendering, animated invented metrics.
 
 ## Fallbacks
 
-Below 761px wide, below 560px tall, under reduced motion and without JavaScript, the stage renders stacked: hero, "Dos perspectivas", then "Cada hallazgo" beside the report. Reduced motion also freezes pointer tilt and iris tracking. Touch input moves the iris to the tapped point.
+Below 761px wide, below 560px tall, under reduced motion and without JavaScript, the stage renders stacked: the mark with "Dos perspectivas", then "Cada hallazgo" beside the report panel. Without JavaScript the flat SVG mark replaces the ASCII canvas. Small text never sits on `#e7147d`; it uses the action shade `#c80c68`, ink or silver.
 
 ## Source and implementation map
 
-- Asset generator: `scripts/generate-landing-assets.py` → `public/landing/code-slab.svg`, `report-sheet.svg`.
-- Procedural geometry: aperture blades (`lens-eye.tsx`), projected globe and orbit (`spatial-objects.tsx`).
-- Pointer field and facing springs: `src/components/pointer-field.ts`.
-- Stage choreography: `src/components/convergence.tsx` / `.css`.
-- Objects: `lens-eye.tsx`, `spatial-objects.tsx` (CodeSlab, OriginGlobe, ReportSheet, `useTilt`).
-- Product panels: `product-flow.tsx` / `.css`; source of truth is `customer-dashboard.tsx` and `packages/contracts`.
-- Page and theme: `landing.tsx`, `landing.css`, `src/styles/tokens.css`.
+- Mark geometry and lockup: `gotchu-mark.tsx`. ASCII render: `ascii-mark.tsx`. Pictograms: `dot-matrix.tsx`. Texture: `wordmark-rows.tsx`. Grid: `blueprint-grid.tsx`. Pointer field: `pointer-field.ts`.
+- Hero: `hero.tsx`. Stage: `convergence.tsx`. Journey panels: `product-flow.tsx`. Page and sections: `landing.tsx`, `landing.css`, `src/styles/tokens.css`.
+- Display face: Goldman (OFL), self-hosted in `public/fonts` with its license. AIRNT is a visual reference only.
 - Regression gate: `e2e/design.spec.ts`, `test/ui.test.ts`.
 
 ## Open decisions
