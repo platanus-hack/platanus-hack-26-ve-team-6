@@ -31,7 +31,10 @@ const observationNames: Record<OperationAlert['observation']['kind'], string> = 
 };
 const severityNames = { info: 'Información', low: 'Baja', medium: 'Media', high: 'Alta', critical: 'Crítica' } as const;
 const confidenceNames = { low: 'Baja', medium: 'Media', high: 'Alta' } as const;
-const evidenceSourceNames = { repository: 'Repositorio', provider_status: 'Estado del proveedor', signed_event: 'Evento firmado', assessment: 'Evaluación' } as const;
+const evidenceSourceNames: Record<OperationAlert['observation']['evidence'][number]['source'] | 'advisory_database', string> = {
+  repository: 'Repositorio', provider_status: 'Estado del proveedor', signed_event: 'Evento firmado', assessment: 'Evaluación',
+  advisory_database: 'Base de avisos de seguridad',
+};
 const planNames: Record<PlanKind, string> = {
   investigate_capacity: 'Investigar capacidad', migration_readiness: 'Preparación de migración', review_improvement: 'Revisar mejora',
 };

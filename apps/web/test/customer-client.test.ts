@@ -5,6 +5,40 @@ const organizationId = '8b8123ef-a1ca-43ac-91a5-9bf4b792d729';
 const applicationId = '13e37f6a-784c-4f46-97dd-41bd81c6d00d';
 const sourceId = '2c5f01dc-e145-4e6e-80b4-9a2b202445b5';
 const targetId = '4a02d840-a230-4e4c-88a5-f59a080c99ae';
+const reportId = 'f2c8ac51-f151-4eac-8abf-4e4af9ba9613';
+const findingId = '680a27e0-b2c2-43a4-88d4-3e210e6a9d22';
+const sourceDigest = 'a'.repeat(64);
+const reportScope = {
+  organizationId,
+  applicationId,
+  applicationName: 'Aplicación de prueba',
+  jobId: '1b4be687-a1d5-4ded-91ae-79c7c1bc0eb0',
+  reportId,
+  mode: 'internal',
+  sourceSnapshotId: sourceId,
+  sourceDigest,
+  targetId: null,
+  targetVersion: null,
+  targetOrigin: null,
+};
+const recommendationsResponse = {
+  catalogVersion: 1,
+  scope: reportScope,
+  repositoryContext: {
+    dependencyKeys: [], dependencyKeysTruncated: false, manifestState: 'observed',
+    configurationPaths: [], configurationPathsTruncated: false, configurationState: 'identified',
+    frameworks: ['tanstack-start'], infrastructureAreas: [],
+  },
+  coverage: [],
+  recommendations: [{
+    recipeId: 'tls-certificate-verification', recipeVersion: '1.0.0', title: 'Habilitar verificación TLS',
+    risk: { severity: 'high', confidence: 'observed', exploitability: 'unknown', summary: 'La configuración puede omitir la verificación del certificado.' },
+    options: [{ id: 'verify-peer', title: 'Verificar el certificado', detail: 'Confirma la política de confianza.' }],
+    requirements: ['Revisa el cliente asociado al hallazgo.'], evidenceFindingIds: [findingId],
+    availability: 'candidate_patch', availabilityReason: 'La instantánea vigente permite preparar una propuesta privada.',
+    scope: reportScope, architectureHints: { frameworks: ['tanstack-start'], relevantConfigurationPaths: [] },
+  }],
+};
 
 const fetchMock = vi.fn<typeof fetch>();
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
@@ -146,6 +180,61 @@ describe('customer API client', () => {
 
     await expect(result).rejects.toBeInstanceOf(CustomerApiError);
     await expect(result).rejects.toMatchObject({ status: 200, code: 'invalid_response' });
+  });
+
+  it('loads recommendations from the selected tenant report and validates the response scope', async () => {
+    fetchMock.mockResolvedValueOnce(json(recommendationsResponse));
+
+    const result = await customerApi.reportRecommendations(organizationId, applicationId, reportId);
+
+    expect(result.recommendations[0]?.recipeId).toBe('tls-certificate-verification');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/reports/${reportId}/recommendations`);
+    expect(fetchMock.mock.calls[0]?.[1]?.credentials).toBe('same-origin');
+    expect(fetchMock.mock.calls[0]?.[1]?.cache).toBe('no-store');
+  });
+
+  it('rejects recommendations returned for a different application', async () => {
+    fetchMock.mockResolvedValueOnce(json({ ...recommendationsResponse, scope: { ...reportScope, applicationId: targetId } }));
+
+    await expect(customerApi.reportRecommendations(organizationId, applicationId, reportId)).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+
+  it('prepares only the validated finding and source digest on the report-scoped correction route', async () => {
+    fetchMock.mockResolvedValueOnce(json({
+      sourceId,
+      jobId: 'f51f998d-dd37-414e-b5a3-6cc86d263c6d',
+      changes: [{ path: 'src/client.ts', description: 'Se habilitó la verificación TLS.' }],
+      patchHash: 'b'.repeat(64),
+    }, 201));
+
+    const result = await customerApi.prepareCorrection({
+      organizationId, applicationId, reportId,
+      request: { recipeId: 'tls-certificate-verification', findingId, expectedSourceDigest: sourceDigest },
+    });
+
+    expect(result.changes).toEqual([{ path: 'src/client.ts', description: 'Se habilitó la verificación TLS.' }]);
+    const [path, init] = fetchMock.mock.calls[0] ?? [];
+    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/reports/${reportId}/corrections`);
+    expect(init?.method).toBe('POST');
+    expect(init?.credentials).toBe('same-origin');
+    expect(JSON.parse(String(init?.body))).toEqual({ recipeId: 'tls-certificate-verification', findingId, expectedSourceDigest: sourceDigest });
+  });
+
+  it('requires the correction endpoint to return 201 and surfaces an unavailable source response', async () => {
+    fetchMock.mockResolvedValueOnce(json({
+      sourceId, jobId: 'f51f998d-dd37-414e-b5a3-6cc86d263c6d',
+      changes: [{ path: 'src/client.ts', description: 'Se habilitó la verificación TLS.' }], patchHash: 'b'.repeat(64),
+    }));
+    await expect(customerApi.prepareCorrection({
+      organizationId, applicationId, reportId,
+      request: { recipeId: 'tls-certificate-verification', findingId, expectedSourceDigest: sourceDigest },
+    })).rejects.toMatchObject({ code: 'unexpected_status' });
+
+    fetchMock.mockResolvedValueOnce(json({ error: { code: 'source_unavailable', message: 'La instantánea ya no está disponible.' } }, 409));
+    await expect(customerApi.prepareCorrection({
+      organizationId, applicationId, reportId,
+      request: { recipeId: 'tls-certificate-verification', findingId, expectedSourceDigest: sourceDigest },
+    })).rejects.toMatchObject({ status: 409, code: 'source_unavailable', message: 'La instantánea ya no está disponible.' });
   });
 
   it('deletes a source snapshot with the tenant-scoped DELETE endpoint', async () => {

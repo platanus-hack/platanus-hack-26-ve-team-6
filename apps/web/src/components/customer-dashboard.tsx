@@ -15,6 +15,7 @@ import {
 } from '@gotchu/contracts';
 import { CustomerApiError, customerApi, type CustomerJob, type CustomerScanProfile, type CustomerSession } from './customer-client';
 import { OperationsPanel } from './operations-panel';
+import { ReportRecommendations } from './report-recommendations';
 import './customer-dashboard.css';
 
 type Page = 'overview' | 'applications' | 'operations' | 'reports';
@@ -305,10 +306,20 @@ function SourceEnrollment({ organizationId, applicationId, sources, canManage, o
   </section>;
 }
 
-function ReportView({ report, summary }: { report: CustomerAssessmentReport; summary?: CustomerReportSummary }) {
+function ReportView({ report, summary, userId, organizationId, applicationId, canManage, archived, onCorrectionQueued }: {
+  report: CustomerAssessmentReport;
+  summary?: CustomerReportSummary;
+  userId: string;
+  organizationId: string;
+  applicationId: string;
+  canManage: boolean;
+  archived: boolean;
+  onCorrectionQueued: (jobId: string) => void;
+}) {
   const entries = [...report.internal?.findings ?? [], ...report.external?.findings ?? []];
   const evidence = [...report.internal?.evidence ?? [], ...report.external?.evidence ?? []];
   const byId = new Map(entries.map(finding => [finding.id, finding]));
+  const findingTitles = new Map(entries.map(finding => [finding.id, finding.title]));
   const evidenceById = new Map(evidence.map(item => [item.id, item]));
   const originSections = (['internal', 'external'] as const).map(origin => ({ origin, analysis: report[origin] }));
 
@@ -333,6 +344,20 @@ function ReportView({ report, summary }: { report: CustomerAssessmentReport; sum
         </details>;
       })}</div>}
     </section>
+    <ReportRecommendations
+      key={`${userId}:${organizationId}:${applicationId}:${report.id}`}
+      userId={userId}
+      organizationId={organizationId}
+      applicationId={applicationId}
+      reportId={report.id}
+      reportMode={report.mode}
+      reportSourceSnapshotId={report.subject.sourceSnapshotId}
+      reportSourceDigest={report.subject.sourceDigest}
+      findingTitles={findingTitles}
+      canManage={canManage}
+      archived={archived}
+      onQueued={onCorrectionQueued}
+    />
     <section className="customer-report-section customer-coverage"><div className="customer-section-heading"><div><span className="customer-eyebrow">COBERTURA</span><h3>Qué se evaluó</h3></div></div>
       <div className="customer-analysis-grid">{originSections.map(({ origin, analysis }) => <article className="customer-analysis-card" key={origin}><div className="customer-card-heading"><h4>{sourceLabels[origin]}</h4><span className="customer-status customer-status-muted">{analysis ? analysisLabels[analysis.status] : 'No solicitado'}</span></div>{analysis ? <><p>{analysis.tool.name} · v{analysis.tool.version}</p><ul>{analysis.coverage.map(item => <li key={item.capability}><span><strong>{item.capability}</strong><small>{item.detail}</small></span><span className="customer-status customer-status-muted">{coverageLabels[item.state]}</span></li>)}</ul>{analysis.limitations.length > 0 && <details className="customer-analysis-limits"><summary>Límites del perfil ({analysis.limitations.length})</summary><ul>{analysis.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></details>}</> : <p>Esta perspectiva no se solicitó para este informe.</p>}</article>)}</div>
     </section>
@@ -387,7 +412,7 @@ function CustomerWorkspace({ session, userId }: { session: CustomerSession; user
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
-  const [activeJob, setActiveJob] = useState<{ organizationId: string; applicationId: string; jobId: string } | null>(null);
+  const [activeJob, setActiveJob] = useState<{ organizationId: string; applicationId: string; jobId: string; purpose: 'assessment' | 'correction' } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
 
@@ -456,14 +481,18 @@ function CustomerWorkspace({ session, userId }: { session: CustomerSession; user
       if (jobResult.reportId) {
         setSelectedReportId(jobResult.reportId);
         setPage('reports');
-        setNotice('La evaluación terminó y su informe ya está disponible.');
+        setNotice(activeJob.purpose === 'correction' ? 'El análisis interno independiente terminó y su informe ya está disponible.' : 'La evaluación terminó y su informe ya está disponible.');
       } else {
-        setPageError('La evaluación terminó, pero el informe todavía no está disponible. Actualiza el historial para comprobarlo.');
+        setPageError(activeJob.purpose === 'correction'
+          ? 'El análisis interno terminó, pero el nuevo informe todavía no está disponible. La instantánea privada se conserva; actualiza el historial para comprobarlo.'
+          : 'La evaluación terminó, pero el informe todavía no está disponible. Actualiza el historial para comprobarlo.');
       }
       queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'reports', activeJob.organizationId, activeJob.applicationId] }).catch(caught => setPageError(readableError(caught)));
     } else if (jobResult.state === 'failed') {
       setActiveJob(null);
-      setPageError(jobResult.reasonCode === 'assessment_reconciliation_required'
+      setPageError(activeJob.purpose === 'correction'
+        ? `El análisis independiente no finalizó${jobResult.reasonCode ? ` (${jobResult.reasonCode})` : ''}. La instantánea privada se preparó, pero no se validó; no se modificaron el repositorio, la fuente original ni producción.`
+        : jobResult.reasonCode === 'assessment_reconciliation_required'
         ? 'No se pudo confirmar que el escáner haya terminado. Una persona operadora debe comprobarlo antes de revocar o renovar el origen. La autorización sigue activa y no se repetirá este trabajo automáticamente.'
         : jobResult.reasonCode ? `La evaluación no finalizó (${jobResult.reasonCode}).` : 'La evaluación no finalizó. Los informes anteriores siguen disponibles.');
     }
@@ -504,9 +533,9 @@ function CustomerWorkspace({ session, userId }: { session: CustomerSession; user
 
           {targets.isPending || sources.isPending || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance de la aplicación…" /> : (targets.error || sources.error || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
             {page === 'overview' && <>
-              {activeJob && <div className="customer-job-banner" role="status"><span className="customer-spinner" /><div><strong>{jobResult?.state === 'running' ? 'Evaluación en curso' : 'Evaluación guardada'}</strong><p>El trabajo continúa en segundo plano. Tus informes anteriores siguen disponibles.</p></div>{job.error && <button className="customer-link-button" onClick={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }}>Reintentar estado</button>}</div>}
+              {activeJob && <JobStatusBanner purpose={activeJob.purpose} job={jobResult} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} />}
               <div className="customer-overview-grid"><section className="customer-welcome-card"><span className="customer-eyebrow">ALCANCE CONTROLADO</span><h2>{selectedApplication.name}</h2><p>El análisis HTTPS puede funcionar sin acceso al repositorio. El modo combinado requiere tanto una instantánea autorizada como un dominio verificado.</p><div className="customer-overview-stats"><div><strong>{sources.data?.length ?? 0}</strong><span>Instantáneas</span></div><div><strong>{targets.data?.filter(target => target.status === 'verified').length ?? 0}</strong><span>Orígenes verificados</span></div><div><strong>{applicationReports.length}</strong><span>Informes</span></div></div><button className="customer-button customer-button-secondary" onClick={() => setPage('applications')}>Configurar alcance</button></section>
-                <AssessmentForm key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} />
+                <AssessmentForm key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} />
               </div>
               <section className="customer-card customer-recent-card"><div className="customer-card-heading"><div><span className="customer-eyebrow">ACTIVIDAD RECIENTE</span><h2>Informes</h2></div><button className="customer-link-button" onClick={() => setPage('reports')}>Ver historial →</button></div>{applicationReports.length === 0 ? <div className="customer-empty-inline">Todavía no hay informes para esta aplicación. Define el alcance e inicia una evaluación cuando esté listo.</div> : <ReportList reports={applicationReports.slice(0, 4)} selectedId={visibleReportId} select={id => { setSelectedReportId(id); setPage('reports'); }} />}</section>
             </>}
@@ -521,7 +550,10 @@ function CustomerWorkspace({ session, userId }: { session: CustomerSession; user
 
             {page === 'operations' && <OperationsPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} />}
 
-          {page === 'reports' && <div className="customer-report-layout"><section className="customer-card customer-report-history"><div className="customer-card-heading"><div><span className="customer-eyebrow">HISTORIAL</span><h2>{applicationReports.length} informes</h2></div></div>{applicationReports.length === 0 ? <div className="customer-empty-inline">Los informes aparecerán aquí cuando termine una evaluación.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} select={setSelectedReportId} />}</section><section className="customer-card customer-report-card">{report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>}</section></div>}
+          {page === 'reports' && <>
+            {activeJob && activeJob.organizationId === organizationId && activeJob.applicationId === selectedApplication.applicationId && <JobStatusBanner purpose={activeJob.purpose} job={jobResult} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} />}
+            <div className="customer-report-layout"><section className="customer-card customer-report-history"><div className="customer-card-heading"><div><span className="customer-eyebrow">HISTORIAL</span><h2>{applicationReports.length} informes</h2></div></div>{applicationReports.length === 0 ? <div className="customer-empty-inline">Los informes aparecerán aquí cuando termine una evaluación.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} select={setSelectedReportId} />}</section><section className="customer-card customer-report-card">{report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>}</section></div>
+          </>}
           </>}
         </>}
         <footer className="customer-footer"><span>Las observaciones conservan su origen, confianza y cobertura.</span><span>Gotchu · Modo observación</span></footer>
@@ -532,6 +564,19 @@ function CustomerWorkspace({ session, userId }: { session: CustomerSession; user
 
 function ReportList({ reports, selectedId, select }: { reports: CustomerReportSummary[]; selectedId: string | null; select: (id: string) => void }) {
   return <ul className="customer-report-list">{reports.map(report => <li key={report.id}><button className={selectedId === report.id ? 'is-selected' : ''} onClick={() => select(report.id)}><span className="customer-report-icon">▤</span><span className="customer-report-row-title"><strong>{modeLabels[report.mode]}</strong><small>{date(report.finishedAt)} · {report.findingCount} observaciones</small></span><span className="customer-report-app">{report.applicationName}</span><span aria-hidden="true">›</span></button></li>)}</ul>;
+}
+
+function JobStatusBanner({ purpose, job, error, retry }: { purpose: 'assessment' | 'correction'; job: CustomerJob | undefined; error: string | null; retry: () => void }) {
+  const correction = purpose === 'correction';
+  const heading = correction
+    ? job?.state === 'running' ? 'Analizando instantánea privada' : job?.state === 'failed' ? 'Análisis independiente no finalizado' : job?.state === 'succeeded' ? 'Análisis independiente finalizado' : 'Análisis independiente en cola'
+    : job?.state === 'running' ? 'Evaluación en curso' : job?.state === 'failed' ? 'Evaluación no finalizada' : job?.state === 'succeeded' ? 'Evaluación finalizada' : 'Evaluación guardada';
+  const detail = error
+    ? 'No se pudo actualizar el estado. El trabajo puede continuar en segundo plano.'
+    : correction
+      ? 'El estado se actualiza automáticamente. Este análisis no modifica tu repositorio ni producción.'
+      : 'El trabajo continúa en segundo plano. Tus informes anteriores siguen disponibles.';
+  return <div id="customer-active-job" className="customer-job-banner" role="status" aria-live="polite"><span className="customer-spinner" /><div><strong>{heading}</strong><p>{detail}</p></div>{error && <button className="customer-link-button" type="button" onClick={retry}>Reintentar estado</button>}</div>;
 }
 
 export function CustomerDashboard() {

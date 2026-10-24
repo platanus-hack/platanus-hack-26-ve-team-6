@@ -21,6 +21,13 @@ import {
   type CustomerTarget,
   type CustomerWorkspace,
 } from '@gotchu/contracts';
+import {
+  prepareCorrectionRequestSchema,
+  prepareCorrectionResponseSchema,
+  reportRecommendationsParamsSchema,
+  reportRecommendationsResponseSchema,
+  type PrepareCorrectionRequest,
+} from '@gotchu/scenarios/contracts';
 import { z } from 'zod';
 
 const customerSessionSchema = z.object({
@@ -59,7 +66,7 @@ export class CustomerApiError extends Error {
   }
 }
 
-async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit = {}, expectedStatus?: number): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -90,6 +97,10 @@ async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit 
       error.success ? error.data.error.code : 'request_failed',
       error.success ? error.data.error.message : 'No se pudo completar la solicitud.',
     );
+  }
+
+  if (expectedStatus !== undefined && response.status !== expectedStatus) {
+    throw new CustomerApiError(response.status, 'unexpected_status', 'El servidor devolvió un estado distinto al esperado.');
   }
 
   const result = schema.safeParse(payload);
@@ -198,6 +209,27 @@ export const customerApi = {
   },
   reports: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/reports`, reportListSchema),
   report: (organizationId: string, applicationId: string, reportId: string) => request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(reportId)}`, customerAssessmentReportSchema),
+  async reportRecommendations(organizationId: string, applicationId: string, reportId: string) {
+    const params = reportRecommendationsParamsSchema.parse({ reportId });
+    const recommendations = await request(
+      `${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(params.reportId)}/recommendations`,
+      reportRecommendationsResponseSchema,
+    );
+    if (recommendations.scope.organizationId !== organizationId || recommendations.scope.applicationId !== applicationId || recommendations.scope.reportId !== params.reportId) {
+      throw new CustomerApiError(200, 'invalid_response', 'El servidor devolvió recomendaciones para otro informe o aplicación.');
+    }
+    return recommendations;
+  },
+  prepareCorrection(input: { organizationId: string; applicationId: string; reportId: string; request: PrepareCorrectionRequest }) {
+    const params = reportRecommendationsParamsSchema.parse({ reportId: input.reportId });
+    const body = prepareCorrectionRequestSchema.parse(input.request);
+    return request(
+      `${applicationPath(input.organizationId, input.applicationId)}/reports/${encodeURIComponent(params.reportId)}/corrections`,
+      prepareCorrectionResponseSchema,
+      { method: 'POST', ...jsonBody(body) },
+      201,
+    );
+  },
   queue: (input: { organizationId: string; applicationId: string; mode: AssessmentMode; sourceSnapshotId: string | null; targetId: string | null }) => {
     const { organizationId, applicationId, ...selection } = input;
     const validated = customerQueueSchema.parse({ ...input, idempotencyKey: crypto.randomUUID() });
