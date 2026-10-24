@@ -12,6 +12,7 @@ export interface ScannerClientOptions { origin:string;secret:Uint8Array;ca?:Uint
 export function validateScannerCa(raw: Uint8Array): Buffer {
   if (!(raw instanceof Uint8Array) || raw.byteLength === 0 || raw.byteLength > MAX_SCANNER_CA_BYTES) throw new Error('invalid_scanner_ca');
   const ca = Buffer.from(raw);
+  for (const byte of ca) if (byte > 0x7f) throw new Error('invalid_scanner_ca');
   try {
     const pem = ca.toString('ascii');
     const certificates = pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? [];

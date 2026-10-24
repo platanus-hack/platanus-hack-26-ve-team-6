@@ -130,6 +130,8 @@ describe('scanner runtime TLS configuration', () => {
       Buffer.from('not a certificate'),
       Buffer.from('-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----'),
       Buffer.concat([cert, Buffer.from('\ninvalid trailing content')]),
+      Buffer.concat([Buffer.from([0xad]), cert.subarray(1)]),
+      Buffer.concat([cert, Buffer.from('\n-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----')]),
     ];
     for (const value of invalidPem) {
       expect(() => validateScannerCa(value)).toThrow('invalid_scanner_ca');
