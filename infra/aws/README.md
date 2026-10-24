@@ -75,3 +75,10 @@ Ten-minute scheduling supports the prior pilot recovery objective only while bac
 - DNS was verified directly with Cloudflare authoritative/public resolvers. The collaborative browser twice returned `ERR_NAME_NOT_RESOLVED` because of negative DNS caching; browser verification used standalone Chromium with the hostname mapped to the independently verified static IP and normal certificate validation.
 
 The initial checks above preceded public signup. Public signup keeps the existing global registration/login admission limits and workspace quotas; these bounds are not aggregate host-capacity guarantees. Keep optional integrations and release gates described above visible rather than presenting them as deployed capabilities.
+
+## Public signup verification — 2026-10-24
+
+- Web runtime updated to explicit public mode, retaining the existing production secret, database and TLS configuration. No infrastructure was added. A completed encrypted backup preceded the update; the prior web output and private-mode environment were retained for rollback.
+- Web typecheck/build and 54 focused runtime/auth/API tests passed. The built production-public customer suite passed five tests against disposable real PostgreSQL/Redis, with one optional scanner case skipped; it exercised account signup/login, workspace creation, tenant isolation and durable reports.
+- Live collaborative Chromium completed normal-form registration, CSRF-protected sign-in, sign-out and a second sign-in. The synthetic account saw zero existing workspaces and was deleted afterward after checking it owned no data. No operator account/password was chosen.
+- The old setup route redirected to `/dashboard` without retaining its test query; setup POST returned 404. The 375 px signup form had no horizontal overflow and no browser console errors. All four runtime units remained active and the web unit reported zero restarts. This does not validate sustained public capacity or clean-host recovery.
