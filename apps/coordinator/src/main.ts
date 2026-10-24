@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { createScannerClient } from '@gotchu/scanner';
+import { createScannerClient, readScannerCaFile } from '@gotchu/scanner';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { createBackend } from '@gotchu/backend';
@@ -44,9 +44,15 @@ async function main() {
   let discoveryHealthy = !customerDiscovery;
   const scannerOrigin = process.env.GOTCHU_SCANNER_ORIGIN;
   const scannerSecretFile = process.env.GOTCHU_SCANNER_SECRET_FILE;
-  if (Boolean(scannerOrigin) !== Boolean(scannerSecretFile)) throw new Error('Scanner origin and secret file must be configured together');
-  const customerAssessmentRunner = scannerOrigin && scannerSecretFile ? createScannerClient({
+  const scannerCaFile = process.env.GOTCHU_SCANNER_CA_FILE;
+  if ((scannerOrigin === undefined) !== (scannerSecretFile === undefined)) throw new Error('Scanner origin and secret file must be configured together');
+  if (scannerCaFile !== undefined && scannerOrigin === undefined) throw new Error('Scanner CA file requires a scanner origin');
+  const scannerUrl = scannerOrigin === undefined ? undefined : new URL(scannerOrigin);
+  if (scannerCaFile !== undefined && scannerUrl?.protocol !== 'https:') throw new Error('Scanner CA file requires an HTTPS scanner origin');
+  const scannerCa = scannerCaFile === undefined ? undefined : await readScannerCaFile(scannerCaFile);
+  const customerAssessmentRunner = scannerOrigin !== undefined && scannerSecretFile !== undefined ? createScannerClient({
     origin: scannerOrigin, secret: await readFile(scannerSecretFile), allowDevelopmentHttp: config.nodeEnv !== 'production',
+    ...(scannerCa ? { ca: scannerCa } : {}),
   }) : undefined;
   const demoEnabled = process.env.GOTCHU_DEMO_ENABLED === 'true';
   if (demoEnabled && !allowedOrganizations.has(DEMO_ASSESSMENT_SCOPE.organizationId)) throw new Error('Assign the controlled demo organization before enabling its runner');

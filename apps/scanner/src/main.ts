@@ -1,11 +1,35 @@
-import { readFile } from 'node:fs/promises';
 import { createCustomerAssessmentRunner, createOsvAdapter } from '@gotchu/customer-assessment';
+import { loadScannerRuntimeConfig } from './runtime-config.js';
 import { createScannerServer } from './server.js';
-if (process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') throw new Error('This entry point is local development only; production TLS hosting remains a release gate');
-const path=process.env.GOTCHU_SCANNER_SECRET_FILE;if(!path)throw new Error('GOTCHU_SCANNER_SECRET_FILE is required');
-const port=Number(process.env.GOTCHU_SCANNER_PORT??4400);if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('Invalid scanner port');
-const secret=await readFile(path);if(secret.length>1024)throw new Error('Secret file too large');
-const runner=createCustomerAssessmentRunner(process.env.GOTCHU_SCANNER_OSV==='1'?{advisory:createOsvAdapter()}:{});
-const server=createScannerServer({secret,runner});
-server.listen(port,'127.0.0.1',()=>{console.log(`Scanner PID ${process.pid} listening on 127.0.0.1:${port}`);});
-for(const signal of ['SIGINT','SIGTERM'] as const)process.once(signal,()=>{server.close();server.closeIdleConnections();});
+
+async function main() {
+  const config = await loadScannerRuntimeConfig();
+  const runner = createCustomerAssessmentRunner(config.osvEnabled ? { advisory: createOsvAdapter() } : {});
+  const server = createScannerServer({
+    secret: config.secret,
+    ...(config.tls ? { tls: config.tls } : {}),
+    runner,
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => reject(error);
+    server.once('error', onError);
+    server.listen(config.port, config.host, () => {
+      server.off('error', onError);
+      resolve();
+    });
+  });
+
+  console.log(JSON.stringify({ event: 'scanner_started', host: config.host, port: config.port, tls: Boolean(config.tls) }));
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => {
+      server.close();
+      server.closeIdleConnections();
+    });
+  }
+}
+
+main().catch((error: unknown) => {
+  console.error(JSON.stringify({ event: 'scanner_start_failed', type: error instanceof Error ? error.name : 'unknown' }));
+  process.exitCode = 1;
+});
