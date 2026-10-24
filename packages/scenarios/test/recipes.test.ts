@@ -63,9 +63,9 @@ describe('versioned evidence-selected recipes', () => {
     expect(remediationRecipeCatalog.find((recipe) => recipe.id === 'route-enumeration')?.detectorAvailability).toBe('not_implemented');
   });
 
-  it('uses only matched findings and reports detector availability separately from coverage', () => {
+  it.each(['gotchu.javascript.tls-disabled', 'profile.gotchu.javascript.tls-disabled'])('selects the exact scanner rule %s and preserves unknown coverage', ruleId => {
     const input = runInput([{ path: 'src/client.ts', content: 'const client = { rejectUnauthorized: false };\n' }]);
-    const report = reportFor(input, 'gotchu.javascript.tls-disabled', 'src/client.ts:1', 'unavailable');
+    const report = reportFor(input, ruleId, 'src/client.ts:1', 'unavailable');
     const result = buildRecipeRecommendations(input, report);
 
     expect(result.recommendations).toHaveLength(1);

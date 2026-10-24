@@ -4,5 +4,7 @@ import react from '@vitejs/plugin-react';
 import { nitro } from 'nitro/vite';
 
 export default defineConfig({
-  plugins: [tanstackStart(), nitro({ preset: 'node-server' }), react()],
+  // The compiler uses CommonJS filesystem globals; preserve its native Node package.
+  ssr: { external: ['typescript'] },
+  plugins: [tanstackStart(), nitro({ preset: 'node-server', traceDeps: ['typescript'] }), react()],
 });

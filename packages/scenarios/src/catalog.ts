@@ -118,9 +118,10 @@ const recipeCatalog = [
 export const remediationRecipeCatalog: readonly RecipeCatalogEntry[] = Object.freeze(recipeCatalog.map((entry) => recipeCatalogEntrySchema.parse(entry)));
 
 export function findRecipeForRule(ruleId: string): RecipeCatalogEntry | undefined {
+  // Semgrep prefixes the mounted profile's filename in its actual JSON output.
+  const normalizedRuleId = ruleId.startsWith('profile.gotchu.javascript.') ? ruleId.slice('profile.'.length) : ruleId;
   return remediationRecipeCatalog.find((recipe) => recipe.expectedRuleIds.some((pattern) => {
-    if (pattern.endsWith('*')) return ruleId.startsWith(pattern.slice(0, -1));
-    if (pattern.endsWith('.*')) return ruleId.startsWith(pattern.slice(0, -1));
-    return pattern === ruleId;
+    if (pattern.endsWith('*')) return normalizedRuleId.startsWith(pattern.slice(0, -1));
+    return pattern === normalizedRuleId;
   }));
 }
