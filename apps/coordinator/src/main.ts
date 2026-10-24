@@ -79,6 +79,8 @@ async function main() {
   await recordSchedulerHeartbeat(database,coordinatorId);
   let lastHeartbeat=Date.now();
   let monitoringTask: Promise<void> | undefined;
+  let retentionTask: Promise<void> | undefined;
+  let lastRetentionClaim=0;
   const livenessTask=(async()=>{
     while(!stop.signal.aborted){
       try{await inspectMonitoringLiveness(database,[...allowedOrganizations]);}
@@ -92,6 +94,16 @@ async function main() {
     while (!stop.signal.aborted) {
       try {
         if(Date.now()-lastHeartbeat>=5_000){await recordSchedulerHeartbeat(database,coordinatorId);lastHeartbeat=Date.now();}
+        if(Date.now()-lastRetentionClaim>=30_000&&!retentionTask){
+          lastRetentionClaim=Date.now();
+          retentionTask=(async()=>{
+            const claims=await backend.retention.claimDue({limit:10});
+            for(const claim of claims){
+              try{await backend.retention.purge(claim);}
+              catch(error){report('retention_purge_failed',error);}
+            }
+          })().catch(error=>{report('retention_purge_dispatch_failed',error);}).finally(()=>{retentionTask=undefined;});
+        }
         if (monitoringEnabled && !monitoringTask) {
           const due = await backend.operations.claimDue({ limit: 1 });
           const work = due[0];
@@ -136,6 +148,7 @@ async function main() {
     await loop;
     await livenessTask;
     await monitoringTask;
+    await retentionTask;
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     try { await transport.close(); }
     finally { await Promise.all([database.close(), controlledTarget?.close()]); }
