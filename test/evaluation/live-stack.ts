@@ -96,12 +96,10 @@ export async function createLiveTriageStack() {
   if (!apiAddress || typeof apiAddress === 'string') throw new Error('evaluation_web_listener_missing');
   apiOrigin = `http://127.0.0.1:${apiAddress.port}`;
 
-  const identity = { userId: `triage-evaluation:${randomUUID()}` };
-  const workspace = await api.customers.createWorkspace(identity, { name: `Triage evaluation ${randomUUID().slice(0, 8)}` });
   const transportErrors: string[] = [];
   const transport = createCoordinatorTransport({
     redisUrl,
-    organizationIds: [workspace.id],
+    organizationIds: [],
     dependencies: { database: f.databases.gotchu_coordinator, backend: coordinator },
     report: (event, error) => { transportErrors.push(`${event}:${error instanceof Error ? error.message : String(error)}`); },
     prefix: `triage-eval-${randomUUID()}`,
@@ -109,6 +107,9 @@ export async function createLiveTriageStack() {
   await transport.waitUntilReady();
 
   async function createApplication(scenario: ScenarioCase, repetition: number): Promise<EvaluationApplication> {
+    const identity = { userId: `triage-evaluation:${randomUUID()}` };
+    const workspace = await api.customers.createWorkspace(identity, { name: `Evaluation ${randomUUID().slice(0, 8)}` });
+    transport.setOrganizationIds([workspace.id]);
     const applicationName = `${scenario.id}-${repetition}`;
     const application = await api.customers.createApplication(identity, { organizationId: workspace.id, name: applicationName });
     const scope = { organizationId: workspace.id, applicationId: application.applicationId };
@@ -206,12 +207,12 @@ export async function createLiveTriageStack() {
     }
   }
 
-  async function drain(applicationId: string) {
+  async function drain(organizationId: string, applicationId: string) {
     for (let attempt = 0; attempt < 600; attempt++) {
-      await dispatchOutbox(coordinator, workspace.id, transport.publish);
+      await dispatchOutbox(coordinator, organizationId, transport.publish);
       const pending = await f.admin.query<{ id: string }>(`SELECT id FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2
         AND state IN ('queued','running') AND (kind='events.aggregate' OR kind='notification' AND payload->>'kind'='triage_evaluation')`,
-      [workspace.id, applicationId]);
+      [organizationId, applicationId]);
       if (pending.rowCount === 0) {
         if (transportErrors.length > 0) throw new Error(`evaluation_coordinator_transport_error:${transportErrors.join('|')}`);
         return;
@@ -221,18 +222,18 @@ export async function createLiveTriageStack() {
     throw new Error(`evaluation_coordinator_drain_timeout:${applicationId}`);
   }
 
-  async function readResults(applicationId: string) {
+  async function readResults(organizationId: string, applicationId: string) {
     const observations = await f.admin.query<{ idempotency_key: string; body: unknown; created_at: Date }>(
       `SELECT idempotency_key,body,created_at FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2`,
-      [workspace.id, applicationId]);
+      [organizationId, applicationId]);
     const incidents = await f.admin.query<{ rule_id: string; severity: string; created_at: Date }>(
-      `SELECT rule_id,severity,created_at FROM gotchu.incidents WHERE organization_id=$1 AND application_id=$2`, [workspace.id, applicationId]);
+      `SELECT rule_id,severity,created_at FROM gotchu.incidents WHERE organization_id=$1 AND application_id=$2`, [organizationId, applicationId]);
     const revision = await f.admin.query<{ body: unknown; created_at: Date }>(
       `SELECT body,created_at FROM gotchu.triage_revisions WHERE organization_id=$1 AND application_id=$2 ORDER BY created_at DESC LIMIT 1`,
-      [workspace.id, applicationId]);
+      [organizationId, applicationId]);
     const coverage = await f.admin.query<{ state: string; reason: string }>(
       `SELECT state,reason FROM gotchu.coverage WHERE organization_id=$1 AND application_id=$2 AND capability='operational_detection'`,
-      [workspace.id, applicationId]);
+      [organizationId, applicationId]);
     return { observations: observations.rows, incidents: incidents.rows, revision: revision.rows[0], coverage: coverage.rows[0] };
   }
 
@@ -254,6 +255,6 @@ export async function createLiveTriageStack() {
     await f.close();
   }
 
-  return { identity, organizationId: workspace.id, apiOrigin, createApplication, recordProviderStatus,
+  return { apiOrigin, createApplication, recordProviderStatus,
     recordProbes, drain, readResults, checkPermission, close };
 }

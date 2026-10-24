@@ -90,8 +90,8 @@ export async function runTriageCase(input: {
     }
     target.setTelemetryTime(undefined);
     await target.flush();
-    await stack.drain(app.applicationId);
-    const measured = await stack.readResults(app.applicationId);
+    await stack.drain(app.organizationId, app.applicationId);
+    const measured = await stack.readResults(app.organizationId, app.applicationId);
     const observations = measured.observations.flatMap(row => {
       const rule = ruleFromKey(row.idempotency_key);
       if (!rule || rule === 'metrics') return [];
