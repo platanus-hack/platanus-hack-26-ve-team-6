@@ -59,7 +59,7 @@ describe('Auth.js Request/Response integration', () => {
   });
 
   it('supports generic OIDC without a GitHub account and exposes no client secret', async () => {
-    const configured = authSettings({ PUBLIC_APP_URL: settings.origin, AUTH_SECRET: settings.secret, AUTH_OIDC_ISSUER: 'https://identity.example.test/realm', AUTH_OIDC_CLIENT_ID: 'fixture-client', AUTH_OIDC_CLIENT_SECRET: 'fixture-secret' });
+    const configured = authSettings({ PUBLIC_APP_URL: settings.origin, AUTH_SECRET: settings.secret, AUTH_OIDC_ISSUER: 'https://identity.example.test/realm', AUTH_OIDC_CLIENT_ID: 'fixture-client', AUTH_OIDC_CLIENT_SECRET: 'fixture-secret', AUTH_OIDC_NAME: '' });
     expect(configured).not.toBeNull();
     const response = await createAuthService(configured).handle(new Request(`${settings.origin}/api/auth/providers`));
     expect(response.status).toBe(200);

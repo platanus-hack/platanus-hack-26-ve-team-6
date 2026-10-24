@@ -28,7 +28,7 @@ export interface AuthService {
 
 export function authSettings(env: NodeJS.ProcessEnv = process.env): AuthSettings | null {
   const oidc = env.AUTH_OIDC_ISSUER || env.AUTH_OIDC_CLIENT_ID || env.AUTH_OIDC_CLIENT_SECRET
-    ? oidcSettingsSchema.parse({ issuer: env.AUTH_OIDC_ISSUER, clientId: env.AUTH_OIDC_CLIENT_ID, clientSecret: env.AUTH_OIDC_CLIENT_SECRET, name: env.AUTH_OIDC_NAME ?? 'Workspace sign-in' }) : undefined;
+    ? oidcSettingsSchema.parse({ issuer: env.AUTH_OIDC_ISSUER, clientId: env.AUTH_OIDC_CLIENT_ID, clientSecret: env.AUTH_OIDC_CLIENT_SECRET, name: env.AUTH_OIDC_NAME?.trim() || 'Workspace sign-in' }) : undefined;
   const github = env.AUTH_GITHUB_ID && env.AUTH_GITHUB_SECRET ? { githubClientId: env.AUTH_GITHUB_ID, githubClientSecret: env.AUTH_GITHUB_SECRET } : undefined;
   if (!env.AUTH_SECRET || !github && !oidc) return null;
   const secret = z.string().min(32).parse(env.AUTH_SECRET);
