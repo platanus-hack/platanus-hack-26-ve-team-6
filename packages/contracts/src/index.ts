@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { runtimeAttackEventAttributesSchema, runtimeProtectionHeartbeatAttributesSchema } from './telemetry.js';
 export * from './assessment.js';
 export * from './demo-api.js';
 
@@ -12,6 +13,8 @@ export const eventTypeSchema = z.enum([
   'monitor.heartbeat',
   'app.error',
   'runtime.resource',
+  'runtime.attack_detected',
+  'runtime.protection_heartbeat',
 ]);
 
 const attributeValueSchema = z.union([
@@ -50,7 +53,22 @@ export const securityEventSchema = z.object({
   }).strict().optional(),
   outcome: z.enum(['success', 'failure', 'blocked', 'unknown']),
   attributes: eventAttributesSchema.default({}),
-}).strict();
+}).strict().superRefine((event, context) => {
+  const attributes = event.type === 'runtime.attack_detected'
+    ? runtimeAttackEventAttributesSchema.safeParse(event.attributes)
+    : event.type === 'runtime.protection_heartbeat'
+      ? runtimeProtectionHeartbeatAttributesSchema.safeParse(event.attributes)
+      : null;
+  if (attributes && !attributes.success) {
+    for (const issue of attributes.error.issues) context.addIssue({ code: 'custom', path: ['attributes', ...issue.path], message: issue.message });
+  }
+  if ((event.type === 'runtime.attack_detected' || event.type === 'runtime.protection_heartbeat') && event.source !== 'application') {
+    context.addIssue({ code: 'custom', path: ['source'], message: 'Runtime protection events must come from an application integration' });
+  }
+  if (event.type === 'runtime.attack_detected' && event.outcome !== 'blocked' && event.outcome !== 'unknown') {
+    context.addIssue({ code: 'custom', path: ['outcome'], message: 'Runtime detections must distinguish blocked from observed attempts' });
+  }
+});
 
 export const eventBatchSchema = z.object({
   applicationId: idSchema,
@@ -86,6 +104,7 @@ export type InvestigationRequest = z.infer<typeof investigationRequestSchema>;
 export * from './customer-assessment.js';
 export * from './operations.js';
 export * from './telemetry.js';
+export * from './protection.js';
 export * from './context.js';
 export * from './step-up.js';
 export * from './triage.js';
