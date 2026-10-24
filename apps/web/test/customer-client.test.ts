@@ -106,6 +106,13 @@ describe('customer API client', () => {
     expect(String(init?.body)).toContain('email=person%40example.test');
   });
 
+  it('does not report sign-out success while the authenticated session remains active', async () => {
+    fetchMock.mockResolvedValueOnce(json({ csrfToken: 'csrf-value' }))
+      .mockResolvedValueOnce(json({ url: '/api/auth/error' }))
+      .mockResolvedValueOnce(json({ user: { id: 'credentials:account-id' }, providers: [], localAuthEnabled: true, registrationEnabled: false }));
+    await expect(customerApi.signOut()).rejects.toMatchObject({ code: 'signout_rejected' });
+  });
+
   it('rejects report data that fails the shared customer report schema', async () => {
     fetchMock.mockResolvedValueOnce(json({ id: sourceId }));
     const result = customerApi.report(organizationId, applicationId, sourceId);

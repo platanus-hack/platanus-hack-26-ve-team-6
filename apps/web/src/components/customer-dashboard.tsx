@@ -274,7 +274,7 @@ function SourceEnrollment({ organizationId, applicationId, sources, canManage, o
 
   return <section className="customer-card">
     <div className="customer-card-heading"><div><span className="customer-eyebrow">ALCANCE DE CÓDIGO</span><h2>Instantánea de código</h2></div><span className="customer-status customer-status-muted">No ejecutamos tu código</span></div>
-    <p className="customer-card-copy">Sube una selección de archivos fuente para un análisis interno. Se conserva como una instantánea privada y no se instalan dependencias ni se ejecutan pruebas.</p>
+    <p className="customer-card-copy">Sube una selección de archivos fuente para un análisis interno. Se conserva como una instantánea privada y no se instalan dependencias ni se ejecutan pruebas.</p><p className="customer-field-note">Si la consulta de avisos está habilitada, se envían al servicio de vulnerabilidades sólo nombres y versiones de paquetes npm; nunca los archivos.</p>
     {sources.length > 0 && <div className="customer-source-list"><strong>Instantáneas disponibles</strong>{sources.map(source => <div key={source.id}><span><code>{source.revision}</code> · {source.fileCount} archivos · SHA-256 <code>{source.digest.slice(0, 12)}…</code><small>{date(source.createdAt)}</small></span>{canManage && <button className="customer-link-button customer-danger-link" disabled={remove.isPending} onClick={() => { if (window.confirm(`¿Eliminar la instantánea «${source.revision}»? Esta acción no se puede deshacer.`)) { setError(null); remove.mutate(source.id); } }}>Eliminar</button>}</div>)}</div>}
     {canManage && <form className="customer-form customer-source-form" onSubmit={event => { event.preventDefault(); setError(null); upload.mutate(); }}>
       <label htmlFor="source-revision">Etiqueta de revisión</label><input id="source-revision" value={revision} onChange={event => setRevision(event.target.value)} maxLength={200} required placeholder="main, release/1.2, commit…" />
@@ -365,7 +365,7 @@ function AssessmentForm({ organizationId, applicationId, sources, targets, canMa
   </section>;
 }
 
-function CustomerWorkspace({ session }: { session: CustomerSession }) {
+function CustomerWorkspace({ session, userId }: { session: CustomerSession; userId: string }) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState<Page>('overview');
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
@@ -375,10 +375,10 @@ function CustomerWorkspace({ session }: { session: CustomerSession }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
 
-  const workspaces = useQuery({ queryKey: ['customer-workspaces'], queryFn: customerApi.workspaces, retry: false });
+  const workspaces = useQuery({ queryKey: ['customer-data', userId, 'workspaces'], queryFn: customerApi.workspaces, retry: false });
   const organizationId = selectedWorkspaceId ?? workspaces.data?.[0]?.id ?? null;
   const workspace = workspaces.data?.find(item => item.id === organizationId) ?? null;
-  const applications = useQuery({ queryKey: ['customer-applications', organizationId], enabled: organizationId !== null, queryFn: () => {
+  const applications = useQuery({ queryKey: ['customer-data', userId, 'applications', organizationId], enabled: organizationId !== null, queryFn: () => {
     if (!organizationId) throw new Error('Selecciona un espacio de trabajo.');
     return customerApi.applications(organizationId);
   }, retry: false });
@@ -387,26 +387,26 @@ function CustomerWorkspace({ session }: { session: CustomerSession }) {
     ?? applications.data?.[0]
     ?? null;
   const applicationId = selectedApplication?.applicationId ?? null;
-  const canManage = workspace?.role !== 'viewer';
-  const targets = useQuery({ queryKey: ['customer-targets', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
+  const canManage = workspace !== null && (workspace.role === 'owner' || workspace.role === 'operator');
+  const targets = useQuery({ queryKey: ['customer-data', userId, 'targets', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
     if (!organizationId || !applicationId) throw new Error('Selecciona una aplicación.');
     return customerApi.targets(organizationId, applicationId);
   }, retry: false });
-  const sources = useQuery({ queryKey: ['customer-sources', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
+  const sources = useQuery({ queryKey: ['customer-data', userId, 'sources', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
     if (!organizationId || !applicationId) throw new Error('Selecciona una aplicación.');
     return customerApi.sources(organizationId, applicationId);
   }, retry: false });
-  const reports = useQuery({ queryKey: ['customer-reports', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
+  const reports = useQuery({ queryKey: ['customer-data', userId, 'reports', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
     if (!organizationId || !applicationId) throw new Error('Selecciona una aplicación.');
     return customerApi.reports(organizationId, applicationId);
   }, retry: false });
   const visibleReportId = selectedReportId ?? reports.data?.[0]?.id ?? null;
-  const report = useQuery({ queryKey: ['customer-report', organizationId, applicationId, visibleReportId], enabled: organizationId !== null && applicationId !== null && visibleReportId !== null, queryFn: () => {
+  const report = useQuery({ queryKey: ['customer-data', userId, 'report', organizationId, applicationId, visibleReportId], enabled: organizationId !== null && applicationId !== null && visibleReportId !== null, queryFn: () => {
     if (!organizationId || !applicationId || !visibleReportId) throw new Error('Selecciona un informe.');
     return customerApi.report(organizationId, applicationId, visibleReportId);
   }, retry: false });
   const job = useQuery({
-    queryKey: ['customer-job', activeJob?.organizationId, activeJob?.applicationId, activeJob?.jobId],
+    queryKey: ['customer-data', userId, 'job', activeJob?.organizationId, activeJob?.applicationId, activeJob?.jobId],
     enabled: activeJob !== null,
     queryFn: () => {
       if (!activeJob) throw new Error('No hay una evaluación en curso.');
@@ -418,13 +418,17 @@ function CustomerWorkspace({ session }: { session: CustomerSession }) {
 
   const refreshApplicationData = () => {
     for (const queryKey of [
-      ['customer-applications', organizationId], ['customer-targets', organizationId, applicationId],
-      ['customer-sources', organizationId, applicationId], ['customer-reports', organizationId, applicationId],
+      ['customer-data', userId, 'applications', organizationId], ['customer-data', userId, 'targets', organizationId, applicationId],
+      ['customer-data', userId, 'sources', organizationId, applicationId], ['customer-data', userId, 'reports', organizationId, applicationId],
     ]) queryClient.invalidateQueries({ queryKey }).catch(caught => setPageError(readableError(caught)));
   };
   const signOut = useMutation({
     mutationFn: customerApi.signOut,
-    onSuccess: value => { queryClient.setQueryData(['customer-session'], value); setPageError(null); },
+    onSuccess: async value => {
+      await queryClient.cancelQueries({ queryKey: ['customer-data'] });
+      queryClient.removeQueries({ queryKey: ['customer-data'] });
+      queryClient.setQueryData(['customer-session'], value); setPageError(null);
+    },
     onError: caught => setPageError(readableError(caught)),
   });
 
@@ -440,12 +444,12 @@ function CustomerWorkspace({ session }: { session: CustomerSession }) {
       } else {
         setPageError('La evaluación terminó, pero el informe todavía no está disponible. Actualiza el historial para comprobarlo.');
       }
-      queryClient.invalidateQueries({ queryKey: ['customer-reports', activeJob.organizationId, activeJob.applicationId] }).catch(caught => setPageError(readableError(caught)));
+      queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'reports', activeJob.organizationId, activeJob.applicationId] }).catch(caught => setPageError(readableError(caught)));
     } else if (jobResult.state === 'failed') {
       setActiveJob(null);
       setPageError(jobResult.reasonCode ? `La evaluación no finalizó (${jobResult.reasonCode}).` : 'La evaluación no finalizó. Los informes anteriores siguen disponibles.');
     }
-  }, [activeJob, jobResult, queryClient]);
+  }, [activeJob, jobResult, queryClient, userId]);
 
   const operationError = pageError;
   const pageTitle = pages.find(item => item.id === page)?.label ?? 'Inicio';
@@ -463,8 +467,8 @@ function CustomerWorkspace({ session }: { session: CustomerSession }) {
       <nav className="customer-nav" aria-label="Navegación principal">{pages.map(item => <button type="button" key={item.id} className={page === item.id ? 'customer-nav-item is-active' : 'customer-nav-item'} aria-current={page === item.id ? 'page' : undefined} onClick={() => setPage(item.id)}><Icon>{item.glyph}</Icon>{item.label}</button>)}</nav>
       <div className="customer-sidebar-bottom">
         {workspaces.data?.length === 0 && <div className="customer-sidebar-note">Crea tu primer espacio para incorporar aplicaciones autorizadas.</div>}
-        {Boolean(workspaces.data?.length) && <WorkspaceCreate disabled={false} onCreated={created => { setSelectedWorkspaceId(created.id); setSelectedApplicationId(null); queryClient.invalidateQueries({ queryKey: ['customer-workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); }} />}
-        <div className="customer-user-row"><span className="customer-user-avatar">{session.user?.id.slice(0, 1).toUpperCase() ?? 'U'}</span><span title={session.user?.id}>{session.user?.id ?? 'Cuenta'}</span><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}>↗</button></div>
+        {Boolean(workspaces.data?.length) && <WorkspaceCreate disabled={false} onCreated={created => { setSelectedWorkspaceId(created.id); setSelectedApplicationId(null); queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); }} />}
+        <div className="customer-user-row"><span className="customer-user-avatar">U</span><span>Sesión activa</span><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}>↗</button></div>
       </div>
     </aside>
     <div className="customer-main-column">
@@ -472,7 +476,7 @@ function CustomerWorkspace({ session }: { session: CustomerSession }) {
       <main className="customer-main">
         {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}>×</button></div>}
         {operationError && <ErrorNotice message={operationError} retry={() => { setPageError(null); refreshApplicationData(); workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} />}
-        {!organizationId ? <section className="customer-empty-state"><span className="customer-empty-mark">+</span><span className="customer-eyebrow">TU CUENTA</span><h1>Crea un espacio de trabajo</h1><p>Organiza tus aplicaciones y comparte acceso con tu equipo.</p><WorkspaceCreate disabled={false} onCreated={created => { setSelectedWorkspaceId(created.id); queryClient.invalidateQueries({ queryKey: ['customer-workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); }} /></section>
+        {!organizationId ? <section className="customer-empty-state"><span className="customer-empty-mark">+</span><span className="customer-eyebrow">TU CUENTA</span><h1>Crea un espacio de trabajo</h1><p>Organiza tus aplicaciones y sus evaluaciones en un mismo espacio.</p><WorkspaceCreate disabled={false} onCreated={created => { setSelectedWorkspaceId(created.id); queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); }} /></section>
         : applications.isPending ? <Loading label="Cargando aplicaciones…" />
         : applications.error ? <ErrorNotice message={readableError(applications.error)} retry={() => { applications.refetch().catch(caught => setPageError(readableError(caught))); }} />
         : !selectedApplication ? <section className="customer-empty-state"><span className="customer-empty-mark">+</span><span className="customer-eyebrow">{workspace?.name}</span><h1>Añade tu primera aplicación</h1><p>Después podrás compartir código fuente o verificar un origen HTTPS para definir el alcance de una evaluación.</p><ApplicationCreate organizationId={organizationId} disabled={!canManage} onCreated={id => { setSelectedApplicationId(id); applications.refetch().catch(caught => setPageError(readableError(caught))); setPage('applications'); }} /></section>
@@ -483,7 +487,7 @@ function CustomerWorkspace({ session }: { session: CustomerSession }) {
             {page === 'overview' && <>
               {activeJob && <div className="customer-job-banner" role="status"><span className="customer-spinner" /><div><strong>{jobResult?.state === 'running' ? 'Evaluación en curso' : 'Evaluación guardada'}</strong><p>El trabajo continúa en segundo plano. Tus informes anteriores siguen disponibles.</p></div>{job.error && <button className="customer-link-button" onClick={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }}>Reintentar estado</button>}</div>}
               <div className="customer-overview-grid"><section className="customer-welcome-card"><span className="customer-eyebrow">ALCANCE CONTROLADO</span><h2>{selectedApplication.name}</h2><p>El análisis HTTPS puede funcionar sin acceso al repositorio. El modo combinado requiere tanto una instantánea autorizada como un dominio verificado.</p><div className="customer-overview-stats"><div><strong>{sources.data?.length ?? 0}</strong><span>Instantáneas</span></div><div><strong>{targets.data?.filter(target => target.status === 'verified').length ?? 0}</strong><span>Orígenes verificados</span></div><div><strong>{applicationReports.length}</strong><span>Informes</span></div></div><button className="customer-button customer-button-secondary" onClick={() => setPage('applications')}>Configurar alcance</button></section>
-                <AssessmentForm organizationId={organizationId} applicationId={applicationId!} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: applicationId!, jobId }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} />
+                <AssessmentForm key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} />
               </div>
               <section className="customer-card customer-recent-card"><div className="customer-card-heading"><div><span className="customer-eyebrow">ACTIVIDAD RECIENTE</span><h2>Informes</h2></div><button className="customer-link-button" onClick={() => setPage('reports')}>Ver historial →</button></div>{applicationReports.length === 0 ? <div className="customer-empty-inline">Todavía no hay informes para esta aplicación. Define el alcance e inicia una evaluación cuando esté listo.</div> : <ReportList reports={applicationReports.slice(0, 4)} selectedId={visibleReportId} select={id => { setSelectedReportId(id); setPage('reports'); }} />}</section>
             </>}
@@ -492,8 +496,8 @@ function CustomerWorkspace({ session }: { session: CustomerSession }) {
               <section className="customer-card customer-applications-card"><div className="customer-card-heading"><div><span className="customer-eyebrow">APLICACIONES</span><h2>Activos de {workspace?.name}</h2></div>{canManage && <ApplicationCreate organizationId={organizationId} disabled={false} onCreated={id => { setSelectedApplicationId(id); applications.refetch().catch(caught => setPageError(readableError(caught))); }} />}</div>
                 <div className="customer-application-grid">{(applications.data ?? []).map(application => <button className={application.applicationId === applicationId ? 'customer-application-card is-selected' : 'customer-application-card'} key={application.applicationId} onClick={() => { setSelectedApplicationId(application.applicationId); setSelectedReportId(null); }}><span className="customer-app-icon">▦</span><span><strong>{application.name}</strong><small>{application.archived ? 'Archivada' : 'Activa'} · Añadida {date(application.createdAt)}</small></span><span className="customer-app-role">{application.applicationId === applicationId ? 'Seleccionada' : 'Abrir'}</span></button>)}</div>
               </section>
-              <div className="customer-asset-grid"><TargetEnrollment organizationId={organizationId} applicationId={applicationId!} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment organizationId={organizationId} applicationId={applicationId!} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /></div>
-              <ApplicationSettings organizationId={organizationId} applicationId={applicationId!} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('La aplicación se actualizó.'); }} />
+              <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /></div>
+              <ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('La aplicación se actualizó.'); }} />
             </>}
 
           {page === 'reports' && <div className="customer-report-layout"><section className="customer-card customer-report-history"><div className="customer-card-heading"><div><span className="customer-eyebrow">HISTORIAL</span><h2>{applicationReports.length} informes</h2></div></div>{applicationReports.length === 0 ? <div className="customer-empty-inline">Los informes aparecerán aquí cuando termine una evaluación.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} select={setSelectedReportId} />}</section><section className="customer-card customer-report-card">{report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>}</section></div>}
@@ -515,5 +519,5 @@ export function CustomerDashboard() {
   if (session.isPending) return <main className="customer-auth-page"><Loading label="Comprobando tu sesión…" /></main>;
   if (session.error) return <main className="customer-auth-page"><section className="customer-auth-card"><a className="customer-brand" href="/dashboard"><span className="customer-brand-mark">g</span>gotchu<span className="customer-brand-dot">.</span></a><ErrorNotice message={readableError(session.error)} retry={() => session.refetch()} /></section></main>;
   if (!session.data.user) return <AuthPanel session={session.data} onAuthenticated={value => { queryClient.setQueryData(['customer-session'], value); }} />;
-  return <CustomerWorkspace session={session.data} />;
+  return <CustomerWorkspace key={session.data.user.id} session={session.data} userId={session.data.user.id} />;
 }

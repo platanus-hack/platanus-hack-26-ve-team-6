@@ -146,7 +146,9 @@ export const customerApi = {
   async signOut() {
     const csrf = await csrfToken();
     await postAuthForm('/api/auth/signout', { csrfToken: csrf, callbackUrl: '/dashboard', json: 'true' });
-    return customerApi.session();
+    const session = await customerApi.session();
+    if (session.user) throw new CustomerApiError(401, 'signout_rejected', 'No se pudo cerrar la sesión. Inténtalo de nuevo.');
+    return session;
   },
   workspaces: () => request('/api/customer/workspaces', workspaceListSchema),
   createWorkspace: (name: string) => {
