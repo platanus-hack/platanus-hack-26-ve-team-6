@@ -48,6 +48,11 @@ export function createLocalAccounts(database: Database): LocalAccounts {
   return {
     register: async input => {
       const value = localRegistrationSchema.parse(input);
+      const admitted = await database.tenant(systemScope, async tx => {
+        const result = await tx.query<{ allowed: boolean }>("SELECT gotchu.auth_admit('register:global',10,3600) AS allowed");
+        return result.rows[0]?.allowed === true;
+      });
+      if (!admitted) throw new HttpError(429, 'registration_rate_limit', 'Se ha alcanzado el límite temporal de registro.');
       return bounded(async () => {
         const encoded = await hashPassword(value.password);
         const id = await database.tenant(systemScope, async tx => {
