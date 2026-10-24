@@ -10,7 +10,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Toggle } from '@/components/ui/toggle';
 import { FolderPlate, VennPlate } from './ascii-plates';
-import { CODE_LOOKS, DOMAIN_FACTS, DOMAIN_RECORD, GLOSSARY, QUESTIONS, REPORT_JSON, SCOPES, TEAM } from './copy';
+import { CODE_LOOKS, DOMAIN_FACTS, DOMAIN_RECORD, GLOSSARY, QUESTIONS, REPORT_JSON, SCOPES, TEAM, VENN_LABELS, VIGILANCE_FACTS } from './copy';
 import { Display, Mark, Note, Ref } from './editorial';
 import { Header } from './header';
 
@@ -85,8 +85,8 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
 function Code() {
   return <Section id="gl-codigo" titleId="gl-codigo-titulo" title={['Sube una copia', 'de tu código.']}>
     <Block className="gl-cols" notes={<><Note n={2}><strong>Huella SHA-256:</strong> identifica exactamente la copia revisada.</Note><Note n={3}><strong>La copia nunca se ejecuta.</strong> No se instalan paquetes.</Note></>}>
-      <p className="gl-dropcap">Para revisar código, sube una copia de la carpeta de tu app, etiqueta la versión y guárdala con su <Mark>huella SHA-256</Mark>.<Ref n={2} /></p>
-      <p>Gotchu revisa posibles riesgos <Mark delay={120}>sin ejecutarlo ni instalar paquetes</Mark>. La copia queda guardada con su versión, para saber siempre qué se revisó.<Ref n={3} /></p>
+      <p className="gl-dropcap">Sube una instantánea de tu app, etiqueta la versión y guarda su <Mark>huella SHA-256</Mark>.<Ref n={2} /></p>
+      <p>Gotchu revisa archivos JS, TS, JSON, YAML y TOML con análisis acotados. <Mark delay={120}>No ejecuta el código ni instala paquetes.</Mark><Ref n={3} /></p>
     </Block>
     <div className="gl-split">
       <FolderPlate />
@@ -99,13 +99,13 @@ function Code() {
 }
 
 function Domain({ paused }: { paused: boolean }) {
-  return <Section titleId="gl-dominio-titulo" title={['Confirma que', <>el dominio es <Mark size="big">tuyo.</Mark></>]}>
-    <Block notes={<Note n={4}><strong>Solo dominios que controles.</strong> Debes demostrar la propiedad con un registro DNS TXT y dar tu consentimiento.</Note>}>
-      <p>Para revisar la web, publica el TXT en <code className="gl-code">{DOMAIN_RECORD}</code>, verifica la propiedad y autoriza la revisión.<Ref n={4} /></p>
+  return <Section titleId="gl-dominio-titulo" title={['Demuestra que', <>controlas el <Mark size="big">dominio.</Mark></>]}>
+    <Block notes={<Note n={4}><strong>El TXT prueba control DNS, no titularidad legal.</strong> Autoriza solo orígenes que puedes controlar.</Note>}>
+      <p>Para autorizar la revisión, publica un TXT en <code className="gl-code">{DOMAIN_RECORD}</code>. Gotchu comprueba el control DNS antes de consultar el origen.<Ref n={4} /></p>
     </Block>
     <p className="gl-record"><span className="gl-sr">Registro DNS: </span>{DOMAIN_RECORD}<span aria-hidden="true">{'  '}</span><span className="gl-record-type">TXT</span></p>
-    <Block notes={<Note n={5}><strong>Sin cookies.</strong> Sin seguir redirecciones.</Note>}>
-      <p>Después, Gotchu revisa cómo responde el origen HTTPS de tu dominio, sin compartir el código fuente.<Ref n={5} /></p>
+    <Block notes={<Note n={5}><strong>Sin cookies, credenciales ni redirecciones.</strong> Gotchu valida el certificado y el nombre TLS.</Note>}>
+      <p>El perfil raíz hace una petición GET a /. El perfil de superficie pública autorizado hace hasta diez al mismo origen. No compartes el código fuente.<Ref n={5} /></p>
     </Block>
     <div className="gl-split gl-split--globe">
       <div className="gl-globe"><DotPlate formation="globe" paused={paused} /></div>
@@ -116,17 +116,17 @@ function Domain({ paused }: { paused: boolean }) {
 
 function TwoLooks() {
   return <Section titleId="gl-miradas-titulo" title={['Dos miradas.', 'Más contexto.']}>
-    <Block notes={<Note n={6}>Si revisas código y web, el reporte incluye <strong>sus coincidencias y diferencias.</strong></Note>}>
-      <p>Revisa el código y la web juntos para distinguir qué coincide y qué aparece en una sola revisión.<Ref n={6} /></p>
+    <Block notes={<Note n={6}>La cobertura parcial o no solicitada <strong>no demuestra que falten hallazgos.</strong></Note>}>
+      <p>Gotchu agrupa hallazgos por señales compartidas para comparar ambas revisiones. Un grupo común no prueba que describan el mismo fallo o despliegue.<Ref n={6} /></p>
     </Block>
-    <VennPlate />
+    <VennPlate labels={VENN_LABELS} />
   </Section>;
 }
 
 function Evidence() {
   return <Section titleId="gl-evidencia-titulo" title={['Cada hallazgo.', <Mark key="m" size="big">Su evidencia.</Mark>]}>
-    <Block notes={<Note n={7}><strong>Evidencia:</strong> el fragmento, la herramienta o un checksum.</Note>}>
-      <p>Cada hallazgo indica gravedad y confianza, con evidencia; el reporte aclara qué se revisó, qué quedó fuera y sus límites.<Ref n={7} /></p>
+    <Block notes={<Note n={7}><strong>La evidencia conserva su procedencia:</strong> fragmento, respuesta HTTP o dato de herramienta.</Note>}>
+      <p>El reporte enlaza evidencia con cada hallazgo. La severidad puede quedar sin evaluar; la confianza distingue observaciones, inferencias e incertidumbre. La explotabilidad permanece desconocida: no intentamos explotar nada.<Ref n={7} /></p>
     </Block>
     <dl className="gl-glossary">
       {GLOSSARY.map(([term, definition], index) => <div className="gl-term" key={term}>
@@ -136,7 +136,7 @@ function Evidence() {
       </div>)}
     </dl>
     <Block notes={<Note n={8}><strong>Sin hallazgos no es una garantía de seguridad.</strong></Note>}>
-      <p>Sin hallazgos significa que esa revisión no produjo hallazgos dentro de su alcance. Consulta la cobertura y las limitaciones.<Ref n={8} /></p>
+      <p>Sin hallazgos significa que la revisión no encontró observaciones en lo que alcanzó a revisar. Lo parcial o no solicitado no descarta riesgos; no es una garantía de seguridad.<Ref n={8} /></p>
     </Block>
   </Section>;
 }
@@ -155,6 +155,18 @@ function Scope() {
   </Section>;
 }
 
+function Vigilance() {
+  return <Section id="gl-vigilancia" titleId="gl-vigilancia-titulo" title={['Tú marcas el ritmo.', <Mark key="m" size="big">Cada 1–24 h.</Mark>]}>
+    <Block notes={<Note n={9}>Las revisiones no son en tiempo real; las alertas se ven dentro de Gotchu. No hay avisos fuera y una alerta no confirma un ataque.</Note>}>
+      <p>Activa revisiones periódicas de una instantánea o repositorio autorizado y de un origen HTTPS verificado. Tú eliges el intervalo, de 1 a 24 horas.<Ref n={9} /></p>
+      <p>Gotchu también muestra el estado de Cloudflare y Railway y las observaciones e incidentes que surgen de eventos firmados desde tu servidor.</p>
+    </Block>
+    <ul className="gl-rules gl-rules--facts gl-vigilance-list">
+      {VIGILANCE_FACTS.map(fact => <li key={fact}><span aria-hidden="true" className="gl-bullet" />{fact}</li>)}
+    </ul>
+  </Section>;
+}
+
 function JsonExhibit() {
   return <figure className="gl-exhibit" aria-label="Estructura del reporte en JSON">
     <pre tabIndex={0}><code>{REPORT_JSON.map((line, index) => <span className="gl-jl" key={index}>
@@ -167,9 +179,9 @@ function JsonExhibit() {
 function Team() {
   return <Section titleId="gl-equipo-titulo" title={['Que el equipo', 'tenga contexto.']}>
     <ol className="gl-numbered">
-      {TEAM.map((item, index) => <li key={item}><span aria-hidden="true">{['i', 'ii', 'iii'][index]}</span><p>{item}</p></li>)}
+      {TEAM.map((item, index) => <li key={item}><span aria-hidden="true">{['i', 'ii', 'iii', 'iv'][index]}</span><p>{item}</p></li>)}
     </ol>
-    <Block notes={<Note n={9}><strong>Gotchu solo observa:</strong> no cambia tu código ni aplica correcciones.</Note>}>
+    <Block notes={<Note n={10}><strong>La copia corregida es privada.</strong> No modifica el repositorio ni producción, no se publica ni despliega y no ejecuta pruebas de comportamiento.</Note>}>
       <JsonExhibit />
     </Block>
   </Section>;
@@ -221,6 +233,7 @@ export function Landing() {
       <TwoLooks />
       <Evidence />
       <Scope />
+      <Vigilance />
       <Team />
       <Questions />
       <Closing paused={paused} />

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Fragment, useEffect, useRef, useState, type RefObject } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { useReveal } from './editorial';
 
@@ -146,14 +146,9 @@ export function FolderPlate() {
 }
 
 const venn = vennArt();
-const labels: { text: ReactNode; x: number; className?: string }[] = [
-  { text: 'Solo en el código', x: 11 },
-  { text: 'En ambas', x: 33, className: 'is-both' },
-  { text: 'Solo en la web', x: 55 },
-];
 
 /** Two circles slide together, then the overlap is struck with the highlighter. */
-export function VennPlate() {
+export function VennPlate({ labels }: { labels: readonly [string, string, string] }) {
   const ref = useReveal<HTMLDivElement>('0px 0px -25% 0px');
   return <div ref={ref} className="gl-venn">
     <pre className="gl-venn-layer gl-venn-lens" aria-hidden="true">{venn.lens.map(({ y, x0, x1 }) => {
@@ -163,7 +158,7 @@ export function VennPlate() {
     <pre className="gl-venn-layer gl-venn-a" aria-hidden="true">{venn.a.join('\n')}</pre>
     <pre className="gl-venn-layer gl-venn-b" aria-hidden="true">{venn.b.join('\n')}</pre>
     <ul className="gl-venn-labels">
-      {labels.map(({ text, x, className }) => <li key={x} className={className} style={{ left: `${x / VENN.cols * 100}%` }}>{text}</li>)}
+      {labels.map((text, index) => <li key={index} className={index === 1 ? 'is-both' : undefined} style={{ left: `${(11 + index * 22) / VENN.cols * 100}%` }}>{text}</li>)}
     </ul>
   </div>;
 }

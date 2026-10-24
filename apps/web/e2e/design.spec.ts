@@ -154,6 +154,10 @@ test('the light theme passes the accessibility audit after every reveal', async 
 
 test('menu, anchor navigation, FAQ and dashboard CTAs keep accessible behavior', async ({ page, isMobile }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
+  const vigilance = page.locator('#gl-vigilancia');
+  await expect(vigilance).toContainText('Revisiones periódicas');
+  const monitoringQuestion = page.getByRole('button', { name: '¿Gotchu vigila mi app todo el tiempo?' });
+  await expect(monitoringQuestion).toBeAttached();
   if (isMobile) {
     const menu = page.getByRole('button', { name: 'Menú', exact: true });
     await menu.click();
@@ -173,9 +177,11 @@ test('menu, anchor navigation, FAQ and dashboard CTAs keep accessible behavior',
   await expect(first).toHaveAttribute('aria-expanded', 'false');
   await first.focus(); await page.keyboard.press('Enter');
   await expect(first).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByText('Puedes revisar el origen HTTPS de un dominio que controles')).toBeVisible();
+  await expect(page.getByText('Puedes autorizar un origen HTTPS con control DNS')).toBeVisible();
   await page.keyboard.press('Enter');
   await expect(first).toHaveAttribute('aria-expanded', 'false');
+  await monitoringQuestion.click();
+  await expect(page.getByText('No en tiempo real. Tú activas revisiones periódicas cada 1–24 h; las alertas se ven dentro de Gotchu.')).toBeVisible();
 
   const primary = page.getByRole('link', { name: 'Revisar mi aplicación', exact: true });
   await expect(primary).toHaveAttribute('href', '/dashboard');
@@ -227,7 +233,7 @@ test('the headline, sections and primary CTA remain usable without JavaScript', 
   await page.goto(baseURL ?? 'http://127.0.0.1:3085/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Decide con pruebas.');
   await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeVisible();
-  await expect(page.getByText('Sin hallazgos significa que esa revisión no produjo hallazgos')).toBeVisible();
+  await expect(page.getByText('Sin hallazgos significa que la revisión no encontró observaciones')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Revisar mi aplicación', exact: true })).toHaveAttribute('href', '/dashboard');
   await context.close();
 });
