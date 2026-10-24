@@ -461,9 +461,8 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
         expect(report.internal === null).toBe(mode === 'external'); expect(report.external === null).toBe(mode === 'internal');
         if (report.internal) {
           for (const capability of ['semgrep', 'gitleaks', 'npm_advisories']) expect(report.internal.coverage).toContainEqual(expect.objectContaining({ capability, state: 'inspected' }));
-          // Trivy inspects the Pod but does not recognize the two npm JSON files as Kubernetes.
-          // Keep that omitted coverage unknown even though real configuration evidence exists.
-          expect(report.internal.coverage).toContainEqual(expect.objectContaining({ capability: 'trivy', state: 'unavailable', detail: expect.stringContaining('2 candidate YAML/JSON configuration files') }));
+          // npm JSON files are not Kubernetes candidates; the manifest remains fully inspected.
+          expect(report.internal.coverage).toContainEqual(expect.objectContaining({ capability: 'trivy', state: 'inspected' }));
           const rules = report.internal.findings.map(finding => finding.ruleId);
           expect(rules.some(rule => rule.endsWith('javascript.eval'))).toBe(!corrected);
           expect(rules.some(rule => rule.endsWith('gotchu.javascript.tls-disabled'))).toBe(!corrected);
@@ -518,8 +517,25 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     expect(rescanned.internal?.coverage).toContainEqual(expect.objectContaining({ capability: 'semgrep', state: 'inspected' }));
     expect(rescanned.internal?.findings.some(finding => finding.ruleId.endsWith('gotchu.javascript.tls-disabled'))).toBe(false);
     expect(rescanned.internal?.findings.some(finding => finding.ruleId.endsWith('gotchu.javascript.eval'))).toBe(true);
+    const privilegedFinding = present(before.internal?.findings.find(finding => finding.ruleId === 'AVD-KSV-0017'));
+    const kubernetesRecipe = present(recommendations.recommendations.find(recipe => recipe.recipeId === 'kubernetes-config-hardening' && recipe.evidenceFindingIds.includes(privilegedFinding.id)));
+    expect(kubernetesRecipe.availability).toBe('candidate_patch');
+    expect(privilegedFinding.location).toBe('deployment.yaml:10');
+    const kubernetesCandidate = await json(await owner.api(`${app.path}/reports/${before.id}/corrections`, 'POST', {
+      recipeId: kubernetesRecipe.recipeId,
+      findingId: privilegedFinding.id,
+      expectedSourceDigest: present(before.subject.sourceDigest),
+    }), 201, prepareCorrectionResponseSchema);
+    expect(kubernetesCandidate.sourceId).not.toBe(before.subject.sourceSnapshotId);
+    expect(kubernetesCandidate.changes).toEqual([{ path: 'deployment.yaml', description: expect.any(String) }]);
+    const kubernetesRescan = present(await finished(app.base, app.path, kubernetesCandidate.jobId));
+    expect(kubernetesRescan.subject.sourceSnapshotId).toBe(kubernetesCandidate.sourceId);
+    expect(kubernetesRescan.internal?.findings.some(finding => finding.ruleId === 'AVD-KSV-0017')).toBe(false);
+    const privateCandidate = await f.admin.query<{ body: CustomerSourceSnapshot }>('SELECT body FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND id=$3', [app.workspace.id, app.app.applicationId, kubernetesCandidate.sourceId]);
+    expect(privateCandidate.rows[0]?.body.files.find(file => file.path === 'deployment.yaml')?.content).toContain('privileged: false');
     const original = await f.admin.query<{ body: CustomerSourceSnapshot }>('SELECT body FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND id=$3', [app.workspace.id, app.app.applicationId, before.subject.sourceSnapshotId]);
     expect(original.rows[0]?.body.files.find(file => file.path === 'src/tls.ts')?.content).toContain('rejectUnauthorized: false');
+    expect(original.rows[0]?.body.files.find(file => file.path === 'deployment.yaml')?.content).toContain('privileged: true');
     const writes = await f.admin.query<{ count: number }>('SELECT ((SELECT count(*) FROM gotchu.proposals WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.approvals WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.executions WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.agent_runs WHERE organization_id=$1))::int AS count', [app.workspace.id]);
     expect(writes.rows[0]?.count).toBe(0);
 

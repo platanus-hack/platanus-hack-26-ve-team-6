@@ -7,10 +7,11 @@ import {
   type CustomerAssessmentReport,
   type CustomerRunInput,
   type CustomerSourceSnapshot,
+  type AssessmentFinding,
 } from '@gotchu/contracts';
 import { findRecipeForRule, remediationRecipeCatalog } from './catalog.js';
 import { deriveRepositoryContext } from './context.js';
-import { inspectExactTransform, replaceSourceFile, type TransformBlockReason } from './transforms.js';
+import { inspectExactTransform, replaceSourceFile, type KubernetesCorrectionBinding, type TransformBlockReason } from './transforms.js';
 import {
   correctionChangeSchema,
   prepareCorrectionRequestSchema as candidatePatchSelectionSchema,
@@ -143,12 +144,57 @@ function coverageFor(mode: CustomerRunInput['mode'], recipeId: string, detectorA
   return entry.state;
 }
 
-function availabilityFor(recipeId: string, source: CustomerRunInput['source'], location: string): { availability: 'candidate_patch' | 'guided_review' | 'integration_required'; reason: string } {
+const trivyCorrectionEvidenceSchema = z.object({
+  rule: z.string(),
+  path: z.string(),
+  line: z.number().int().positive(),
+  checkId: z.string(),
+  causeStartLine: z.number().int().positive(),
+  causeEndLine: z.number().int().positive(),
+  correctionLocationLine: z.number().int().positive(),
+  sourceDigest: digestSchema,
+}).passthrough();
+
+function kubernetesBinding(report: CustomerAssessmentReport, finding: AssessmentFinding): KubernetesCorrectionBinding | undefined {
+  if (!report.internal || finding.origin !== 'internal' || finding.evidenceIds.length !== 1) return undefined;
+  const evidence = report.internal.evidence.find(item => item.id === finding.evidenceIds[0]);
+  if (!evidence || evidence.kind !== 'configuration' || evidence.tool.name !== 'trivy'
+    || evidence.locator !== finding.location
+    || createHash('sha256').update(evidence.excerpt).digest('hex') !== evidence.checksum) return undefined;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(evidence.excerpt);
+  } catch {
+    return undefined;
+  }
+  const parsed = trivyCorrectionEvidenceSchema.safeParse(raw);
+  if (!parsed.success) return undefined;
+  const location = /^(.+):(\d+)$/.exec(finding.location);
+  if (!location || parsed.data.rule !== finding.ruleId || parsed.data.path !== location[1]
+    || parsed.data.correctionLocationLine !== Number(location[2])
+    || parsed.data.correctionLocationLine < parsed.data.causeStartLine
+    || parsed.data.correctionLocationLine > parsed.data.causeEndLine
+    || parsed.data.causeEndLine - parsed.data.causeStartLine > 500
+    || parsed.data.sourceDigest !== report.subject.sourceDigest) return undefined;
+  return {
+    checkId: parsed.data.checkId,
+    startLine: parsed.data.causeStartLine,
+    endLine: parsed.data.causeEndLine,
+    propertyLine: parsed.data.correctionLocationLine,
+  };
+}
+
+function inspectFindingTransform(recipeId: string, source: NonNullable<CustomerRunInput['source']>, report: CustomerAssessmentReport, finding: AssessmentFinding) {
+  const binding = recipeId === 'kubernetes-config-hardening' ? kubernetesBinding(report, finding) : undefined;
+  return inspectExactTransform(recipeId, source, finding.location, finding.ruleId, binding);
+}
+
+function availabilityFor(recipeId: string, source: CustomerRunInput['source'], report: CustomerAssessmentReport, finding: AssessmentFinding): { availability: 'candidate_patch' | 'guided_review' | 'integration_required'; reason: string } {
   if (recipeId === 'credential-exposure') return { availability: 'integration_required', reason: 'Credential revocation or rotation needs an authorized issuer integration.' };
   if (recipeId === 'dependency-advisory') return { availability: 'integration_required', reason: 'No verified fixed release or lockfile transformation is available from this evidence.' };
   if (recipeId === 'tls-certificate-verification' || recipeId === 'kubernetes-config-hardening') {
     if (!source) return { availability: 'guided_review', reason: 'A source snapshot is required before an exact candidate can be prepared.' };
-    const inspected = inspectExactTransform(recipeId, source, location);
+    const inspected = inspectFindingTransform(recipeId, source, report, finding);
     if (inspected.status === 'ready') return { availability: 'candidate_patch', reason: 'One exact literal is bound to the reported file and line.' };
     return { availability: 'guided_review', reason: reasonForTransform(inspected.reason) };
   }
@@ -191,7 +237,7 @@ export function buildRecipeRecommendations(rawInput: CustomerRunInput, rawReport
   for (const finding of [...report.internal?.findings ?? [], ...report.external?.findings ?? []]) {
     const recipe = findRecipeForRule(finding.ruleId);
     if (!recipe) continue;
-    const result = availabilityFor(recipe.id, input.source, finding.location);
+    const result = availabilityFor(recipe.id, input.source, report, finding);
     recommendations.push({
       recipeId: recipe.id,
       recipeVersion: recipe.version,
@@ -225,7 +271,7 @@ export function prepareCandidatePatch(rawInput: CustomerRunInput, rawReport: Cus
   if (recommendation.availability !== 'candidate_patch') {
     const finding = [...report.internal?.findings ?? [], ...report.external?.findings ?? []].find((item) => item.id === selection.findingId);
     if (!finding) return blocked(selection.recipeId, selection.findingId, scope, 'finding_not_found');
-    const inspection = input.source ? inspectExactTransform(selection.recipeId, input.source, finding.location) : undefined;
+    const inspection = input.source ? inspectFindingTransform(selection.recipeId, input.source, report, finding) : undefined;
     return blocked(selection.recipeId, selection.findingId, scope, inspection?.status === 'blocked' ? inspection.reason : 'guided_review_required');
   }
   if (!input.source) return blocked(selection.recipeId, selection.findingId, scope, 'source_required');
@@ -233,7 +279,7 @@ export function prepareCandidatePatch(rawInput: CustomerRunInput, rawReport: Cus
   const finding = [...report.internal?.findings ?? [], ...report.external?.findings ?? []].find((item) => item.id === selection.findingId);
   const recipe = remediationRecipeCatalog.find((item) => item.id === selection.recipeId);
   if (!finding || !recipe) return blocked(selection.recipeId, selection.findingId, scope, 'finding_not_found');
-  const transform = inspectExactTransform(recipe.id, input.source, finding.location);
+  const transform = inspectFindingTransform(recipe.id, input.source, report, finding);
   if (transform.status === 'blocked') return blocked(selection.recipeId, selection.findingId, scope, transform.reason);
 
   const candidateResult = customerSourceSnapshotSchema.safeParse(replaceSourceFile(input.source, transform.path, transform.afterBytes));
