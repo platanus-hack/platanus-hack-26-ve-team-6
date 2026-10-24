@@ -13,6 +13,9 @@ const purgeResultSchema = z.object({
   runs: z.number().int().nonnegative(), notificationDeliveries: z.number().int().nonnegative(),
   protectionEvents: z.number().int().nonnegative(), proposalsInvalidated: z.number().int().nonnegative(),
 }).strict();
+const quotaTrimResultSchema = z.object({
+  runsTrimmed: z.number().int().nonnegative(), observationsTrimmed: z.number().int().nonnegative(), plansTrimmed: z.number().int().nonnegative(),
+}).strict();
 export type RetentionPurgeClaim = z.infer<typeof coordinatorClaimSchema>;
 
 export function createRetentionService(database: Database) {
@@ -70,13 +73,15 @@ export function createRetentionService(database: Database) {
         return z.array(coordinatorClaimSchema).max(50).parse(result.rows);
       });
     },
-    async purge(claimInput: RetentionPurgeClaim): Promise<z.infer<typeof purgeResultSchema>> {
+    async purge(claimInput: RetentionPurgeClaim): Promise<z.infer<typeof purgeResultSchema> & z.infer<typeof quotaTrimResultSchema>> {
       requireRole(database.role, 'gotchu_coordinator');
       const claim = parse(coordinatorClaimSchema, claimInput);
       return database.tenant(claim.organization_id, async tx => {
         const result = await tx.query<{ retention_purge: unknown }>('SELECT gotchu.retention_purge($1,$2,$3,$4) AS retention_purge',
           [claim.organization_id,claim.application_id,claim.job_id,claim.lease_token]);
-        return purgeResultSchema.parse(result.rows[0]?.retention_purge);
+        const quota = await tx.query<{ quota_trim: unknown }>('SELECT gotchu.retention_trim_monitoring($1,$2,$3) AS quota_trim',
+          [claim.organization_id,claim.application_id,claim.job_id]);
+        return { ...purgeResultSchema.parse(result.rows[0]?.retention_purge), ...quotaTrimResultSchema.parse(quota.rows[0]?.quota_trim) };
       });
     },
   };

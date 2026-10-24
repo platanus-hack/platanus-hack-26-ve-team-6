@@ -266,12 +266,13 @@ export function createOperationsService(deps: BaseDependencies) {
         const scopeCurrent = authorization.rows[0]?.valid ?? false;
         const gaps = await tx.query<{ capability: string; reason: string }>(`SELECT capability,reason FROM gotchu.coverage WHERE organization_id=$1 AND application_id=$2
           AND capability IN ('operational_detection','assessment_alert_projection') AND state='degraded' ORDER BY capability`, [value.organizationId, value.applicationId]);
-        const admission = await tx.query<{ runs: number; observations: number; daily: number }>(`SELECT
+        const admission = await tx.query<{ runs: number; observations: number; daily: number; plans: number }>(`SELECT
           (SELECT count(*)::int FROM gotchu.operation_runs WHERE organization_id=$1 AND application_id=$2) AS runs,
-          count(*)::int AS observations,count(*) FILTER(WHERE created_at>clock_timestamp()-interval '1 day')::int AS daily
+          count(*)::int AS observations,count(*) FILTER(WHERE created_at>clock_timestamp()-interval '1 day')::int AS daily,
+          (SELECT count(*)::int FROM gotchu.operation_plans WHERE organization_id=$1 AND application_id=$2) AS plans
           FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2`, [value.organizationId, value.applicationId]);
-        const capacity = admission.rows[0];
-        const full = capacity && (capacity.runs >= 1000 || capacity.observations >= 2000 || capacity.daily >= 100);
+        const capacity = admission.rows[0] ?? { runs: 0, observations: 0, daily: 0, plans: 0 };
+        const full = capacity.runs >= 1000 || capacity.observations >= 2000 || capacity.daily >= 100;
         const last = runs.rows[0];
         const expired = current && Date.parse(current.nextDueAt) < Date.now() - current.intervalSeconds * 1000;
         const livenessResult=await tx.query<{state:string;reason:string|null;since:Date|null;last_scheduler_heartbeat_at:Date|null;last_check_heartbeat_at:Date|null;consecutive_failures:number;database_now:Date}>(`SELECT l.state,l.reason,l.since,l.last_scheduler_heartbeat_at,l.last_check_heartbeat_at,l.consecutive_failures,clock_timestamp() AS database_now
@@ -309,8 +310,13 @@ export function createOperationsService(deps: BaseDependencies) {
         return parse(operationCoverageSchema, { config: current, status: !current?.enabled || app.archived ? 'not_configured' as const : liveness.state === 'stopped' ? 'stopped' as const : !scopeCurrent || full ? 'degraded' as const : expired || liveness.state === 'late' ? 'stale' as const : !last || last.status === 'running' ? 'pending' as const : last.status === 'completed' ? 'active' as const : 'degraded' as const,
           liveness,
           scopeCurrent, lastRun: last ? { runId: last.id, jobId: last.job_id, status: last.status, reason: last.reason, startedAt: last.created_at.toISOString(), finishedAt: last.finished_at?.toISOString() ?? null } : null,
-          observations: count.rows[0] ?? { fresh: 0, stale: 0 }, limitations: ['Scheduled checks cover only selected inputs; uninspected paths remain unknown.', 'A sent notification means the provider accepted it, not that a person read it.', 'Runtime event telemetry is a separate integration.', 'Provider status reports do not establish application impact.',
-            ...(full ? ['Monitoring storage admission is full; operator retention maintenance is required. Existing evidence is retained.'] : []),
+          observations: count.rows[0] ?? { fresh: 0, stale: 0 },
+          quotas: { runs: { used: capacity.runs, limit: 1000 }, observations: { used: capacity.observations, limit: 2000, lastDayUsed: capacity.daily, lastDayLimit: 100 }, plans: { used: capacity.plans, limit: 100 } },
+          limitations: ['Scheduled checks cover only selected inputs; uninspected paths remain unknown.', 'A sent notification means the provider accepted it, not that a person read it.', 'Runtime event telemetry is a separate integration.', 'Provider status reports do not establish application impact.',
+            ...(capacity.runs >= 1000 ? ['El historial de ejecuciones llegó al límite; la limpieza durable eliminará las más antiguas antes del próximo turno.'] : []),
+            ...(capacity.observations >= 2000 ? ['El historial de observaciones llegó al límite; la limpieza durable eliminará las más antiguas.'] : []),
+            ...(capacity.daily >= 100 ? ['Se alcanzó el límite diario de proyecciones; las detecciones autenticadas se aceptan y procesan aunque esta vista quede incompleta.'] : []),
+            ...(capacity.plans >= 100 ? ['Se alcanzó el límite de planes; la limpieza durable elimina los más antiguos para dejar espacio.'] : []),
             ...gaps.rows.map(gap => `${gap.capability}: ${gap.reason}. Operator reconciliation is required; some alerts were not projected.`)] });
       });
     },

@@ -105,6 +105,8 @@ async function main() {
           })().catch(error=>{report('retention_purge_dispatch_failed',error);}).finally(()=>{retentionTask=undefined;});
         }
         if (monitoringEnabled && !monitoringTask) {
+          const pendingRetention = retentionTask;
+          if (pendingRetention) await pendingRetention;
           const due = await backend.operations.claimDue({ limit: 1 });
           const work = due[0];
           if (work) monitoringTask = runMonitoringWork({ database, backend, adapters: monitoringAdapters }, work, stop.signal)
