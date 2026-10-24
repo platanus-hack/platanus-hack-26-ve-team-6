@@ -105,6 +105,36 @@ describe('correlation acceptance cases', () => {
     expect(abuse).toMatchObject({ status: 'weak', confidence: 'low', ruleIds: expect.arrayContaining(['telemetry.stale.excluded.v1']) });
   });
 
+  it('uses the latest sample timestamps to determine series freshness', () => {
+    const labeled = tuningCases.find(item => item.id === 'tuning-release-after-deploy');
+    if (!labeled) throw new Error('missing_test_case');
+    const input = {
+      ...labeled.input,
+      window: { startedAt: '2026-10-24T11:00:00.000Z', endedAt: '2026-10-24T13:00:00.000Z' },
+      signals: [{
+        ...labeled.input.signals[0]!,
+        metric: 'error_rate' as const,
+        freshnessMs: 600_000,
+        samples: [
+          { eventAt: '2026-10-24T12:00:00.000Z', acceptedAt: '2026-10-24T12:00:02.000Z', value: 0.3 },
+          { eventAt: '2026-10-24T12:59:00.000Z', acceptedAt: '2026-10-24T12:59:02.000Z', value: 0.3 },
+        ],
+      }],
+      context: undefined,
+      probes: [],
+    };
+    const fresh = result(input, '2026-10-24T13:00:00.000Z');
+    expect(fresh.impact.observed).toBe('degraded');
+    expect(fresh.impact.missingData.join(' ')).not.toContain('Stale telemetry excluded');
+
+    const stale = result({ ...input, signals: [{ ...input.signals[0]!, samples: [
+      { eventAt: '2026-10-24T12:00:00.000Z', acceptedAt: '2026-10-24T12:00:02.000Z', value: 0.3 },
+      { eventAt: '2026-10-24T12:20:00.000Z', acceptedAt: '2026-10-24T12:20:02.000Z', value: 0.3 },
+    ] }] }, '2026-10-24T13:00:00.000Z');
+    expect(stale.impact.observed).toBe('unknown');
+    expect(stale.impact.missingData.join(' ')).toContain('Stale telemetry excluded');
+  });
+
   it('requires errors after a deployment and asks to verify declared deployments', () => {
     const before = tuningCases.find(item => item.id === 'tuning-errors-before-deploy');
     const declared = tuningCases.find(item => item.id === 'tuning-declared-deploy');

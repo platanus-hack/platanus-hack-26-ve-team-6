@@ -25,7 +25,9 @@ function latencyThreshold(input: CorrelationWindowInput, service: string, enviro
   return baseline !== undefined && value >= Math.max(baseline.latencyMs * 1.5, baseline.latencyMs + 100);
 }
 function isStale(series: CorrelationWindowInput['signals'][number], nowMs: number): boolean {
-  return series.samples.some(sample => nowMs - Date.parse(sample.acceptedAt) > series.freshnessMs || nowMs - Date.parse(sample.eventAt) > series.freshnessMs);
+  const latestAcceptedAt = Math.max(...series.samples.map(sample => Date.parse(sample.acceptedAt)));
+  const latestEventAt = Math.max(...series.samples.map(sample => Date.parse(sample.eventAt)));
+  return nowMs - latestAcceptedAt > series.freshnessMs || nowMs - latestEventAt > series.freshnessMs;
 }
 
 export function correlate(inputValue: unknown, options: CorrelationOptions): TriageRevision {
