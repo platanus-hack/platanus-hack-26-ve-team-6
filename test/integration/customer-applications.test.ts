@@ -28,6 +28,7 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const queuedSchema = z.object({ jobId: z.uuid() }).strict();
 const jobSchema = z.object({ id: z.uuid(), applicationId: z.uuid(), kind: z.string(), state: z.enum(['queued', 'running', 'succeeded', 'failed']), reportId: z.uuid().nullable(), reasonCode: z.string().nullable() });
+const coordinatorReadinessSchema = z.object({ status: z.literal('ready'), assignedOrganizations: z.number().int().nonnegative(), investigatorConfigured: z.boolean(), customerDiscovery: z.literal(true), customerScannerConfigured: z.literal(true), scheduledMonitoring: z.boolean() });
 const errorSchema = z.object({ error: z.object({ code: z.string(), message: z.string() }) });
 const sessionSchema = z.object({ user: z.object({ id: z.string() }).nullable(), localAuthEnabled: z.boolean(), registrationEnabled: z.boolean() });
 const publicSurfaceEvidenceSchema = z.object({ profile: z.literal('public_surface'), path: z.string() }).passthrough();
@@ -232,7 +233,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     coordinator = worker.child;
     await Promise.all([web.ready('/api/ready'), worker.ready('/health/ready')]);
     const health = await fetch(`http://127.0.0.1:${present(children.find(child => child.name === 'coordinator')).port}/health/ready`);
-    expect(await health.json()).toMatchObject({ assignedOrganizations: 0, customerDiscovery: true, customerScannerConfigured: true });
+    expect(await json(health, 200, coordinatorReadinessSchema)).toMatchObject({ customerDiscovery: true, customerScannerConfigured: true, scheduledMonitoring: true });
     owner = await registerAndSignIn(); stranger = await registerAndSignIn();
   }, 90_000);
 
