@@ -252,7 +252,7 @@ export function buildRecipeRecommendations(rawInput: CustomerRunInput, rawReport
       architectureHints: { frameworks: context.frameworks, relevantConfigurationPaths: relevantConfigurationPaths(recipe.id, context) },
     });
   }
-  return reportRecommendationsResponseSchema.parse({ catalogVersion: 1, scope, repositoryContext: context, coverage: makeCoverage(input, report), recommendations });
+  return reportRecommendationsResponseSchema.parse({ catalogVersion: 1, scope, repositoryContext: context, coverage: makeCoverage(input, report), recommendations, dependencyFixes: [] });
 }
 
 function blocked(recipeId: string, findingId: string, scope: RecommendationScope, reason: z.infer<typeof patchBlockedReasonSchema>): CandidatePatchPreparation {

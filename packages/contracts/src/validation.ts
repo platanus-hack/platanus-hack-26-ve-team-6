@@ -53,7 +53,7 @@ export function scoreIndependentRescan(input: {
 }
 
 export const validationEvidenceSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('base_reproduction'), result: z.enum(['failed_for_target', 'passed', 'unavailable']), exitCode: z.number().int().nullable(), durationMs: z.number().int().nonnegative() }).strict(),
+  z.object({ kind: z.literal('base_reproduction'), result: z.enum(['failed_for_target', 'passed', 'unavailable', 'not_required']), exitCode: z.number().int().nullable(), durationMs: z.number().int().nonnegative() }).strict(),
   z.object({ kind: z.literal('candidate_regression'), result: z.enum(['passed', 'failed', 'unavailable']), exitCode: z.number().int().nullable(), durationMs: z.number().int().nonnegative() }).strict(),
   z.object({ kind: z.literal('functional_suite'), suiteName: z.string().min(1).max(128), result: z.enum(['passed', 'failed', 'inconclusive']), counts: countsSchema, baseCounts: countsSchema.optional(), requiredCounts: z.number().int().positive() }).strict(),
   z.object({ kind: z.literal('independent_rescan'), result: z.enum(['passed', 'failed', 'inconclusive']), before: findingSetSchema, after: findingSetSchema, targetedIdentities: z.array(z.string().min(1).max(256)).max(500) }).strict(),

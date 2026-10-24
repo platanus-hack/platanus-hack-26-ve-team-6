@@ -107,7 +107,11 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
         const match = matches[i]; const pkg = locked.inventory[i]; if(!match || !pkg) continue;
         for (const id of match.ids) {
           if(a.findings.length>=100 || a.evidence.length>=200){incomplete=true;break;}
-          const evidenceId = evidence(a,'advisory',`osv:${id}`,{id,package:pkg,sourceDigest:source.digest,queriedAt:new Date().toISOString()},{name:'OSV-querybatch',version:'v1'});
+          const advisory = match.advisories?.find(item => item.id === id);
+          const affected = advisory?.affected.filter(item => item.package.ecosystem === 'npm' && item.package.name === pkg.name) ?? [];
+          const metadata = advisory ? { id, withdrawn: advisory.withdrawn ?? null, affected } : null;
+          if (!metadata || JSON.stringify(metadata).length > 3_500) incomplete = true;
+          const evidenceId = evidence(a,'advisory',`osv:${id}`,{schemaVersion:1,id,package:pkg,sourceDigest:source.digest,advisory:metadata && JSON.stringify(metadata).length <= 3_500 ? metadata : null,queriedAt:new Date().toISOString()},{name:'OSV-querybatch',version:'v1'});
           finding(a,{ruleId:`osv.${id}`.slice(0,128),correlationKey:`npm:${pkg.name}:${id}`,title:`Advisory match: ${pkg.name}@${pkg.version}`.slice(0,256),location:pkg.location,description:`The exact ${pkg.relationship} lockfile version matched ${id} in the configured OSV-compatible adapter. Advisory severity was not fetched.`,severity:'unknown',confidence:'observed',impact:'An advisory applies to the recorded version; installed state, reachability and exploitability remain unknown.',recommendation:'Review the advisory and dependency path, choose a supported fix and validate the application.',limitations:['Severity is unassessed; do not interpret this as a low-risk determination.', 'No package installation, package source upload or exploit attempt.'],evidenceIds:[evidenceId]});
         }
       }

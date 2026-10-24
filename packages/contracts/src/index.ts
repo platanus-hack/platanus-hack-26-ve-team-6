@@ -110,6 +110,7 @@ export * from './step-up.js';
 export * from './triage.js';
 export * from './members.js';
 export * from './actions.js';
+export * from './dependency-fix.js';
 export * from './validation.js';
 export * from './github.js';
 export * from './decision-records.js';
