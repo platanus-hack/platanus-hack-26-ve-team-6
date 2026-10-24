@@ -28,7 +28,7 @@ export * from './telemetry.js';
 export * from './context.js';
 export * from './operations.js';
 export * from './step-up.js';
-export interface BackendDependencies { database: Database; clock?: Clock; credentials?: CredentialStore; eventCredentials?: WritableEventCredentials; stepUpVerifier?: StepUpVerifier; proposalVerifier?: ProposalVerifier; customerDnsVerifier?: CustomerDnsVerifier; webAuthn?: { rpID: string; origin: string; rpName?: string } }
+export interface BackendDependencies { database: Database; clock?: Clock; credentials?: CredentialStore; eventCredentials?: WritableEventCredentials; stepUpVerifier?: StepUpVerifier; proposalVerifier?: ProposalVerifier; customerDnsVerifier?: CustomerDnsVerifier; webAuthn?: { rpID: string; origin: string; rpName?: string; verifyPassword?: (userId: string, password: string) => Promise<boolean | null> } }
 export function createBackend(deps: BackendDependencies) {
   const stepUp = deps.webAuthn ? createWebAuthnStepUpService({ ...deps, webAuthn: deps.webAuthn }) : null;
   return { corrections: createCorrectionService(deps), operations: createOperationsService(deps), events: createEventService(deps), web: createWebService(deps), outbox: createOutboxService(deps), jobs: createJobService(deps), proposals: createProposalService({ ...deps, ...(stepUp ? { stepUpVerifier: stepUp.verifier } : {}) }), executions: createExecutionService(deps), runs: createRunService(deps), assessments: createAssessmentService(deps), customers: createCustomerService(deps), telemetry: createTelemetryService(deps), context: createContextService(deps), stepUp };
