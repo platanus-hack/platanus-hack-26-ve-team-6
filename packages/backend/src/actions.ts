@@ -318,7 +318,7 @@ function createDependencyAction(scope: { organizationId: string; applicationId: 
   const commitMessage = dependencyCommitMessage(candidate);
   const action = parse(actionV2Schema, {
     version: 2, kind: 'dependency_pull_request', capabilityId: 'repository.dependency_pr', organizationId: scope.organizationId,
-    applicationId: scope.applicationId, policyVersion: 'gotchu-action-policy-v2',
+    applicationId: scope.applicationId, policyVersion: actionPolicyVersion('repository.dependency_pr') ?? 'unregistered-policy',
     target: { kind: 'repository', repositoryLinkId: candidate.repositoryLinkId, repositoryKey: candidate.repositoryKey, branch: candidate.branch },
     baseCommit: candidate.baseCommit, candidateCommit: expectedDependencyCommitSha(treeSha, candidate.baseCommit, commitMessage),
     changes: [{ name: candidate.packageName, from: candidate.fromVersion, to: candidate.toVersion }], advisoryIds: candidate.advisoryIds,
@@ -331,6 +331,12 @@ function createDependencyAction(scope: { organizationId: string; applicationId: 
 }
 
 type PullRequestAction = Extract<ActionV2, { kind: 'source_patch_pull_request' }> | Extract<ActionV2, { kind: 'dependency_pull_request' }>;
+
+function createSourcePatchAction(input: unknown): Extract<ActionV2, { kind: 'source_patch_pull_request' }> {
+  const action = parse(actionV2Schema, input);
+  if (action.kind !== 'source_patch_pull_request') throw new BackendError('candidate_invalid', 'A source correction candidate must resolve to a source patch action', 409);
+  return action;
+}
 
 function actionSnapshotDigest(action: PullRequestAction): string {
   if (action.kind === 'source_patch_pull_request') return action.snapshotSha256;
@@ -443,13 +449,9 @@ export function createActionService(deps: ActionDependencies) {
       }
       const validationAttestationIds = prepared.type === 'correction' && deps.actionVerifier?.getValidationAttestationIds
         ? await deps.actionVerifier.getValidationAttestationIds(prepared.value.action).catch(() => []) : [];
-      const proposedAction = prepared.type === 'correction'
-        ? parse(actionV2Schema, { ...prepared.value.action, expectedTreeSha: treeSha, validationAttestationIds })
+      const proposedAction: PullRequestAction = prepared.type === 'correction'
+        ? createSourcePatchAction({ ...prepared.value.action, expectedTreeSha: treeSha, validationAttestationIds })
         : createDependencyAction(value, prepared.value, treeSha ?? '');
-      if (prepared.type === 'correction' && proposedAction.kind !== 'source_patch_pull_request'
-        || prepared.type === 'dependency' && proposedAction.kind !== 'dependency_pull_request') {
-        throw new BackendError('candidate_invalid', 'The stored candidate resolved to the wrong pull request action', 409);
-      }
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, identity, ['owner', 'operator'], value.applicationId);
         const app = await tx.query<{ archived: boolean }>('SELECT archived FROM gotchu.applications WHERE organization_id=$1 AND id=$2 FOR UPDATE', [value.organizationId, value.applicationId]);
@@ -458,8 +460,8 @@ export function createActionService(deps: ActionDependencies) {
         const current = proposal.kind === 'source_patch_pull_request'
           ? { type: 'correction' as const, value: await loadCandidate(tx, value, candidateId) }
           : { type: 'dependency' as const, value: await loadDependencyCandidate(tx, value, candidateId) };
-        const currentAction = current.type === 'correction'
-          ? parse(actionV2Schema, { ...current.value.action, expectedTreeSha: treeSha, validationAttestationIds })
+        const currentAction: PullRequestAction = current.type === 'correction'
+          ? createSourcePatchAction({ ...current.value.action, expectedTreeSha: treeSha, validationAttestationIds })
           : createDependencyAction(value, current.value, treeSha ?? '');
         const currentPatchFiles = current.value.patchFiles;
         const preparedUnsupported = prepared.type === 'correction' ? prepared.value.artifactUnsupportedReason : null;
@@ -517,7 +519,7 @@ export function createActionService(deps: ActionDependencies) {
         if (!deps.actionVerifier) reasons.push('validación en VM no disponible');
         if (!row.adapter_available) reasons.push('sin adaptador de escritura');
         if (!await executorAvailable(tx, action.capabilityId)) reasons.push('executor no disponible');
-        if (action.kind !== 'source_patch_pull_request') reasons.push('sin adaptador de escritura');
+        if (action.kind !== 'source_patch_pull_request' && action.kind !== 'dependency_pull_request') reasons.push('sin adaptador de escritura');
         const verification = deps.actionVerifier ? await deps.actionVerifier.verify(action, { phase: 'proposal' }) : undefined;
         if (verification?.baseChanged) reasons.push('base cambió desde la propuesta');
         if (verification && !verification.eligible) reasons.push(...(verification.blockingReasons.length ? verification.blockingReasons : ['validaciones pendientes']));
@@ -564,7 +566,7 @@ export function createActionService(deps: ActionDependencies) {
         if (!inserted.rowCount) throw new BackendError('proof_replayed', 'Second-factor proof has already been used', 409);
         await tx.query("UPDATE gotchu.proposals SET state='approved' WHERE organization_id=$1 AND id=$2", [value.organizationId,value.proposalId]);
         await audit(tx, value.organizationId, identity.userId, 'action.approved', approvalId, { proposalId: value.proposalId, actionHash });
-        if (action.kind !== 'source_patch_pull_request') throw new BackendError('proposal_ineligible','This action kind has no executor queue adapter',409);
+        if (action.kind !== 'source_patch_pull_request' && action.kind !== 'dependency_pull_request') throw new BackendError('proposal_ineligible','This action kind has no executor queue adapter',409);
         await enqueue(tx, { id:randomUUID(),organizationId:value.organizationId,applicationId:value.applicationId,kind:'execution',idempotencyKey:`execution:${approvalId}`,payload:{approvalId,expectedActionHash:actionHash,expectedResourceVersion:action.baseCommit} });
         return { approvalId, expiresAt };
       });

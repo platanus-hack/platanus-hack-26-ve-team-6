@@ -4,7 +4,8 @@ CREATE TABLE gotchu.action_policy_registry (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 INSERT INTO gotchu.action_policy_registry(capability_id,active_version)
-VALUES ('repository.source_patch_pr','gotchu-source-patch-pr-v1');
+VALUES ('repository.source_patch_pr','gotchu-source-patch-pr-v1'),
+       ('repository.dependency_pr','gotchu-dependency-pr-v1');
 CREATE FUNCTION gotchu.invalidate_actions_on_policy_change() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,gotchu AS $$
 BEGIN
@@ -98,4 +99,4 @@ ALTER TABLE gotchu.executor_attempts ADD CONSTRAINT executor_attempts_state_chec
   CHECK (state IN ('claimed','branch_published','pr_opened','verified','failed','uncertain','reconciliation_required'));
 
 UPDATE gotchu.action_capabilities SET adapter_available=true,updated_at=clock_timestamp()
-WHERE kind='source_patch_pull_request';
+WHERE kind IN ('source_patch_pull_request','dependency_pull_request');

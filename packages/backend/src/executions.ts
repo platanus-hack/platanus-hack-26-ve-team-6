@@ -70,7 +70,7 @@ export function createExecutionService(deps: ExecutionDependencies) {
         const executionId = randomUUID(); const claimToken = randomUUID();
         const inserted = await tx.query("INSERT INTO gotchu.executions(organization_id,id,approval_id,proposal_id,action_hash,recovery_epoch,claim_token,state) VALUES ($1,$2,$3,$4,$5,$6,$7,'claimed') ON CONFLICT DO NOTHING RETURNING id", [value.organizationId, executionId, value.approvalId, approval.proposal_id, stored.actionHash, state.recoveryEpoch, claimToken]);
         if (!inserted.rowCount) throw new BackendError('already_claimed', 'This proposal already has a durable execution identity; reconcile instead of retrying', 409);
-        if (stored.action.version === 2 && stored.action.kind === 'source_patch_pull_request') {
+        if (stored.action.version === 2 && (stored.action.kind === 'source_patch_pull_request' || stored.action.kind === 'dependency_pull_request')) {
           const locked = await tx.query('INSERT INTO gotchu.executor_repository_locks(repository_key,organization_id,application_id,repository_link_id,execution_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING repository_key', [stored.action.target.repositoryKey,value.organizationId,stored.action.applicationId,stored.action.target.repositoryLinkId,executionId]);
           if (!locked.rowCount) throw new BackendError('repository_busy', 'Another approved execution holds this repository lock', 409);
         }
@@ -114,7 +114,7 @@ export function createExecutionService(deps: ExecutionDependencies) {
     /** Restricted read for reconciliation, including expired/invalidated proposals and frozen recovery. */
     async findByApproval(input: { organizationId: string; approvalId: string }): Promise<StoredExecution | undefined> {
       requireExecutor();
-      const value = parse(z.object({ organizationId: z.uuid(), approvalId: z.uuid() }).strict(), input);
+      const value = parse(z.object({ organizationId: uuid, approvalId: uuid }).strict(), input);
       return deps.database.tenant(value.organizationId, async tx => {
         const result = await tx.query(`SELECT e.organization_id AS "organizationId", p.application_id AS "applicationId",
           e.approval_id AS "approvalId", e.id AS "executionId", e.claim_token AS "claimToken", e.action_hash AS "actionHash",
