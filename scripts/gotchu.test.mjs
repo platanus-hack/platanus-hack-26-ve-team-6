@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
+import { createServer as createHttpsServer } from 'node:https';
 import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { runScannerProbe } from './infra-scanner-probe.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const script = join(root, 'gotchu');
@@ -28,6 +30,25 @@ async function freePorts(count) {
 }
 
 try {
+  const probeCert = join(temp, 'probe.crt');
+  const probeKey = join(temp, 'probe.key');
+  const certificate = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256', '-days', '1', '-keyout', probeKey, '-out', probeCert, '-subj', '/CN=127.0.0.1', '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'subjectAltName=IP:127.0.0.1'], { encoding: 'utf8' });
+  assert.equal(certificate.status, 0, certificate.stderr);
+  let scannerReady = true;
+  const scanner = createHttpsServer({ key: await readFile(probeKey), cert: await readFile(probeCert) }, (_request, response) => {
+    response.writeHead(scannerReady ? 200 : 503, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ ready: scannerReady }));
+  });
+  await new Promise(resolve => scanner.listen(0, '127.0.0.1', resolve));
+  try {
+    const origin = `https://127.0.0.1:${scanner.address().port}`;
+    await assert.doesNotReject(runScannerProbe({ origin, caFile: probeCert }));
+    scannerReady = false;
+    await assert.rejects(runScannerProbe({ origin, caFile: probeCert }), /scanner_not_ready/);
+  } finally {
+    await new Promise((resolve, reject) => scanner.close(error => error ? reject(error) : resolve()));
+  }
+
   const missing = run(['up'], { PATH: noDockerBin, GOTCHU_STATE_DIR: join(temp, 'missing-state') });
   assert.notEqual(missing.status, 0);
   assert.match(missing.stderr, /Docker no está instalado/);
@@ -69,4 +90,4 @@ try {
 } finally {
   await rm(temp, { recursive: true, force: true });
 }
-process.stdout.write('Self-host script tests passed (private secret generation, idempotent state, occupied port, missing Docker).\n');
+process.stdout.write('Self-host script tests passed (scanner TLS readiness, private secret generation, idempotent state, occupied port, missing Docker).\n');
