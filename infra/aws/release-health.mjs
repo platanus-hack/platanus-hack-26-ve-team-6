@@ -26,11 +26,12 @@ async function probe(port, path, certificate) {
 for (;;) {
   try {
     if (await probe(4400, '/readyz', '/etc/gotchu/scanner.crt') &&
-        await probe(3000, '/api/ready', '/etc/gotchu/web.crt')) break;
+        await probe(3000, '/api/ready', '/etc/gotchu/web.crt')) {
+      const response = await fetch('http://127.0.0.1:3003/health/ready', { signal: AbortSignal.timeout(10000) });
+      const coordinator = await response.json();
+      if (response.ok && (coordinator.ready === true || coordinator.status === 'ready')) break;
+    }
   } catch { /* Services may still be starting; keep the retry bounded. */ }
   if (Date.now() >= deadline) throw new Error('Release readiness failed');
   await new Promise(resolve => setTimeout(resolve, 2000));
 }
-const coordinator = await fetch('http://127.0.0.1:3003/health/ready', { signal: AbortSignal.timeout(10000) });
-const status = await coordinator.json();
-if (!coordinator.ok || (status.ready !== true && status.status !== 'ready')) throw new Error('Coordinator is not ready');
