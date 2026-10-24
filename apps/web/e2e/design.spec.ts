@@ -20,11 +20,11 @@ test('landing is server-rendered without a loader, fabricated results or explana
   const response = await page.goto('/', { waitUntil: 'networkidle' });
   expect(response?.status()).toBe(200);
   expect(await response?.text()).toContain('Tu código.');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Tu código.Tu web.Bajo la misma lupa.');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Tu código. Tu web. Bajo la misma lupa.');
   await expect(page.locator('body')).not.toContainText(/ilustración conceptual|ejemplo ilustrativo|no es un análisis en vivo|cambiar de pestaña solo|cargando/i);
-  await expect(page.locator('.g-stage img')).toHaveCount(2);
-  expect(await page.locator('.g-page img').evaluateAll(images => images.every(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0))).toBe(true);
-  expect(await page.evaluate(() => document.fonts.check('500 48px Oxanium'))).toBe(true);
+  await expect(page.locator('.g-page img')).toHaveCount(0);
+  await expect(page.locator('.g-hero-object .g-ascii')).toHaveAttribute('data-ready', 'true');
+  expect(await page.evaluate(() => document.fonts.check('700 48px Goldman'))).toBe(true);
   await checkLayout(page); await checkA11y(page);
   expect(errors).toEqual([]); expect(apiRequests).toEqual([]);
   await page.screenshot({ path: info.outputPath('hero.png') });
@@ -65,30 +65,36 @@ test('menu, anchor navigation, FAQ and dashboard CTAs retain native accessible b
   expect(ctas.length).toBeGreaterThan(1); expect(ctas.every(href => href === '/dashboard')).toBe(true);
 });
 
-test('the lens follows the pointer and narrows its iris on the primary action', async ({ page, isMobile }) => {
+test('the 3D mark turns toward the pointer and closes on the primary action', async ({ page, isMobile }) => {
   test.skip(isMobile, 'Pointer following is exercised with a fine pointer.');
   await page.goto('/', { waitUntil: 'networkidle' });
-  const body = page.locator('.g-hero-lens .g-lens-body');
-  const blade = page.locator('.g-hero-lens .g-lens-face path[d^="M"]').last();
-  await page.mouse.move(40, 40);
-  await expect.poll(() => body.evaluate(element => element.style.transform)).toMatch(/rotateX\(\d/);
-  const open = await blade.getAttribute('d');
+  const canvas = page.locator('.g-hero-object canvas');
+  await expect(page.locator('.g-hero-object .g-ascii')).toHaveAttribute('data-ready', 'true');
+  const frame = () => canvas.evaluate(element => element instanceof HTMLCanvasElement ? element.toDataURL() : '');
+  await page.mouse.move(1400, 880);
+  await page.waitForTimeout(700);
+  const resting = await frame();
+  await page.mouse.move(20, 120);
+  await expect.poll(frame).not.toBe(resting);
+  const turned = await frame();
   await page.getByRole('link', { name: 'Revisar mi aplicación', exact: true }).hover();
-  await expect.poll(() => blade.getAttribute('d')).not.toBe(open);
+  await expect.poll(frame).not.toBe(turned);
   await checkLayout(page);
 });
 
-test('scrolling draws code and web into the lens and returns the report without trapping the page', async ({ page, isMobile }) => {
+test('scrolling separates the perspectives, closes them on a finding and brings the report without trapping the page', async ({ page, isMobile }) => {
   test.skip(isMobile, 'The pinned sequence runs on roomy screens; small screens keep the stacked layout.');
   await page.goto('/', { waitUntil: 'networkidle' });
   const stage = page.locator('.g-stage');
   await expect(stage).toHaveAttribute('data-live', 'true');
-  const report = page.locator('.g-stage-report');
-  await expect.poll(() => report.evaluate(element => Number(getComputedStyle(element).opacity))).toBe(0);
+  const opacity = (selector: string) => page.locator(selector).evaluate(element => Number(getComputedStyle(element).opacity));
+  await expect.poll(() => opacity('.g-stage-report')).toBe(0);
+  await stage.evaluate(element => window.scrollTo(0, element.offsetTop + (element.offsetHeight - innerHeight) * .52));
+  await expect.poll(() => opacity('.g-stage-flash')).toBeGreaterThan(.5);
   await stage.evaluate(element => window.scrollTo(0, element.offsetTop + element.offsetHeight - innerHeight));
-  await expect.poll(() => report.evaluate(element => Number(getComputedStyle(element).opacity))).toBeGreaterThan(.95);
+  await expect.poll(() => opacity('.g-stage-report')).toBeGreaterThan(.95);
   await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeVisible();
-  await expect.poll(() => page.locator('.g-hero-slab').evaluate(element => Number(getComputedStyle(element).opacity))).toBe(0);
+  await expect(page.locator('.g-report-card')).toContainText('Inspeccionado · no solicitado · no compatible · no disponible');
   await page.locator('.g-footer').scrollIntoViewIfNeeded();
   await expect(page.getByRole('link', { name: 'Gotchu, volver al inicio' })).toBeVisible();
 });
@@ -108,11 +114,11 @@ test('reduced motion and a 320px viewport retain all content without pointer or 
   await page.emulateMedia({ reducedMotion: 'reduce' }); await page.setViewportSize({ width: 320, height: 844 });
   await page.goto('/', { waitUntil: 'networkidle' });
   await expect(page.locator('.g-stage')).toHaveAttribute('data-live', 'false');
-  await expect.poll(() => page.locator('.g-hero-lens .g-lens-body').evaluate(element => getComputedStyle(element).transform)).toBe('none');
+  await expect(page.locator('.g-hero-object .g-ascii')).toHaveAttribute('data-ready', 'true');
   await page.locator('#perspectivas').scrollIntoViewIfNeeded();
   await page.getByRole('tab', { name: 'HTTPS', exact: true }).click();
   await expect(page.getByRole('tabpanel')).toContainText('sin compartir el código fuente');
-  expect(await page.locator('.g-word-code').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
+  expect(await page.locator('.g-hero-type h1 > span').first().evaluate(element => getComputedStyle(element).animationName)).toBe('none');
   await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeAttached();
   await checkLayout(page); await checkA11y(page);
 });
@@ -122,7 +128,7 @@ test('the product journey presents source versioning, DNS authorization and pers
   const steps = [
     { id: 'codigo', title: 'Instantánea de código', text: 'Huella SHA-256' },
     { id: 'https', title: 'Origen HTTPS', text: '_gotchu.<dominio>' },
-    { id: 'evidencia', title: 'Informe de evaluación', text: 'Extracto, herramienta y checksum' },
+    { id: 'evidencia', title: 'Informe de evaluación', text: 'Inspeccionado, no solicitado, no compatible o no disponible' },
   ];
   for (const [index, step] of steps.entries()) {
     await page.locator(`#${step.id}`).evaluate(element => window.scrollTo(0, element.getBoundingClientRect().top + scrollY - innerHeight * .25));
