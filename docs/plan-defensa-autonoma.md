@@ -173,9 +173,9 @@ Trabajo:
 - [ ] Implementar candidato de dependencia patch/minor: verificar versión afectada y corregida, registro e integridad; resolver manifiesto y lockfile compatibles en D04; rechazar majors, versiones ambiguas y cambios ajenos.
 - [ ] Empezar con un formato de lockfile npm explícito. Añadir otros formatos mediante adaptadores y corpus; no anunciar soporte genérico de pnpm/yarn por detectar `package.json`.
 - [ ] Vincular el candidato al repositorio/commit de D01. Una subida parcial se puede corregir privadamente; no autoriza sustituir todo el árbol del repositorio. Rechazar vínculos no demostrados.
-- [ ] Versionar una unión de acciones con payload por capacidad. Conservar validación y hashes de propuestas v1 almacenadas; no reinterpretarlas como otra acción ni falsificar `changes` de dependencias para transportar un cambio TLS.
+- [x] Versionar una unión estricta de acciones con payload y capability id por capacidad. La lectura/hash/ejecución de filas v1 conserva su esquema y fórmula originales; las acciones v2 tienen hash separado con epoch de recuperación. Esto no habilita todavía los adaptadores de D08/D09.
 - [ ] Añadir acciones de patch de fuente/IaC para TLS/Kubernetes sólo tras definir sus precondiciones, suites, artefactos y política. Es una extensión explícita del primer alcance npm.
-- [ ] Reutilizar la atomicidad de `corrections.prepare`: candidato privado, admisión de validación y outbox en una transacción. Preparar no consume aprobación ni escribe en Git.
+- [x] Reutilizar la atomicidad de `corrections.prepare`: el candidato privado, la admisión de su reanálisis y el outbox permanecen en una transacción; la propuesta v2 referencia ese candidato persistido. Preparar no consume aprobación ni escribe en Git.
 
 **Aceptación:** lockfile y manifiesto consistentes; transitivas; ausencia de versión corregida; scripts no autorizados; digest/base stale; snapshot incompleto; conflicto de idempotencia; rollback de transacción; compatibilidad v1/v2; borrado del source que no resucita con un retry.
 
@@ -188,7 +188,7 @@ Trabajo:
 - [x] Revalidar membresía y estado antes de aprobar y antes de escribir. El cierre de sesión invalida los desafíos y pruebas pendientes; ambos vencen además en dos minutos. Un rol revocado o epoch distinto invalida el consumo.
 - [x] Round 2: factores y códigos de recuperación globales por usuario, protegidos por RLS y el contexto validado de sesión/organización. El primer factor exige reautenticación de contraseña local; las cuentas sin contraseña local no pueden usar bootstrap. Añadir otro factor requiere una prueba WebAuthn reciente para el hash fijo de enrolamiento o un código de recuperación de un uso. El desafío conserva la autorización y el conjunto exacto de factores, que se vuelve a comprobar bajo advisory lock al terminar.
 - [x] Invalida desafíos y pruebas pendientes al cerrar sesión mediante `events.signOut`; el vencimiento de dos minutos sigue como segunda barrera. El API de step-up conserva las cookies de sesión renovadas.
-- [ ] Presentar efecto, alcance, coste posible, diff seguro, pruebas y límites; diferenciar aprobar PR, merge y deploy. Una sesión OAuth o una casilla de checklist no equivale a aprobación de acción con MFA.
+- [x] Presentar efecto, alcance, coste conocido/desconocido, resumen de diff seguro, validaciones separadas, límites y razones de bloqueo. Los controles distinguen aprobar PR, merge y deploy y sólo el Owner inicia WebAuthn para el hash exacto cuando el servidor informa elegibilidad. La primera acción de fuente queda bloqueada hoy porque faltan attestations de D05/D08 y adaptadores D09; no se habilita por severidad ni por estado visual.
 
 **Aceptación:** ceremonia real en navegador y ledger PostgreSQL: CSRF/origen, replay, desafío equivocado, actionHash cambiado, caducidad, dos consumos concurrentes, rol revocado, factor perdido y recuperación. No usar el fixture `StepUpVerifier` como evidencia de MFA real.
 
