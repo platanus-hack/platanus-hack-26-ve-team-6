@@ -232,7 +232,9 @@ live('production scanner TLS and durable customer assessment', () => {
     const report = await present(coordinator).customers.getReport(identity, { ...scope, reportId });
     expect(report).toMatchObject({ version: 2, id: reportId, jobId, mode: 'internal', subject: { sourceSnapshotId: source.id, sourceDigest: source.digest, targetId: null } });
     const internal = present(report.internal);
-    expect(internal.findings.map(finding => finding.ruleId)).toEqual(expect.arrayContaining(['gotchu.javascript.eval', 'gotchu.javascript.tls-disabled']));
+    expect(internal.findings.map(finding => finding.ruleId)).toEqual(expect.arrayContaining([
+      'profile.gotchu.javascript.eval', 'profile.gotchu.javascript.tls-disabled',
+    ]));
     const semgrep = internal.evidence.find(evidence => evidence.locator === 'scanner-profile:semgrep');
     expect(semgrep?.tool).toEqual({ name: 'semgrep', version: '1.182.0' });
     const profile: unknown = JSON.parse(present(semgrep).excerpt);
