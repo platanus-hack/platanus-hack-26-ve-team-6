@@ -22,8 +22,13 @@ export function parseResult(payload: GuestPayload, job: RunnerJob, durationMs: n
     });
   }
   const maxPerStream = Math.floor(job.limits.outputBytes / 2);
-  const stdout = makeOutput(payload.stdout, maxPerStream);
-  const stderr = makeOutput(payload.stderr, maxPerStream);
+  const guestCappedOutput = payload.status === 'resource_exceeded' && payload.resource === 'output';
+  const captured = (value: string) => {
+    const output = makeOutput(value, maxPerStream);
+    return guestCappedOutput ? { ...output, truncated: true } : output;
+  };
+  const stdout = captured(payload.stdout);
+  const stderr = captured(payload.stderr);
   if (payload.status === 'timed_out') return runnerResultSchema.parse({ status: 'timed_out', durationMs, isolation, stdout, stderr });
   if (payload.status === 'resource_exceeded') {
     return runnerResultSchema.parse({

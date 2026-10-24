@@ -85,6 +85,7 @@ describe('real Firecracker microVM execution', () => {
     if (result.result.status === 'resource_exceeded') {
       expect(result.result.resource).toBe('output');
       expect(result.result.stdout.bytes + result.result.stderr.bytes).toBeLessThanOrEqual(1024);
+      expect(result.result.stdout.truncated || result.result.stderr.truncated).toBe(true);
     }
   });
 
