@@ -36,9 +36,10 @@ import { WorkflowExceptions } from './workflow-exceptions';
 import { DecisionRecordHistory } from './decision-record-history';
 import { DependencyInventoryPanel, LicensePolicyPanel } from './customer-supply-chain';
 import { InvestigationActionButton, InvestigationModelSettings, InvestigationsTimeline } from './investigations-panel';
+import { DependencyInventoryPanel, LicensePolicyPanel, RetentionPolicyPanel } from './customer-supply-chain';
 import './customer-dashboard.css';
 
-type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy';
+type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
 
 const pages: { id: Page; label: string; glyph: string }[] = [
   { id: 'overview', label: 'Inicio', glyph: '⌂' },
@@ -46,6 +47,7 @@ const pages: { id: Page; label: string; glyph: string }[] = [
   { id: 'operations', label: 'Vigilancia', glyph: '◉' },
   { id: 'reports', label: 'Informes', glyph: '≋' },
   { id: 'license-policy', label: 'Licencias', glyph: '©' },
+  { id: 'retention-policy', label: 'Retención', glyph: '◴' },
   { id: 'members', label: 'Equipo', glyph: '♧' },
   { id: 'decision-records', label: 'Decisiones', glyph: '◷' },
 ];
@@ -788,6 +790,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
         : page === 'license-policy' && organizationId ? <>
           <div className="customer-page-heading"><div><span className="customer-eyebrow">{workspace?.name}</span><h1>Política de licencias</h1><p>Define cómo clasificar las licencias declaradas en las dependencias exactas de cada evaluación de código.</p></div></div>
           <LicensePolicyPanel key={`${userId}:${organizationId}`} userId={userId} organizationId={organizationId} canManage={canManage} />
+        </>
+        : page === 'retention-policy' && organizationId ? <>
+          <div className="customer-page-heading"><div><span className="customer-eyebrow">{workspace?.name}</span><h1>Retención y privacidad</h1><p>Elige cuánto tiempo conserva este espacio de trabajo los datos operativos y las fuentes que comparte con Gotchu.</p></div></div>
+          <RetentionPolicyPanel key={`${userId}:${organizationId}`} userId={userId} organizationId={organizationId} isOwner={workspace?.role === 'owner'} />
         </>
         : applications.isPending ? <Loading label="Cargando aplicaciones…" />
         : applications.error ? <ErrorNotice message={readableError(applications.error)} retry={() => { applications.refetch().catch(caught => setPageError(readableError(caught))); }} />

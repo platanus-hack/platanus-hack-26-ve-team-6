@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { DependencyInventory, LicensePolicy } from '@gotchu/contracts';
+import type { DependencyInventory, LicensePolicy, WorkspaceRetentionPolicyInput } from '@gotchu/contracts';
 import { CustomerApiError, customerApi } from './customer-client';
 
 const policyLabels = { allowed: 'Permitida', review: 'Revisión', denied: 'No permitida' } as const;
@@ -88,5 +88,55 @@ export function LicensePolicyPanel({ userId, organizationId, canManage }: { user
     {update.error && <p className="customer-form-error" role="alert">{update.error instanceof CustomerApiError ? update.error.message : 'No se pudo guardar la política.'}</p>}
     {saved && <p className="customer-license-saved" role="status">La política del espacio de trabajo se guardó.</p>}
     {canManage ? <button className="customer-button customer-button-primary" disabled={update.isPending} onClick={() => update.mutate()}>{update.isPending ? 'Guardando política…' : 'Guardar política'}</button> : <p className="customer-field-note">Sólo Owner u Operator puede cambiar esta política.</p>}
+  </section>;
+}
+
+const retentionFields = [
+  ['sourceSnapshotDays', 'Instantáneas de código', 'Controla durante cuántos días se conserva el contenido fuente subido.'],
+  ['containerImageDays', 'Imágenes de contenedor', 'Controla cuánto tiempo se conserva el archivo de imagen subido.'],
+  ['reportDays', 'Informes', 'Elimina informes de evaluación vencidos y sus hallazgos.'],
+  ['observationDays', 'Observaciones', 'Elimina observaciones y alertas operativas vencidas.'],
+  ['runDays', 'Ejecuciones de vigilancia', 'Elimina el historial de ejecuciones completadas o degradadas.'],
+  ['notificationDeliveryDays', 'Entregas de notificaciones', 'Elimina el historial de entregas; los canales siguen configurados.'],
+  ['protectionEventDays', 'Eventos de protección', 'Elimina eventos runtime normalizados; los eventos aceptados se conservan según su contrato propio.'],
+] as const;
+
+export function RetentionPolicyPanel({ userId, organizationId, isOwner }: { userId: string; organizationId: string; isOwner: boolean }) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<WorkspaceRetentionPolicyInput | null>(null);
+  const [saved, setSaved] = useState(false);
+  const query = useQuery({ queryKey: ['customer-data', userId, 'retention-policy', organizationId], queryFn: () => customerApi.retentionPolicy(organizationId), retry: false });
+  useEffect(() => {
+    if (!query.data) return;
+    setDraft({ sourceSnapshotDays: query.data.sourceSnapshotDays, containerImageDays: query.data.containerImageDays,
+      reportDays: query.data.reportDays, observationDays: query.data.observationDays, runDays: query.data.runDays,
+      notificationDeliveryDays: query.data.notificationDeliveryDays, protectionEventDays: query.data.protectionEventDays });
+  }, [query.data]);
+  const update = useMutation({
+    mutationFn: () => {
+      if (!draft) throw new Error('La política todavía no está disponible.');
+      return customerApi.updateRetentionPolicy(organizationId, draft);
+    },
+    onSuccess: async value => {
+      setDraft({ sourceSnapshotDays: value.sourceSnapshotDays, containerImageDays: value.containerImageDays,
+        reportDays: value.reportDays, observationDays: value.observationDays, runDays: value.runDays,
+        notificationDeliveryDays: value.notificationDeliveryDays, protectionEventDays: value.protectionEventDays });
+      setSaved(true);
+      await queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'retention-policy', organizationId] });
+    },
+    onError: () => setSaved(false),
+  });
+  if (query.isPending) return <section className="customer-card"><div className="customer-loading" role="status">Cargando la política de retención…</div></section>;
+  if (query.error) return <section className="customer-card"><div className="customer-error" role="alert"><strong>No se pudo cargar la política</strong><p>{query.error instanceof CustomerApiError ? query.error.message : 'Inténtalo de nuevo.'}</p><button className="customer-link-button" onClick={() => { query.refetch().catch(() => undefined); }}>Reintentar</button></div></section>;
+  if (!draft) return <section className="customer-card"><div className="customer-empty-inline">La política de retención no está disponible.</div></section>;
+  return <section className="customer-card customer-license-policy-panel">
+    <div className="customer-card-heading"><div><span className="customer-eyebrow">POLÍTICA DEL ESPACIO DE TRABAJO</span><h2>Retención y eliminación</h2></div><span className="customer-status customer-status-muted">Última actualización: {new Date(query.data.updatedAt).toLocaleDateString('es')}</span></div>
+    <p className="customer-card-copy">El coordinator elimina los elementos vencidos en segundo plano. Las propuestas pendientes se invalidan antes de borrar su fuente. Informes y observaciones usan plazos separados; los eventos autenticados de origen tienen su propia retención.</p>
+    <div className="customer-license-policy-grid">
+      {retentionFields.map(([key, label, help]) => <label key={key}>{label}<input type="number" min={1} max={3650} step={1} value={draft[key]} disabled={!isOwner || update.isPending} onChange={event => { setSaved(false); const value = Number(event.target.value); setDraft(current => current ? { ...current, [key]: value } : current); }} /><small>{help} De 1 a 3650 días.</small></label>)}
+    </div>
+    {update.error && <p className="customer-form-error" role="alert">{update.error instanceof CustomerApiError ? update.error.message : 'No se pudo guardar la política.'}</p>}
+    {saved && <p className="customer-license-saved" role="status">La política de retención se guardó.</p>}
+    {isOwner ? <button className="customer-button customer-button-primary" disabled={update.isPending || !draft || retentionFields.some(([key]) => !Number.isInteger(draft[key]) || draft[key] < 1 || draft[key] > 3650)} onClick={() => update.mutate()}>{update.isPending ? 'Guardando política…' : 'Guardar política'}</button> : <p className="customer-field-note">Sólo Owner puede cambiar la retención del espacio de trabajo.</p>}
   </section>;
 }
