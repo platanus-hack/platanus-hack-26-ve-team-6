@@ -155,7 +155,7 @@ test('the light theme passes the accessibility audit after every reveal', async 
 test('menu, anchor navigation, FAQ and dashboard CTAs keep accessible behavior', async ({ page, isMobile }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
   const vigilance = page.locator('#gl-vigilancia');
-  await expect(vigilance).toContainText('Revisiones periódicas');
+  await expect(vigilance).toContainText('Revisiones cada 1 a 24 horas');
   const monitoringQuestion = page.getByRole('button', { name: '¿Gotchu vigila mi app todo el tiempo?' });
   await expect(monitoringQuestion).toBeAttached();
   if (isMobile) {

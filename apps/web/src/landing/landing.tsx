@@ -105,7 +105,7 @@ function Domain({ paused }: { paused: boolean }) {
     </Block>
     <p className="gl-record"><span className="gl-sr">Registro DNS: </span>{DOMAIN_RECORD}<span aria-hidden="true">{'  '}</span><span className="gl-record-type">TXT</span></p>
     <Block notes={<Note n={5}><strong>Sin cookies, credenciales ni redirecciones.</strong> Gotchu valida el certificado y el nombre TLS.</Note>}>
-      <p>El perfil raíz hace una petición GET a /. El perfil de superficie pública autorizado hace hasta diez al mismo origen. No compartes el código fuente.<Ref n={5} /></p>
+      <p>Con el perfil raíz, Gotchu hace una sola petición GET a la página principal (/). Si autorizas la superficie pública, puede hacer hasta diez peticiones GET al mismo origen. No necesitas compartir tu código fuente.<Ref n={5} /></p>
     </Block>
     <div className="gl-split gl-split--globe">
       <div className="gl-globe"><DotPlate formation="globe" paused={paused} /></div>
@@ -158,8 +158,7 @@ function Scope() {
 function Vigilance() {
   return <Section id="gl-vigilancia" titleId="gl-vigilancia-titulo" title={['Tú marcas el ritmo.', <Mark key="m" size="big">Cada 1–24 h.</Mark>]}>
     <Block notes={<Note n={9}>Las revisiones no son en tiempo real; las alertas se ven dentro de Gotchu. No hay avisos fuera y una alerta no confirma un ataque.</Note>}>
-      <p>Activa revisiones periódicas de una instantánea o repositorio autorizado y de un origen HTTPS verificado. Tú eliges el intervalo, de 1 a 24 horas.<Ref n={9} /></p>
-      <p>Gotchu también muestra el estado de Cloudflare y Railway y las observaciones e incidentes que surgen de eventos firmados desde tu servidor.</p>
+      <p>Tú eliges cada cuánto revisar. Gotchu reúne lo autorizado y los eventos firmados para dar contexto a los incidentes.<Ref n={9} /></p>
     </Block>
     <ul className="gl-rules gl-rules--facts gl-vigilance-list">
       {VIGILANCE_FACTS.map(fact => <li key={fact}><span aria-hidden="true" className="gl-bullet" />{fact}</li>)}

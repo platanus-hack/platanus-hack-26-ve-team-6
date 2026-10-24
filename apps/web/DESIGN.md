@@ -279,6 +279,8 @@ The hero is copy beside the dot-field mark from 1000px (1.25fr / 1fr, min-height
 
 Each section opens on a 2px foreground rule with clamp(48px, 6vw, 88px) vertical padding and a display headline clamp(36px, 5vw, 72px) above its content. Prose blocks put margin notes in a 220px column 48px to the right from 1100px; below that, notes fall inline under the paragraph with a 2px magenta left rule. Plates sit in a split (art at auto width beside a ruled list) from 900px. Scope is three columns divided by hairlines from 900px; the team list is three columns from 900px. The closing dot wordmark bleeds into both gutters at clamp(140px, 24vw, 340px).
 
+The Vigilancia section explains periodic re-checks every 1–24 hours, their authorized sources and the service and server events that add context. It says checks are not real time, alerts stay inside Gotchu and an alert does not confirm an attack.
+
 Breakpoints that change layout: 520px (theme switch leaves the header for the menu), 700px (two text columns), 760px (header height), 900px (inline nav vs. menu, splits, scope and team columns), 1000px (hero split), 1100px (margin-note column).
 
 ## Elevation & Depth

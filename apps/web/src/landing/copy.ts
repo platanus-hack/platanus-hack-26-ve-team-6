@@ -9,18 +9,17 @@ export const DOMAIN_FACTS = ['Perfil raíz: una petición GET a /', 'Perfil púb
 export const VENN_LABELS = ['Señales del código', 'Señales compartidas', 'Señales de la web'] as const;
 
 export const VIGILANCE_FACTS = [
-  'Revisiones periódicas cada 1–24 h',
-  'Instantánea o repositorio autorizado',
+  'Revisiones cada 1 a 24 horas',
+  'Código o repositorio autorizado',
   'Origen HTTPS verificado',
   'Estado de Cloudflare y Railway',
   'Eventos firmados desde tu servidor',
-  'Observaciones e incidentes con hipótesis',
-  'Evidencia que todavía falta',
+  'Incidentes con hipótesis y lo que falta saber',
 ] as const;
 
 export const GLOSSARY = [
   ['Hallazgo', 'Qué es y dónde está'],
-  ['Severidad', 'Puede quedar sin evaluar'],
+  ['Severidad', 'De informativa a crítica, o sin evaluar'],
   ['Confianza', 'Observada, inferida o incierta'],
   ['Evidencia', 'Fragmento, respuesta o dato de herramienta'],
   ['Cobertura', 'Qué se revisó, quedó fuera o no se pidió'],
