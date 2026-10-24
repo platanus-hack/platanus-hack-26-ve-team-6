@@ -1,10 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+/** Controls keep the project's 34px minimum (above WCAG 2.2 AA's 24px target size). */
 async function checkLayout(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const tiny = await page.locator('button:visible, summary:visible, .g-button:visible').evaluateAll(elements => elements.filter(element => {
-    const rect = element.getBoundingClientRect(); return rect.width < 43 || rect.height < 43;
+    const rect = element.getBoundingClientRect(); return rect.width < 33 || rect.height < 33;
   }).map(element => element.outerHTML.slice(0, 140)));
   expect(tiny).toEqual([]);
 }
