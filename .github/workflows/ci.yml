@@ -1,9 +1,11 @@
 name: CI
 
+# Pull requests cover branch work; pushes only run for main so a PR branch is not verified twice.
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
   workflow_call:
 
 permissions:
@@ -13,65 +15,138 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Only the checks a change can affect run: changed packages plus their dependents (scripts/ci-affected.mjs).
+# Independent jobs run in parallel, so wall-clock time is the slowest selected job.
 jobs:
-  verify:
+  changes:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      packages: ${{ steps.affected.outputs.packages }}
+      verify: ${{ steps.affected.outputs.verify }}
+      unit: ${{ steps.affected.outputs.unit }}
+      installer: ${{ steps.affected.outputs.installer }}
+      postgres: ${{ steps.affected.outputs.postgres }}
+      postgres_database: ${{ steps.affected.outputs.postgres_database }}
+      postgres_gateway: ${{ steps.affected.outputs.postgres_gateway }}
+      postgres_executor: ${{ steps.affected.outputs.postgres_executor }}
+      live: ${{ steps.affected.outputs.live }}
+      coordinator_live: ${{ steps.affected.outputs.coordinator_live }}
+      integration: ${{ steps.affected.outputs.integration }}
+      infra: ${{ steps.affected.outputs.infra }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
-          version: 11.21.0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+          fetch-depth: 0
+      - id: affected
+        # A manual run or a branch's first push has no base, which selects everything.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FORCE_FULL: ${{ github.ref == 'refs/heads/prod' }}
+        run: |
+          if test "$FORCE_FULL" = true; then BASE_SHA=''; fi
+          node scripts/ci-affected.mjs "$BASE_SHA" "$GITHUB_SHA"
+
+  verify:
+    needs: changes
+    if: needs.changes.outputs.verify == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup
+      - if: needs.changes.outputs.unit == 'true'
+        run: pnpm ${{ needs.changes.outputs.packages }} --sort --if-present run typecheck
+      - if: needs.changes.outputs.integration == 'true'
+        run: pnpm exec tsc -p test/tsconfig.json
+      - if: needs.changes.outputs.unit == 'true'
+        run: pnpm ${{ needs.changes.outputs.packages }} --sort --if-present run test
+      - if: needs.changes.outputs.installer == 'true'
+        run: node scripts/gotchu.test.mjs
+
+  postgres:
+    needs: changes
+    if: needs.changes.outputs.postgres == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GOTCHU_TEST_SKIP_BUILD: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup
+      - name: Run real Postgres database and backend integration tests
+        if: needs.changes.outputs.postgres_database == 'true'
+        run: pnpm --filter @gotchu/database test:postgres
+      - name: Verify authenticated gateway and isolated HTTP worker against Postgres
+        if: needs.changes.outputs.postgres_gateway == 'true'
+        run: pnpm --filter @gotchu/gateway test:postgres
+      - name: Verify independent executor retry and reconciliation ledger against Postgres
+        if: needs.changes.outputs.postgres_executor == 'true'
+        run: pnpm --filter @gotchu/executor test:postgres
+
+  live-stack:
+    needs: changes
+    if: needs.changes.outputs.live == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup
+      - name: Verify assessment delivery fencing and reserved monitoring capacity
+        if: needs.changes.outputs.coordinator_live == 'true'
+        run: pnpm --filter @gotchu/coordinator test:live
+      - name: Verify signed intake, recovery and real controlled source/HTTP assessments
+        if: needs.changes.outputs.integration == 'true'
+        run: pnpm test:integration
+
+  infrastructure:
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # The live check builds its own images and only the dependency-free database package.
+      - uses: ./.github/actions/setup
         with:
-          node-version: 24.18.1
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-          package-manager-cache: false
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm typecheck
-      - run: pnpm test
+          build: 'false'
+      - run: scripts/infra-local-setup.sh
+      - run: scripts/infra-compose-validate.sh
+      - name: Boot Postgres, Redis, web and coordinator in an isolated Compose project
+        run: scripts/infra-live-check.sh
+
+  release-safety:
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: python3 -B infra/aws/test-release-archive.py
       - run: python3 -B infra/aws/test-release-state.py
       - run: python3 -B infra/aws/test-maintenance.py
-      - name: Install Chromium for landing regression tests
-        run: pnpm --filter @gotchu/web exec playwright install --with-deps chromium
-      - name: Verify desktop and mobile landing behavior
-        run: pnpm --filter @gotchu/web test:design --workers=2
-      - run: scripts/infra-local-setup.sh
-      - run: scripts/infra-compose-validate.sh
 
-  live-infrastructure:
+  required-checks:
+    if: always()
+    needs: [changes, verify, postgres, live-stack, infrastructure, release-safety]
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: 11.21.0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24.18.1
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-          package-manager-cache: false
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - name: Boot Postgres and Redis in an isolated Compose project
-        run: scripts/infra-live-check.sh
-      - name: Run real Postgres database and backend integration tests
-        run: pnpm --filter @gotchu/database test:postgres
-      - name: Verify authenticated gateway and isolated HTTP worker against Postgres
-        run: pnpm --filter @gotchu/gateway test:postgres
-      - name: Verify independent executor retry and reconciliation ledger against Postgres
-        run: pnpm --filter @gotchu/executor test:postgres
-      - name: Verify assessment delivery fencing and reserved monitoring capacity
-        run: pnpm --filter @gotchu/coordinator test:live
-      - name: Verify signed intake, recovery and real controlled source/HTTP assessments
-        run: pnpm test:integration
+      - name: Require every selected check to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          jobs = json.loads(os.environ['RESULTS'])
+          if jobs['changes']['result'] != 'success' or any(job['result'] not in ['success', 'skipped'] for job in jobs.values()):
+              sys.exit('A required CI job did not succeed.')
+          PY
 
   prod-source:
     if: github.event_name == 'pull_request' && github.base_ref == 'prod'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Require promotion from this repository's main branch
         env:

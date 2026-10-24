@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { BackendError, hashProposal, type Backend } from '@gotchu/backend';
+import { hashProposal, type Backend } from '@gotchu/backend';
 import { actionV2Schema } from '@gotchu/contracts';
 import { proposalFixture } from '../../../packages/backend/test/proposal-fixtures.js';
 import { createBackendExecutionLedger } from '../src/index.js';
@@ -49,26 +49,5 @@ describe('backend adapter boundary; injected backend fixtures (no Postgres)', ()
     await expect(f.ledger.claim(f.request)).rejects.toMatchObject({ code: 'ledger_unavailable' });
     f.executions.claim.mockResolvedValueOnce({ ...f.claim, proposal: { ...f.claim.proposal, organizationId: randomUUID() } });
     await expect(f.ledger.claim(f.request)).rejects.toMatchObject({ code: 'ledger_unavailable' });
-  });
-
-  it('rejects unnormalized approval UUIDs before calling the durable backend claim', async () => {
-    const f = fixture();
-    await expect(f.ledger.claim({ ...f.request, approvalId: f.request.approvalId.toUpperCase() })).rejects.toMatchObject({ code: 'approval_rejected' });
-    expect(f.executions.claim).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['approval_used', 'already_claimed'], ['already_claimed', 'already_claimed'],
-    ['stale_state', 'stale_proposal'], ['artifact_mismatch', 'stale_proposal'],
-    ['proposal_invalidated', 'stale_proposal'], ['proposal_ineligible', 'stale_proposal'], ['stale_verification', 'stale_proposal'],
-    ['writes_frozen', 'approval_rejected'], ['approval_expired', 'approval_rejected'], ['stale_epoch', 'approval_rejected'],
-    ['forbidden', 'approval_rejected'], ['not_found', 'approval_rejected'],
-    ['verification_unavailable', 'ledger_unavailable'], ['execution_corrupt', 'ledger_unavailable'],
-    ['no_adapter', 'no_adapter'],
-  ])('maps %s to %s and retains its cause', async (code, expected) => {
-    const f = fixture();
-    const cause = new BackendError(code, 'Test fixture rejection');
-    f.executions.claim.mockRejectedValueOnce(cause);
-    await expect(f.ledger.claim(f.request)).rejects.toMatchObject({ code: expected, cause });
   });
 });

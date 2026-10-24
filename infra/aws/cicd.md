@@ -4,7 +4,7 @@
 
 ## Normal release
 
-1. Merge a feature PR into main after `verify` and `live-infrastructure` pass.
+1. Merge a feature PR into main after `required-checks` passes. This gate requires every selected CI job to succeed; jobs run in parallel according to the affected packages.
 2. Successful main CI opens or updates **Release main to production**. Review its current diff. GitHub may require **Approve workflows to run** for checks on a bot-created PR; approve those checks before merging.
 3. Merge the promotion PR after its checks pass. `prod-source` permits only this repository's main branch. Neither promotion nor deployment merges PRs automatically.
 4. **Deploy production** runs the complete CI again for the exact prod commit. A separate job builds a Linux/amd64 archive with production dependencies and verifies workspace imports outside the checkout.
