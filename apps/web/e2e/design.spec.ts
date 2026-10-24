@@ -93,8 +93,8 @@ test('scrolling separates the perspectives, closes them on a finding and brings 
   await expect.poll(() => opacity('.g-stage-flash')).toBeGreaterThan(.5);
   await stage.evaluate(element => window.scrollTo(0, element.offsetTop + element.offsetHeight - innerHeight));
   await expect.poll(() => opacity('.g-stage-report')).toBeGreaterThan(.95);
-  await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeVisible();
-  await expect(page.locator('.g-report-card')).toContainText('Inspeccionado · no solicitado · no compatible · no disponible');
+  await expect(page.getByRole('heading', { name: /Nada de alertas/ })).toBeVisible();
+  await expect(page.locator('.g-report-card')).toContainText('Lo que se revisó y lo que quedó fuera');
   await page.locator('.g-footer').scrollIntoViewIfNeeded();
   await expect(page.getByRole('link', { name: 'Gotchu, volver al inicio' })).toBeVisible();
 });
@@ -119,7 +119,7 @@ test('reduced motion and a 320px viewport retain all content without pointer or 
   await page.getByRole('tab', { name: 'HTTPS', exact: true }).click();
   await expect(page.getByRole('tabpanel')).toContainText('sin compartir el código fuente');
   expect(await page.locator('.g-hero-scan').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
-  await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeAttached();
+  await expect(page.getByRole('heading', { name: /Nada de alertas/ })).toBeAttached();
   await checkLayout(page); await checkA11y(page);
 });
 
@@ -128,7 +128,7 @@ test('the product journey presents source versioning, DNS authorization and pers
   const steps = [
     { id: 'codigo', title: 'Instantánea de código', text: 'Huella SHA-256' },
     { id: 'https', title: 'Origen HTTPS', text: '_gotchu.<dominio>' },
-    { id: 'evidencia', title: 'Informe de evaluación', text: 'Inspeccionado, no solicitado, no compatible o no disponible' },
+    { id: 'evidencia', title: 'Informe de evaluación', text: 'Lo revisado y lo que quedó fuera' },
   ];
   for (const [index, step] of steps.entries()) {
     await page.locator(`#${step.id}`).evaluate(element => window.scrollTo(0, element.getBoundingClientRect().top + scrollY - innerHeight * .25));
@@ -137,8 +137,8 @@ test('the product journey presents source versioning, DNS authorization and pers
     await expect(flow.getByRole('heading', { name: step.title, exact: true })).toBeVisible();
     await expect(flow).toContainText(step.text);
   }
-  await expect(page.locator('.g-workflow')).toContainText('Historial de evaluaciones');
-  await expect(page.locator('.g-workflow')).toContainText('Exportación JSON');
+  await expect(page.locator('.g-workflow')).toContainText('Un historial que no se pierde');
+  await expect(page.locator('.g-workflow')).toContainText('Tus datos, en JSON');
   await expect(page.getByRole('link', { name: 'Ir a mis aplicaciones', exact: true })).toHaveAttribute('href', '/dashboard');
   await page.locator('.g-workflow').scrollIntoViewIfNeeded();
   await checkLayout(page); await checkA11y(page);
@@ -148,7 +148,7 @@ test('the headline and primary CTA remain usable without JavaScript', async ({ b
   const context = await browser.newContext({ javaScriptEnabled: false }); const page = await context.newPage();
   await page.goto(baseURL ?? 'http://127.0.0.1:3085/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Bajo la misma lupa.');
-  await expect(page.getByRole('heading', { name: /Cada hallazgo/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Nada de alertas/ })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Revisar mi aplicación', exact: true })).toHaveAttribute('href', '/dashboard');
   await context.close();
 });
