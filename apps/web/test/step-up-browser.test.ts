@@ -112,13 +112,30 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
       enrollmentError.waitFor({ timeout: 30_000 }).then(() => 'error'),
     ]);
     if (enrollmentResult === 'error') throw new Error(`WebAuthn enrollment failed: ${await enrollmentError.innerText()}\n${failures.join('\n')}`);
+    const recoveryCode = await recoveryHeading.locator('..').getByRole('listitem').first().innerText();
+    await page.getByRole('button', { name: 'Ya los guardé' }).click();
     await page.getByRole('button', { name: 'Revocar', exact: true }).click();
     await page.getByText('No hay factores registrados.').waitFor({ timeout: 30_000 });
+    await page.getByText('¿Has perdido tu factor?').click();
+    await page.getByLabel('Código de recuperación').fill(recoveryCode);
+    await page.getByLabel('Nombre del nuevo factor').fill('Factor recuperado');
+    await page.getByRole('button', { name: 'Usar código y registrar factor' }).click();
+    await page.waitForFunction(async organizationId => {
+      const response = await fetch(`/api/customer/step-up/factors?organizationId=${organizationId}`);
+      const factors = await response.json() as unknown;
+      return Array.isArray(factors) && factors.length === 1;
+    }, organizationId, { timeout: 30_000 });
+    const replay = await page.evaluate(async ({ organizationId, recoveryCode }) => {
+      const response = await fetch('/api/customer/step-up/factors/recovery-options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId, recoveryCode }) });
+      return { status: response.status, payload: await response.json() as unknown };
+    }, { organizationId, recoveryCode });
+    expect(replay.status).toBe(403);
+    expect(replay.payload).toMatchObject({ error: { code: 'recovery_code_invalid' } });
     const factors = await page.evaluate(async organizationId => {
       const response = await fetch(`/api/customer/step-up/factors?organizationId=${organizationId}`);
       return await response.json() as unknown;
     }, organizationId);
-    expect(factors).toEqual([]);
+    expect(factors).toHaveLength(1);
     expect(account).toMatch(/^[0-9a-f-]{36}$/);
   }, 120_000);
 });
