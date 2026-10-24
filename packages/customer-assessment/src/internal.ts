@@ -1,8 +1,11 @@
 import { z } from 'zod';
-import type { AssessmentAnalysis, AssessmentFinding, CustomerRunInput } from '@gotchu/contracts';
+import { defaultLicensePolicy, type AssessmentAnalysis, type AssessmentFinding, type CustomerRunInput } from '@gotchu/contracts';
 import { analysis, bounded, isScannerCleanupError, evidence, finding, finish } from './common.js';
 import type { ScannerAdapter, ScannerName, ToolResult } from './docker.js';
 import { parseLockfile, type AdvisoryAdapter } from './advisory.js';
+import type { LockedPackage } from './lockfiles.js';
+import type { LicenseAdapter, LicenseLookup } from './licenses.js';
+import { evaluateLicensePolicy, normalizeLicenseExpression, normalizeLicensePolicy } from './licenses.js';
 import { createHelmetCspGate, HELMET_CSP_GATE_VERSION, isHelmetCspCandidateRule, HELMET_CSP_TYPESCRIPT_VERSION } from './helmet-csp-gate.js';
 import { classifyKubernetesCandidate, findKubernetesCorrectionLocation } from './kubernetes.js';
 
@@ -130,10 +133,10 @@ function addTool(a: AssessmentAnalysis, name: ScannerName, result: ToolResult, s
       : 'Trivy ejecutó los comprobadores integrados de Kubernetes, Terraform y Dockerfile sobre los archivos subidos; no encontrar una regla no demuestra seguridad.';
   a.coverage.push({capability:name,state:parsed.incomplete || helmetGateIncomplete || truncated ? 'unavailable':'inspected',detail:helmetGateIncomplete ? 'A Helmet CSP Semgrep candidate lacked a unique call offset or fell outside the bounded parser gate; no correlated finding was emitted for that candidate.' : parsed.incomplete ? 'Scanner reported parsing or analysis errors; findings retain only available evidence.' : truncated ? 'Finding cap reached; additional matches were omitted.' : completedDetail});
 }
-export async function assessInternal(input: CustomerRunInput, signal: AbortSignal, scanners: ScannerAdapter, advisory?: AdvisoryAdapter) {
+export async function assessInternal(input: CustomerRunInput, signal: AbortSignal, scanners: ScannerAdapter, advisory?: AdvisoryAdapter, licenses?: LicenseAdapter) {
   const source = input.source; if (!source) throw new Error('missing_source');
   const a = analysis('internal',`source:${source.id}:sha256:${source.digest}`);
-  a.limitations.push('Static analysis only. Customer code, imports, build tools, package scripts and tests never execute.', 'The vendored Semgrep rule pack covers selected JavaScript/TypeScript, Python, Go and Java patterns. Gitleaks uses its pinned default rules. Trivy checks Kubernetes, Terraform and Dockerfile configuration. Rule matches are indications, not proof of exploitability.', 'Package-lock metadata is not proof of installed/deployed packages, reachability, exploitation or compromise. No provider changes or remediation occur.');
+  a.limitations.push('Static analysis only. Customer code, imports, build tools, package scripts and tests never execute.', 'The vendored Semgrep rule pack covers selected JavaScript/TypeScript, Python, Go and Java patterns. Gitleaks uses its pinned default rules. Trivy checks Kubernetes, Terraform and Dockerfile configuration. Rule matches are indications, not proof of exploitability.', 'Lockfile metadata is not proof of installed/deployed packages, reachability, exploitation or compromise. License values are declared metadata, not verified license text. No provider changes or remediation occur.');
   const names: ScannerName[] = ['semgrep','gitleaks','trivy'];
   const results = await Promise.allSettled(names.map(name=>bounded(()=>scanners.run(name,source,signal),signal)));
   for (let i=0;i<names.length;i++) {
@@ -143,28 +146,134 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
     catch (error) { if (isScannerCleanupError(error)) throw error; a.evidence.length=beforeEvidence; a.findings.length=beforeFindings; a.coverage.push({capability:name,state:'unavailable',detail:'Pinned scanner unavailable, malformed output, resource/deadline exceeded or invalid source mapping. No clean result inferred.'}); }
   }
   const locked = parseLockfile(source);
-  if (!locked.found) a.coverage.push({capability:'npm_lockfile',state:'unavailable',detail:'No package-lock v2/v3 was uploaded. Package declarations and banners are not substituted for exact resolved versions.'});
-  else {
-    a.coverage.push({capability:'npm_lockfile',state:locked.unknown.length ? 'unavailable':'inspected',detail:`Resolved ${locked.inventory.length} direct/transitive exact package versions; ${locked.unknown.length} unsupported or capped entries. Yarn, pnpm, aliases, links and installed state are outside this profile.`});
-    try {
-      if (!advisory) throw new Error('advisory_unconfigured');
-      const matches = await bounded(()=>advisory.query(locked.inventory.map(({name,version})=>({name,version})),signal),signal);
-      if (matches.length !== locked.inventory.length) throw new Error('advisory_count');
-      let incomplete = matches.some(m=>!m.complete);
-      for (let i=0;i<matches.length;i++) {
-        const match = matches[i]; const pkg = locked.inventory[i]; if(!match || !pkg) continue;
-        for (const id of match.ids) {
-          if(a.findings.length>=100 || a.evidence.length>=200){incomplete=true;break;}
-          const advisory = match.advisories?.find(item => item.id === id);
-          const affected = advisory?.affected.filter(item => item.package.ecosystem === 'npm' && item.package.name === pkg.name) ?? [];
-          const metadata = advisory ? { id, withdrawn: advisory.withdrawn ?? null, affected } : null;
-          if (!metadata || JSON.stringify(metadata).length > 3_500) incomplete = true;
-          const evidenceId = evidence(a,'advisory',`osv:${id}`,{schemaVersion:1,id,package:pkg,sourceDigest:source.digest,advisory:metadata && JSON.stringify(metadata).length <= 3_500 ? metadata : null,queriedAt:new Date().toISOString()},{name:'OSV-querybatch',version:'v1'});
-          finding(a,{ruleId:`osv.${id}`.slice(0,128),correlationKey:`npm:${pkg.name}:${id}`,title:`Advisory match: ${pkg.name}@${pkg.version}`.slice(0,256),location:pkg.location,description:`The exact ${pkg.relationship} lockfile version matched ${id} in the configured OSV-compatible adapter. Advisory severity was not fetched.`,severity:'unknown',confidence:'observed',impact:'An advisory applies to the recorded version; installed state, reachability and exploitability remain unknown.',recommendation:'Review the advisory and dependency path, choose a supported fix and validate the application.',limitations:['Severity is unassessed; do not interpret this as a low-risk determination.', 'No package installation, package source upload or exploit attempt.'],evidenceIds:[evidenceId]});
+  const policy = normalizeLicensePolicy(input.licensePolicy ?? defaultLicensePolicy);
+  const uniquePackages = [...new Map(locked.inventory.map(pkg => [`${pkg.name}\0${pkg.version}`, pkg])).values()];
+  const licenseResults = new Map<string, LicenseLookup>();
+  let licenseLookupComplete = true;
+  const needingRegistry = uniquePackages.filter(pkg => pkg.declaredLicense === null);
+  if (needingRegistry.length > 0) {
+    if (!licenses) licenseLookupComplete = false;
+    else {
+      const lookupBatch = needingRegistry.slice(0, 200);
+      try {
+        const results = await bounded(() => licenses.lookup(lookupBatch.map(({ name, version }) => ({ name, version })), signal), signal);
+        if (results.length !== lookupBatch.length) throw new Error('license_lookup_count');
+        for (let index = 0; index < lookupBatch.length; index++) {
+          const pkg = lookupBatch[index]; const result = results[index];
+          if (pkg && result) licenseResults.set(`${pkg.name}\0${pkg.version}`, result);
         }
+        licenseLookupComplete = needingRegistry.length <= 200 && results.every(result => result.complete);
+      } catch {
+        licenseLookupComplete = false;
       }
-      a.coverage.push({capability:'npm_advisories',state:incomplete?'unavailable':'inspected',detail:incomplete?'Advisory results were paginated or capped; remaining matches are unknown.':'Bounded exact-version advisory queries completed at the evidence collection time.'});
-    } catch {a.coverage.push({capability:'npm_advisories',state:'unavailable',detail:'Optional advisory adapter missing, failed or exceeded the deadline. No clean dependency claim.'});}
+    }
+  }
+  if (needingRegistry.length > 200) licenseLookupComplete = false;
+
+  const inventoryComponents = locked.inventory.map(pkg => {
+    const registryResult = licenseResults.get(`${pkg.name}\0${pkg.version}`);
+    const registryComplete = registryResult?.complete === true;
+    const declaredLicense = pkg.declaredLicense ?? (registryComplete ? registryResult.declaredLicense : null);
+    const licenseSource = pkg.declaredLicense !== null ? 'lockfile' as const : registryComplete ? 'registry' as const : 'unknown' as const;
+    const licenseExpression = normalizeLicenseExpression(declaredLicense);
+    return {
+      ...pkg,
+      dependencies: pkg.dependencies,
+      declaredLicense,
+      licenseExpression,
+      licenseSource,
+      licenseConfidence: declaredLicense === null ? 'unknown' as const : 'declared' as const,
+      policyStatus: evaluateLicensePolicy(licenseExpression, policy),
+    };
+  });
+  const dependencyInventory = {
+    components: inventoryComponents,
+    lockfiles: locked.lockfiles,
+    policy,
+    complete: locked.complete,
+    graphComplete: locked.graphComplete,
+    unknownCount: locked.unknownCount,
+  };
+  a.dependencyInventory = dependencyInventory;
+  a.coverage.push({
+    capability: 'dependency_inventory',
+    state: locked.complete ? 'inspected' : 'unavailable',
+    detail: !locked.found
+      ? 'No supported JavaScript lockfile was uploaded. Exact dependency inventory is unknown; recognized unsupported lockfiles remain listed in coverage.'
+      : locked.complete
+        ? `Resolved ${locked.inventory.length} exact package versions from ${locked.lockfiles.map(file => file.format).join(', ')} lockfiles without installing packages or executing customer code.`
+        : `Resolved ${locked.inventory.length} exact package versions with ${locked.unknownCount} unsupported, malformed or capped lockfile entries. The remaining inventory coverage is unknown.`,
+  });
+
+  let licenseFindingsIncomplete = false;
+  for (const component of inventoryComponents) {
+    if (component.policyStatus === 'allowed') continue;
+    if (a.findings.length >= 100 || a.evidence.length >= 200) { licenseFindingsIncomplete = true; break; }
+    const evidenceId = evidence(a, 'dependency', component.location.slice(0, 1_024), {
+      package: { name: component.name, version: component.version, purl: component.purl },
+      declaredLicense: component.declaredLicense,
+      normalizedLicense: component.licenseExpression,
+      licenseSource: component.licenseSource,
+      sourceFile: component.sourceFile,
+      sourceDigest: source.digest,
+      policyStatus: component.policyStatus,
+    }, { name: component.licenseSource === 'registry' ? 'npm-registry-version-metadata' : 'lockfile-license-metadata', version: 'v1' });
+    const denied = component.policyStatus === 'denied';
+    finding(a, {
+      ruleId: denied ? 'license.policy.denied' : 'license.policy.review',
+      correlationKey: `license:${component.name}:${component.version}`.slice(0, 512),
+      title: denied ? `Licencia no permitida: ${component.name}` : `Revisar licencia: ${component.name}`,
+      location: component.location,
+      description: component.licenseExpression
+        ? `La licencia declarada ${component.licenseExpression} para ${component.name}@${component.version} se clasificó como ${denied ? 'denegada' : 'requiere revisión'} según la política del espacio de trabajo.`
+        : `No se encontró una expresión SPDX declarada para ${component.name}@${component.version}; la política del espacio de trabajo la mantiene en revisión.`,
+      severity: 'unknown',
+      confidence: 'observed',
+      impact: 'La clasificación describe metadatos de licencia declarados. Gotchu no verificó el texto de licencia incluido en el paquete.',
+      recommendation: 'Revisa la licencia y la política del espacio de trabajo antes de aprobar el uso de este paquete.',
+      limitations: ['La licencia procede de metadatos declarados y no está verificada contra el contenido del paquete.', 'No se instalaron paquetes ni se ejecutó código del cliente.'],
+      evidenceIds: [evidenceId],
+    });
+  }
+  a.coverage.push({
+    capability: 'license_metadata',
+    state: locked.found && licenseLookupComplete && !licenseFindingsIncomplete ? 'inspected' : 'unavailable',
+    detail: !locked.found
+      ? 'No dependency inventory was available for license evaluation.'
+      : licenseLookupComplete && !licenseFindingsIncomplete
+        ? `Evaluated declared license metadata for ${inventoryComponents.length} exact package versions. Missing or unrecognized licenses remain in review; declarations are not verified.`
+        : `License registry lookups or policy findings were capped or unavailable. ${inventoryComponents.filter(component => component.licenseConfidence === 'unknown').length} packages have unknown declared license metadata.`,
+  });
+
+  if (!advisory) {
+    a.coverage.push({ capability: 'dependency_advisories', state: 'unavailable', detail: 'Optional OSV adapter is not configured. No clean dependency claim.' });
+  } else try {
+    const advisoryPackages = uniquePackages.slice(0, 200);
+    const matches = await bounded(() => advisory.query(advisoryPackages.map(({ name, version }) => ({ name, version })), signal), signal);
+    if (matches.length !== advisoryPackages.length) throw new Error('advisory_count');
+    let incomplete = locked.inventory.length > advisoryPackages.length || matches.some(match => !match.complete);
+    for (let index = 0; index < matches.length; index++) {
+      const match = matches[index]; const pkg = advisoryPackages[index]; if (!match || !pkg) continue;
+      for (const id of match.ids) {
+        if (a.findings.length >= 100 || a.evidence.length >= 200) { incomplete = true; break; }
+        const advisoryMetadata = match.advisories?.find(item => item.id === id);
+        const affected = advisoryMetadata?.affected.filter(item => item.package.ecosystem === 'npm' && item.package.name === pkg.name) ?? [];
+        const metadata = advisoryMetadata ? { id, withdrawn: advisoryMetadata.withdrawn ?? null, affected } : null;
+        const metadataIsBounded = metadata !== null && JSON.stringify(metadata).length <= 3_500;
+        if (!metadataIsBounded) incomplete = true;
+        const evidenceId = evidence(a, 'advisory', `osv:${id}`, { schemaVersion: 1, id, package: pkg, sourceDigest: source.digest,
+          advisory: metadataIsBounded ? metadata : null, queriedAt: new Date().toISOString() }, { name: 'OSV-querybatch', version: 'v1' });
+        finding(a, { ruleId: `osv.${id}`.slice(0, 128), correlationKey: `npm:${pkg.name}:${id}`, title: `Advisory match: ${pkg.name}@${pkg.version}`.slice(0, 256), location: pkg.location,
+          description: `The exact ${pkg.relationship} lockfile version matched ${id} in the configured OSV-compatible adapter. Advisory severity was not fetched.`, severity: 'unknown', confidence: 'observed',
+          impact: 'An advisory applies to the recorded version; installed state, reachability and exploitability remain unknown.', recommendation: 'Review the advisory and dependency path, choose a supported fix and validate the application.',
+          limitations: ['Severity is unassessed; do not interpret this as a low-risk determination.', 'No package installation, package source upload or exploit attempt.'], evidenceIds: [evidenceId] });
+      }
+    }
+    a.coverage.push({ capability: 'dependency_advisories', state: incomplete ? 'unavailable' : 'inspected', detail: incomplete
+      ? `The bounded exact-version OSV query covered at most ${advisoryPackages.length} unique package versions. Remaining results are unknown.`
+      : 'Bounded exact-version advisory queries completed; only package names and exact versions were sent to OSV.' });
+  } catch {
+    a.coverage.push({ capability: 'dependency_advisories', state: 'unavailable', detail: 'Optional OSV adapter missing, failed or exceeded its request cap. No clean dependency claim.' });
   }
   return finish(a);
 }

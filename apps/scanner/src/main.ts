@@ -1,10 +1,10 @@
-import { createCustomerAssessmentRunner, createOsvAdapter } from '@gotchu/customer-assessment';
+import { createCustomerAssessmentRunner, createNpmLicenseAdapter, createOsvAdapter } from '@gotchu/customer-assessment';
 import { loadScannerRuntimeConfig } from './runtime-config.js';
 import { createScannerServer } from './server.js';
 
 async function main() {
   const config = await loadScannerRuntimeConfig();
-  const runner = createCustomerAssessmentRunner(config.osvEnabled ? { advisory: createOsvAdapter() } : {});
+  const runner = createCustomerAssessmentRunner({ licenses: createNpmLicenseAdapter(), ...(config.osvEnabled ? { advisory: createOsvAdapter() } : {}) });
   const server = createScannerServer({
     secret: config.secret,
     ...(config.tls ? { tls: config.tls } : {}),

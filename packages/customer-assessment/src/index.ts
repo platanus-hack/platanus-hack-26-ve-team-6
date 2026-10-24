@@ -3,7 +3,13 @@ import { createDockerScanners, type ScannerAdapter } from './docker.js';
 import type { CustomerRunInput, CustomerAssessmentReport } from '@gotchu/contracts';
 import type { HttpsOptions } from './https.js';
 import type { AdvisoryAdapter } from './advisory.js';
+import { createNpmLicenseAdapter, evaluateLicensePolicy, normalizeLicenseExpression, normalizeLicensePolicy } from './licenses.js';
+import type { LicenseAdapter } from './licenses.js';
 import { assertLangChainTelemetryDisabled, runCustomerAssessmentPipeline } from './pipeline.js';
+export { buildCycloneDx } from './sbom.js';
+export { createNpmLicenseAdapter, evaluateLicensePolicy, normalizeLicenseExpression, normalizeLicensePolicy };
+export type { LicenseAdapter, LicenseLookup } from './licenses.js';
+export { MAX_INVENTORY_PACKAGES, MAX_LOCKFILE_BYTES, MAX_LOCKFILE_ENTRIES, npmPurl } from './lockfiles.js';
 export { assertReportBinding, reportSubject, sourceDigest } from './pipeline.js';
 export { isScannerCleanupError } from './common.js';
 export { createDockerScanners, profiles } from './docker.js';
@@ -15,7 +21,7 @@ export { createHttpsPageProbe } from './https.js';
 export type { HttpsOptions, HttpsObservation, HttpsPageObservation } from './https.js';
 export { assessPublicSurface, createPublicSurfaceProbe, publicSurfaceTargetSchema } from './public-surface.js';
 export type { PublicSurfaceTarget, PublicSurfaceInventory, PublicSurfaceEntrypoint, PublicSurfaceDiscoverySource, PublicSurfaceStopReason, PublicSurfaceCoverageGap } from './public-surface.js';
-export interface CustomerAssessmentOptions { scanners?: ScannerAdapter; advisory?: AdvisoryAdapter; https?: HttpsOptions; deadlineMs?: number }
+export interface CustomerAssessmentOptions { scanners?: ScannerAdapter; advisory?: AdvisoryAdapter; licenses?: LicenseAdapter; https?: HttpsOptions; deadlineMs?: number }
 export function createCustomerAssessmentRunner(options: CustomerAssessmentOptions = {}) {
   const scanners = options.scanners ?? createDockerScanners();
   const deadlineMs = options.deadlineMs ?? 55000;
@@ -50,6 +56,7 @@ export function createCustomerAssessmentRunner(options: CustomerAssessmentOption
         const { report } = await runCustomerAssessmentPipeline(raw, {
           scanners,
           ...(options.advisory ? { advisory: options.advisory } : {}),
+          ...(options.licenses ? { licenses: options.licenses } : {}),
           ...(options.https ? { https: options.https } : {}),
           deadlineMs,
         });
