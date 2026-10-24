@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser, type CDPSession } from 'playwright';
 import { setRecoveryState } from '@gotchu/database';
+import { z } from 'zod';
 import { fixture, liveUrl, present } from '../../../packages/database/test/support.js';
 
 const enabled = process.env.GOTCHU_TEST_BROWSER === '1' && Boolean(liveUrl);
@@ -154,6 +155,23 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
     }, { organizationId, recoveryCode });
     expect(replay.status).toBe(403);
     expect(replay.payload).toMatchObject({ error: { code: 'recovery_code_invalid' } });
+    await rejectAssertion(page, assertion => {
+      const clientData = z.record(z.string(), z.unknown()).parse(JSON.parse(Buffer.from(assertion.response.response.clientDataJSON, 'base64url').toString('utf8')) as unknown);
+      clientData.origin = 'https://evil.example';
+      assertion.response.response.clientDataJSON = Buffer.from(JSON.stringify(clientData)).toString('base64url');
+    });
+    await rejectAssertion(page, assertion => {
+      const clientData = z.record(z.string(), z.unknown()).parse(JSON.parse(Buffer.from(assertion.response.response.clientDataJSON, 'base64url').toString('utf8')) as unknown);
+      clientData.challenge = randomBytes(32).toString('base64url');
+      assertion.response.response.clientDataJSON = Buffer.from(JSON.stringify(clientData)).toString('base64url');
+    });
+    await rejectAssertion(page, assertion => {
+      const authenticatorData = Buffer.from(assertion.response.response.authenticatorData, 'base64url');
+      const firstByte = authenticatorData[0];
+      if (firstByte === undefined) throw new Error('WebAuthn authenticator data was empty.');
+      authenticatorData[0] = firstByte ^ 0xff;
+      assertion.response.response.authenticatorData = authenticatorData.toString('base64url');
+    });
     const factors = await page.evaluate(async organizationId => {
       const response = await fetch(`/api/customer/step-up/factors?organizationId=${organizationId}`);
       return await response.json() as unknown;
@@ -162,6 +180,28 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
     expect(account).toMatch(/^[0-9a-f-]{36}$/);
   }, 120_000);
 });
+
+
+const assertionRequestSchema = z.object({
+  organizationId: z.uuid(), challengeId: z.uuid(),
+  response: z.object({ response: z.object({ clientDataJSON: z.string(), authenticatorData: z.string() }).passthrough() }).passthrough(),
+}).passthrough();
+async function rejectAssertion(page: import('playwright').Page, tamper: (assertion: z.infer<typeof assertionRequestSchema>) => void) {
+  const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/customer/step-up/assertions') && response.request().method() === 'POST');
+  await page.route('**/api/customer/step-up/assertions', async route => {
+    const parsed = assertionRequestSchema.safeParse(JSON.parse(route.request().postData() ?? 'null') as unknown);
+    if (!parsed.success) throw new Error('The browser produced an invalid WebAuthn assertion request.');
+    tamper(parsed.data);
+    await route.continue({ postData: JSON.stringify(parsed.data) });
+  });
+  await page.getByRole('button', { name: 'Revocar', exact: true }).click();
+  const response = await responsePromise;
+  await page.unroute('**/api/customer/step-up/assertions');
+  expect(response.status()).toBe(403);
+  const payload: unknown = await response.json();
+  expect(payload).toMatchObject({ error: { code: 'step_up_assertion_invalid' } });
+  await page.getByRole('alert').last().waitFor({ timeout: 10_000 });
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === 'object' && !Array.isArray(value)); }
 function firstFactorId(value: unknown) {
