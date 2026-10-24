@@ -25,6 +25,15 @@ function operationPorts() {
   return { ...result, operations };
 }
 describe('authenticated customer HTTP adapter (injected services)', () => {
+  it('fails closed when step-up routes are unavailable', async () => {
+    const { services, auth } = ports();
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const response = await handle(request('step-up/challenges', { organizationId, actionHash: 'a'.repeat(64) }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: 'step_up_not_configured' } });
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+  });
+
   it('dispatches step-up routes only for the session identity and returns no-store responses', async () => {
     const { services, auth } = ports();
     services.stepUp = {

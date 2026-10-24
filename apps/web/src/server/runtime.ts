@@ -10,6 +10,7 @@ import { createCustomerApi } from './customer-api.js';
 import { createCustomerDnsVerifier } from './customer-dns.js';
 import { createFileEventCredentials } from './event-credentials.js';
 import { createGitHubRepositoryReader, createLocalGitRepositoryReader, loadMonitoringRepositoryCatalog } from '@gotchu/monitoring';
+import { isIP } from 'node:net';
 
 function credentialStore(value: string | undefined): CredentialStore | undefined {
   if (!value) return undefined;
@@ -52,15 +53,23 @@ export function createBackendApi(options: { auth: AuthService; origin: string; w
   });
 }
 
+export function resolveWebAuthnConfiguration(configuredOrigin: URL, configuredRpID: string | undefined) {
+  const defaultRpID = ['127.0.0.1', '[::1]'].includes(configuredOrigin.hostname) ? 'localhost' : configuredOrigin.hostname;
+  const rpID = z.string().min(1).max(253).parse(configuredRpID ?? defaultRpID).toLowerCase();
+  const matchesOrigin = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/i.test(rpID)
+    && isIP(rpID) === 0
+    && (configuredOrigin.hostname === rpID || configuredOrigin.hostname.endsWith(`.${rpID}`));
+  if (configuredRpID !== undefined && !matchesOrigin) throw new Error('GOTCHU_WEBAUTHN_RP_ID must match the configured application origin');
+  if (!matchesOrigin) return undefined;
+  return { rpID, origin: configuredOrigin.origin, rpName: 'Gotchu' };
+}
+
 export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const configuredOrigin = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000');
   if (configuredOrigin.username || configuredOrigin.password || configuredOrigin.pathname !== '/' || configuredOrigin.search || configuredOrigin.hash
     || (configuredOrigin.protocol !== 'https:' && !(configuredOrigin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(configuredOrigin.hostname)))) throw new Error('PUBLIC_APP_URL must be an HTTPS origin (localhost is allowed for development)');
   const origin = configuredOrigin.origin;
-  const defaultRpID = ['127.0.0.1', '[::1]'].includes(configuredOrigin.hostname) ? 'localhost' : configuredOrigin.hostname;
-  const rpID = z.string().min(1).max(253).parse(env.GOTCHU_WEBAUTHN_RP_ID ?? defaultRpID);
-  if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/i.test(rpID)
-    || !(configuredOrigin.hostname === rpID || configuredOrigin.hostname.endsWith(`.${rpID}`))) throw new Error('GOTCHU_WEBAUTHN_RP_ID must match the configured application origin');
+  const webAuthn = resolveWebAuthnConfiguration(configuredOrigin, env.GOTCHU_WEBAUTHN_RP_ID);
   const apiDatabase = env.GOTCHU_API_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_API_DATABASE_URL, role: 'gotchu_api', max: 5 }) : null;
   const ingestDatabase = env.GOTCHU_INGEST_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_INGEST_DATABASE_URL, role: 'gotchu_ingest', max: 5 }) : null;
   const accounts = apiDatabase && env.GOTCHU_LOCAL_AUTH_ENABLED === 'true' ? createLocalAccounts(apiDatabase) : undefined;
@@ -86,7 +95,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
     async isAutomationSafe() { return false; },
   // D05 integration binds getFacts to backend.validations.getValidationFacts(actionRef).
   }, validationFacts: { getFacts: async () => null } }) : undefined;
-  const web = apiDatabase ? createBackend({ database: apiDatabase, webAuthn: { rpID, origin, rpName: 'Gotchu', ...(accounts ? { verifyPassword: (userId, password) => accounts.reauthenticate(userId, password) } : {}) }, customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(actionVerifier ? { actionVerifier } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(actionVerifier ? { actionVerifier } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
   const stepUp = web?.stepUp;
   const settings = authSettings(env, accounts, stepUp ? userId => stepUp.invalidateSession(userId) : undefined);
   const auth = createAuthService(settings);
