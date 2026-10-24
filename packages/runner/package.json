@@ -14,7 +14,7 @@
     "prepare:images": "bash scripts/prepare-images.sh",
     "pin:images": "bash scripts/prepare-images.sh --pin",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run --exclude '**/*.vm.test.ts'",
     "test:vm": "node scripts/test-vm.mjs"
   },
