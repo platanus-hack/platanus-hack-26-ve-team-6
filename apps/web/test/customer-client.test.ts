@@ -114,14 +114,15 @@ describe('customer API client', () => {
     await expect(result).rejects.toMatchObject({ status: 200, code: 'invalid_response' });
   });
 
-  it('deletes a source snapshot through the tenant-scoped resource path', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+  it('deletes a source snapshot through the tenant-scoped delete action', async () => {
+    fetchMock.mockResolvedValueOnce(json({ deleted: true }));
 
-    await expect(customerApi.deleteSource(organizationId, applicationId, sourceId)).resolves.toBeUndefined();
+    await expect(customerApi.deleteSource(organizationId, applicationId, sourceId)).resolves.toEqual({ deleted: true });
 
     const [path, init] = fetchMock.mock.calls[0] ?? [];
-    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/sources/${sourceId}`);
-    expect(init?.method).toBe('DELETE');
+    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/sources/${sourceId}/delete`);
+    expect(init?.method).toBe('POST');
     expect(init?.credentials).toBe('same-origin');
+    expect(JSON.parse(String(init?.body))).toEqual({});
   });
 });
