@@ -68,6 +68,8 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
     expect(row.action_hash).toBe(legacyHash);
   });
   it('approves v2 only for Owners, binds MFA to the exact hash, serializes duplicate approval, and refuses executor claims without an adapter', async () => {
+    const secondaryOwner = `action-owner:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'owner')", [f.a.organizationId, secondaryOwner]);
     await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=true WHERE kind='source_patch_pull_request'");
     try {
       const proposal = await createV2();
@@ -85,7 +87,10 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
       if (approval.status !== 'fulfilled') throw new Error('missing action approval');
       await expect(executor.executions.claim({ organizationId: f.a.organizationId, approvalId: approval.value.approvalId })).rejects.toMatchObject({ code: 'no_adapter' });
       expect((await f.admin.query('SELECT consumed_at FROM gotchu.approvals WHERE id=$1', [approval.value.approvalId])).rows[0]?.consumed_at).toBeNull();
-    } finally { await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=false WHERE kind='source_patch_pull_request'"); }
+    } finally {
+      await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=false WHERE kind='source_patch_pull_request'");
+      await f.admin.query('DELETE FROM gotchu.memberships WHERE organization_id=$1 AND user_id=$2', [f.a.organizationId, secondaryOwner]);
+    }
   });
   it('invalidates v2 proposals when the recovery epoch changes', async () => {
     const proposal = await createV2();
