@@ -1,0 +1,20 @@
+{
+  "name": "@gotchu/assessment",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "advisories"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "assess": "node dist/main.js"
+  },
+  "dependencies": {
+    "@gotchu/contracts": "workspace:*",
+    "typescript": "~5.9.3",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": { "@gotchu/demo-target": "workspace:*" }
+}

@@ -1,0 +1,13 @@
+{
+  "id": "GHSA-35jh-r3h4-6jhm",
+  "source": "https://raw.githubusercontent.com/github/advisory-database/95c688698ee6767a611e157d7329d11f3e0a1f4b/advisories/github-reviewed/2021/05/GHSA-35jh-r3h4-6jhm/GHSA-35jh-r3h4-6jhm.json",
+  "sourceCommit": "95c688698ee6767a611e157d7329d11f3e0a1f4b",
+  "retrievedAt": "2026-10-24T06:09:02Z",
+  "sourceModifiedAt": "2025-08-12T21:44:24Z",
+  "sha256": "3060fadb9a686e5041d53fe5c20c7844b2a0a49ce8d7b3d89d70703be02ec4f1",
+  "license": "CC-BY-4.0",
+  "attribution": "GitHub Advisory Database contributors",
+  "changes": "None: advisory JSON is captured verbatim; this provenance file is local metadata.",
+  "freshness": "Offline single-advisory snapshot; not refreshed at assessment time. Other advisories and withdrawn/updated records are outside coverage.",
+  "primaryFix": "https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c"
+}
