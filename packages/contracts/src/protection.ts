@@ -10,12 +10,15 @@ export const runtimeProtectionConfigSchema = customerScopeSchema.extend({
   receiving: z.boolean(),
   lastEventAt: z.iso.datetime().nullable(),
 }).strict();
-export const runtimeProtectionUpdateSchema = customerScopeSchema.extend({
+const runtimeProtectionUpdateShape = {
   mode: runtimeProtectionModeSchema,
   enabledDetectors: z.array(runtimeAttackKindSchema).max(4),
-}).strict().superRefine((value, context) => {
+};
+function validateUniqueDetectors(value: { enabledDetectors: string[] }, context: z.RefinementCtx) {
   if (new Set(value.enabledDetectors).size !== value.enabledDetectors.length) context.addIssue({ code: 'custom', path: ['enabledDetectors'], message: 'Detector selections must be unique' });
-});
+}
+export const runtimeProtectionUpdatePayloadSchema = z.object(runtimeProtectionUpdateShape).strict().superRefine(validateUniqueDetectors);
+export const runtimeProtectionUpdateSchema = customerScopeSchema.extend(runtimeProtectionUpdateShape).strict().superRefine(validateUniqueDetectors);
 export const runtimeProtectionPolicySchema = z.object({
   applicationId: z.uuid(),
   mode: runtimeProtectionModeSchema,
