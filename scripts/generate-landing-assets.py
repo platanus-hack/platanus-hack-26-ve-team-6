@@ -1,52 +1,88 @@
+"""Authors the static landing artwork. Animated geometry (iris, globe) lives in apps/web/src/components."""
 from pathlib import Path
-from math import cos, sin, pi
 
 out = Path(__file__).resolve().parents[1] / 'apps/web/public/landing'
 out.mkdir(parents=True, exist_ok=True)
-blades = []
-for i in range(8):
-    angle = i * pi / 4
-    points = []
-    for radius, offset in [(145, 0), (145, .79), (74, 1.12), (67, .32)]:
-        points.append(f'{260 + radius*cos(angle+offset):.2f},{260 + radius*sin(angle+offset):.2f}')
-    blades.append(f'<polygon points="{" ".join(points)}" fill="url(#blade)" stroke="#f2dbe7" stroke-opacity=".24" stroke-width="1"/>')
-marks=[]
-for i in range(64):
-    a=i*pi/32
-    r=199 if i%8==0 else 204
-    marks.append(f'<path d="M{260+r*cos(a):.2f} {260+r*sin(a):.2f}L{260+211*cos(a):.2f} {260+211*sin(a):.2f}"/>')
-svg=f'''<svg xmlns="http://www.w3.org/2000/svg" width="520" height="540" viewBox="0 0 520 540">
+for stale in ('evidence-lens.svg', 'source-snapshot.svg', 'https-origin.svg'):
+    (out / stale).unlink(missing_ok=True)
+
+# Front face of the source-snapshot slab: a file sheet with a folder tab, code rows and a digest strip.
+rows = [
+    [(0, 46, '#8d8296'), (58, 70, '#d63c88'), (138, 34, '#5d5666')],
+    [(22, 88, '#8d8296'), (120, 52, '#5d5666')],
+    [(22, 40, '#5d5666'), (72, 96, '#ff8fbe'), (178, 30, '#8d8296')],
+    [(44, 64, '#8d8296'), (118, 74, '#5d5666')],
+    [(44, 120, '#5d5666'), (174, 42, '#d63c88')],
+    [(22, 58, '#8d8296'), (90, 28, '#5d5666')],
+    [(0, 30, '#8d8296')],
+]
+code = []
+for index, row in enumerate(rows):
+    y = 92 + index * 22
+    code.append(f'<path d="M50 {y}h10" stroke="#4a4552" stroke-width="3" stroke-linecap="round"/>')
+    for start, length, colour in row:
+        x = 82 + start
+        code.append(f'<path d="M{x} {y}h{length}" stroke="{colour}" stroke-width="6" stroke-linecap="round"/>')
+fingerprint = ''.join(
+    f'<path d="M{58 - r} 252a{r} {r} 0 0 1 {2 * r} 0" fill="none" stroke="#ff8fbe" stroke-opacity="{0.95 - i * 0.18:.2f}" stroke-width="2" stroke-linecap="round"/>'
+    for i, r in enumerate((4, 8, 12, 16))
+)
+(out / 'code-slab.svg').write_text(f'''<svg xmlns="http://www.w3.org/2000/svg" width="400" height="290" viewBox="0 0 400 290">
 <defs>
-<linearGradient id="edge" x1="0" y1="0" x2=".9" y2="1"><stop stop-color="#73717c"/><stop offset=".3" stop-color="#25252e"/><stop offset=".64" stop-color="#09090f"/><stop offset="1" stop-color="#86808b"/></linearGradient>
-<linearGradient id="metal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f1e9ed"/><stop offset=".15" stop-color="#6c6875"/><stop offset=".35" stop-color="#272733"/><stop offset=".62" stop-color="#4b4654"/><stop offset=".82" stop-color="#c3b5c2"/><stop offset="1" stop-color="#56515f"/></linearGradient>
-<linearGradient id="blade" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#cbb9c9"/><stop offset=".3" stop-color="#514356"/><stop offset="1" stop-color="#16131f"/></linearGradient>
-<radialGradient id="glass" cx=".35" cy=".25"><stop stop-color="#5b224c"/><stop offset=".5" stop-color="#1f1728"/><stop offset="1" stop-color="#09090e"/></radialGradient>
-<linearGradient id="rim"><stop stop-color="#ff9dc9"/><stop offset=".4" stop-color="#e7147d"/><stop offset="1" stop-color="#720c44"/></linearGradient>
-<linearGradient id="reflection" x1=".05" y1=".1" x2=".9" y2=".8"><stop stop-color="#fffefa" stop-opacity=".48"/><stop offset=".38" stop-color="#e99ac3" stop-opacity=".1"/><stop offset="1" stop-color="#e99ac3" stop-opacity="0"/></linearGradient>
-<clipPath id="glassClip"><circle cx="260" cy="260" r="157"/></clipPath>
+<linearGradient id="face" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3d3946"/><stop offset=".5" stop-color="#25232e"/><stop offset="1" stop-color="#1a1922"/></linearGradient>
+<linearGradient id="sheen" x1="0" y1="0" x2=".55" y2="1"><stop stop-color="#fffefa" stop-opacity=".2"/><stop offset=".38" stop-color="#fffefa" stop-opacity="0"/></linearGradient>
+<linearGradient id="lip" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#e7147d"/><stop offset="1" stop-color="#ff8fbe" stop-opacity=".2"/></linearGradient>
 </defs>
-<circle cx="260" cy="280" r="230" fill="#0a090f"/>
-<circle cx="260" cy="274" r="230" fill="url(#edge)"/>
-<circle cx="260" cy="260" r="230" fill="url(#metal)"/>
-<circle cx="260" cy="260" r="225" fill="none" stroke="#d3c9d0" stroke-opacity=".45"/>
-<circle cx="260" cy="260" r="218" fill="#17141e"/>
-<circle cx="260" cy="260" r="211" fill="none" stroke="#72707a" stroke-width=".7"/>
-<g stroke="#b8aebb" stroke-opacity=".7" stroke-width="1.4">{''.join(marks)}</g>
-<circle cx="260" cy="260" r="186" fill="url(#metal)"/>
-<circle cx="260" cy="260" r="177" fill="url(#rim)"/>
-<circle cx="260" cy="260" r="167" fill="#120e18"/>
-<circle cx="260" cy="260" r="158" fill="url(#glass)"/>
-<g clip-path="url(#glassClip)">
-<path d="M121 220c36-74 106-118 190-118 39 0 74 10 106 29" fill="none" stroke="url(#reflection)" stroke-width="12" stroke-linecap="round"/>
-<path d="M158 151c37-30 84-45 133-42" fill="none" stroke="#fffefa" stroke-opacity=".14" stroke-width="2" stroke-linecap="round"/>
-</g>
-{''.join(blades)}
-<circle cx="260" cy="260" r="158" fill="none" stroke="#fffefa" stroke-opacity=".12"/>
-<circle cx="260" cy="260" r="65" fill="url(#glass)" stroke="#b01d70" stroke-width="1.5"/>
-<path d="m246 240-20 20 20 20m28-40 20 20-20 20m-12-46-7 52" fill="none" stroke="#ffafd2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M104 190a180 180 0 0 1 194-108" fill="none" stroke="#fffefa" stroke-opacity=".35" stroke-width="2"/>
-</svg>'''
-(out/'evidence-lens.svg').write_text(svg)
-(out/'source-snapshot.svg').write_text('''<svg xmlns="http://www.w3.org/2000/svg" width="360" height="280" viewBox="0 0 360 280"><defs><linearGradient id="card" x2="1" y2="1"><stop stop-color="#393640"/><stop offset="1" stop-color="#191820"/></linearGradient></defs><rect x="3" y="8" width="350" height="265" rx="16" fill="#0b0a10"/><rect x="3" y="3" width="350" height="265" rx="16" fill="url(#card)" stroke="#79717e"/><path d="M4 47h348" stroke="#655b6a"/><g fill="#7f7382"><circle cx="25" cy="25" r="3"/><circle cx="38" cy="25" r="3"/><circle cx="51" cy="25" r="3"/></g><path d="m57 91-16 16 16 16m28-32 16 16-16 16m-11-38-8 44" stroke="#ff8fbe" fill="none" stroke-width="3" stroke-linecap="round"/><g stroke-width="5" stroke-linecap="round"><path d="M45 158h44m18 0h75m-117 23h60m16 0h103m-180 23h87m15 0h44m-124 23h50" stroke="#867b8c"/><path d="M205 158h61M210 204h45" stroke="#db438f"/><path d="M279 158h29M260 181h45M130 227h107" stroke="#514b5a"/></g></svg>''')
-(out/'https-origin.svg').write_text('''<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300"><defs><linearGradient id="card" x2="1" y2="1"><stop stop-color="#35303c"/><stop offset="1" stop-color="#18151f"/></linearGradient><linearGradient id="globe" x2="1" y2="1"><stop stop-color="#f6ddeb"/><stop offset="1" stop-color="#af2c71"/></linearGradient></defs><rect x="5" y="10" width="286" height="284" rx="20" fill="#0c0a11"/><rect x="5" y="4" width="286" height="284" rx="20" fill="url(#card)" stroke="#736375"/><g fill="none" stroke="url(#globe)" stroke-width="1.7"><circle cx="148" cy="132" r="76"/><ellipse cx="148" cy="132" rx="34" ry="76"/><ellipse cx="148" cy="132" rx="76" ry="27"/><path d="M72 132h152M148 56v152"/></g><path d="M54 242h187" stroke="#66566d"/><path d="m128 236 5 5 10-12" fill="none" stroke="#ff8fbe" stroke-width="2"/><circle cx="211" cy="173" r="17" fill="#e7147d"/><path d="m204 173 5 5 9-11" fill="none" stroke="#fffefa" stroke-width="2"/></svg>''')
-print('Authored assets:', ', '.join(p.name for p in out.glob('*.svg')))
+<path id="sheet" d="M14 34a14 14 0 0 1 14-14h92a14 14 0 0 1 11.6 6.2L141 40h231a14 14 0 0 1 14 14v208a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14Z" fill="url(#face)" stroke="#9a90a2" stroke-opacity=".55" stroke-width="1.5"/>
+<path d="M36 32l-6 6 6 6m14-12 6 6-6 6m-4-15-4 18" fill="none" stroke="#ff8fbe" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M68 38h40" stroke="#6d6577" stroke-width="5" stroke-linecap="round"/>
+<path d="M150 60h220" stroke="url(#lip)" stroke-width="2" stroke-linecap="round"/>
+{''.join(code)}
+<path d="M30 232h340" stroke="#4a4552"/>
+{fingerprint}
+<path d="M88 252h120m14 0h40" stroke="#6d6577" stroke-width="5" stroke-linecap="round"/>
+<path d="M14 34a14 14 0 0 1 14-14h92a14 14 0 0 1 11.6 6.2L141 40h231a14 14 0 0 1 14 14v208a14 14 0 0 1-14 14H28a14 14 0 0 1-14-14Z" fill="url(#sheen)"/>
+</svg>''')
+
+# The report the lens returns: findings with severity and confidence marks, an evidence excerpt and coverage cells.
+findings = []
+for index, (filled, confidence) in enumerate(((True, 3), (False, 2), (False, 1))):
+    y = 118 + index * 46
+    pip = '#e7147d' if filled else 'none'
+    findings.append(f'<path d="M44 {y - 8}l8 8-8 8-8-8Z" fill="{pip}" stroke="#ff8fbe" stroke-width="1.6"/>')
+    findings.append(f'<path d="M68 {y - 4}h{150 - index * 26}" stroke="#d9d0d6" stroke-width="6" stroke-linecap="round"/>')
+    findings.append(f'<path d="M68 {y + 9}h{96 + index * 14}" stroke="#6d6577" stroke-width="4" stroke-linecap="round"/>')
+    for tick in range(3):
+        opacity = '1' if tick < confidence else '.25'
+        findings.append(f'<path d="M{290 + tick * 10} {y - 7}v14" stroke="#ff8fbe" stroke-opacity="{opacity}" stroke-width="3" stroke-linecap="round"/>')
+    findings.append(f'<path d="M32 {y + 23}h296" stroke="#3d3a47"/>')
+cells = []
+for index in range(14):
+    x = 36 + (index % 7) * 42
+    y = 344 + (index // 7) * 26
+    dashed = index in (5, 6, 12, 13)
+    style = 'fill="none" stroke="#8d8296" stroke-dasharray="3 3"' if dashed else 'fill="#4a4552" stroke="#8d8296" stroke-opacity=".5"'
+    cells.append(f'<rect x="{x}" y="{y}" width="34" height="18" rx="3" {style}/>')
+(out / 'report-sheet.svg').write_text(f'''<svg xmlns="http://www.w3.org/2000/svg" width="360" height="430" viewBox="0 0 360 430">
+<defs>
+<linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#34303d"/><stop offset=".6" stop-color="#211f29"/><stop offset="1" stop-color="#1a1921"/></linearGradient>
+<linearGradient id="sheen" x1="0" y1="0" x2=".7" y2=".9"><stop stop-color="#fffefa" stop-opacity=".18"/><stop offset=".35" stop-color="#fffefa" stop-opacity="0"/></linearGradient>
+<linearGradient id="excerpt" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#e7147d"/><stop offset="1" stop-color="#ff8fbe"/></linearGradient>
+</defs>
+<path d="M22 6h268l60 60v344a14 14 0 0 1-14 14H22a14 14 0 0 1-14-14V20A14 14 0 0 1 22 6Z" fill="url(#paper)" stroke="#9a90a2" stroke-opacity=".55" stroke-width="1.5"/>
+<path d="M290 6v46a14 14 0 0 0 14 14h46" fill="#3f3a49" stroke="#9a90a2" stroke-opacity=".55" stroke-width="1.5"/>
+<circle cx="48" cy="52" r="18" fill="#e7147d"/>
+<path d="M42 44h8l4 4v12H42Zm8 0v5h4m-9 5h6" fill="none" stroke="#fffefa" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M80 46h120" stroke="#fffefa" stroke-width="7" stroke-linecap="round"/>
+<path d="M80 62h72" stroke="#8d8296" stroke-width="4" stroke-linecap="round"/>
+<path d="M32 86h296" stroke="#4a4552"/>
+{''.join(findings)}
+<rect x="32" y="262" width="296" height="62" rx="8" fill="#121118" stroke="#3d3a47"/>
+<path d="M48 282h64m10 0h90M48 304h40" stroke="#5d5666" stroke-width="5" stroke-linecap="round"/>
+<path d="M98 304h132" stroke="url(#excerpt)" stroke-width="5" stroke-linecap="round"/>
+{''.join(cells)}
+<path d="M32 400h112" stroke="#6d6577" stroke-width="4" stroke-linecap="round"/>
+<text x="328" y="405" text-anchor="end" fill="#ff8fbe" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="13" letter-spacing="1">{{ JSON }}</text>
+<path d="M22 6h268l60 60v344a14 14 0 0 1-14 14H22a14 14 0 0 1-14-14V20A14 14 0 0 1 22 6Z" fill="url(#sheen)"/>
+</svg>''')
+print('Authored assets:', ', '.join(sorted(p.name for p in out.glob('*.svg'))))
