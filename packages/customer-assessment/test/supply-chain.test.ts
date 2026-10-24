@@ -167,6 +167,56 @@ describe('license declarations and workspace policy', () => {
     expect(query.mock.calls[0]?.[0]).toEqual([{ name: 'alpha', version: '1.2.3' }]);
     expect(coverage.get('dependency_advisories')).toBe('inspected');
   });
+
+  it('rechecks the same source so a newly published advisory appears on the next report', async () => {
+    const id = { current: 'GHSA-1111-1111-1111' };
+    const query = vi.fn(async () => [{ ids: [id.current], complete: true, advisories: [{
+      id: id.current, affected: [{ package: { ecosystem: 'npm', name: 'alpha' }, symbols: [] }],
+    }] }]);
+    const run = input([
+      { path: 'app.ts', content: 'export const app = true;' },
+      { path: 'package-lock.json', content: JSON.stringify({ lockfileVersion: 3, packages: { '': { dependencies: { alpha: '^1.0.0' } }, 'node_modules/alpha': { version: '1.2.3', integrity: 'sha512-fixture', license: 'MIT' } } }) },
+    ]);
+    const runner = createCustomerAssessmentRunner({ scanners: absentScanners, advisory: { query } });
+    const first = await runner.run(run);
+    id.current = 'GHSA-2222-2222-2222';
+    const second = await runner.run(run);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(first.internal?.findings.map(finding => finding.ruleId)).toContain('osv.GHSA-1111-1111-1111');
+    expect(second.internal?.findings.map(finding => finding.ruleId)).toContain('osv.GHSA-2222-2222-2222');
+    expect(second.internal?.findings.find(finding => finding.ruleId === 'osv.GHSA-2222-2222-2222')?.dependencyAssessment?.reachability.state).toBe('not_found_static');
+  });
+
+  it('keeps an affected transitive dependency unknown unless a direct lockfile path is recorded', async () => {
+    const run = input([
+      { path: 'src/app.ts', content: "import { parse } from 'beta/subpath';\nparse('value');" },
+      { path: 'package-lock.json', content: JSON.stringify({ lockfileVersion: 3, packages: {
+        '': { dependencies: { alpha: '^1.0.0' } },
+        'node_modules/alpha': { version: '1.0.0', dependencies: { beta: '^2.0.0' }, license: 'MIT' },
+        'node_modules/alpha/node_modules/beta': { version: '2.1.0', integrity: 'sha512-beta', license: 'MIT' },
+      } }) },
+    ]);
+    const artifacts = {
+      async analyze(packages: ReadonlyArray<{ name: string; version: string; integrity: string | null }>) {
+        expect(packages).toEqual([{ name: 'beta', version: '2.1.0', integrity: 'sha512-beta' }]);
+        return new Map([['beta\u00002.1.0', { analysis: {
+          status: 'verified' as const, integrity: 'verified' as const, artifactSha256: 'b'.repeat(64), extractedFileCount: 1, scannedFileCount: 1,
+          tools: [], findings: [], limitation: ['Fixture adapter; live registry and scanners not used.'],
+        }, evidence: [] }]]);
+      },
+    };
+    const report = await createCustomerAssessmentRunner({
+      scanners: absentScanners,
+      artifacts,
+      advisory: { query: async packages => packages.map(pkg => pkg.name === 'beta' ? {
+        ids: ['GHSA-3333-3333-3333'], complete: true,
+        advisories: [{ id: 'GHSA-3333-3333-3333', affected: [{ package: { ecosystem: 'npm', name: 'beta' }, symbols: ['parse'] }] }],
+      } : { ids: [], complete: true }) },
+    }).run(run);
+    const beta = report.internal?.dependencyInventory?.components.find(component => component.name === 'beta');
+    expect(beta).toMatchObject({ relationship: 'transitive', reachability: { state: 'reachable', dependencyPath: ['pkg:npm/alpha@1.0.0', 'pkg:npm/beta@2.1.0'] }, artifactAnalysis: { status: 'verified' } });
+    expect(report.internal?.findings.find(finding => finding.ruleId === 'osv.GHSA-3333-3333-3333')?.dependencyAssessment).toMatchObject({ name: 'beta', reachability: { state: 'reachable' } });
+  });
 });
 
 describe('CycloneDX 1.5 output', () => {
