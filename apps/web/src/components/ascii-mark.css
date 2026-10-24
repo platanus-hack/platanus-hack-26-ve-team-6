@@ -1,4 +1,0 @@
-.g-ascii { position: relative; width: 100%; height: 100%; color: var(--gc-paper); }
-.g-ascii canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.g-ascii-fallback { position: absolute; inset: 0; margin: auto; width: 34%; height: auto; opacity: .9; transition: opacity 300ms ease; }
-.g-ascii[data-ready='true'] .g-ascii-fallback { opacity: 0; }
