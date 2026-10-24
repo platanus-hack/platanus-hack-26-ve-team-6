@@ -501,6 +501,45 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     await expect(coordinator.customers.recordResult(result)).rejects.toMatchObject({ code: 'stale_lease' });
   });
 
+  it('persists package artifact results under report tenant RLS (synthetic evidence, not a live npm scan)', async () => {
+    const c = await customer();
+    const result = await claim(c, 'internal');
+    const internal = result.report.internal;
+    if (!internal?.dependencyInventory) throw new Error('dependency_inventory_missing');
+    const purl = 'pkg:npm/alpha@1.2.3';
+    const component = {
+      name: 'alpha', version: '1.2.3', purl, sourceFile: 'package-lock.json', location: 'package-lock.json:node_modules/alpha',
+      relationship: 'direct' as const, dependencies: [], integrity: 'sha512-fixture',
+      declaredLicense: 'MIT', licenseExpression: 'MIT', licenseSource: 'lockfile' as const, licenseConfidence: 'declared' as const, policyStatus: 'allowed' as const,
+      reachability: {
+        state: 'reachable' as const, symbolCoverage: 'available' as const, symbols: ['parse'],
+        importEvidence: [{ file: 'src/app.ts', line: 1, specifier: 'alpha', kind: 'import' as const }],
+        symbolEvidence: [{ file: 'src/app.ts', line: 2, symbol: 'parse' }], dependencyPath: [purl], limitation: ['Synthetic test evidence.'],
+      },
+      artifactAnalysis: {
+        status: 'verified' as const, integrity: 'verified' as const, artifactSha256: 'a'.repeat(64),
+        extractedFileCount: 1, scannedFileCount: 1, tools: [], findings: [], limitation: ['Synthetic fixture; no npm network request or scanner ran.'],
+      },
+    };
+    result.report = {
+      ...result.report,
+      internal: { ...internal, dependencyInventory: { ...internal.dependencyInventory, components: [component] } },
+    };
+    const stored = await coordinator.customers.recordResult(result);
+    const sameTenant = await f.databases.gotchu_api.tenant(c.workspace.id, tx => tx.query<{ analysis: { status: string; artifactSha256: string } }>(
+      'SELECT analysis FROM gotchu.customer_dependency_artifact_analyses WHERE organization_id=$1 AND application_id=$2 AND report_id=$3 AND purl=$4',
+      [c.workspace.id, c.app.applicationId, stored.reportId, purl],
+    ));
+    expect(sameTenant.rows).toEqual([{ analysis: { status: 'verified', integrity: 'verified', artifactSha256: 'a'.repeat(64), extractedFileCount: 1, scannedFileCount: 1, tools: [], findings: [], limitation: ['Synthetic fixture; no npm network request or scanner ran.'] } }]);
+    const otherTenant = await f.databases.gotchu_api.tenant(f.b.organizationId, tx => tx.query(
+      'SELECT report_id FROM gotchu.customer_dependency_artifact_analyses WHERE report_id=$1', [stored.reportId],
+    ));
+    expect(otherTenant.rows).toEqual([]);
+    await expect(f.databases.gotchu_api.tenant(c.workspace.id, tx => tx.query(
+      'INSERT INTO gotchu.customer_dependency_artifact_analyses DEFAULT VALUES',
+    ))).rejects.toMatchObject({ code: '42501' });
+  });
+
   it('defensively rejects operator-bypassed target changes, expiry and archived applications at getRequest and finish', async () => {
     for (const change of ['revoke', 'renew', 'expire', 'archive'] as const) {
       const c = await customer(); const result = await claim(c, 'external'); const target = present(result.input.target);

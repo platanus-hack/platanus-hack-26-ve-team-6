@@ -12,6 +12,7 @@ import {
   type CustomerApplication, type CustomerAssessmentIntent, type CustomerAssessmentReport, type CustomerClaim, type CustomerEnrollment,
   type CustomerQueueInput, type CustomerRunInput, type CustomerSourceSummary, type CustomerTarget,
   type CustomerContainerImageSummary, type LicensePolicy,
+  type DependencyArtifactAnalysis,
 } from '@gotchu/contracts';
 import { evaluateLicensePolicy, normalizeLicenseExpression, normalizeLicensePolicy } from '@gotchu/customer-assessment/supply-chain';
 import { buildCycloneDx } from '@gotchu/customer-assessment/sbom';
@@ -539,6 +540,20 @@ export function createCustomerService(deps: CustomerDependencies) {
         if (canonicalJson(request) !== canonicalJson(persisted)) throw new BackendError('assessment_scope_mismatch', 'Runner input differs from durable request', 409);
         const serialized = JSON.stringify(report); await checkJsonSize(tx, serialized, CUSTOMER_MAX_REPORT_BYTES);
         await tx.query('INSERT INTO gotchu.customer_reports(organization_id,application_id,id,job_id,body) VALUES ($1,$2,$3,$4,$5::jsonb)', [request.organizationId, request.applicationId, report.id, request.jobId, serialized]);
+        const artifactAnalyses = new Map<string, { name: string; version: string; purl: string; analysis: DependencyArtifactAnalysis }>();
+        for (const component of report.internal?.dependencyInventory?.components ?? []) {
+          if (!component.artifactAnalysis) continue;
+          const existing = artifactAnalyses.get(component.purl);
+          if (existing && canonicalJson(existing.analysis) !== canonicalJson(component.artifactAnalysis)) {
+            throw new BackendError('assessment_artifact_duplicate', 'A report contains conflicting artifact analyses for the same exact package', 409);
+          }
+          artifactAnalyses.set(component.purl, { name: component.name, version: component.version, purl: component.purl, analysis: component.artifactAnalysis });
+        }
+        for (const artifact of artifactAnalyses.values()) {
+          await tx.query(`INSERT INTO gotchu.customer_dependency_artifact_analyses
+            (organization_id,application_id,report_id,package_name,package_version,purl,analysis)
+            VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`, [request.organizationId, request.applicationId, report.id, artifact.name, artifact.version, artifact.purl, JSON.stringify(artifact.analysis)]);
+        }
         // Locks prevent concurrent revocation; recheck time-based expiry after storage work too.
         if (request.target && !(await targetRow(tx, request, request.target.id))?.authorization_current) throw new BackendError('assessment_target_changed', 'Target authorization expired before completion', 409);
         await completeJob(tx, { organizationId: request.organizationId, jobId: request.jobId, leaseToken: value.leaseToken, result: { status: 'completed', reportId: report.id } });
