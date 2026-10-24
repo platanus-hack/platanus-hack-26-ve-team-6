@@ -350,6 +350,15 @@ export function createCustomerService(deps: CustomerDependencies) {
         return parse(customerAssessmentReportSchema, result.rows[0].body);
       });
     },
+    async recordReportDownload(identity: Identity, input: Scope & { reportId: string }): Promise<void> {
+      const actor = principal(identity); const value = parse(customerScopeSchema.extend({ reportId: z.uuid() }).strict(), input);
+      await deps.database.tenant(value.organizationId, async tx => {
+        await authorize(tx, value.organizationId, actor);
+        const result = await tx.query('SELECT id FROM gotchu.customer_reports WHERE organization_id=$1 AND application_id=$2 AND id=$3', [value.organizationId, value.applicationId, value.reportId]);
+        if (!result.rowCount) throw new BackendError('not_found', 'Report not found', 404);
+        await audit(tx, value.organizationId, actor.userId, 'report.downloaded', value.reportId);
+      });
+    },
     async getRequest(input: CustomerClaim): Promise<CustomerRunInput> {
       const claim = parse(customerClaimSchema, input);
       return deps.database.tenant(claim.organizationId, tx => currentRequest(tx, claim));

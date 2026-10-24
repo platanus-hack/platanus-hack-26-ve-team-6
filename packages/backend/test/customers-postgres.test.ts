@@ -84,6 +84,16 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     await expect(api.customers.createWorkspace({ userId: DEMO_ASSESSMENT_SCOPE.userId }, { name: 'No demo' })).rejects.toMatchObject({ status: 403 });
   });
 
+  it('records report downloads only for reports in the caller workspace', async () => {
+    const c = await customer(); const result = await claim(c);
+    await coordinator.customers.recordResult({ input: result.input, leaseToken: result.leaseToken, report: result.report });
+    await api.customers.recordReportDownload(c.identity, { ...c.scope, reportId: result.report.id });
+    await expect(api.customers.recordReportDownload(c.identity, { ...c.scope, reportId: randomUUID() })).rejects.toMatchObject({ status: 404 });
+    await expect(api.customers.recordReportDownload({ userId: f.b.userId }, { ...c.scope, reportId: result.report.id })).rejects.toMatchObject({ status: 403 });
+    const history = await api.decisionRecords.list(c.identity, { organizationId: c.workspace.id, subjectType: 'report', subjectId: result.report.id });
+    expect(history.records.map(record => record.action)).toContain('report.downloaded');
+  });
+
   it('enforces tenant roles, application uniqueness, archive and restore', async () => {
     const c = await customer();
     const viewer = { userId: `oidc:${randomUUID()}` }; const operator = { userId: `credentials:${randomUUID()}` };

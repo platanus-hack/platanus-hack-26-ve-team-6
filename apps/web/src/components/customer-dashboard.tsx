@@ -329,6 +329,8 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
   archived: boolean;
   onCorrectionQueued: (jobId: string) => void;
 }) {
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const entries = [...report.internal?.findings ?? [], ...report.external?.findings ?? []];
   const evidence = [...report.internal?.evidence ?? [], ...report.external?.evidence ?? []];
   const byId = new Map(entries.map(finding => [finding.id, finding]));
@@ -337,7 +339,13 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
   const originSections = (['internal', 'external'] as const).map(origin => ({ origin, analysis: report[origin] }));
 
   return <div className="customer-report-detail">
-    <div className="customer-report-title"><div><span className="customer-eyebrow">INFORME DE EVALUACIÓN</span><h2>{report.applicationName}</h2><p>{modeLabels[report.mode]} · {date(report.finishedAt)}</p></div><button className="customer-button" onClick={() => downloadReport(report)}>Descargar JSON</button></div>
+    <div className="customer-report-title"><div><span className="customer-eyebrow">INFORME DE EVALUACIÓN</span><h2>{report.applicationName}</h2><p>{modeLabels[report.mode]} · {date(report.finishedAt)}</p></div><button className="customer-button" disabled={downloading} onClick={async () => {
+      setDownloading(true); setDownloadError(null);
+      try { await customerApi.recordReportDownload(organizationId, applicationId, report.id); downloadReport(report); }
+      catch (error) { setDownloadError(readableError(error)); }
+      finally { setDownloading(false); }
+    }}>{downloading ? 'Registrando descarga…' : 'Descargar JSON'}</button></div>
+    {downloadError && <p className="customer-form-error" role="alert">{downloadError}</p>}
     <div className="customer-report-subject">
       {report.subject.sourceSnapshotId && <div><span>Instantánea de código</span><strong>{summary?.subject.sourceDigest?.slice(0, 16) ?? report.subject.sourceDigest?.slice(0, 16)}…</strong></div>}
       {report.subject.origin && <div><span>Origen HTTPS autorizado</span><strong>{report.subject.origin}</strong></div>}

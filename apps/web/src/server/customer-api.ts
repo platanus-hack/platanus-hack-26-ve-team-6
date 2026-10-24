@@ -59,6 +59,7 @@ export interface CustomerServices {
   deleteSource(identity: Identity, value: { organizationId: string; applicationId: string; sourceSnapshotId: string }): Promise<unknown>;
   listReports(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerReportSummary[]>;
   getReport(identity: Identity, value: { organizationId: string; applicationId: string; reportId: string }): Promise<CustomerAssessmentReport>;
+  recordReportDownload(identity: Identity, value: { organizationId: string; applicationId: string; reportId: string }): Promise<void>;
   queue(identity: Identity, value: z.infer<typeof customerQueueSchema>): Promise<{ jobId: string }>;
   job(identity: Identity, value: { organizationId: string; jobId: string }): Promise<unknown>;
 }
@@ -303,6 +304,12 @@ export function createCustomerApi(options: {
         return new Response(null, { status: 204, headers });
       }
       if (parts.length === 8 && parts[6] === 'reports' && request.method === 'GET') return send(customerAssessmentReportSchema.parse(await services.getReport(identity, { ...scope, reportId: parse(uuid, parts[7]) })));
+      if (parts.length === 9 && parts[6] === 'reports' && parts[8] === 'download' && request.method === 'POST') {
+        parse(z.object({}).strict(), await body(request));
+        await services.recordReportDownload(identity, { ...scope, reportId: parse(uuid, parts[7]) });
+        headers.set('Cache-Control', 'private, no-store');
+        return new Response(null, { status: 204, headers });
+      }
       if (parts.length === 9 && parts[6] === 'reports' && ['recommendations', 'corrections'].includes(parts[8] ?? '')) {
         if (!services.corrections) throw new HttpError(503, 'corrections_not_configured', 'La preparación de correcciones no está configurada.');
         const reportScope = { ...scope, reportId: parse(uuid, parts[7]) };

@@ -219,6 +219,7 @@ export const customerApi = {
   },
   reports: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/reports`, reportListSchema),
   report: (organizationId: string, applicationId: string, reportId: string) => request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(reportId)}`, customerAssessmentReportSchema),
+  recordReportDownload: (organizationId: string, applicationId: string, reportId: string) => request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(z.uuid().parse(reportId))}/download`, z.undefined(), { method: 'POST', ...jsonBody({}) }),
   async reportRecommendations(organizationId: string, applicationId: string, reportId: string) {
     const params = reportRecommendationsParamsSchema.parse({ reportId });
     const recommendations = await request(

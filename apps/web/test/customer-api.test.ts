@@ -11,7 +11,7 @@ const applicationId = randomUUID();
 const userId = `credentials:${randomUUID()}`;
 function ports() {
   const unused = async (): Promise<never> => { throw new Error('Unexpected service invocation'); };
-  const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listReports: unused, getReport: unused, queue: unused, job: unused };
+  const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listReports: unused, getReport: unused, recordReportDownload: unused, queue: unused, job: unused };
   const auth: AuthService = { enabled: true, handle: async () => new Response(), identity: async () => ({ userId, cookies: ['authjs.session-token=refreshed; Path=/; HttpOnly'] }), accountEmail: async () => null };
   return { services, auth };
 }
@@ -142,6 +142,18 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     auth.identity = async () => null;
     expect((await handle(new Request(`${path}`))).status).toBe(401);
     expect(list).toHaveBeenCalledTimes(1);
+  });
+  it('records report downloads only after the authenticated workspace service accepts them', async () => {
+    const { services, auth } = ports();
+    const reportId = randomUUID();
+    const record = vi.fn(async () => undefined);
+    services.recordReportDownload = record;
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `workspaces/${organizationId}/applications/${applicationId}/reports/${reportId}/download`;
+    expect((await handle(request(path, {}))).status).toBe(204);
+    expect(record).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, reportId });
+    record.mockRejectedValueOnce(new BackendError('forbidden', 'No tienes acceso.', 403));
+    expect((await handle(request(path, {}))).status).toBe(403);
   });
   it('rejects cross-origin mutations before calling any backend service', async () => {
     const { services, auth } = ports();
