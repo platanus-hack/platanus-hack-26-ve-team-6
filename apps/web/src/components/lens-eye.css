@@ -2,7 +2,7 @@
 .g-lens-shadow { position: absolute; left: 14%; right: 14%; bottom: -9%; height: 12%; border-radius: 50%; background: var(--gc-contact, #08070d); filter: blur(18px); opacity: .85; }
 .g-lens-body { position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform; }
 .g-lens-body > * { position: absolute; border-radius: 50%; }
-.g-lens-edge { inset: 0; background: linear-gradient(160deg, #57525f, #1a1820 45%, #0c0b10); }
+.g-lens-edge { inset: 0; background: linear-gradient(160deg, #57525f, #1a1820 45%, #0c0b10); mask: radial-gradient(closest-side, transparent 86%, #000 86.5%); }
 .g-lens-pupil {
   inset: 19%;
   background:

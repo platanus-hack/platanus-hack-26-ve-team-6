@@ -93,7 +93,7 @@ export function LensEye({ className = '', boost, spin, greet = false }: LensEyeP
           <linearGradient id={`${id}-rim`} x1="0" y1="0" x2="1" y2="1"><stop stopColor="#ffa8cf" /><stop offset=".45" stopColor="#e7147d" /><stop offset="1" stopColor="#6d0b41" /></linearGradient>
           <clipPath id={`${id}-chamber`}><circle cx={CENTER} cy={CENTER} r="124" /></clipPath>
         </defs>
-        <circle cx={CENTER} cy={CENTER} r="176" fill="#16131c" />
+        <circle cx={CENTER} cy={CENTER} r="150" fill="none" stroke="#16131c" strokeWidth="52" />
         <g ref={ticks} stroke="#b8aebb" strokeOpacity=".75" strokeWidth="1.6"><path d={TICKS} /><path d="M200 26v20M374 200h-20M200 374v-20M26 200h20" stroke="#ff8fbe" strokeOpacity="1" strokeWidth="3" /></g>
         <circle cx={CENTER} cy={CENTER} r="145" fill="none" stroke={`url(#${id}-step)`} strokeWidth="10" />
         <circle cx={CENTER} cy={CENTER} r="135" fill="none" stroke={`url(#${id}-rim)`} strokeWidth="9" />
