@@ -104,6 +104,37 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect(result.status).toBe(500); expect(await result.text()).not.toContain('must not be exposed');
   });
 
+  it('protects member routes with CSRF, no-store, refreshed cookies, and body-only invitation tokens', async () => {
+    const { services, auth } = ports();
+    const accept = vi.fn(async (_identity, _email, _input) => ({ organizationId, role: 'viewer' as const }));
+    const members = {
+      list: vi.fn(async () => [{ userId, email: 'member@example.test', role: 'owner' as const, joinedAt: '2026-10-24T00:00:00.000Z' }]),
+      listInvitations: vi.fn(async () => []), invite: vi.fn(async () => { throw new Error('unused'); }),
+      revokeInvitation: vi.fn(async () => undefined), accept, changeRole: vi.fn(async () => undefined), remove: vi.fn(async () => undefined), leave: vi.fn(async () => undefined),
+    };
+    services.members = members;
+    auth.identity = async () => Object.assign({ userId, cookies: ['session=refreshed; HttpOnly'] }, { email: 'MEMBER@example.test' });
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const read = await handle(new Request(`${origin}/api/customer/workspaces/${organizationId}/members`));
+    expect(read.status).toBe(200);
+    expect(read.headers.get('cache-control')).toBe('private, no-store');
+    expect(await read.json()).toMatchObject([{ email: 'member@example.test', role: 'owner' }]);
+    expect(read.headers.getSetCookie()).toEqual(['session=refreshed; HttpOnly']);
+
+    const token = 'a'.repeat(43);
+    const queryOnly = await handle(new Request(`${origin}/api/customer/invitations/accept?token=${encodeURIComponent(token)}`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: '{}' }));
+    expect(queryOnly.status).toBe(400);
+    expect(accept).not.toHaveBeenCalled();
+    const csrf = await handle(new Request(`${origin}/api/customer/invitations/accept`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }) }));
+    expect(csrf.status).toBe(403);
+    expect(accept).not.toHaveBeenCalled();
+    const accepted = await handle(new Request(`${origin}/api/customer/invitations/accept`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ token }) }));
+    expect(accepted.status).toBe(200);
+    expect(accepted.headers.get('cache-control')).toBe('private, no-store');
+    expect(await accepted.json()).toEqual({ organizationId, role: 'viewer' });
+    expect(accept).toHaveBeenCalledExactlyOnceWith({ userId }, 'MEMBER@example.test', { token });
+  });
+
   it('deletes with no request body and returns an empty private 204 with refreshed session cookies', async () => {
     const { services, auth } = ports();
     const sourceSnapshotId = randomUUID();

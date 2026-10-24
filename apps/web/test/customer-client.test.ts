@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CustomerApiError, customerApi } from '../src/components/customer-client.js';
+import { membersApi } from '../src/components/members-client.js';
 
 const organizationId = '8b8123ef-a1ca-43ac-91a5-9bf4b792d729';
 const applicationId = '13e37f6a-784c-4f46-97dd-41bd81c6d00d';
@@ -197,6 +198,25 @@ describe('customer API client', () => {
     fetchMock.mockResolvedValueOnce(json({ ...recommendationsResponse, scope: { ...reportScope, applicationId: targetId } }));
 
     await expect(customerApi.reportRecommendations(organizationId, applicationId, reportId)).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+
+  it('keeps invitation tokens in request bodies and uses no-store workspace routes', async () => {
+    const token = 'a'.repeat(43);
+    fetchMock.mockResolvedValueOnce(json({ organizationId, role: 'viewer' }));
+    await expect(membersApi.accept(token)).resolves.toEqual({ organizationId, role: 'viewer' });
+    const [path, init] = fetchMock.mock.calls[0] ?? [];
+    expect(path).toBe('/api/customer/invitations/accept');
+    expect(String(path)).not.toContain(token);
+    expect(init?.cache).toBe('no-store');
+    expect(JSON.parse(String(init?.body))).toEqual({ token });
+    fetchMock.mockResolvedValueOnce(json({ invitation: {
+      id: '2f85d710-2a4d-4fcb-8d5a-1f1c7b9fb9be', email: 'invitee@example.test', role: 'viewer', invitedBy: 'owner',
+      createdAt: '2026-10-24T00:00:00.000Z', expiresAt: '2026-10-31T00:00:00.000Z',
+    }, token, invitationUrl: `http://localhost:3000/dashboard#invitation=${token}` }, 201));
+    const invitation = await membersApi.invite(organizationId, 'INVITEE@example.test', 'viewer');
+    expect(invitation.invitation.email).toBe('invitee@example.test');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(`/api/customer/workspaces/${organizationId}/invitations`);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({ email: 'invitee@example.test', role: 'viewer' });
   });
 
   it('prepares only the validated finding and source digest on the report-scoped correction route', async () => {
