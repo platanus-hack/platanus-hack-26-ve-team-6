@@ -31,7 +31,7 @@ export function createWebService(deps: BaseDependencies) {
       const value = parse(z.object({ organizationId: z.uuid(), jobId: z.uuid() }).strict(), input);
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, identity);
-        const result = await tx.query<{ id: string; applicationId: string; kind: string; state: string; attempts: number; createdAt: Date; completedAt: Date | null }>('SELECT id,application_id AS "applicationId",kind,state,attempts,created_at AS "createdAt",completed_at AS "completedAt" FROM gotchu.jobs WHERE organization_id=$1 AND id=$2', [value.organizationId, value.jobId]);
+        const result = await tx.query<{ id: string; applicationId: string; kind: string; state: string; attempts: number; createdAt: Date; completedAt: Date | null; outcome: string | null; reasonCode: string | null }>('SELECT id,application_id AS "applicationId",kind,state,attempts,created_at AS "createdAt",completed_at AS "completedAt",result->>\'status\' AS outcome,result->>\'reasonCode\' AS "reasonCode" FROM gotchu.jobs WHERE organization_id=$1 AND id=$2', [value.organizationId, value.jobId]);
         if (!result.rows[0]) throw new BackendError('not_found', 'Job not found', 404);
         return result.rows[0];
       });

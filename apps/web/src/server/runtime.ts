@@ -2,7 +2,7 @@ import { createBackend, type Backend, type CredentialStore } from '@gotchu/backe
 import { createDatabase } from '@gotchu/database';
 import { z } from 'zod';
 import { createApi, type ApiOperation } from './api.js';
-import { authSettings, createAuthService } from './auth.js';
+import { authSettings, createAuthService, type AuthService } from './auth.js';
 import { HttpError } from './http.js';
 
 function credentialStore(value: string | undefined): CredentialStore | undefined {
@@ -33,6 +33,20 @@ function execute(backend: Backend, identity: { userId: string }, operation: ApiO
   }
 }
 
+export function createBackendApi(options: { auth: AuthService; origin: string; web: Backend | null; intake: Backend | null }) {
+  return createApi({
+    auth: options.auth, origin: options.origin,
+    ingest: async (input) => {
+      if (!options.intake) throw new HttpError(503, 'database_not_configured', 'Event ingestion is unavailable');
+      return options.intake.events.ingest(input);
+    },
+    execute: async (identity, operation) => {
+      if (!options.web) throw new HttpError(503, 'database_not_configured', 'Customer data access is unavailable');
+      return execute(options.web, identity, operation);
+    },
+  });
+}
+
 export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const auth = createAuthService(authSettings(env));
   const origin = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000').origin;
@@ -41,17 +55,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const web = apiDatabase ? createBackend({ database: apiDatabase }) : null;
   const credentials = credentialStore(env.GOTCHU_EVENT_SIGNING_KEYS_JSON);
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
-  const handle = createApi({
-    auth, origin,
-    ingest: async (input) => {
-      if (!intake) throw new HttpError(503, 'database_not_configured', 'Event ingestion is unavailable');
-      return intake.events.ingest(input);
-    },
-    execute: async (identity, operation) => {
-      if (!web) throw new HttpError(503, 'database_not_configured', 'Customer data access is unavailable');
-      return execute(web, identity, operation);
-    },
-  });
+  const handle = createBackendApi({ auth, origin, web, intake });
   return {
     handle,
     async readiness() {

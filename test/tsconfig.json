@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["integration/**/*.ts", "../apps/web/src/server/**/*.ts", "../packages/database/test/support.ts"]
+}
