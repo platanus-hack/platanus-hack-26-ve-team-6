@@ -11,7 +11,7 @@ const notificationUrl = z.url().max(2048).refine(value => {
 }, 'Webhook destination must be a public HTTPS URL without credentials, query, or fragment');
 
 export const notificationDestinationSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('email'), email: z.email() }).strict(),
+  z.object({ kind: z.literal('email'), email: z.email().max(254) }).strict(),
   z.object({ kind: z.literal('webhook'), url: notificationUrl }).strict(),
 ]);
 
@@ -28,7 +28,7 @@ export const notificationChannelSchema = z.object({
 
 export const createEmailChannelSchema = z.object({
   label: z.string().trim().min(1).max(120),
-  email: z.email(),
+  email: z.email().max(254),
   minimumSeverity: severity.default('medium'),
 }).strict();
 
