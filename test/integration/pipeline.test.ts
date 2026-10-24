@@ -8,7 +8,7 @@ import { Queue, Worker } from 'bullmq';
 import { encode } from '@auth/core/jwt';
 import { exportPKCS8, generateKeyPair } from 'jose';
 import { z } from 'zod';
-import { createBackend, enqueue, signEventBody, type JobClaim } from '@gotchu/backend';
+import { createBackend, enqueue, modelConfigurationFingerprint, signEventBody, type JobClaim } from '@gotchu/backend';
 import { createDatabase, provisionRuntimeLogin, type Database } from '@gotchu/database';
 import { investigationResultSchema, safeCheckpointSchema } from '@gotchu/agent';
 import { createCoordinatorTransport, createHttpInvestigator, dispatchOutbox, ensureQueueDelivery, finalizeInvestigation, processDurableJob, reconcileDurableDeliveries, type CoordinatorDependencies } from '@gotchu/coordinator';
@@ -312,7 +312,15 @@ live('signed intake through durable delivery and isolated HTTP investigation', (
 
   it('holds unknown provider reservations for reconciliation instead of redelivering model work', async () => {
     const { claim, run } = await newRun();
-    await coordinator.runs.reserveModel({ organizationId: f.a.organizationId, runId: run.runId, reservationId: randomUUID(), maxCostMicros: 10 });
+    const configuration = { provider: 'openai_compatible' as const, endpoint: 'http://localhost:11434/v1', modelId: 'fixture-model',
+      secretRef: null, consentToExternalProcessing: true, dataScopes: ['runtime_summaries' as const],
+      inputPriceMicroUsdPerMillionTokens: 0, outputPriceMicroUsdPerMillionTokens: 0 };
+    await f.admin.query('UPDATE gotchu.organizations SET model_opt_in=true,model_budget_micros=100,model_token_budget=1000 WHERE id=$1', [f.a.organizationId]);
+    await f.admin.query(`INSERT INTO gotchu.investigation_model_settings(organization_id,provider,endpoint,model_id,consent_to_external_processing,data_scopes,input_price_micro_usd_per_million_tokens,output_price_micro_usd_per_million_tokens,updated_by)
+      VALUES($1,$2,$3,$4,true,'["runtime_summaries"]'::jsonb,0,0,$5)`, [f.a.organizationId, configuration.provider, configuration.endpoint, configuration.modelId, f.a.userId]);
+    await coordinator.runs.reserveModel({ organizationId: f.a.organizationId, runId: run.runId, reservationId: randomUUID(), maxCostMicros: 10,
+      reserveTokens: 100, requestSha256: 'a'.repeat(64), configSha256: modelConfigurationFingerprint(configuration),
+      provider: configuration.provider, modelId: configuration.modelId });
     await f.admin.query("UPDATE gotchu.jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE organization_id=$1 AND id=$2", [f.a.organizationId, claim.envelope.id]);
     const published: JobEnvelope[] = [];
     await reconcileDurableDeliveries(f.databases.gotchu_coordinator, f.a.organizationId, async (envelope) => { published.push(envelope); });

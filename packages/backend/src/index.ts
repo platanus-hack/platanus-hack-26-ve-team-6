@@ -23,6 +23,8 @@ import { createWorkflowExceptionService } from './workflow-exceptions.js';
 import { createProtectionService } from './protection.js';
 import { createDecisionRecordService } from './decision-records.js';
 import { createNotificationService, type NotificationSecretStore, type WebhookAddressValidator } from './notifications.js';
+import { createInvestigationModelService, type ModelSecretStore } from './investigation-models.js';
+import { createInvestigationService } from './investigations.js';
 import type { NpmRegistryPort } from './npm-dependency-fix.js';
 export * from './core.js';
 export * from './events.js';
@@ -53,10 +55,14 @@ export * from './workflow-exceptions.js';
 export * from './decision-records.js';
 export * from './notifications.js';
 export * from './notification-secrets-file.js';
-export interface BackendDependencies { database: Database; clock?: Clock; credentials?: CredentialStore; notificationSecrets?: NotificationSecretStore; webhookValidator?: WebhookAddressValidator; eventCredentials?: WritableEventCredentials; stepUpVerifier?: StepUpVerifier; proposalVerifier?: ProposalVerifier; customerDnsVerifier?: CustomerDnsVerifier; npmRegistry?: NpmRegistryPort; webAuthn?: { rpID: string; origin: string; rpName?: string; verifyPassword?: (userId: string, password: string) => Promise<boolean | null> }; actionVerifier?: ActionVerifier }
+export * from './investigation-models.js';
+export * from './investigations.js';
+export * from './model-configuration.js';
+export * from './model-secrets-file.js';
+export interface BackendDependencies { database: Database; clock?: Clock; credentials?: CredentialStore; notificationSecrets?: NotificationSecretStore; modelSecrets?: ModelSecretStore; webhookValidator?: WebhookAddressValidator; eventCredentials?: WritableEventCredentials; stepUpVerifier?: StepUpVerifier; proposalVerifier?: ProposalVerifier; customerDnsVerifier?: CustomerDnsVerifier; npmRegistry?: NpmRegistryPort; webAuthn?: { rpID: string; origin: string; rpName?: string; verifyPassword?: (userId: string, password: string) => Promise<boolean | null> }; actionVerifier?: ActionVerifier }
 export function createBackend(deps: BackendDependencies) {
   const stepUp = deps.webAuthn ? createWebAuthnStepUpService({ ...deps, webAuthn: deps.webAuthn }) : null;
   const stepUpVerifier = stepUp?.verifier ?? deps.stepUpVerifier;
-  return { corrections: createCorrectionService(deps), validations: createValidationService(deps), protection: createProtectionService({ ...deps, ...(deps.credentials ? { credentials: deps.credentials } : {}) }), executionArtifacts: createExecutionArtifactService(deps.database), workflowExceptions: createWorkflowExceptionService({ database:deps.database, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), actions: createActionService({ ...deps, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), operations: createOperationsService(deps), decisionRecords: createDecisionRecordService(deps), notifications: createNotificationService(deps), events: createEventService(deps), web: createWebService(deps), outbox: createOutboxService(deps), jobs: createJobService(deps), proposals: createProposalService({ ...deps, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), executions: createExecutionService(deps), runs: createRunService(deps), assessments: createAssessmentService(deps), customers: createCustomerService(deps), telemetry: createTelemetryService(deps), context: createContextService(deps), github: createGitHubConnectionService(deps), triage: createTriageService(deps), members: createMemberService(deps), stepUp };
+  return { corrections: createCorrectionService(deps), validations: createValidationService(deps), protection: createProtectionService({ ...deps, ...(deps.credentials ? { credentials: deps.credentials } : {}) }), executionArtifacts: createExecutionArtifactService(deps.database), workflowExceptions: createWorkflowExceptionService({ database:deps.database, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), actions: createActionService({ ...deps, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), operations: createOperationsService(deps), decisionRecords: createDecisionRecordService(deps), notifications: createNotificationService(deps), investigationModels: createInvestigationModelService({ database: deps.database, ...(deps.modelSecrets ? { secrets: deps.modelSecrets } : {}) }), investigations: createInvestigationService(deps.database), runs: createRunService(deps), events: createEventService(deps), web: createWebService(deps), outbox: createOutboxService(deps), jobs: createJobService(deps), proposals: createProposalService({ ...deps, ...(stepUpVerifier ? { stepUpVerifier } : {}) }), executions: createExecutionService(deps), assessments: createAssessmentService(deps), customers: createCustomerService(deps), telemetry: createTelemetryService(deps), context: createContextService(deps), github: createGitHubConnectionService(deps), triage: createTriageService(deps), members: createMemberService(deps), stepUp };
 }
 export type Backend = ReturnType<typeof createBackend>;
