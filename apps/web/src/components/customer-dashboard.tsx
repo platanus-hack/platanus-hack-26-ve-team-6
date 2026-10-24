@@ -63,6 +63,8 @@ const analysisLabels = { completed: 'Completado', partial: 'Parcial', unavailabl
 const scanProfileLabels: Record<CustomerScanProfile, string> = { root: 'Raíz del sitio', public_surface: 'Superficie pública limitada' };
 const rememberedSignInKey = 'gotchu.sign-in-preference';
 const rememberedSignInSchema = z.object({ email: z.string().max(254), method: z.string().min(1).max(128) }).strict();
+const authCsrfResponseSchema = z.object({ csrfToken: z.string().min(1).max(256) }).strict();
+const authRedirectResponseSchema = z.object({ url: z.url() }).strict();
 
 function date(value: string) {
   return new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
@@ -150,11 +152,28 @@ function AuthPanel({ session, onAuthenticated }: { session: CustomerSession; onA
     try { window.localStorage.removeItem(rememberedSignInKey); } catch { /* Storage can be disabled by the browser. */ }
   }
 
-  function startProvider(providerId: string) {
+  async function startProvider(providerId: string) {
     saveAccessMethod(providerId);
     setLoadingProvider(providerId);
-    const query = new URLSearchParams({ callbackUrl: '/dashboard' });
-    window.location.assign(`/api/auth/signin/${encodeURIComponent(providerId)}?${query}`);
+    setError(null);
+    try {
+      const csrfResponse = await fetch('/api/auth/csrf', { headers: { Accept: 'application/json' } });
+      if (!csrfResponse.ok) throw new Error('CSRF request failed');
+      const csrf = authCsrfResponseSchema.parse(await csrfResponse.json());
+      const response = await fetch(`/api/auth/signin/${encodeURIComponent(providerId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Auth-Return-Redirect': '1' },
+        body: new URLSearchParams({ csrfToken: csrf.csrfToken, callbackUrl: '/dashboard' }),
+      });
+      if (!response.ok) throw new Error('Provider sign-in failed');
+      const redirect = authRedirectResponseSchema.parse(await response.json());
+      const redirectUrl = new URL(redirect.url, window.location.origin);
+      if (redirectUrl.origin !== window.location.origin && redirectUrl.protocol !== 'https:') throw new Error('Unsafe provider redirect');
+      window.location.assign(redirectUrl.href);
+    } catch {
+      setError('No se pudo iniciar sesión con este proveedor. Inténtalo de nuevo.');
+      setLoadingProvider(null);
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
