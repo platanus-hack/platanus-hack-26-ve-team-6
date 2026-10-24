@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assessmentReportSchema } from '@gotchu/contracts';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
-import { createBackend, DEMO_ASSESSMENT_SCOPE, DEMO_ASSESSMENT_TARGET_KEY } from '../src/index.js';
+import { enqueue, createBackend, DEMO_ASSESSMENT_SCOPE, DEMO_ASSESSMENT_TARGET_KEY } from '../src/index.js';
 import { assessmentReportFixture } from './assessment-fixtures.js';
 
 const live = liveUrl ? describe : describe.skip;
@@ -51,7 +51,8 @@ live('real Postgres assessment authorization and storage (synthetic report evide
       await f.admin.query('UPDATE gotchu.assessment_targets SET enabled=true WHERE organization_id=$1 AND target_key=$2', [f.a.organizationId, DEMO_ASSESSMENT_TARGET_KEY]);
     }
     const legacy = queueInput();
-    await api.web.queueAudit(identity(), { ...scope(), idempotencyKey: legacy.idempotencyKey });
+    // Persisted legacy intent can remain after an upgrade; the retired API cannot create it.
+    await f.databases.gotchu_coordinator.tenant(f.a.organizationId, tx => enqueue(tx, { ...scope(), id: randomUUID(), kind: 'audit', idempotencyKey: legacy.idempotencyKey, payload: { requestedBy: identity().userId } }));
     await expect(api.assessments.queue(identity(), legacy)).rejects.toMatchObject({ code: 'idempotency_conflict' });
   });
 

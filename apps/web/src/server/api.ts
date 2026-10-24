@@ -9,7 +9,6 @@ const operationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('incidents.list'), ...scope }).strict(),
   z.object({ kind: z.literal('coverage.get'), ...scope }).strict(),
   z.object({ kind: z.literal('proposals.list'), ...scope }).strict(),
-  z.object({ kind: z.literal('audit.queue'), ...scope, idempotencyKey: z.string().min(1).max(200) }).strict(),
   z.object({ kind: z.literal('job.get'), organizationId: idSchema, jobId: idSchema }).strict(),
   z.object({ kind: z.literal('proposal.approve'), organizationId: idSchema, proposalId: idSchema, actionHash: z.string().regex(/^[a-f0-9]{64}$/), stepUpProof: z.string().min(1).max(4096) }).strict(),
 ]);
@@ -50,7 +49,7 @@ function operationFrom(request: Request, pathname: string): ApiOperation | null 
         case 'proposals': return validated(operationSchema, { kind: 'proposals.list', organizationId, applicationId });
       }
     }
-    if (request.method === 'POST' && resource === 'audits') return validated(operationSchema, { kind: 'audit.queue', organizationId, applicationId, idempotencyKey: request.headers.get('Idempotency-Key') });
+    if (request.method === 'POST' && resource === 'audits') throw new HttpError(410, 'assessment_contract_required', 'Use the customer assessment endpoint with explicit source and target scope');
   }
   return null;
 }
@@ -85,7 +84,7 @@ export function createApi(services: ApiServices) {
       const result = await services.execute({ userId: identity.userId }, operation);
       const headers = new Headers();
       for (const cookie of identity.cookies) headers.append('Set-Cookie', cookie);
-      return json(result, operation.kind === 'audit.queue' ? 202 : 200, headers);
+      return json(result, 200, headers);
     } catch (error) { return errorResponse(error); }
   };
 }

@@ -29,14 +29,14 @@ describe('thin public HTTP adapter', () => {
     expect(response.headers.get('cache-control')).toContain('no-store');
   });
 
-  it('rejects CSRF before queuing an audit and requires an idempotency key', async () => {
+  it('keeps the retired unscoped audit entry point closed after checking CSRF', async () => {
     const dependencies = services();
     const api = createApi(dependencies);
     const path = `${origin}/api/v1/organizations/${org}/applications/${app}/audits`;
     expect((await api(new Request(path, { method: 'POST', headers: { origin: 'https://attacker.example', 'idempotency-key': 'request-1' } }))).status).toBe(403);
-    expect((await api(new Request(path, { method: 'POST', headers: { origin } }))).status).toBe(400);
+    expect((await api(new Request(path, { method: 'POST', headers: { origin } }))).status).toBe(410);
     expect(dependencies.execute).not.toHaveBeenCalled();
-    expect((await api(new Request(path, { method: 'POST', headers: { origin, 'idempotency-key': 'request-1' } }))).status).toBe(202);
+    expect((await api(new Request(path, { method: 'POST', headers: { origin, 'idempotency-key': 'request-1' } }))).status).toBe(410);
   });
 
   it('rejects client timestamps masquerading as a fresh authentication proof', async () => {

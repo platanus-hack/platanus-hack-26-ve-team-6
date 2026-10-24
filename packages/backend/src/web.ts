@@ -1,7 +1,5 @@
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { audit, authorize, BackendError, parse, scopedIdSchema, systemClock, type BaseDependencies, type Identity, type MembershipRole } from './core.js';
-import { enqueue } from './jobs.js';
+import { authorize, BackendError, parse, scopedIdSchema, systemClock, type BaseDependencies, type Identity, type MembershipRole } from './core.js';
 const orgSchema = z.object({ organizationId: z.uuid() }).strict();
 export function createWebService(deps: BaseDependencies) {
   const clock = deps.clock ?? systemClock;
@@ -22,9 +20,7 @@ export function createWebService(deps: BaseDependencies) {
         await authorize(tx, value.organizationId, identity, ['owner', 'operator']);
         const app = await tx.query('SELECT id FROM gotchu.applications WHERE organization_id=$1 AND id=$2', [value.organizationId, value.applicationId]);
         if (!app.rowCount) throw new BackendError('not_found', 'Application not found', 404);
-        const jobId = await enqueue(tx, { ...value, id: randomUUID(), kind: 'audit', payload: { requestedBy: identity.userId } });
-        await audit(tx, value.organizationId, identity.userId, 'audit.queued', jobId);
-        return { jobId };
+        throw new BackendError('assessment_contract_required', 'Use customers.queue with explicit source and target scope', 409);
       });
     },
     async getJob(identity: Identity, input: { organizationId: string; jobId: string }) {
