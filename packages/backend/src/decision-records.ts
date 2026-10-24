@@ -97,6 +97,8 @@ function summaryFor(action: string) {
     'customer_assessment.recorded': 'Se registró un informe de evaluación.',
     'report.download_requested': 'Se solicitó una copia JSON del informe.',
     'correction.prepared': 'Se solicitó preparar una corrección privada y su reanálisis.',
+    'context.repository_write_access_granted': 'Un Owner verificó y concedió escritura al Writer App para un repositorio.',
+    'context.repository_write_access_revoked': 'Un Owner revocó el permiso de escritura del Writer App para un repositorio.',
   };
   if (summaries[action]) return summaries[action];
   if (action.startsWith('application.')) return 'Se actualizó la configuración de una aplicación.';

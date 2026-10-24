@@ -26,6 +26,7 @@ export const decisionRecordActionSchema = z.enum([
   'triage.status_changed', 'triage.evidence_requested', 'triage.probe_route_declared',
   'context.environment_created', 'context.environment_updated', 'context.environment_archived',
   'context.service_created', 'context.service_updated', 'context.repository_linked', 'context.repository_revoked',
+  'context.repository_write_access_granted', 'context.repository_write_access_revoked',
   'context.deployment_created', 'context.dependency_created', 'context.origin_created',
   'member.invitation_created', 'member.invitation_revoked', 'member.invitation_accepted', 'member.role_changed', 'member.removed',
   'model.settled', 'unknown',

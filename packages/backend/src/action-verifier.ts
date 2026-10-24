@@ -32,6 +32,7 @@ const factBundleSchema = validationFactsSchema.extend({
 export type ValidationFactsPort = { getFacts(input: { organizationId: string; actionRef: string }): Promise<unknown | null> };
 
 export interface ActionVerifierRepositoryPort {
+  readonly writerInstallationId?: string;
   readHead(input: { organizationId: string; applicationId: string; repositoryKey: string; branch: string }): Promise<string>;
   readTree?(input: { organizationId: string; applicationId: string; repositoryKey: string; commitSha: string }): Promise<GitTree>;
   isPolicyCurrent(input: { organizationId: string; applicationId: string; capabilityId: string; policyVersion: string }): Promise<boolean>;
@@ -176,24 +177,30 @@ export function createActionVerifier(input: {
       const link = await input.database.tenant(action.organizationId, async tx => {
         type RepositoryLink = {
           repository_key: string; default_branch: string; state: string; revoked: boolean; write_access: string;
-          installation_id: string | null; installation_state: string | null;
+          installation_id: string | null; installation_state: string | null; writer_installation_id: string | null;
+          writer_verified_at: Date | null; writer_verified_commit: string | null;
         };
         const result = action.kind === 'dependency_pull_request'
-          ? await tx.query<RepositoryLink>(`SELECT l.repository_key,l.default_branch,l.state,l.revoked,l.write_access,l.installation_id,g.state AS installation_state
+          ? await tx.query<RepositoryLink>(`SELECT l.repository_key,l.default_branch,l.state,l.revoked,l.write_access,l.installation_id,g.state AS installation_state,
+                l.writer_installation_id,l.writer_verified_at,l.writer_verified_commit
               FROM gotchu.application_repository_links l LEFT JOIN gotchu.github_installations g
                 ON g.organization_id=l.organization_id AND g.installation_id=l.installation_id
               WHERE l.organization_id=$1 AND l.application_id=$2 AND l.id=$3`,
           [action.organizationId, action.applicationId, action.target.repositoryLinkId])
           : await tx.query<RepositoryLink>(`SELECT repository_key,default_branch,state,revoked,write_access,
-                NULL::text AS installation_id,NULL::text AS installation_state
+                NULL::text AS installation_id,NULL::text AS installation_state,writer_installation_id,writer_verified_at,writer_verified_commit
               FROM gotchu.application_repository_links
               WHERE organization_id=$1 AND application_id=$2 AND id=$3`,
           [action.organizationId, action.applicationId, action.target.repositoryLinkId]);
         return result.rows[0];
       });
       const linkValid = link !== undefined && !link.revoked && link.state === 'verified'
-        && link.write_access === 'granted' && link.repository_key === action.target.repositoryKey
+        && link.repository_key === action.target.repositoryKey
         && link.default_branch === action.target.branch;
+      const writerGrantValid = link !== undefined && link.write_access === 'granted'
+        && link.writer_installation_id !== null && link.writer_verified_at !== null
+        && link.writer_verified_commit !== null && /^[a-f0-9]{40,64}$/.test(link.writer_verified_commit)
+        && (!repository.writerInstallationId || link.writer_installation_id === repository.writerInstallationId);
       const githubConnectionValid = action.kind !== 'dependency_pull_request'
         || link !== undefined && link.installation_id !== null && link.installation_state === 'active';
       const capability = await input.database.tenant(action.organizationId, async tx => {
@@ -308,6 +315,7 @@ export function createActionVerifier(input: {
       const reason = factsUnavailable ? 'validation_inconclusive' : validationReason(facts, runner, action, rootfsDigest);
       const reasons: string[] = [];
       if (!linkValid) reasons.push('vínculo de repositorio no autorizado o cambiado');
+      if (!writerGrantValid) reasons.push('repository_write_access_not_granted');
       if (!githubConnectionValid) reasons.push('github_connection_unavailable');
       if (capability?.capability_id !== action.capabilityId || !capability.adapter_available) reasons.push('adaptador no habilitado para la capacidad');
       const policyCurrent = await input.repository.isPolicyCurrent({ organizationId:action.organizationId,applicationId:action.applicationId,capabilityId:action.capabilityId,policyVersion:action.policyVersion }).catch(() => false);
