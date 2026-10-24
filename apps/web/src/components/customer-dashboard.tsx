@@ -21,6 +21,7 @@ import { IncidentList } from './incident-card';
 import { StepUpPanel } from './step-up-panel';
 import { MembersPanel } from './members-panel';
 import { membersApi } from './members-client';
+import { ApprovalPanel } from './approval-panel';
 import './customer-dashboard.css';
 
 type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members';
@@ -560,6 +561,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
               </section>
               <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /></div>
               <ContextPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} analyzedDigest={applicationReports[0]?.subject.sourceDigest ?? null} />
+              <ApprovalPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:actions`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} isOwner={workspace?.role === 'owner'} />
               <ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('La aplicación se actualizó.'); }} />
               {canManage && <StepUpPanel key={`${userId}:${organizationId}`} organizationId={organizationId} />}
             </>}

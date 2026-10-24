@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CustomerApiError, customerApi } from './customer-client';
 import type {
   RecipeAvailability,
@@ -64,6 +64,7 @@ function scopeMatchesReport(data: ReportRecommendationsResponse, props: Props) {
 
 export function ReportRecommendations(props: Props) {
   const { userId, organizationId, applicationId, reportId, canManage, archived, onQueued } = props;
+  const queryClient = useQueryClient();
   const [confirmingRecipe, setConfirmingRecipe] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const query = useQuery({
@@ -84,6 +85,11 @@ export function ReportRecommendations(props: Props) {
       setConfirmed(false);
       onQueued(prepared.jobId);
     },
+  });
+  const actionProposal = useMutation({
+    mutationKey: ['customer-data', userId, 'action-proposal', organizationId, applicationId],
+    mutationFn: (candidateId: string) => customerApi.proposeCorrectionAction({ organizationId, applicationId, candidateId }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'action-proposals', organizationId, applicationId] }),
   });
 
   if (query.isPending) return <section className="customer-report-section customer-recommendations" aria-labelledby="recommendations-title"><div className="customer-section-heading"><div><span className="customer-eyebrow">ORIENTACIÓN</span><h3 id="recommendations-title">Opciones de corrección</h3></div></div><div className="customer-loading" role="status"><span className="customer-spinner" />Cargando recomendaciones…</div></section>;
@@ -106,6 +112,9 @@ export function ReportRecommendations(props: Props) {
       <div><strong>Propuesta preparada en una instantánea privada</strong><p>El análisis interno independiente se puso en cola. Las pruebas de comportamiento no se ejecutaron; valida el cambio antes de considerar cualquier aplicación.</p></div>
       <ul>{prepared.changes.map(change => <li key={`${change.path}:${change.description}`}><code>{change.path}</code><p>{change.description}</p></li>)}</ul>
       <p className="customer-correction-hash">SHA-256 de la propuesta: <code>{prepared.patchHash}</code></p>
+      {canManage && !archived && <div className="customer-recommendation-actions"><button className="customer-button" type="button" disabled={actionProposal.isPending} onClick={() => actionProposal.mutate(prepared.sourceId)}>{actionProposal.isPending ? 'Preparando…' : 'Preparar propuesta'}</button></div>}
+      {actionProposal.error && <p className="customer-field-note" role="alert">No se pudo preparar la propuesta: {recommendationError(actionProposal.error)}</p>}
+      {actionProposal.data && <p className="customer-field-note" role="status">La propuesta quedó registrada. Revisa sus límites y requisitos en «Propuestas de cambio».</p>}
       <a className="customer-link-button" href="#customer-active-job">Seguir el análisis independiente</a>
     </div>}
 
