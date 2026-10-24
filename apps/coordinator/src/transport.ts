@@ -4,7 +4,7 @@ import { jobEnvelopeSchema, type JobEnvelope } from '@gotchu/contracts';
 import { ensureQueueDelivery } from './delivery.js';
 import { processDurableJob, type CoordinatorDependencies } from './jobs.js';
 
-/** Owns both delivery lanes and their Redis clients; the caller owns the database. */
+/** Owns all delivery lanes and their Redis clients; the caller owns the database. */
 export function createCoordinatorTransport(options: {
   redisUrl: string;
   organizationIds: readonly string[];
@@ -26,11 +26,13 @@ export function createCoordinatorTransport(options: {
   const queues = {
     deterministic: new Queue<JobEnvelope>('gotchu-deterministic-v1', { connection: queueConnection, prefix }),
     investigation: new Queue<JobEnvelope>('gotchu-investigations-v1', { connection: queueConnection, prefix }),
+    assessment: new Queue<JobEnvelope>('gotchu-assessments-v1', { connection: queueConnection, prefix }),
   };
   for (const queue of Object.values(queues)) queue.on('error', (error) => options.report('coordinator_queue_error', error));
   function queueFor(kind: JobEnvelope['kind']) {
     // Other kinds retain the domain's explicit adapter-not-configured failure.
-    return kind === 'investigation' ? queues.investigation : queues.deterministic;
+    if (kind === 'investigation') return queues.investigation;
+    return kind === 'audit' ? queues.assessment : queues.deterministic;
   }
   function consume(queue: Queue<JobEnvelope>, concurrency: number) {
     const worker = new Worker<unknown>(queue.name, async (job) => {
@@ -43,7 +45,7 @@ export function createCoordinatorTransport(options: {
     worker.on('failed', (_job, error) => options.report('coordinator_job_failed', error));
     return worker;
   }
-  const workers = [consume(queues.deterministic, 1), consume(queues.investigation, 2)];
+  const workers = [consume(queues.deterministic, 1), consume(queues.investigation, 2), consume(queues.assessment, 1)];
   let closing: Promise<void> | undefined;
   async function close() {
     // Workers drain active jobs and close BullMQ's internally duplicated blocking clients.

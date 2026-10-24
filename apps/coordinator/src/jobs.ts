@@ -4,6 +4,7 @@ import { BackendError, completeJob, createRunService, enqueue, type Backend, typ
 import { jobEnvelopeSchema, securityEventSchema, type JobEnvelope } from '@gotchu/contracts';
 import type { Database, Transaction } from '@gotchu/database';
 import { z } from 'zod';
+import { runAssessment, type AssessmentRunner } from './assessment.js';
 
 const WINDOW_MS = 600_000;
 const MAX_WINDOW_EVENTS = 10_000;
@@ -13,7 +14,7 @@ const payloadSchema = z.object({ incidentId: z.uuid(), evidenceIds: z.array(z.uu
 export interface Investigator {
   investigate(input: { organizationId: string; applicationId: string; runId: string; deadline: Date; evidenceIds: readonly string[] }): Promise<InvestigationResult>;
 }
-export interface CoordinatorDependencies { readonly database: Database; readonly backend: Backend; readonly investigator?: Investigator }
+export interface CoordinatorDependencies { readonly database: Database; readonly backend: Backend; readonly investigator?: Investigator; readonly assessmentRunner?: AssessmentRunner }
 
 async function failJob(tx: Transaction, claim: JobClaim, reason: string) {
   const result = await tx.query("UPDATE gotchu.jobs SET state='failed',result=$4::jsonb,completed_at=clock_timestamp(),lease_until=NULL WHERE organization_id=$1 AND id=$2 AND lease_token=$3 AND state='running' AND lease_until>clock_timestamp()", [claim.envelope.organizationId, claim.envelope.id, claim.leaseToken, JSON.stringify({ reasonCode: reason })]);
@@ -147,6 +148,22 @@ async function investigate(dependencies: CoordinatorDependencies, claim: JobClai
   await finalizeInvestigation(dependencies, claim, run.runId, { status: 'result', result });
 }
 
+async function assess(dependencies: CoordinatorDependencies, claim: JobClaim) {
+  const { organizationId, applicationId, id: jobId } = claim.envelope;
+  try {
+    if (!dependencies.assessmentRunner) throw new BackendError('audit_adapter_not_configured', 'Assessment adapter is not configured', 503);
+    const input = await dependencies.backend.assessments.getRequest({ organizationId, applicationId, jobId, leaseToken: claim.leaseToken });
+    // Source and HTTP reads happen after the request transaction has committed.
+    const report = await runAssessment(dependencies.assessmentRunner, input);
+    await dependencies.backend.assessments.recordResult({ input, leaseToken: claim.leaseToken, report });
+  } catch (error) {
+    if (error instanceof BackendError && error.code === 'stale_lease') throw error;
+    console.error(JSON.stringify({ event: 'assessment_failed', jobId, type: error instanceof Error ? error.name : 'unknown' }));
+    const reason = error instanceof BackendError ? error.code : 'assessment_runner_failed';
+    await dependencies.database.tenant(organizationId, tx => failJob(tx, claim, reason));
+  }
+}
+
 /** Redis is delivery transport; the durable Postgres job is the executable authority. */
 export async function processDurableJob(dependencies: CoordinatorDependencies, rawEnvelope: unknown) {
   const envelope = jobEnvelopeSchema.parse(rawEnvelope);
@@ -161,11 +178,13 @@ export async function processDurableJob(dependencies: CoordinatorDependencies, r
   try {
     if (envelope.kind === 'events.aggregate') await aggregate(dependencies, claim);
     else if (envelope.kind === 'investigation') await investigate(dependencies, claim);
+    else if (envelope.kind === 'audit') await assess(dependencies, claim);
     else await dependencies.database.tenant(envelope.organizationId, (tx) => failJob(tx, claim, `${envelope.kind}_adapter_not_configured`));
     return { status: 'processed' };
   } catch (error) {
     // Existing run reservations/checkpoints must be reconciled before replaying model work.
-    if (envelope.kind === 'investigation') throw error;
+    // A stale assessment must not reset a newer consumer's lease either.
+    if (envelope.kind === 'investigation' || envelope.kind === 'audit') throw error;
     await dependencies.database.tenant(envelope.organizationId, async (tx) => {
       await tx.query("UPDATE gotchu.jobs SET state='queued',lease_until=NULL WHERE organization_id=$1 AND id=$2 AND lease_token=$3 AND state='running'", [envelope.organizationId, envelope.id, claim.leaseToken]);
     });

@@ -21,12 +21,12 @@ export async function reconcileDurableDeliveries(database: Database, organizatio
   const eligible = await database.tenant(organizationId, async (tx) => {
     const envelopes: JobEnvelope[] = [];
     // Reserve discovery capacity as well as worker capacity for each lane.
-    for (const investigation of [false, true]) {
+    for (const lane of ['deterministic', 'investigation', 'assessment']) {
       const rows = await tx.query<{ id: string; application_id: string; kind: string; reserved_micros: string | null }>(`SELECT j.id,j.application_id,j.kind,r.reserved_micros
       FROM gotchu.jobs j LEFT JOIN gotchu.agent_runs r ON r.organization_id=j.organization_id AND r.job_id=j.id
-      WHERE j.organization_id=$1 AND (j.kind='investigation')=$2
+      WHERE j.organization_id=$1 AND CASE WHEN j.kind='investigation' THEN 'investigation' WHEN j.kind='audit' THEN 'assessment' ELSE 'deterministic' END=$2
         AND (j.state='queued' OR (j.state='running' AND j.lease_until<=clock_timestamp()))
-      ORDER BY j.created_at,j.id LIMIT 100 FOR UPDATE OF j SKIP LOCKED`, [organizationId, investigation]);
+      ORDER BY j.created_at,j.id LIMIT 100 FOR UPDATE OF j SKIP LOCKED`, [organizationId, lane]);
       for (const row of rows.rows) {
         if (row.kind === 'investigation' && row.reserved_micros !== null && BigInt(row.reserved_micros) > 0n) {
           await tx.query(`UPDATE gotchu.jobs SET state='failed',result='{"reasonCode":"investigation_reconciliation_required"}'::jsonb,completed_at=clock_timestamp(),lease_until=NULL
