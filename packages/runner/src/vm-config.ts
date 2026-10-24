@@ -1,0 +1,68 @@
+import { constants } from 'node:fs';
+import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import type { RunnerJob } from './contracts.js';
+import { sha256, type RunnerImageLock } from './images.js';
+
+export interface VmBootFiles {
+  readonly executable: string;
+  readonly args: readonly string[];
+}
+
+async function runBuildCommand(command: string, args: string[]): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, { stdio: 'ignore' });
+    child.once('error', reject);
+    child.once('close', (code) => code === 0 ? resolve() : reject(new Error(`${command} exited with ${String(code)}`)));
+  });
+}
+
+async function createInputDisk(stage: string, input: Buffer, job: RunnerJob): Promise<string> {
+  await mkdir(stage, { recursive: true });
+  await writeFile(join(stage, 'project.tar'), input, { mode: 0o400 });
+  await writeFile(join(stage, 'job.json'), JSON.stringify({ profile: job.profile, limits: job.limits }), { mode: 0o400 });
+  const image = join(stage, '..', 'input.ext4');
+  const size = Math.max(16, Math.ceil((input.length + 4096) / (1024 * 1024)) + 8);
+  await runBuildCommand('truncate', ['-s', `${size}M`, image]);
+  await runBuildCommand('mkfs.ext4', ['-q', '-F', '-d', stage, image]);
+  return image;
+}
+
+export async function prepareVmBootFiles(
+  job: RunnerJob,
+  input: Buffer,
+  cacheDir: string,
+  tempDir: string,
+  lock: RunnerImageLock,
+): Promise<VmBootFiles> {
+  const kernel = join(cacheDir, `vmlinux-${lock.kernel.version}`);
+  const baseRootfs = join(cacheDir, 'rootfs.ext4');
+  const firecracker = join(cacheDir, `firecracker-v${lock.firecracker.version}-x86_64`);
+  for (const path of [kernel, baseRootfs, firecracker, '/dev/kvm']) await access(path, constants.R_OK);
+  await access('/dev/kvm', constants.W_OK);
+  if (sha256(await readFile(kernel)) !== lock.kernel.sha256 || sha256(await readFile(baseRootfs)) !== lock.rootfs.sha256) {
+    throw new Error('Pinned VM image digest mismatch');
+  }
+
+  const rootfs = join(tempDir, 'rootfs.ext4');
+  const inputStage = join(tempDir, 'input');
+  const scratch = join(tempDir, 'scratch.ext4');
+  await copyFile(baseRootfs, rootfs);
+  const inputImage = await createInputDisk(inputStage, input, job);
+  await runBuildCommand('truncate', ['-s', `${job.limits.diskMiB - 1024 - 16}M`, scratch]);
+  await runBuildCommand('mkfs.ext4', ['-q', '-F', scratch]);
+
+  const config = {
+    'boot-source': { kernel_image_path: kernel, boot_args: 'console=ttyS0 panic=1 reboot=k pci=off init=/sbin/init' },
+    drives: [
+      { drive_id: 'rootfs', path_on_host: rootfs, is_root_device: true, is_read_only: false },
+      { drive_id: 'input', path_on_host: inputImage, is_root_device: false, is_read_only: true },
+      { drive_id: 'scratch', path_on_host: scratch, is_root_device: false, is_read_only: false },
+    ],
+    'machine-config': { vcpu_count: job.limits.vcpu, mem_size_mib: job.limits.memMiB, smt: false },
+  };
+  const configPath = join(tempDir, 'firecracker.json');
+  await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
+  return { executable: firecracker, args: ['--no-api', '--config-file', configPath] };
+}
