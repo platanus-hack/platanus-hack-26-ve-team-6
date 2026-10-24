@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DependencyInventory, LicensePolicy, WorkspaceRetentionPolicyInput } from '@gotchu/contracts';
+import type { AssessmentFinding, DependencyInventory, LicensePolicy } from '@gotchu/contracts';
 import { CustomerApiError, customerApi } from './customer-client';
 
 const policyLabels = { allowed: 'Permitida', review: 'Revisión', denied: 'No permitida' } as const;
 const relationshipLabels = { direct: 'Directa', transitive: 'Transitiva', unknown: 'Desconocida' } as const;
+const reachabilityLabels = { reachable: 'Símbolo referenciado', imported: 'Paquete importado', not_found_static: 'Sin importación estática', unknown: 'Desconocida' } as const;
+const artifactLabels = { not_requested: 'No priorizado', verified: 'Verificado y escaneado', checksum_mismatch: 'Checksum distinto', unavailable: 'No disponible', unsafe_archive: 'Archivo rechazado', scan_incomplete: 'Cobertura parcial' } as const;
+const severityLabels = { unknown: 'Desconocida', informational: 'Informativa', low: 'Baja', medium: 'Media', high: 'Alta', critical: 'Crítica' } as const;
+const confidenceLabels = { observed: 'Observada', inferred: 'Inferida', uncertain: 'Incierta' } as const;
+const exploitabilityLabels = { unknown: 'Desconocida', not_demonstrated: 'No demostrada', demonstrated_in_fixture: 'Demostrada en fixture' } as const;
+const priority = { reachable: 0, imported: 1, unknown: 2, not_found_static: 3 } as const;
 
-export function DependencyInventoryPanel({ inventory, busy, error, onDownload }: {
+export function DependencyInventoryPanel({ inventory, findings, busy, error, onDownload }: {
   inventory: DependencyInventory | undefined;
+  findings: AssessmentFinding[];
   busy: boolean;
   error: string | null;
   onDownload: () => void;
@@ -15,12 +23,31 @@ export function DependencyInventoryPanel({ inventory, busy, error, onDownload }:
   const [search, setSearch] = useState('');
   const [policyStatus, setPolicyStatus] = useState<'all' | 'allowed' | 'review' | 'denied'>('all');
   const [relationship, setRelationship] = useState<'all' | 'direct' | 'transitive' | 'unknown'>('all');
+  const [reachability, setReachability] = useState<'all' | 'reachable' | 'imported' | 'not_found_static' | 'unknown'>('all');
   if (!inventory) return <div className="customer-empty-inline">Este informe no contiene inventario de dependencias. La cobertura de SCA es desconocida.</div>;
+  const findingsByPackage = new Map<string, AssessmentFinding[]>();
+  for (const finding of findings) {
+    const purl = finding.dependencyAssessment?.purl;
+    if (!purl) continue;
+    const packageFindings = findingsByPackage.get(purl) ?? [];
+    packageFindings.push(finding);
+    findingsByPackage.set(purl, packageFindings);
+  }
   const query = search.trim().toLowerCase();
   const components = inventory.components.filter(component =>
     (policyStatus === 'all' || component.policyStatus === policyStatus)
     && (relationship === 'all' || component.relationship === relationship)
+    && (reachability === 'all' || (findingsByPackage.has(component.purl)
+      && (component.reachability?.state ?? findingsByPackage.get(component.purl)?.[0]?.dependencyAssessment?.reachability.state ?? 'unknown') === reachability))
     && (!query || `${component.name} ${component.version} ${component.declaredLicense ?? ''} ${component.sourceFile}`.toLowerCase().includes(query)));
+  components.sort((left, right) => {
+    const leftFindings = findingsByPackage.get(left.purl) ?? [];
+    const rightFindings = findingsByPackage.get(right.purl) ?? [];
+    if ((leftFindings.length > 0) !== (rightFindings.length > 0)) return leftFindings.length > 0 ? -1 : 1;
+    const leftState = left.reachability?.state ?? leftFindings[0]?.dependencyAssessment?.reachability.state ?? 'unknown';
+    const rightState = right.reachability?.state ?? rightFindings[0]?.dependencyAssessment?.reachability.state ?? 'unknown';
+    return priority[leftState] - priority[rightState] || left.name.localeCompare(right.name) || left.version.localeCompare(right.version);
+  });
   return <section className="customer-report-section customer-dependency-inventory">
     <div className="customer-section-heading"><div><span className="customer-eyebrow">INVENTARIO DE DEPENDENCIAS</span><h3>{inventory.components.length} paquetes exactos</h3></div><button className="customer-button customer-button-primary" disabled={busy} onClick={onDownload}>{busy ? 'Preparando SBOM…' : 'Descargar SBOM (CycloneDX)'}</button></div>
     {error && <p className="customer-form-error" role="alert">{error}</p>}
@@ -36,15 +63,25 @@ export function DependencyInventoryPanel({ inventory, busy, error, onDownload }:
           <label>Buscar paquete o archivo<input value={search} onChange={event => setSearch(event.target.value)} placeholder="Nombre, versión o lockfile" /></label>
           <label>Política<select value={policyStatus} onChange={event => setPolicyStatus(event.target.value as typeof policyStatus)}><option value="all">Todos los estados</option><option value="allowed">Permitida</option><option value="review">Revisión</option><option value="denied">No permitida</option></select></label>
           <label>Relación<select value={relationship} onChange={event => setRelationship(event.target.value as typeof relationship)}><option value="all">Todas</option><option value="direct">Directa</option><option value="transitive">Transitiva</option><option value="unknown">Desconocida</option></select></label>
+          <label>Alcance estático<select value={reachability} onChange={event => setReachability(event.target.value as typeof reachability)}><option value="all">Todas</option><option value="reachable">Símbolo referenciado</option><option value="imported">Paquete importado</option><option value="not_found_static">Sin importación estática</option><option value="unknown">Desconocida</option></select></label>
         </div>
-        {components.length === 0 ? <div className="customer-empty-inline">Ningún paquete coincide con estos filtros.</div> : <div className="customer-dependency-table-wrap"><table className="customer-dependency-table"><thead><tr><th>Paquete</th><th>Relación</th><th>Licencia declarada</th><th>Política</th><th>Origen</th></tr></thead><tbody>
-          {components.map(component => <tr key={`${component.purl}:${component.location}`}>
+        {components.length === 0 ? <div className="customer-empty-inline">Ningún paquete coincide con estos filtros.</div> : <div className="customer-dependency-table-wrap"><table className="customer-dependency-table"><thead><tr><th>Paquete</th><th>Relación</th><th>Reachability</th><th>Aviso / gravedad</th><th>Confianza</th><th>Explotabilidad</th><th>Artefacto</th><th>Licencia</th><th>Política</th><th>Origen</th></tr></thead><tbody>
+          {components.map(component => {
+            const packageFindings = findingsByPackage.get(component.purl) ?? [];
+            const packageReachability = component.reachability ?? packageFindings[0]?.dependencyAssessment?.reachability;
+            return <tr key={`${component.purl}:${component.location}`}>
             <td><strong>{component.name}</strong><small>{component.version}</small></td>
             <td>{relationshipLabels[component.relationship]}</td>
+            <td><strong>{packageReachability ? reachabilityLabels[packageReachability.state] : 'Sin aviso relacionado'}</strong>{packageReachability?.importEvidence.slice(0, 2).map(item => <small key={`${item.file}:${item.line}`}>{item.file}:{item.line} · {item.specifier}</small>)}{packageReachability?.symbolEvidence.slice(0, 2).map(item => <small key={`${item.file}:${item.line}:${item.symbol}`}>{item.file}:{item.line} · {item.symbol}</small>)}{packageFindings.length > 0 && <small>{packageReachability?.dependencyPath ? 'Ruta directa en el lockfile' : component.relationship === 'transitive' ? 'Ruta directa sin comprobar' : 'La búsqueda estática no descarta carga dinámica'}</small>}</td>
+            <td>{packageFindings.map(finding => <div key={finding.id}><strong>{finding.title}</strong><small>Gravedad: {severityLabels[finding.severity]}</small></div>)}{packageFindings.length === 0 && <span>Sin aviso asociado</span>}</td>
+            <td>{packageFindings.map(finding => <div key={finding.id}>{confidenceLabels[finding.confidence]}</div>)}</td>
+            <td>{packageFindings.map(finding => <div key={finding.id}>{exploitabilityLabels[finding.exploitability]}</div>)}</td>
+            <td><strong>{artifactLabels[component.artifactAnalysis?.status ?? 'not_requested']}</strong>{component.artifactAnalysis?.integrity && <small>Integridad lockfile: {component.artifactAnalysis.integrity}</small>}{component.artifactAnalysis?.findings.map((artifactFinding, index) => <details key={`${artifactFinding.ruleId}:${index}`}><summary>{artifactFinding.tool}: {artifactFinding.title} · {severityLabels[artifactFinding.severity]}</summary><p>{artifactFinding.description}</p><code>{artifactFinding.location}</code><small>Confianza: {confidenceLabels[artifactFinding.confidence]} · Explotabilidad: {exploitabilityLabels[artifactFinding.exploitability]}</small></details>)}{component.artifactAnalysis?.limitation.map((item, index) => <small key={`${index}:${item}`}>{item}</small>)}</td>
             <td>{component.licenseExpression ?? component.declaredLicense ?? 'Sin declarar'}<small>{component.licenseConfidence === 'declared' ? 'Declarada; no verificada' : 'No disponible'}</small></td>
             <td><span className={`customer-license-status customer-license-${component.policyStatus}`}>{policyLabels[component.policyStatus]}</span></td>
             <td><code>{component.location}</code><small>{component.licenseSource === 'registry' ? 'Metadatos npm por versión exacta' : component.licenseSource === 'lockfile' ? 'Metadatos del lockfile' : 'Origen de licencia desconocido'}</small></td>
-          </tr>)}
+          </tr>;
+          })}
         </tbody></table></div>}
       </>}
   </section>;

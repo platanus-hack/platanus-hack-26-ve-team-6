@@ -534,7 +534,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
       <button type="button" className="customer-report-tab" id="report-findings-tab" role="tab" aria-controls="report-findings-panel" aria-selected={activeReportTab === 'findings'} tabIndex={activeReportTab === 'findings' ? 0 : -1} onClick={() => setActiveReportTab('findings')}>Hallazgos</button>
       <button type="button" className="customer-report-tab" id="report-dependencies-tab" role="tab" aria-controls="report-dependencies-panel" aria-selected={activeReportTab === 'dependencies'} tabIndex={activeReportTab === 'dependencies' ? 0 : -1} onClick={() => setActiveReportTab('dependencies')}>Dependencias y licencias</button>
     </div>
-    {activeReportTab === 'dependencies' && <div id="report-dependencies-panel" className="customer-report-tabpanel" role="tabpanel" aria-labelledby="report-dependencies-tab" tabIndex={0}><DependencyInventoryPanel inventory={report.internal?.dependencyInventory} busy={downloadingSbom} error={sbomError} onDownload={async () => {
+    {activeReportTab === 'dependencies' && <div id="report-dependencies-panel" className="customer-report-tabpanel" role="tabpanel" aria-labelledby="report-dependencies-tab" tabIndex={0}><DependencyInventoryPanel inventory={report.internal?.dependencyInventory} findings={report.internal?.findings ?? []} busy={downloadingSbom} error={sbomError} onDownload={async () => {
       setDownloadingSbom(true); setSbomError(null);
       try { const blob = await customerApi.downloadSbom(organizationId, applicationId, report.id); downloadBlob(blob, `gotchu-${report.id}.cdx.json`); }
       catch (error) { setSbomError(readableError(error)); }
