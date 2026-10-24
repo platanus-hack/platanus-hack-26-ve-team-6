@@ -65,6 +65,13 @@ live('live Postgres/Redis assessment delivery (synthetic bounded runner)', () =>
     expect(calls).toBe(0);
     expect(await c.customerApi.web.getJob(c.identity, { organizationId: c.customerScope.organizationId, jobId: c.envelope.id })).toMatchObject({ state: 'failed', reasonCode: 'assessment_reconciliation_required' });
     await expect(c.customerApi.customers.revokeTarget(c.identity, { ...c.customerScope, targetId: c.targetId })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
+    const unconfigured = await customerTargetJob();
+    await backend.jobs.claim({ organizationId: unconfigured.customerScope.organizationId, jobId: unconfigured.envelope.id });
+    await f.admin.query("UPDATE gotchu.jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE organization_id=$1 AND id=$2", [unconfigured.customerScope.organizationId, unconfigured.envelope.id]);
+    await processDurableJob(dependencies(), unconfigured.envelope);
+    expect(await unconfigured.customerApi.web.getJob(unconfigured.identity, { organizationId: unconfigured.customerScope.organizationId, jobId: unconfigured.envelope.id })).toMatchObject({ state: 'failed', reasonCode: 'assessment_reconciliation_required' });
+    await expect(unconfigured.customerApi.customers.revokeTarget(unconfigured.identity, { ...unconfigured.customerScope, targetId: unconfigured.targetId })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
+    await expect(unconfigured.customerApi.customers.enrollTarget(unconfigured.identity, { ...unconfigured.customerScope, origin: 'https://customer.example.com', authorized: true })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
   });
 
   it('fails unconfigured and malformed adapters visibly without storing a successful report', async () => {
