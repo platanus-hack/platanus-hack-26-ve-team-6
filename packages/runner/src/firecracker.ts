@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -9,6 +9,7 @@ import { validateInputArchive } from './archive.js';
 import { isolationEvidence, readImageLock, sha256 } from './images.js';
 import { prepareVmBootFiles } from './vm-config.js';
 import { collectCapped, emptyOutput, finalResult, killProcessGroup, MAX_SERIAL_BYTES, parseResult, waitForExit, type VmOutcome } from './vm-output.js';
+import { readLocalInputObject } from './input-store.js';
 
 export interface RunnerOptions {
   readonly resolveInput: (reference: RunnerJob['input'], scope: { organizationId: string; jobId: string }) => Promise<Uint8Array>;
@@ -244,10 +245,7 @@ export function createFirecrackerRunner(options: RunnerOptions) {
 const defaultInputRoot = process.env.GOTCHU_RUNNER_INPUT_DIR ?? join(homedir(), '.local', 'share', 'gotchu-runner', 'inputs');
 const defaultRunner = createFirecrackerRunner({
   resolveInput: async (reference, scope) => {
-    const path = join(defaultInputRoot, scope.organizationId, reference.objectId);
-    const data = await readFile(path);
-    if (data.length > 8 * 1024 * 1024) throw new Error('Input object exceeds the runner bound.');
-    return data;
+    return readLocalInputObject(defaultInputRoot, reference, scope);
   },
 });
 
