@@ -134,6 +134,8 @@ cat >/etc/systemd/system/gotchu@scanner.service.d/scanner.conf <<'UNIT'
 [Service]
 # Docker bind paths must refer to the same host /tmp that the scanner writes.
 ReadWritePaths=/tmp /opt/gotchu/app/.local/dev/trivy-db
+# The private mkdtemp parent stays 0700; mounted source/profile files must be readable by parser UID 65534.
+UMask=0022
 ExecStartPost=/opt/gotchu/app/infra/aws/check-scanner.sh
 TimeoutStartSec=180
 UNIT
