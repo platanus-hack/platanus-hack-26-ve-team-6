@@ -1,6 +1,6 @@
 # Gotchu definition interview
 
-Status: overview requested after acceptance of Rounds 1 through 5. The user is satisfied with the current direction. Detailed provider contracts, measurable acceptance criteria, and the referenced implementation document remain to be reconciled before implementation.
+Status: Rounds 1 through 5 accepted. The user subsequently selected TanStack Start and Auth.js and authorized parallel implementation with focused commits and infrastructure validation. The foundation is being implemented; production provider contracts, pilot measurements, and the unavailable detailed reference remain release gates.
 
 ## Sources and authority
 
@@ -219,14 +219,16 @@ Status: accepted through the user's assent to Round 5.
 19. **D19 — Recovery authorization:** a database restore invalidates pre-recovery approvals and freezes provider writes until provider state and execution identities are reconciled. Replayed jobs and checkpoints cannot revive authorization.
 20. **D20 — Operating budget:** provisional total platform operating-spend ceiling of USD 250 per month for the five-organization pilot, including hosting, models, storage, backups, and email. This excludes engineering labor and customer-paid provider charges. Scope or budget must change explicitly if the required controls do not fit; actual costs remain unverified.
 21. **D21 — Authentication library:** use Auth.js instead of Better Auth, following the user's explicit instruction after the architectural overview. Fresh second-factor approval checks, organization authorization, and independent execution remain required. The particular step-up implementation has not been selected.
+22. **D22 — Public HTTP host:** use TanStack Start for the dashboard and public API adapters. Keep domain services in framework-independent TypeScript packages and persistent work in separate coordinator, gateway, worker, executor, and runner processes. Fastify is not required for this foundation.
+23. **D23 — Implementation workflow:** implement in parallel isolated worktrees, prioritize backend and infrastructure behavior over frontend design, validate meaningful failure cases, and record small coherent commits. The user requested Astra for difficult security work and Luna with xhigh effort for bounded tasks. This authorizes local implementation and verification, not cloud deployment or publication.
 
 ## Public API hosting recommendation
 
-The user asked why Fastify was included and twice raised TanStack Start as a potential better fit. Fastify was carried forward from the original reference stack, rather than selected through a measured requirement. Recommend hosting the pilot public API in the web application, preserving shared framework-independent backend modules, explicit runtime contracts, and separate persistent workers, gateway, executor, and sandbox services. TanStack Start with Query is the preferred dashboard candidate if its Auth.js integration is validated; Next.js Route Handlers remain the alternative with directly documented Auth.js setup. Keep Fastify as an option if independent API deployment or measured ingestion needs justify it. The user has not yet explicitly selected a web framework change.
+The user asked why Fastify was included and twice raised TanStack Start as a potential better fit. Fastify came from the original reference stack. The user then explicitly selected TanStack Start and authorized implementation. Public routes now adapt standard Request/Response objects to backend services; Auth.js Core supplies session handling through a custom adapter. Persistent workers and privileged services retain separate process boundaries. A separate HTTP server remains an option if future measured requirements justify it.
 
 ## Overview request
 
-Prepare an architectural overview of the accepted direction, including service and deployment boundaries, audit and event flows, agent read access, exact approval and execution, and the unresolved runner hosting and cost assumptions. This request does not require more interview rounds or authorize deploying the platform.
+The overview request ended the interview. The subsequent instruction authorized implementation using the decisions above; it did not authorize deploying the platform. Current implemented behavior and remaining gates are tracked in `architecture.md` and `implementation-plan.md`.
 
 ## Completion rule
 
