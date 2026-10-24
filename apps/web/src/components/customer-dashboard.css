@@ -543,6 +543,11 @@ body { margin: 0; }
 .customer-ops-summary > div { display: grid; gap: 4px; border: 1px solid #e5ebe5; border-radius: 6px; background: #fbfcfb; padding: 10px; }
 .customer-ops-summary span { color: #7b8980; font-size: 10px; }
 .customer-ops-summary strong { color: #3f5b47; font-size: 16px; font-weight: 650; }
+.customer-ops-quotas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.customer-ops-quota { display: grid; gap: 6px; border: 1px solid #e5ebe5; border-radius: 6px; background: #fbfcfb; padding: 10px; }
+.customer-ops-quota > div { display: flex; justify-content: space-between; gap: 10px; color: #718076; font-size: 10px; }
+.customer-ops-quota strong { color: #3f5b47; font-size: 11px; font-variant-numeric: tabular-nums; }
+.customer-ops-quota progress { width: 100%; height: 7px; accent-color: #568260; }
 .customer-ops-last-run { display: grid; gap: 3px; margin-top: 11px; border-left: 3px solid #d5e3d7; padding: 4px 10px; color: #75837a; font-size: 10px; }
 .customer-ops-last-run strong { color: #536b59; font-size: 11px; }
 .customer-ops-last-run p { margin: 3px 0 0; overflow-wrap: anywhere; }
@@ -689,6 +694,7 @@ body { margin: 0; }
   .customer-protection-settings > .customer-button { width: 100%; }
   .customer-ops-summary { grid-template-columns: 1fr; }
   .customer-ops-summary > div { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .customer-ops-quotas { grid-template-columns: 1fr; }
   .customer-ops-card > .customer-card-heading { align-items: flex-start; flex-direction: column; }
   .customer-ops-alert-actions { align-items: stretch; }
   .customer-ops-alert-actions > .customer-button { width: 100%; white-space: normal; }

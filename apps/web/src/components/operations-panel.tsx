@@ -232,6 +232,12 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     ...(repositories.data ?? []).map(repository => `repository:${repository.key}`),
   ];
   const currentConfig = coverage.data?.config;
+  const quotaMeters = coverage.data ? [
+    { key: 'runs', label: 'Ejecuciones de vigilancia', used: coverage.data.quotas.runs.used, limit: coverage.data.quotas.runs.limit },
+    { key: 'observations', label: 'Observaciones conservadas', used: coverage.data.quotas.observations.used, limit: coverage.data.quotas.observations.limit },
+    { key: 'daily', label: 'Nuevas observaciones · últimas 24 h', used: coverage.data.quotas.observations.lastDayUsed, limit: coverage.data.quotas.observations.lastDayLimit },
+    { key: 'plans', label: 'Planes operativos', used: coverage.data.quotas.plans.used, limit: coverage.data.quotas.plans.limit },
+  ] : [];
   const selectedBasisIsMissing = basis !== '' && !availableBasis.includes(basis);
   const targetIsCurrent = verifiedTargets.some(target => target.id === targetId);
   const basisSelected = (basis !== '' && !selectedBasisIsMissing) || targetIsCurrent || providers.length > 0;
@@ -247,7 +253,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
       <p className="customer-card-copy">Programa revisiones con fuentes fijas, el origen HTTPS verificado y estados de proveedor disponibles. Una revisión incompleta o atrasada se muestra como tal; una señal no confirma por sí sola un ataque ni una corrección.</p>
       <div className="customer-ops-facts">
         <p>El intervalo permitido es de 1 a 24 horas; el valor inicial es cada 6 horas. El límite compartido es de hasta 20 evaluaciones por espacio de trabajo al día.</p>
-        <p>La cobertura se limita a las fuentes que selecciones. No equivale a un inventario completo de la empresa. Las alertas aparecen aquí; esta versión no envía notificaciones externas.</p>
+        <p>La cobertura se limita a las fuentes que selecciones. No equivale a un inventario completo de la empresa. La retención puede eliminar historial antes del plazo configurado para respetar estas cuotas.</p>
       </div>
       {coverage.isPending ? <div className="customer-loading" role="status"><span className="customer-spinner" />Cargando el estado de vigilancia…</div>
         : coverage.error ? <div className="customer-inline-error" role="alert">{errorText(coverage.error)} <button className="customer-link-button" type="button" onClick={() => { coverage.refetch().catch(() => undefined); }}>Reintentar</button></div>
@@ -256,6 +262,12 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
               <div><span>Observaciones vigentes</span><strong>{coverage.data.observations.fresh}</strong></div>
               <div><span>Observaciones atrasadas</span><strong>{coverage.data.observations.stale}</strong></div>
               <div><span>Alcance actual</span><strong>{coverage.data.scopeCurrent ? 'Vigente' : 'Revisar'}</strong></div>
+            </div>
+            <div className="customer-ops-quotas" role="group" aria-label="Consumo de cuotas de vigilancia">
+              {quotaMeters.map(quota => <div className="customer-ops-quota" key={quota.key}>
+                <div><span>{quota.label}</span><strong>{quota.used.toLocaleString('es')} / {quota.limit.toLocaleString('es')}</strong></div>
+                <progress max={quota.limit} value={Math.min(quota.used, quota.limit)} aria-label={`${quota.label}: ${quota.used} de ${quota.limit}`} />
+              </div>)}
             </div>
             {coverage.data.lastRun && <div className="customer-ops-last-run"><strong>Última ejecución</strong><span>{coverage.data.lastRun.status === 'completed' ? 'Completada' : coverage.data.lastRun.status === 'running' ? 'En curso' : coverage.data.lastRun.status === 'degraded' ? 'Incompleta' : 'Cancelada'} · {formatDate(coverage.data.lastRun.startedAt)}</span>{coverage.data.lastRun.reason && <p>{coverage.data.lastRun.reason}</p>}</div>}
             {coverage.data.limitations.length > 0 && <details className="customer-ops-limitations"><summary>Límites de esta cobertura</summary><ul>{coverage.data.limitations.map(item => <li key={item}>{item}</li>)}</ul></details>}
