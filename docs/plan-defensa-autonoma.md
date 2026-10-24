@@ -1,5 +1,7 @@
 # Plan de defensa autónoma y diferenciación de Gotchu
 
+> **Actualización (24 de octubre de 2026):** este plan conserva como línea base el último commit del archivo, `ce281c9`. Las afirmaciones de esa línea base sobre Semgrep 1.90.0 como perfil sólo de desarrollo/pruebas, el bloqueo de escaneo en producción y los gates equivalentes del scanner quedaron superadas por el pin Semgrep 1.182.0 y la verificación local del flujo scanner/coordinator TLS con persistencia durable. Esa verificación precedió a una corrección de normalización PEM; sus reruns enfocados y revisión final siguen pendientes. No se afirma despliegue cloud ni cobertura general. Consulta el [registro de validación](validation.md) para la evidencia actual. Las demás prioridades y análisis históricos no se reescribieron.
+
 Fecha: 24 de octubre de 2026. Base revisada: `68e19c5c6d099a1fc8b6c5feb5e823afd27cd895`.
 
 Este documento convierte las nuevas direcciones del producto en trabajo verificable. Se revisaron implementación, contratos, consumidores, pruebas y límites documentados. **Es un plan pendiente de ejecución; su publicación no habilita estas capacidades.** La revisión fue de código y documentación: no se volvieron a ejecutar las suites de infraestructura ni se probaron productos competidores. Los resultados anteriores están en el [registro de validación](validation.md).

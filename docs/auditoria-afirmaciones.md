@@ -1,5 +1,7 @@
 # Auditoría de afirmaciones de producto
 
+> **Actualización (24 de octubre de 2026):** esta auditoría conserva como línea base el último commit del archivo, `e17af25`. Sus afirmaciones sobre Semgrep 1.90.0, el bloqueo del escaneo en producción y la ausencia de un listener TLS del scanner describen ese estado anterior; quedaron superadas por Semgrep 1.182.0 y la verificación local de un flujo scanner/coordinator TLS con trabajo durable. Esa verificación precedió a una corrección de normalización PEM; sus reruns enfocados y revisión final siguen pendientes. No implica despliegue cloud ni cobertura general. Consulta el [registro de validación](validation.md) para la evidencia actualizada. El resto del análisis conserva su alcance histórico.
+
 Fecha: 24 de octubre de 2026. Alcance: `README.md`, `docs/*.md`, READMEs de `apps/*` y `packages/*`, y cadenas visibles de `apps/web/src/components/*.tsx`. Se contrastaron afirmaciones con código actual y pruebas existentes, no con el texto de otro documento. Un test que usa fixtures demuestra el comportamiento con esos fixtures, no un servicio/proveedor real. Esta revisión no ejecutó suites.
 
 `respaldada` = el flujo de código y una prueba cubren el alcance literal. `parcial` = alcance limitado, experimental, bloqueado para producción o cubierto sólo por fixture. `sin respaldo` = no localicé la capacidad o prueba pedida. Las ubicaciones indican la línea donde se formula la afirmación; en textos extensos se conserva un fragmento literal.
