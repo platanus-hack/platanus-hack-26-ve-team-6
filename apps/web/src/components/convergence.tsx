@@ -27,13 +27,13 @@ type Part = 'mark' | 'left' | 'right' | 'flash' | 'two' | 'one' | 'report';
 /** Real report vocabulary from the assessment contract; no values. */
 function ReportCard() {
   return <div className="g-report-card">
-    <header><span className="g-tag">[ Informe de evaluación ]</span><span className="g-tag g-report-json">JSON</span></header>
+    <header><span className="g-report-title">Tu informe</span><span className="g-tag g-report-json">JSON</span></header>
     <dl>
-      <div><dt>Hallazgo</dt><dd>Título, ubicación y regla</dd></div>
-      <div><dt>Severidad</dt><dd>Desconocida · informativa · baja · media · alta · crítica</dd></div>
-      <div><dt>Confianza</dt><dd>Observada · inferida · incierta</dd></div>
-      <div><dt>Evidencia</dt><dd>Extracto, herramienta y checksum</dd></div>
-      <div><dt>Cobertura</dt><dd>Inspeccionado · no solicitado · no compatible · no disponible</dd></div>
+      <div><dt>Hallazgo</dt><dd>Qué es y dónde está</dd></div>
+      <div><dt>Severidad</dt><dd>De informativa a crítica</dd></div>
+      <div><dt>Confianza</dt><dd>Observada, inferida o incierta</dd></div>
+      <div><dt>Evidencia</dt><dd>El fragmento que lo demuestra</dd></div>
+      <div><dt>Cobertura</dt><dd>Lo que se revisó y lo que quedó fuera</dd></div>
     </dl>
   </div>;
 }
@@ -91,14 +91,14 @@ export function Convergence() {
       <p ref={bind('right')} className="g-tag g-stage-label g-stage-label-right" aria-hidden="true">[ HTTPS ]</p>
       <div className="g-stage-step g-stage-two">
         <div ref={bind('two')} className="g-stage-copy">
-          <h2 id="stage-title">Dos perspectivas.<br /><span>Un mismo hallazgo.</span></h2>
-          <p>La instantánea de código y el origen HTTPS autorizado se evalúan por separado. Gotchu contrasta lo que ve cada una sin perder su procedencia.</p>
+          <h2 id="stage-title">Por dentro y por fuera.<br /><span>A la vez.</span></h2>
+          <p>Revisamos tu código y lo que tu web le muestra al mundo. Cuando los dos apuntan al mismo problema, lo verás juntos.</p>
         </div>
       </div>
       <div className="g-stage-step g-stage-one">
         <div ref={bind('one')} className="g-stage-copy">
-          <h2>Cada hallazgo,<br /><span>con su evidencia.</span></h2>
-          <p>Severidad, confianza, extractos y la herramienta que lo detectó. También lo que quedó fuera de la cobertura, para que nadie lo confunda con una garantía.</p>
+          <h2>Nada de alertas<br /><span>sin pruebas.</span></h2>
+          <p>Cada hallazgo llega con su gravedad, qué tan seguros estamos y el fragmento que lo demuestra. Y si algo no se pudo revisar, también te lo decimos.</p>
         </div>
         <div ref={bind('report')} className="g-stage-report"><ReportCard /></div>
       </div>
