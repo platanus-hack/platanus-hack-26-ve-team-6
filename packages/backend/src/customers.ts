@@ -369,6 +369,7 @@ export function createCustomerService(deps: CustomerDependencies) {
         // Locks prevent concurrent revocation; recheck time-based expiry after storage work too.
         if (request.target && !(await targetRow(tx, request, request.target.id))?.authorization_current) throw new BackendError('assessment_target_changed', 'Target authorization expired before completion', 409);
         await completeJob(tx, { organizationId: request.organizationId, jobId: request.jobId, leaseToken: value.leaseToken, result: { status: 'completed', reportId: report.id } });
+        await enqueue(tx, { organizationId: request.organizationId, applicationId: request.applicationId, id: randomUUID(), kind: 'notification', idempotencyKey: `assessment-observation:${report.id}`, payload: { kind: 'assessment_observation', reportId: report.id } });
         await audit(tx, request.organizationId, 'coordinator', 'customer_assessment.recorded', report.id, { jobId: request.jobId });
         return { reportId: report.id };
       });

@@ -5,6 +5,7 @@ import { jobEnvelopeSchema, securityEventSchema, type JobEnvelope } from '@gotch
 import type { Database, Transaction } from '@gotchu/database';
 import { z } from 'zod';
 import { runAssessment, runCustomerAssessment, type AssessmentRunner, type CustomerAssessmentRunner } from './assessment.js';
+import { observeRuntime, observeAssessment, backendInTransaction } from './observations.js';
 
 const WINDOW_MS = 600_000;
 const MAX_WINDOW_EVENTS = 10_000;
@@ -38,6 +39,7 @@ async function aggregate(dependencies: CoordinatorDependencies, claim: JobClaim)
     const input = await tx.query<{ payload: unknown }>(`SELECT payload FROM gotchu.events WHERE organization_id=$1 AND application_id=$2 AND job_id=$3
       AND pg_input_is_valid(payload->>'occurredAt','timestamptz') IS TRUE`, [organizationId, applicationId, jobId]);
     const current = input.rows.map((row) => securityEventSchema.parse(row.payload));
+    await observeRuntime(dependencies.database, tx, claim, current);
     const auth = current.filter((event) => event.type === 'auth.login_failed' || event.type === 'auth.login_succeeded');
     if (auth.length === 0) {
       await completeJob(tx, { organizationId, jobId, leaseToken: claim.leaseToken, result: { detector: 'auth.login_failures.v1', incidents: 0, quarantinedTimestamps: quarantined } });
@@ -191,6 +193,13 @@ export async function processDurableJob(dependencies: CoordinatorDependencies, r
     if (envelope.kind === 'events.aggregate') await aggregate(dependencies, claim);
     else if (envelope.kind === 'investigation') await investigate(dependencies, claim);
     else if (envelope.kind === 'audit') await assess(dependencies, claim);
+    else if (envelope.kind === 'notification') await dependencies.database.tenant(envelope.organizationId, async tx => {
+      const current = await tx.query("SELECT id FROM gotchu.jobs WHERE organization_id=$1 AND id=$2 AND state='running' AND lease_token=$3 AND lease_until>clock_timestamp() FOR UPDATE", [envelope.organizationId, envelope.id, claim.leaseToken]);
+      if (!current.rowCount) throw new BackendError('stale_lease', 'Observation projection requires a current job claim', 409);
+      const payload = z.object({ kind: z.literal('assessment_observation'), reportId: z.uuid() }).strict().parse(claim.payload);
+      await observeAssessment(backendInTransaction(dependencies.database, envelope.organizationId, tx), tx, { organizationId: envelope.organizationId, applicationId: envelope.applicationId, reportId: payload.reportId });
+      await completeJob(tx, { organizationId: envelope.organizationId, jobId: envelope.id, leaseToken: claim.leaseToken });
+    });
     else await dependencies.database.tenant(envelope.organizationId, (tx) => failJob(tx, claim, `${envelope.kind}_adapter_not_configured`));
     return { status: 'processed' };
   } catch (error) {
