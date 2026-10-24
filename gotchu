@@ -314,6 +314,146 @@ logs() {
   [[ -z "$service" || "$service" =~ ^(postgres|redis)$ ]] || fail 'Servicio inválido. Usa web, coordinator, scanner, postgres o redis.' 2
   if [[ -n "$service" ]]; then "${compose[@]}" logs --tail 200 -f "$service"; else tail -n 200 -f "$state_dir/web.log" "$state_dir/coordinator.log" "$state_dir/scanner.log"; fi
 }
+read_backup_passphrase() {
+  [[ -t 0 ]] || fail 'La frase de paso se solicita de forma interactiva para no exponerla en argumentos o variables de entorno.' 2
+  local first second byte_count
+  printf 'Frase de paso (mínimo 16 bytes): ' >&2
+  IFS= read -r -s first || fail 'No se pudo leer la frase de paso.' 2
+  printf '\n' >&2
+  byte_count="$(printf '%s' "$first" | wc -c | tr -d '[:space:]')"
+  (( byte_count >= 16 && byte_count <= 1024 )) || fail 'La frase de paso debe tener entre 16 y 1024 bytes.' 2
+  if [[ "${1:-}" == confirm ]]; then
+    printf 'Repite la frase de paso: ' >&2
+    IFS= read -r -s second || fail 'No se pudo leer la confirmación de la frase de paso.' 2
+    printf '\n' >&2
+    [[ "$first" == "$second" ]] || fail 'Las frases de paso no coinciden.' 2
+    unset second
+  fi
+  backup_passphrase="$first"; unset first
+}
+backup() (
+  (( $# <= 1 )) || fail 'Uso: ./gotchu backup [archivo]' 2
+  require_managed_state; require_private_env; check_docker; check_node
+  command -v tar >/dev/null 2>&1 || fail 'Se requiere tar para empaquetar la copia local.' 2
+  local running stage output_dir backup_path temporary_dir='' temporary_file='' source name
+  running="$("${compose[@]}" ps --status running --services 2>/dev/null)" || fail 'No se pudo consultar el estado de Postgres.'
+  [[ $'\n'"$running"$'\n' == *$'\npostgres\n'* ]] || fail 'Inicia Gotchu antes de crear la copia: Postgres debe estar ejecutándose.' 2
+  read_backup_passphrase confirm
+  umask 077
+  stage="$(mktemp -d "$state_dir/.backup.XXXXXX")" || fail 'No se pudo preparar el área privada de la copia.'
+  cleanup_backup() { unset backup_passphrase; rm -rf -- "$stage" ${temporary_dir:+"$temporary_dir"}; }
+  trap cleanup_backup EXIT
+  if [[ -n "${1:-}" ]]; then
+    backup_path="$1"
+    [[ "$backup_path" == /* ]] || backup_path="$PWD/$backup_path"
+    output_dir="$(dirname -- "$backup_path")"
+    mkdir -p -- "$output_dir"
+  else
+    output_dir="${state_dir}.backups"
+    if [[ -e "$output_dir" || -L "$output_dir" ]]; then
+      [[ -d "$output_dir" && ! -L "$output_dir" ]] || fail 'El directorio de copias junto al estado debe ser un directorio real.' 2
+    else
+      mkdir -m 700 -- "$output_dir"
+    fi
+    chmod 700 "$output_dir"
+    backup_path="$output_dir/gotchu-$(date -u +%Y%m%d-%H%M%S).backup"
+  fi
+  [[ ! -e "$backup_path" && ! -L "$backup_path" ]] || fail 'El archivo de destino ya existe; elige otro nombre para no reemplazar una copia anterior.' 2
+  chmod 700 "$stage"
+  temporary_dir="$(mktemp -d "$output_dir/.gotchu-backup.XXXXXX")" || fail 'No se pudo preparar la salida cifrada.'
+  chmod 700 "$temporary_dir"
+  temporary_file="$temporary_dir/backup"
+
+  mkdir -m 700 "$stage/state"
+  "${compose[@]}" exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --compress=6' >"$stage/database.dump" || fail 'No se pudo crear el snapshot consistente de PostgreSQL.'
+  for name in .env .gotchu-state scanner.secret scanner.crt scanner.key; do
+    source="$state_dir/$name"
+    [[ -f "$source" && ! -L "$source" ]] || fail "Falta el archivo local necesario para restaurar: $name."
+    install -m 600 -- "$source" "$stage/state/$name"
+  done
+  if [[ -e "$state_dir/scanner.tls-fingerprint" ]]; then
+    [[ -f "$state_dir/scanner.tls-fingerprint" && ! -L "$state_dir/scanner.tls-fingerprint" ]] || fail 'La identidad TLS del scanner no es un archivo regular.'
+    install -m 600 -- "$state_dir/scanner.tls-fingerprint" "$stage/state/scanner.tls-fingerprint"
+  fi
+  if [[ -e "$state_dir/github" ]]; then
+    [[ -d "$state_dir/github" && ! -L "$state_dir/github" ]] || fail 'El directorio privado de GitHub no es válido.'
+    mkdir -m 700 "$stage/state/github"
+    if [[ -e "$state_dir/github/reader-app.json" ]]; then
+      [[ -f "$state_dir/github/reader-app.json" && ! -L "$state_dir/github/reader-app.json" ]] || fail 'Las credenciales de GitHub deben ser un archivo regular.'
+      install -m 600 -- "$state_dir/github/reader-app.json" "$stage/state/github/reader-app.json"
+    fi
+  fi
+  local -a archive_paths=(database.dump state/ state/.env state/.gotchu-state state/scanner.secret state/scanner.crt state/scanner.key)
+  [[ -f "$stage/state/scanner.tls-fingerprint" ]] && archive_paths+=(state/scanner.tls-fingerprint)
+  [[ -d "$stage/state/github" ]] && archive_paths+=(state/github/)
+  [[ -f "$stage/state/github/reader-app.json" ]] && archive_paths+=(state/github/reader-app.json)
+  tar --no-recursion -czf "$stage/payload.tar.gz" -C "$stage" "${archive_paths[@]}" || fail 'No se pudo empaquetar el contenido de la copia.'
+  node "$root/scripts/gotchu-backup-archive.mjs" validate "$stage/payload.tar.gz" || fail 'El contenido preparado no coincide con el formato de copia permitido.'
+  printf '%s\n' "$backup_passphrase" | node "$root/scripts/gotchu-backup-crypto.mjs" encrypt "$stage/payload.tar.gz" "$temporary_file" || fail 'No se pudo cifrar la copia local.'
+  chmod 600 "$temporary_file"
+  mv -- "$temporary_file" "$backup_path"
+  printf 'Copia cifrada creada: %s\n' "$backup_path"
+)
+restore() (
+  (( $# == 1 )) || fail 'Uso: ./gotchu restore <archivo>' 2
+  local backup_path="$1" stage payload extracted running postgres_started=false restore_env name
+  require_managed_state; require_private_env; check_docker; check_node
+  command -v tar >/dev/null 2>&1 || fail 'Se requiere tar para restaurar la copia local.' 2
+  [[ -f "$backup_path" && ! -L "$backup_path" ]] || fail 'El archivo de respaldo debe ser un archivo regular.' 2
+  for name in scanner.secret scanner.crt scanner.key scanner.tls-fingerprint; do
+    [[ ! -L "$state_dir/$name" ]] || fail "No se restauró: el destino local $name es un enlace simbólico."
+  done
+  [[ ! -e "$state_dir/github" || ( -d "$state_dir/github" && ! -L "$state_dir/github" ) ]] || fail 'No se restauró: el directorio local de GitHub no es válido.'
+  [[ ! -L "$state_dir/github/reader-app.json" ]] || fail 'No se restauró: las credenciales locales de GitHub son un enlace simbólico.'
+  running="$("${compose[@]}" ps --status running --services 2>/dev/null)" || fail 'No se pudo consultar el estado de la instalación.'
+  [[ -z "$running" ]] || fail 'Detén todos los servicios con ./gotchu down antes de restaurar.' 2
+  for service in web coordinator scanner; do app_running "$service" && fail "Detén también el proceso ${service} con ./gotchu down antes de restaurar." 2; done
+  umask 077
+  stage="$(mktemp -d "$state_dir/.restore.XXXXXX")" || fail 'No se pudo preparar el área privada de restauración.'
+  chmod 700 "$stage"
+  payload="$stage/payload.tar.gz"; extracted="$stage/extracted"; restore_env="$stage/restored.env"
+  cleanup_restore() {
+    unset backup_passphrase
+    rm -rf -- "$stage"
+    if [[ "$postgres_started" == true ]]; then "${compose[@]}" stop postgres >/dev/null 2>&1 || true; fi
+  }
+  trap cleanup_restore EXIT
+  read_backup_passphrase
+  printf '%s\n' "$backup_passphrase" | node "$root/scripts/gotchu-backup-crypto.mjs" decrypt "$backup_path" "$payload" || fail 'No se pudo autenticar el respaldo; no se modificó la base de datos.' 2
+  node "$root/scripts/gotchu-backup-archive.mjs" extract "$payload" "$extracted" || fail 'El contenido cifrado del respaldo no es válido.' 2
+  [[ "$(cat "$extracted/state/.gotchu-state")" == 'gotchu-self-host-state-v1' ]] || fail 'El respaldo no contiene un estado Gotchu compatible.' 2
+  node "$root/scripts/gotchu-restore-env.mjs" "$extracted/state/.env" "$env_file" "$restore_env" || fail 'No se modificó la base: las credenciales o la identidad de esta instalación no coinciden con el respaldo.' 2
+  printf 'Esto reemplazará los datos Postgres de %s y mantendrá los servicios detenidos hasta que ejecutes ./gotchu up. Escribe RESTORE para continuar: ' "$project" >&2
+  local answer; IFS= read -r answer || fail 'No se pudo leer la confirmación.' 2
+  [[ "$answer" == RESTORE ]] || fail 'Restauración cancelada.' 2
+
+  "${compose[@]}" up -d postgres || fail 'No se pudo iniciar Postgres para la restauración.'
+  postgres_started=true
+  local ready=false
+  for _ in $(seq 1 90); do
+    if "${compose[@]}" exec -T postgres pg_isready -h 127.0.0.1 -U "$(env_value POSTGRES_USER)" -d "$(env_value POSTGRES_DB)" >/dev/null 2>&1; then ready=true; break; fi
+    sleep 1
+  done
+  [[ "$ready" == true ]] || fail 'Postgres no alcanzó estado saludable; los servicios web y coordinator siguen detenidos.'
+  printf '%s\n' "UPDATE gotchu.platform_state SET recovery_epoch=recovery_epoch+1,writes_frozen=true,reconciliation_reference=NULL,updated_at=clock_timestamp() WHERE singleton;" \
+    | "${compose[@]}" exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atq' \
+    || fail 'No se pudo congelar la autorización actual; no se iniciará ningún servicio de aplicación.'
+  "${compose[@]}" exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore --exit-on-error --clean --if-exists --single-transaction -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+    <"$extracted/database.dump" || fail 'Postgres no pudo restaurar el snapshot; los servicios de aplicación siguen detenidos.'
+  printf '%s\n' "UPDATE gotchu.platform_state SET recovery_epoch=recovery_epoch+1,writes_frozen=true,reconciliation_reference=NULL,updated_at=clock_timestamp() WHERE singleton;" \
+    | "${compose[@]}" exec -T postgres sh -ec 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atq' \
+    || fail 'La base se restauró, pero no se pudo incrementar el epoch de recuperación; deja la instalación detenida y revisa Postgres.'
+  mv -- "$restore_env" "$env_file"; chmod 600 "$env_file"
+  for name in scanner.secret scanner.crt scanner.key; do install -m 600 -- "$extracted/state/$name" "$state_dir/$name"; done
+  if [[ -f "$extracted/state/scanner.tls-fingerprint" ]]; then install -m 600 -- "$extracted/state/scanner.tls-fingerprint" "$state_dir/scanner.tls-fingerprint"; else rm -f -- "$state_dir/scanner.tls-fingerprint"; fi
+  mkdir -p "$state_dir/github"; chmod 700 "$state_dir/github"
+  if [[ -f "$extracted/state/github/reader-app.json" ]]; then install -m 600 -- "$extracted/state/github/reader-app.json" "$state_dir/github/reader-app.json"; else rm -f -- "$state_dir/github/reader-app.json"; fi
+  "${compose[@]}" stop postgres >/dev/null || fail 'Datos restaurados; Postgres no se detuvo al terminar. No inicies la aplicación hasta confirmar el estado.'
+  postgres_started=false
+  printf '%s\n' 'Restauración completada. El epoch de recuperación aumentó, las escrituras de proveedor siguen congeladas y todos los servicios están detenidos. Ejecuta ./gotchu up cuando estés listo.'
+  trap - EXIT
+  cleanup_restore
+)
 down() {
   check_docker; [[ -f "$env_file" ]] || { printf '%s\n' 'Gotchu ya está detenido.'; return; }
   require_managed_state; require_private_env
@@ -326,7 +466,7 @@ reset() {
   printf 'Esto elimina workspaces, informes, fuentes y credenciales de %s. Escribe RESET para continuar: ' "$project"
   local answer; read -r answer; [[ "$answer" == RESET ]] || fail 'Reinicio cancelado.' 2
   check_docker; stop_app web; stop_app coordinator; stop_app scanner
-  "${compose[@]}" --profile web --profile coordinator down --volumes --remove-orphans; rm -rf -- "$state_dir"; printf '%s\n' 'Datos locales eliminados.'
+  "${compose[@]}" --profile web --profile coordinator down --volumes --remove-orphans; rm -rf -- "$state_dir"; printf 'Datos locales eliminados. Las copias cifradas del directorio %s se conservaron.\n' "${state_dir}.backups"
 }
 doctor() {
   local failed=0
@@ -369,6 +509,8 @@ google_setup() {
 
 case "$command_name" in
   up) up ;;
+  backup) backup "$@" ;;
+  restore) restore "$@" ;;
   status) status ;;
   logs) logs "${1:-}" ;;
   down) down ;;
@@ -383,5 +525,5 @@ case "$command_name" in
     ;;
   github) [[ "${1:-}" == setup ]] || fail 'Uso: ./gotchu github setup' 2; github_setup ;;
   google) [[ "${1:-}" == setup ]] || fail 'Uso: ./gotchu google setup' 2; google_setup ;;
-  *) fail 'Uso: ./gotchu up|status|logs [service]|down|reset|doctor|setup-link|upgrade|github setup|google setup' 2 ;;
+  *) fail 'Uso: ./gotchu up|status|logs [service]|down|reset|backup [archivo]|restore <archivo>|doctor|setup-link|upgrade|github setup|google setup' 2 ;;
 esac
