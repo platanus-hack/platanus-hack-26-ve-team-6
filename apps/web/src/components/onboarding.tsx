@@ -33,6 +33,7 @@ export function Onboarding({ userId, initialOrganizationId, initialApplicationId
   const [busy, setBusy] = useState(false);
   const [installationId, setInstallationId] = useState('');
   const [repositoryId, setRepositoryId] = useState<number | null>(null);
+  const needsWorkspace = !initialOrganizationId && !createdOrganizationId;
 
   useEffect(() => {
     let current = true;
@@ -55,9 +56,11 @@ export function Onboarding({ userId, initialOrganizationId, initialApplicationId
         if (application) { const next = { organizationId: initialOrganizationId, applicationId: application.applicationId }; setScope(next); setStep(2); }
       }).catch(() => undefined);
     }
-    fileInput.current?.setAttribute('webkitdirectory', '');
     return () => { current = false; };
   }, [initialOrganizationId, userId]);
+  useEffect(() => {
+    if (sourceChoice === 'upload') fileInput.current?.setAttribute('webkitdirectory', '');
+  }, [sourceChoice]);
   useEffect(() => { stepHeading.current?.focus(); }, [step]);
 
   const connections = useQuery({ queryKey: ['github-connections', userId, scope?.organizationId], enabled: Boolean(scope), queryFn: () => {
@@ -152,7 +155,7 @@ export function Onboarding({ userId, initialOrganizationId, initialApplicationId
   return <section className="customer-onboarding" aria-labelledby="onboarding-title">
     <div className="customer-onboarding-header"><span className="customer-eyebrow">PRIMER RESULTADO</span><h1 id="onboarding-title">Empieza en tres pasos</h1><p>Conecta una fuente autorizada y Gotchu preparará un informe con hallazgos, recomendaciones y aquello que todavía no pudo comprobar.</p></div>
     <ol className="customer-onboarding-steps" aria-label="Pasos de configuración">{['Espacio y aplicación', 'Elige una fuente', 'Primera evaluación'].map((label, index) => <li key={label} aria-current={step === index + 1 ? 'step' : undefined} className={step >= index + 1 ? 'is-current' : ''}><span>{index + 1}</span>{label}</li>)}</ol>
-    {step === 1 && <form className="customer-card customer-onboarding-card customer-form" onSubmit={event => void createScope(event)}><h2 ref={stepHeading} tabIndex={-1}>¿Qué quieres proteger?</h2><label htmlFor="onboarding-workspace">Espacio de trabajo</label><input id="onboarding-workspace" value={workspaceName} onChange={event => setWorkspaceName(event.target.value)} required maxLength={200} disabled={!canManage} /><label htmlFor="onboarding-application">Nombre de la aplicación</label><input id="onboarding-application" value={applicationName} onChange={event => setApplicationName(event.target.value)} required maxLength={200} disabled={!canManage} /><button className="customer-button customer-button-primary" disabled={!canManage || busy || !workspaceName.trim() || !applicationName.trim()}>{busy ? 'Creando…' : 'Continuar'}</button>{!canManage && <p>Un Owner u Operator debe crear una aplicación para continuar.</p>}</form>}
+    {step === 1 && <form className="customer-card customer-onboarding-card customer-form" onSubmit={event => void createScope(event)}><h2 ref={stepHeading} tabIndex={-1}>¿Qué quieres proteger?</h2>{needsWorkspace ? <><label htmlFor="onboarding-workspace">Espacio de trabajo</label><input id="onboarding-workspace" value={workspaceName} onChange={event => setWorkspaceName(event.target.value)} required maxLength={200} disabled={!canManage} /></> : <p>Se usará el espacio de trabajo seleccionado.</p>}<label htmlFor="onboarding-application">Nombre de la aplicación</label><input id="onboarding-application" value={applicationName} onChange={event => setApplicationName(event.target.value)} required maxLength={200} disabled={!canManage} /><button className="customer-button customer-button-primary" disabled={!canManage || busy || (needsWorkspace && !workspaceName.trim()) || !applicationName.trim()}>{busy ? 'Creando…' : 'Continuar'}</button>{!canManage && <p>Un Owner u Operator debe crear una aplicación para continuar.</p>}</form>}
     {step === 2 && <section className="customer-card customer-onboarding-card"><h2 ref={stepHeading} tabIndex={-1}>Elige cómo empezar</h2><div className="customer-onboarding-source-options" role="radiogroup" aria-label="Fuente de evaluación">
       <label><input type="radio" name="onboarding-source" value="github" checked={sourceChoice === 'github'} onChange={() => setSourceChoice('github')} /><span><strong>Conectar GitHub</strong><small>Lectura del código seleccionado. No ejecutamos el proyecto ni escribimos en el repositorio.</small></span></label>
       <label><input type="radio" name="onboarding-source" value="upload" checked={sourceChoice === 'upload'} onChange={() => setSourceChoice('upload')} /><span><strong>Subir una carpeta</strong><small>Analiza los archivos compatibles que compartas; no se ejecuta código.</small></span></label>

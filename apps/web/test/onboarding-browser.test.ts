@@ -76,13 +76,14 @@ browserSuite('opt-in upload-source onboarding browser fixture', () => {
     await page.getByRole('heading', { name: 'Empieza en tres pasos' }).waitFor();
     let productClicks = 0;
     await page.evaluate(() => { document.addEventListener('click', event => { if ((event.target as HTMLElement).closest('button, input[type="radio"]')) window.sessionStorage.setItem('onboarding-click-count', String(Number(window.sessionStorage.getItem('onboarding-click-count') ?? 0) + 1)); }, true); });
-    await page.getByLabel('Espacio de trabajo').fill('Onboarding browser fixture');
+    await page.getByRole('textbox', { name: 'Espacio de trabajo' }).fill('Onboarding browser fixture');
     await page.getByLabel('Nombre de la aplicación').fill('Upload-only application');
     await page.getByRole('button', { name: 'Continuar' }).click(); productClicks += 1;
     await page.getByRole('radio', { name: /Subir una carpeta/ }).check(); productClicks += 1;
     uploadedFolder = await mkdtemp(join(tmpdir(), 'gotchu-onboarding-source-'));
     await mkdir(join(uploadedFolder, 'src'));
     await writeFile(join(uploadedFolder, 'src', 'index.ts'), 'export const ready = true;\n');
+    await page.waitForFunction(() => document.querySelector('#onboarding-folder')?.hasAttribute('webkitdirectory'));
     await page.getByLabel('Carpeta del proyecto').setInputFiles(uploadedFolder);
     await page.getByRole('button', { name: 'Continuar con esta carpeta' }).click(); productClicks += 1;
     await page.getByRole('heading', { name: 'La cobertura dependerá de la fuente' }).waitFor();
@@ -92,5 +93,37 @@ browserSuite('opt-in upload-source onboarding browser fixture', () => {
     await page.getByText(/Evaluación guardada|Evaluación en curso/i).waitFor({ timeout: 10_000 });
     expect(productClicks).toBe(4);
     expect(await page.evaluate(() => window.sessionStorage.getItem('onboarding-click-count'))).toBe('4');
+  }, 60_000);
+
+  it('lets an existing empty workspace add its first application', async () => {
+    await page.context().clearCookies();
+    await page.goto(origin);
+    await page.evaluate(() => sessionStorage.clear());
+    const email = `onboarding-empty-${randomUUID()}@example.test`;
+    const password = `Passphrase-${randomBytes(16).toString('hex')}`;
+    const registration = await page.evaluate(async ({ email, password }) => {
+      const response = await fetch('/api/customer/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+      return response.status;
+    }, { email, password });
+    expect(registration).toBe(201);
+    await page.evaluate(async ({ email, password }) => {
+      const csrfPayload: unknown = await (await fetch('/api/auth/csrf')).json();
+      if (!csrfPayload || typeof csrfPayload !== 'object' || !('csrfToken' in csrfPayload) || typeof csrfPayload.csrfToken !== 'string') throw new Error('Auth.js CSRF token was missing.');
+      const response = await fetch('/api/auth/callback/credentials', { method: 'POST', headers: { 'X-Auth-Return-Redirect': '1' }, redirect: 'error', body: new URLSearchParams({ csrfToken: csrfPayload.csrfToken, email, password, callbackUrl: '/dashboard', json: 'true' }) });
+      if (!response.ok) throw new Error('Local fixture sign-in failed.');
+    }, { email, password });
+    await page.evaluate(async () => {
+      const response = await fetch('/api/customer/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Existing empty workspace' }) });
+      if (response.status !== 201) throw new Error('Could not create the empty workspace fixture.');
+    });
+    await page.goto(`${origin}/dashboard`);
+    await page.getByRole('heading', { name: 'Empieza en tres pasos' }).waitFor();
+    await page.getByText('Se usará el espacio de trabajo seleccionado.').waitFor();
+    expect(await page.locator('#onboarding-workspace').count()).toBe(0);
+    await page.getByLabel('Nombre de la aplicación').fill('First application');
+    const created = page.waitForResponse(response => response.url().endsWith('/applications') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Continuar' }).click();
+    expect((await created).status()).toBe(201);
+    await page.getByRole('heading', { name: 'Elige cómo empezar' }).waitFor();
   }, 60_000);
 });
