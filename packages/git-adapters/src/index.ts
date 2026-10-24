@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import { SignJWT, importPKCS8 } from 'jose';
+import { load as parseYaml } from 'js-yaml';
 import { z } from 'zod';
 
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
@@ -36,13 +37,53 @@ export function assertWorkflowPatchSafe(files: readonly PatchFile[]): void {
 }
 export function assertAutomationSafe(workflows: readonly { path: string; content: string }[], policyAllowsUnsafe = false): void {
   const parsed = z.array(workflowSchema).parse(workflows);
-  if (policyAllowsUnsafe) return;
   for (const workflow of parsed) {
     if (!workflow.path.startsWith('.github/workflows/')) continue;
-    const text = workflow.content;
-    if (/\bpull_request_target\b/i.test(text)
-      || (/\b(?:push|pull_request)\b/i.test(text) && /gotchu\/\*\*/i.test(text))) throw new GitAdapterError('repository_automation_unsafe');
+    let document: unknown;
+    try { document = parseYaml(workflow.content, { maxAliasCount: 50 }); }
+    catch { throw new GitAdapterError('repository_automation_unsafe'); }
+    const root = z.record(z.string(), z.unknown()).safeParse(document);
+    if (!root.success) throw new GitAdapterError('repository_automation_unsafe');
+    if (policyAllowsUnsafe) continue;
+    const triggers = root.data.on ?? root.data.true;
+    const events = triggerMap(triggers);
+    if (events.has('pull_request_target')) throw new GitAdapterError('repository_automation_unsafe');
+    const push = events.get('push');
+    if (events.has('push')) {
+      const pushOptions = typeof push === 'object' && push !== null && !Array.isArray(push)
+        ? push as Record<string, unknown> : {};
+      const branchFilters = [...stringList(pushOptions.branches), ...stringList(pushOptions['branches-ignore'])];
+      if (branchFilters.length === 0 || branchFilters.some(pattern => matchesBranchPattern(pattern, 'gotchu/sample')))
+        throw new GitAdapterError('repository_automation_unsafe');
+    }
+    if (events.has('pull_request') && containsForbiddenSecret(root.data.jobs))
+      throw new GitAdapterError('repository_automation_unsafe');
   }
+}
+
+function triggerMap(value: unknown): Map<string, unknown> {
+  if (typeof value === 'string') return new Map([[value, {}]]);
+  if (Array.isArray(value)) return new Map(value.filter((item): item is string => typeof item === 'string').map(event => [event, {}]));
+  if (typeof value === 'object' && value !== null) return new Map(Object.entries(value));
+  throw new GitAdapterError('repository_automation_unsafe');
+}
+
+function stringList(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value) && value.every(item => typeof item === 'string')) return value;
+  return [];
+}
+
+function matchesBranchPattern(pattern: string, branch: string): boolean {
+  const glob = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*|\*|\?/g, token => token === '**' ? '.*' : token === '*' ? '[^/]*' : '.');
+  return new RegExp(`^${glob}$`).test(branch);
+}
+
+function containsForbiddenSecret(value: unknown): boolean {
+  if (typeof value === 'string') return [...value.matchAll(/\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)/g)].some(match => match[1] !== 'GITHUB_TOKEN');
+  if (Array.isArray(value)) return value.some(containsForbiddenSecret);
+  if (typeof value === 'object' && value !== null) return Object.values(value).some(containsForbiddenSecret);
+  return false;
 }
 
 async function git(cwd: string, args: readonly string[]): Promise<string> {

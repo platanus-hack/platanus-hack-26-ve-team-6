@@ -26,6 +26,11 @@ describe('git adapters', () => {
     expect(() => assertAutomationSafe([{path:'.github/workflows/release.yml',content:'on:\n  pull_request_target:\n'}])).toThrow(GitAdapterError);
     expect(() => assertAutomationSafe([{path:'../x',content:'on: push'}])).toThrow();
     expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on:\n  push:\n    branches: ["gotchu/**"]'}])).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: push\njobs: {}'}])).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: pull_request\njobs:\n  test:\n    steps:\n      - run: echo ${{ secrets.NPM_TOKEN }}'}])).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: ['}])).toThrow(GitAdapterError);
+    expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: pull_request\njobs:\n  test:\n    steps:\n      - run: echo ${{ secrets.GITHUB_TOKEN }}'}])).not.toThrow();
+    expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on:\n  pull_request_target:\n'}], true)).not.toThrow();
   });
 
   it('publishes one local PR equivalent on duplicate delivery and refuses a moved base', async () => {
