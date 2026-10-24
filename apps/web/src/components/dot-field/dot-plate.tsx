@@ -52,9 +52,11 @@ export function DotPlate({ formation, className = '', paused = false }: DotPlate
       const inside = pointer.x >= box.left - 40 && pointer.x <= box.right + 40 && pointer.y >= box.top - 40 && pointer.y <= box.bottom + 40;
       const strength = inside ? Math.max(0, 1 - (now - pointer.lastMove) / 700) : 0;
       const more = step(state, dt, { pointerX: pointer.x - box.left, pointerY: pointer.y - box.top, pointerStrength: strength, catching });
-      draw(ctx, state, true, palette);
+      // Paused or hidden while this frame was queued: draw the still frame so later repaints match it.
+      const running = canRun();
+      draw(ctx, state, running, palette);
       host.dataset.ready = 'true';
-      if (more && canRun()) frameId = requestAnimationFrame(frame);
+      if (more && running) frameId = requestAnimationFrame(frame);
     };
     const start = () => {
       if (frameId || !state) return;
