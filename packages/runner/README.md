@@ -12,7 +12,7 @@ The host validates the archive before boot: input size, gzip expansion, compress
 
 ## Gate status and limits
 
-`checkRunnerGate()` currently checks KVM access, the pinned Firecracker archive and binaries, guest kernel/rootfs hashes, and the sandbox configuration. It still requires the jailer identity and remains closed because a passing end-to-end host sandbox self-test is not yet recorded. Network `allowlist` is always rejected because host tap creation and egress filtering are not implemented. There is no Docker or host-process fallback.
+`checkRunnerGate()` currently checks KVM access, the pinned Firecracker archive and binary, guest kernel/rootfs hashes, and the sandbox configuration. It remains closed because a passing end-to-end host sandbox self-test is not yet recorded. Network `allowlist` is always rejected because host tap creation and egress filtering are not implemented. There is no Docker or host-process fallback.
 
 The checked-in sandbox policy deliberately sets `executionEnabled` to `false`. The customer-facing `runJob` refuses to execute while the gate is closed. The bwrap namespace and user systemd scope are a development-host alternative; the jailer remains the preferred production launch path where its root-managed identity and cgroup controls are available. The current live suite still has failures in the guest result protocol, so no self-test or customer execution is enabled.
 

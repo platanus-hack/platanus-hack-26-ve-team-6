@@ -10,9 +10,7 @@ const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const sandboxSchema = z.object({
   version: z.literal(1),
   executionEnabled: z.boolean(),
-  jailerRequired: z.literal(true),
-  jailerUid: z.number().int().positive(),
-  jailerGid: z.number().int().positive(),
+  hostSandboxSelfTestRequired: z.literal(true),
   networkMode: z.literal('none'),
   seccomp: z.literal('firecracker-default'),
   pidsCgroup: z.literal(true),
@@ -61,7 +59,8 @@ export async function checkRunnerGate(options: RunnerGateOptions = {}): Promise<
     const kernel = join(cache, `vmlinux-${lock.kernel.version}`);
     const rootfs = join(cache, 'rootfs.ext4');
     const firecracker = join(cache, `firecracker-v${lock.firecracker.version}-x86_64`);
-    const jailer = join(cache, `jailer-v${lock.firecracker.version}-x86_64`);
+    await access('/usr/bin/bwrap', constants.X_OK);
+    await access('/usr/bin/systemd-run', constants.X_OK);
 
     if (await sha256(firecrackerArchive) !== lock.firecracker.archiveSha256) {
       return { status: 'closed', reason: 'Pinned Firecracker release archive is missing or its SHA-256 does not match images.lock.json.' };
@@ -73,17 +72,13 @@ export async function checkRunnerGate(options: RunnerGateOptions = {}): Promise<
       return { status: 'closed', reason: 'Pinned guest root filesystem is missing or its SHA-256 does not match images.lock.json.' };
     }
     await access(firecracker, constants.X_OK);
-    await access(jailer, constants.X_OK);
-    if (await sha256(firecracker) !== lock.firecracker.binarySha256 || await sha256(jailer) !== lock.firecracker.jailerSha256) {
-      return { status: 'closed', reason: 'Installed Firecracker or jailer binary digest does not match the signed release archive contents.' };
-    }
-    if ((options.effectiveUid ?? process.geteuid?.() ?? 1) !== 0) {
-      return { status: 'closed', reason: 'Firecracker jailer requires the runner service to start with its configured privileged sandbox identity.' };
+    if (await sha256(firecracker) !== lock.firecracker.binarySha256) {
+      return { status: 'closed', reason: 'Installed Firecracker binary digest does not match the signed release archive contents.' };
     }
     if (!sandbox.executionEnabled) {
-      return { status: 'closed', reason: 'Execution is deliberately disabled until the jailer-backed launch and cgroup controls are independently validated.' };
+      return { status: 'closed', reason: 'Host sandbox self-test has not passed; execution remains disabled.' };
     }
-    return { status: 'closed', reason: 'The current adapter does not yet launch through the configured jailer; execution remains disabled.' };
+    return { status: 'closed', reason: 'Host sandbox self-test has not passed within the required verification window.' };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown runner readiness error';
     return { status: 'closed', reason: `Runner prerequisites are unavailable or invalid: ${message}` };

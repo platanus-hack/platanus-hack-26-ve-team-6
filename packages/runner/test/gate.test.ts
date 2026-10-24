@@ -8,11 +8,9 @@ describe('runner gate', () => {
     if (result.status === 'closed') expect(result.reason).toContain('unavailable or invalid');
   });
 
-  it('does not silently enable an incomplete jailer-backed launch path', async () => {
+  it('keeps execution closed until the host sandbox self-test passes', async () => {
     const result = await checkRunnerGate();
     expect(result.status).toBe('closed');
-    if (result.status === 'closed') {
-      expect(result.reason).toMatch(/jailer|KVM|privileged|sandbox|image/i);
-    }
+    if (result.status === 'closed') expect(result.reason).toMatch(/jailer|KVM|sandbox|image/i);
   });
 });
