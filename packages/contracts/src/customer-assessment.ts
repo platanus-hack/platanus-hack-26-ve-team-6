@@ -27,6 +27,7 @@ export const customerOriginSchema = z.string().max(300).refine(value => {
 export const customerScopeSchema = z.object({ organizationId: uuid, applicationId: uuid }).strict();
 export const customerWorkspaceSchema = z.object({ id: uuid, name, role: z.enum(['owner', 'operator', 'viewer']) }).strict();
 export const customerCreateWorkspaceSchema = z.object({ name }).strict();
+export const customerUpdateWorkspaceSchema = z.object({ organizationId: uuid, name }).strict();
 export const customerCreateApplicationSchema = z.object({ organizationId: uuid, name }).strict();
 export const customerApplicationSchema = customerScopeSchema.extend({ name, archived: z.boolean(), createdAt: timestamp }).strict();
 export const customerUpdateApplicationSchema = customerScopeSchema.extend({ name: name.optional(), archived: z.boolean().optional() }).strict().refine(value => value.name !== undefined || value.archived !== undefined);
