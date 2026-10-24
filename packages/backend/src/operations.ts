@@ -10,6 +10,7 @@ import {
 import type { Transaction } from '@gotchu/database';
 import { audit, authorize, BackendError, canonicalJson, parse, sha256, type BaseDependencies, type Identity } from './core.js';
 import { enqueue } from './jobs.js';
+import { enqueueNotificationEvent } from './notifications.js';
 
 type Scope = z.infer<typeof customerScopeSchema>;
 const writes = ['owner', 'operator'] as const;
@@ -123,6 +124,8 @@ export function createOperationsService(deps: BaseDependencies) {
       for (const row of claims) {
         const scope = { organizationId: row.organization_id, applicationId: row.application_id };
         const current = await deps.database.tenant(scope.organizationId, tx => config(tx, scope));
+        await deps.database.tenant(scope.organizationId, tx => tx.query(`INSERT INTO gotchu.monitoring_liveness(organization_id,application_id,state,last_check_heartbeat_at)
+          VALUES($1,$2,'unknown',clock_timestamp()) ON CONFLICT(organization_id,application_id) DO UPDATE SET last_check_heartbeat_at=clock_timestamp(),updated_at=clock_timestamp()`, [scope.organizationId,scope.applicationId]));
         result.push(parse(monitorWorkSchema, { ...scope, runId: row.id, leaseToken: row.lease_token, monitorRevision: row.monitor_revision, leaseUntil: row.lease_until.toISOString(), config: current }));
       }
       return result;
@@ -136,6 +139,8 @@ export function createOperationsService(deps: BaseDependencies) {
       await deps.database.tenant(value.organizationId, async tx => {
         const result = await tx.query<{ status: string }>('SELECT gotchu.operation_heartbeat($1,$2,$3,$4,$5) AS status', [value.organizationId, value.applicationId, value.runId, value.leaseToken, value.leaseMs]);
         if (result.rows[0]?.status !== 'ok') throw new BackendError(result.rows[0]?.status ?? 'stale_lease', 'Monitoring heartbeat requires current scope and lease', 409);
+        await tx.query(`INSERT INTO gotchu.monitoring_liveness(organization_id,application_id,state,last_check_heartbeat_at)
+          VALUES($1,$2,'unknown',clock_timestamp()) ON CONFLICT(organization_id,application_id) DO UPDATE SET last_check_heartbeat_at=clock_timestamp(),updated_at=clock_timestamp()`, [value.organizationId,value.applicationId]);
       });
     },
     async materialize(input: MonitorClaim & { repositorySnapshot?: CustomerSourceSnapshot }): Promise<{ jobId: string | null }> {
@@ -158,6 +163,8 @@ export function createOperationsService(deps: BaseDependencies) {
             OR (r.job_id IS NULL AND EXISTS(SELECT 1 FROM gotchu.operation_observations o WHERE o.organization_id=r.organization_id AND o.application_id=r.application_id AND o.basis->>'runId'=r.id::text AND o.body->>'kind'<>'coverage_gap')))` ,
         [value.organizationId, value.applicationId, value.runId, value.leaseToken, value.status, value.reason ?? null]);
         if (!result.rowCount) throw new BackendError('stale_lease', 'Monitoring lease expired, assessment work has not settled, or successful observation evidence is missing', 409);
+        await tx.query(`INSERT INTO gotchu.monitoring_liveness(organization_id,application_id,state,last_check_heartbeat_at)
+          VALUES($1,$2,'unknown',clock_timestamp()) ON CONFLICT(organization_id,application_id) DO UPDATE SET last_check_heartbeat_at=clock_timestamp(),updated_at=clock_timestamp()`, [value.organizationId,value.applicationId]);
       });
     },
     async recordObservation(input: RecordOperationObservation): Promise<{ observationId: string; alertId: string | null }> {
@@ -204,7 +211,18 @@ export function createOperationsService(deps: BaseDependencies) {
         const { basis: _basis, idempotencyKey: _key, ...fields } = value;
         const body = parse(operationObservationSchema, { ...fields, id: observationId, verification: 'trusted_observation', fresh: true });
         await tx.query('INSERT INTO gotchu.operation_observations(organization_id,application_id,id,idempotency_key,content_hash,body,basis,expires_at) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)', [value.organizationId, value.applicationId, observationId, value.idempotencyKey, contentHash, JSON.stringify(body), JSON.stringify(basis), value.expiresAt]);
-        if (alertId) await tx.query('INSERT INTO gotchu.operation_alerts(organization_id,application_id,id,observation_id) VALUES($1,$2,$3,$4)', [value.organizationId, value.applicationId, alertId, observationId]);
+        if (alertId) {
+          await tx.query('INSERT INTO gotchu.operation_alerts(organization_id,application_id,id,observation_id) VALUES($1,$2,$3,$4)', [value.organizationId, value.applicationId, alertId, observationId]);
+          if (value.severity === 'high' || value.severity === 'critical') {
+            if (value.basis.kind === 'monitor') {
+              await enqueueNotificationEvent(tx, { organizationId:value.organizationId, applicationId:value.applicationId, eventKey:`monitor-alert:${alertId}`,
+                eventKind:'finding', severity:value.severity, title:value.severity==='critical'?'Nuevo hallazgo crítico':'Nuevo hallazgo de severidad alta', message:value.summary });
+            } else if (value.basis.kind === 'events') {
+              await enqueueNotificationEvent(tx, { organizationId:value.organizationId, applicationId:value.applicationId, eventKey:`runtime-alert:${alertId}`,
+                eventKind:'runtime_alert', severity:value.severity, title:value.severity==='critical'?'Alerta crítica del detector en tiempo de ejecución':'Alerta del detector en tiempo de ejecución', message:value.summary });
+            }
+          }
+        }
         const windowBucket = Math.floor(now / 300_000);
         await enqueue(tx,{organizationId:value.organizationId,applicationId:value.applicationId,id:randomUUID(),kind:'notification',idempotencyKey:`triage:${value.applicationId}:${windowBucket}`,payload:{kind:'triage_evaluation',windowBucket}});
         return { observationId, alertId };
@@ -256,9 +274,42 @@ export function createOperationsService(deps: BaseDependencies) {
         const full = capacity && (capacity.runs >= 1000 || capacity.observations >= 2000 || capacity.daily >= 100);
         const last = runs.rows[0];
         const expired = current && Date.parse(current.nextDueAt) < Date.now() - current.intervalSeconds * 1000;
-        return parse(operationCoverageSchema, { config: current, status: !current?.enabled || app.archived ? 'not_configured' as const : !scopeCurrent || full ? 'degraded' as const : expired ? 'stale' as const : !last || last.status === 'running' ? 'pending' as const : last.status === 'completed' ? 'active' as const : 'degraded' as const,
+        const livenessResult=await tx.query<{state:string;reason:string|null;since:Date|null;last_scheduler_heartbeat_at:Date|null;last_check_heartbeat_at:Date|null;consecutive_failures:number;database_now:Date}>(`SELECT l.state,l.reason,l.since,l.last_scheduler_heartbeat_at,l.last_check_heartbeat_at,l.consecutive_failures,clock_timestamp() AS database_now
+          FROM gotchu.monitoring_liveness l WHERE l.organization_id=$1 AND l.application_id=$2`,[value.organizationId,value.applicationId]);
+        let livenessRow=livenessResult.rows[0];
+        const schedulerStaleAt=livenessRow?.last_scheduler_heartbeat_at
+          ? new Date(livenessRow.last_scheduler_heartbeat_at.getTime()+30_000)
+          : current ? new Date(Date.parse(current.nextDueAt)+current.intervalSeconds*2_000) : null;
+        const databaseNow=livenessRow?.database_now ?? (await tx.query<{now:Date}>('SELECT clock_timestamp() AS now')).rows[0]?.now;
+        const coordinatorStopped=Boolean(current?.enabled && !app.archived && schedulerStaleAt && databaseNow && schedulerStaleAt<=databaseNow);
+        let stoppedSince=livenessRow?.since?.toISOString()??null;
+        if(coordinatorStopped&&livenessRow?.state!=='stopped'&&schedulerStaleAt){
+          const persisted=livenessRow
+            ? await tx.query<{since:Date}>(`UPDATE gotchu.monitoring_liveness SET state='stopped',reason='El coordinador dejó de enviar latidos de planificación.',since=$3,updated_at=clock_timestamp()
+                WHERE organization_id=$1 AND application_id=$2 AND state<>'stopped' RETURNING since`,[value.organizationId,value.applicationId,schedulerStaleAt])
+            : await tx.query<{since:Date}>(`INSERT INTO gotchu.monitoring_liveness(organization_id,application_id,state,reason,since)
+                VALUES($1,$2,'stopped','El coordinador dejó de enviar latidos de planificación.',$3) ON CONFLICT(organization_id,application_id) DO NOTHING RETURNING since`,[value.organizationId,value.applicationId,schedulerStaleAt]);
+          const transitionSince=persisted.rows[0]?.since;
+          if(transitionSince){
+            stoppedSince=transitionSince.toISOString();
+            await enqueueNotificationEvent(tx,{organizationId:value.organizationId,applicationId:value.applicationId,
+              eventKey:`monitoring-stopped:${value.applicationId}:${stoppedSince}`,eventKind:'monitoring_stopped',severity:'high',
+              title:'Vigilancia detenida',message:`El coordinador dejó de enviar latidos de planificación. Desde ${stoppedSince}.`});
+          }
+          const latest=await tx.query<Omit<NonNullable<typeof livenessRow>,'database_now'>>(`SELECT state,reason,since,last_scheduler_heartbeat_at,last_check_heartbeat_at,consecutive_failures
+            FROM gotchu.monitoring_liveness WHERE organization_id=$1 AND application_id=$2`,[value.organizationId,value.applicationId]);
+          if(latest.rows[0]&&livenessRow)livenessRow={...latest.rows[0],database_now:livenessRow.database_now};
+          stoppedSince=livenessRow?.since?.toISOString()??stoppedSince;
+        }
+        const liveness={state:!current?.enabled||app.archived?'unknown':coordinatorStopped||livenessRow?.state==='stopped'?'stopped':livenessRow?.state??'unknown',
+          reason:!current?.enabled||app.archived?null:coordinatorStopped&&livenessRow?.state!=='stopped'?'El coordinador dejó de enviar latidos de planificación.':livenessRow?.reason??null,
+          since:!current?.enabled||app.archived?null:stoppedSince,
+          lastSchedulerHeartbeatAt:livenessRow?.last_scheduler_heartbeat_at?.toISOString()??null,lastCheckHeartbeatAt:livenessRow?.last_check_heartbeat_at?.toISOString()??null,
+          consecutiveFailures:livenessRow?.consecutive_failures??0};
+        return parse(operationCoverageSchema, { config: current, status: !current?.enabled || app.archived ? 'not_configured' as const : liveness.state === 'stopped' ? 'stopped' as const : !scopeCurrent || full ? 'degraded' as const : expired || liveness.state === 'late' ? 'stale' as const : !last || last.status === 'running' ? 'pending' as const : last.status === 'completed' ? 'active' as const : 'degraded' as const,
+          liveness,
           scopeCurrent, lastRun: last ? { runId: last.id, jobId: last.job_id, status: last.status, reason: last.reason, startedAt: last.created_at.toISOString(), finishedAt: last.finished_at?.toISOString() ?? null } : null,
-          observations: count.rows[0] ?? { fresh: 0, stale: 0 }, limitations: ['Scheduled checks cover only selected inputs; uninspected paths remain unknown.', 'In-app alerts do not imply external notification delivery.', 'Runtime event telemetry is a separate integration.', 'Provider status reports do not establish application impact.',
+          observations: count.rows[0] ?? { fresh: 0, stale: 0 }, limitations: ['Scheduled checks cover only selected inputs; uninspected paths remain unknown.', 'A sent notification means the provider accepted it, not that a person read it.', 'Runtime event telemetry is a separate integration.', 'Provider status reports do not establish application impact.',
             ...(full ? ['Monitoring storage admission is full; operator retention maintenance is required. Existing evidence is retained.'] : []),
             ...gaps.rows.map(gap => `${gap.capability}: ${gap.reason}. Operator reconciliation is required; some alerts were not projected.`)] });
       });
