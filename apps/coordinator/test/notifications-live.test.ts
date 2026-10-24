@@ -213,10 +213,26 @@ live('notification outbox on live Postgres and Redis, HTTPS receiver, and Mailpi
     const notifications = await f.admin.query<{ event_kind: string; severity: string; count: number }>(`SELECT event_kind,severity,count(*)::int AS count
       FROM gotchu.notification_events WHERE organization_id=$1 AND application_id=$2 GROUP BY event_kind,severity`, [c.workspaceId, c.applicationId]);
     expect(notifications.rows).toEqual([{ event_kind: 'runtime_alert', severity: 'high', count: 2 }]);
+    const runtimeEvents = await f.admin.query<{ id: string }>(`SELECT id FROM gotchu.notification_events
+      WHERE organization_id=$1 AND application_id=$2 AND event_kind='runtime_alert' ORDER BY event_key`, [c.workspaceId, c.applicationId]);
     const deliveries = await f.admin.query<{ count: number }>(`SELECT count(*)::int AS count FROM gotchu.notification_deliveries d
       JOIN gotchu.notification_events e ON e.organization_id=d.organization_id AND e.id=d.event_id
       WHERE d.organization_id=$1 AND e.application_id=$2 AND e.event_kind='runtime_alert'`, [c.workspaceId, c.applicationId]);
     expect(deliveries.rows[0]?.count).toBe(2);
+    if (mailpitUrl && mailpitApi) {
+      const smtp = readSmtpSettings({ ...process.env, NODE_ENV: 'test', GOTCHU_SMTP_URL: mailpitUrl,
+        GOTCHU_SMTP_TLS_MODE: 'none', GOTCHU_SMTP_FROM: 'gotchu@example.com' });
+      const transport = await createTransport(c.workspaceId, createNotificationDeliverySender({ smtp }));
+      try {
+        expect(await dispatchOutbox(coordinator, c.workspaceId, transport.publish)).toBeGreaterThan(0);
+        for (const event of runtimeEvents.rows) await waitForDelivery(c.workspaceId, event.id, 'sent');
+        const response = await fetch(`${mailpitApi}/api/v1/messages`);
+        expect(response.status).toBe(200);
+        const messages: unknown = await response.json();
+        expect(JSON.stringify(messages)).toContain('runtime@example.com');
+        expect(JSON.stringify(messages)).toContain('Alerta del detector en tiempo de ejecución');
+      } finally { await transport.close(); }
+    }
   }, 30_000);
 
   it('sends SMTP mail through the disposable Mailpit container', async () => {
