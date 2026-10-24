@@ -565,7 +565,7 @@ async function start() {
     command('bash', ['scripts/infra-local-up.sh'], { env: { ...baseEnvironment, DOCKER_HOST: dockerHost, DOCKER_CONFIG: '/nonexistent' }, label: 'Local PostgreSQL and Redis setup' });
     const urls = databaseUrls(infra);
     const scannerSecretFile = join(directory, 'scanner.secret');
-    const origin = `http://127.0.0.1:${ports.web}`;
+    const origin = `http://localhost:${ports.web}`;
 
     await launchService(state, 'scanner', ports.scanner, {
       GOTCHU_SCANNER_SECRET_FILE: scannerSecretFile,
@@ -617,7 +617,7 @@ async function start() {
         && Array.isArray(value.providers) && value.providers.some(provider => isRecord(provider) && provider.id === 'credentials');
     });
 
-    const dashboard = await fetch(`${origin}/dashboard`, { signal: AbortSignal.timeout(10_000), redirect: 'error' });
+    const dashboard = await fetch(`http://127.0.0.1:${ports.web}/dashboard`, { signal: AbortSignal.timeout(10_000), redirect: 'error' });
     if (!dashboard.ok || !dashboard.headers.get('content-type')?.includes('text/html')) throw new Error('The actual dashboard did not render successfully; inspect .local/dev/web.log.');
     await dashboard.body?.cancel();
 
