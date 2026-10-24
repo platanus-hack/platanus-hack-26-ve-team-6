@@ -46,9 +46,11 @@ New accounts start without a seeded workspace. A user can create and list worksp
 
 ### Source snapshots
 
-Customers submit normalized source snapshots directly to an application. The shared contract allows up to 4 MiB serialized per snapshot, 1,000 files, and 1 MiB per file; paths are restricted to supported relative JS/TS, JSON, YAML, and TOML files. The backend sorts files, calculates a canonical digest, deduplicates active identical snapshots, and stores source bytes in Postgres. No repository provider is required.
+Customers submit normalized source snapshots directly to an application. The shared contract allows up to 4 MiB serialized per snapshot, 1,000 files, and 1 MiB per file; paths are restricted to supported relative JS/TS, JSON, YAML, TOML, and recognized lockfile paths. The backend sorts files, calculates a canonical digest, deduplicates active identical snapshots, and stores source bytes in Postgres. No repository provider is required.
 
-This is a bounded source-file profile, not whole-application or all-language coverage. Exact dependency inventory currently recognizes npm `package-lock.json` v2/v3 only; pnpm, Yarn, Python, Java, and other package formats are unsupported and remain unknown.
+This is a bounded source-file profile, not whole-application or all-language coverage. Exact dependency inventory recognizes npm `package-lock.json` v2/v3, pnpm `pnpm-lock.yaml` v6/v9, Yarn classic v1, and Yarn Berry. Parser size, entry, depth, package, and graph bounds are explicit; malformed, capped, and unsupported lockfiles remain unknown. No packages are installed and no customer code runs. The optional bounded OSV adapter sends only package names and exact versions.
+
+License metadata comes from a lockfile declaration when present or the npm registry's exact-version license field. SPDX expressions are normalized and evaluated against a tenant-scoped workspace policy managed by Owners and Operators. Strong copyleft and unknown declarations default to review. Reports preserve the source path and license metadata provenance; declarations are not verified against package contents and do not establish legal compliance. Each persisted source assessment can export CycloneDX 1.5 from its recorded inventory; partial lockfile or dependency graph coverage is marked incomplete. The report UI provides inventory filters, policy status, and SBOM download.
 
 Owners and Operators can delete a snapshot. Deletion clears its stored body and hides the snapshot from active lists, but is rejected while a queued or running job depends on it. Assessments recheck that the stored snapshot still matches the durable digest. Customer code, package scripts, package installation, builds, and customer tests are never run.
 
