@@ -57,11 +57,15 @@ describe('git adapters', () => {
       'env:\n  TOKEN: "${{ toJSON(secrets) }}"',
       'env:\n  TOKEN: "${{ secrets[inputs.name] }}"',
       'env:\n  TOKEN: "${{ secrets.NPM_TOKEN"',
+      'env:\n  PRIVATE: ${{ format(\'x}}{0}\', secrets.NPM_TOKEN) }}',
+      'env:\n  PRIVATE: ${{ format(\'x}}{0}\'\' escaped\', secrets.NPM_TOKEN) }}',
+      'env:\n  PRIVATE: ${{ format(\'x}}{0}\', secrets.GITHUB_TOKEN) }} and ${{ secrets.NPM_TOKEN }}',
     ]) expect(() => assertAutomationSafe(workflow(value))).toThrow(GitAdapterError);
     expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: pull_request\njobs:\n  check:\n    steps:\n      - run: echo "${{ secrets[format(\'TOKEN_{0}\', inputs.name)] }}"'}])).toThrow(GitAdapterError);
     expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: pull_request\njobs:\n  check:\n    env:\n      "${{ secrets.NPM_TOKEN }}": value'}])).toThrow(GitAdapterError);
     expect(() => assertAutomationSafe(workflow('env:\n  TOKEN: "${{ secrets.GITHUB_TOKEN }}"'))).not.toThrow();
     expect(() => assertAutomationSafe(workflow('env:\n  TOKEN: "${{ SeCrEtS [ \'GITHUB_TOKEN\' ] }}"'))).not.toThrow();
+    expect(() => assertAutomationSafe(workflow('env:\n  TOKEN: ${{ format(\'x}}{0}\'\' escaped\', secrets.GITHUB_TOKEN) }}'))).not.toThrow();
     expect(() => assertAutomationSafe(workflow('env:\n  TOKEN: "${{ secrets.GITHUB_TOKEN }}"'),true)).not.toThrow();
   });
 

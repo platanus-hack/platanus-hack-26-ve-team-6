@@ -164,10 +164,10 @@ function hasForbiddenSecretReference(expression: string): boolean {
       name = property[0];
       index += name.length;
     } else if (expression[index] === '[') {
-      const property = /^\[\s*(['"])([A-Za-z_][A-Za-z0-9_]*)\1\s*\]/.exec(expression.slice(index));
+      const property = /^\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]/.exec(expression.slice(index));
       if (!property) return true;
-      if (!property[2]) return true;
-      name = property[2];
+      if (!property[1]) return true;
+      name = property[1];
       index += property[0].length;
     } else return true;
     if (name.toUpperCase() !== 'GITHUB_TOKEN') return true;
@@ -177,12 +177,40 @@ function hasForbiddenSecretReference(expression: string): boolean {
   return false;
 }
 
+function expressionEnd(value: string, start: number): number | undefined {
+  // A terminator inside a single-quoted literal is data; doubled quotes escape a quote.
+  let inSingleQuotedString = false;
+  for (let index = start; index < value.length - 1; index++) {
+    const character = value[index];
+    if (inSingleQuotedString) {
+      if (character === "'" && value[index + 1] === "'") {
+        index++;
+        continue;
+      }
+      if (character === "'") inSingleQuotedString = false;
+      continue;
+    }
+    if (character === '"') return undefined;
+    if (character === "'") {
+      inSingleQuotedString = true;
+      continue;
+    }
+    if (character === '}' && value[index + 1] === '}') return index;
+  }
+  return undefined;
+}
+
 function containsForbiddenSecret(value: unknown, active = new WeakSet<object>()): boolean {
   if (typeof value === 'string') {
-    const expressions = [...value.matchAll(/\$\{\{([\s\S]*?)\}\}/g)];
-    if (expressions.some(match => hasForbiddenSecretReference(match[1] ?? ''))) return true;
-    const remainder = value.replace(/\$\{\{[\s\S]*?\}\}/g, '');
-    return remainder.includes('${{') && /\bsecrets\b/i.test(remainder.slice(remainder.indexOf('${{')));
+    let cursor = 0;
+    while (true) {
+      const start = value.indexOf('${{',cursor);
+      if (start === -1) return false;
+      const end = expressionEnd(value,start + 3);
+      if (end === undefined) return /\bsecrets\b/i.test(value.slice(start + 3));
+      if (hasForbiddenSecretReference(value.slice(start + 3,end))) return true;
+      cursor = end + 2;
+    }
   }
   if (typeof value === 'object' && value !== null) {
     if (active.has(value)) return true;
