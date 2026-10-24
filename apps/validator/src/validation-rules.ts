@@ -23,8 +23,10 @@ export function validationAdmissionReason(input: { suiteConfigured: boolean; bas
   return null;
 }
 
-export function rescanCoverage(states: readonly ('inspected' | 'not_requested' | 'unsupported' | 'unavailable')[]): 'complete' | 'partial' {
-  return states.length > 0 && states.every(state => state === 'inspected' || state === 'not_requested') ? 'complete' : 'partial';
+export function rescanCoverage(coverage: readonly { capability: string; state: 'inspected' | 'not_requested' | 'unsupported' | 'unavailable' }[]): 'complete' | 'partial' {
+  const resolved = coverage.every(item => item.state === 'inspected' || item.state === 'not_requested'
+    || item.state === 'unsupported' && (item.capability === 'trivy' || item.capability.startsWith('trivy_')));
+  return coverage.length > 0 && resolved ? 'complete' : 'partial';
 }
 
 function suiteFile(path: string): boolean {

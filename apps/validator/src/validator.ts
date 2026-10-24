@@ -24,7 +24,7 @@ function scanIdentities(report: unknown) {
   if (!analysis || analysis.status !== 'completed') return { identities: [] as string[], coverage: 'unknown' as const };
   return {
     identities: [...new Set(analysis.findings.map(finding => finding.correlationKey))].sort(),
-    coverage: rescanCoverage(analysis.coverage.map(item => item.state)),
+    coverage: rescanCoverage(analysis.coverage),
   };
 }
 

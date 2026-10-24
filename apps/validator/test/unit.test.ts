@@ -20,8 +20,13 @@ const completeEvidence: ValidationEvidence[] = [
 
 describe('validator evidence rules', () => {
   it('treats not-requested capabilities as resolved coverage while retaining unknown states', () => {
-    expect(rescanCoverage(['inspected', 'not_requested'])).toBe('complete');
-    expect(rescanCoverage(['inspected', 'unavailable'])).toBe('partial');
+    expect(rescanCoverage([
+      { capability: 'dependency_inventory', state: 'inspected' },
+      { capability: 'dependency_reachability', state: 'not_requested' },
+      { capability: 'trivy', state: 'unsupported' },
+    ])).toBe('complete');
+    expect(rescanCoverage([{ capability: 'dependency_inventory', state: 'unavailable' }])).toBe('partial');
+    expect(rescanCoverage([{ capability: 'dependency_inventory', state: 'unsupported' }])).toBe('partial');
     expect(rescanCoverage([])).toBe('partial');
   });
 
