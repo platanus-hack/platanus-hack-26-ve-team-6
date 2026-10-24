@@ -24,7 +24,7 @@ test('landing is server-rendered without a loader, fabricated results or explana
   await expect(page.locator('body')).not.toContainText(/ilustración conceptual|ejemplo ilustrativo|no es un análisis en vivo|cambiar de pestaña solo|cargando/i);
   await expect(page.locator('.g-page img')).toHaveCount(0);
   await expect(page.locator('.g-hero-mark .g-ascii')).toHaveAttribute('data-ready', 'true');
-  expect(await page.evaluate(() => document.fonts.check('700 48px Goldman'))).toBe(true);
+  expect(await page.evaluate(() => document.fonts.check('700 48px "Gotchu Display"'))).toBe(true);
   await checkLayout(page); await checkA11y(page);
   expect(errors).toEqual([]); expect(apiRequests).toEqual([]);
   await page.screenshot({ path: info.outputPath('hero.png') });

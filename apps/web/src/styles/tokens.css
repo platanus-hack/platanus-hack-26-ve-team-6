@@ -5,17 +5,19 @@
   font-display: swap;
 }
 
-/* Wide display face for the landing; OFL, self-hosted with its license in public/fonts. */
+/* Landing faces: one OFL variable file (Archivo), fixed to an expanded width for display and normal width for text. */
 @font-face {
-  font-family: 'Goldman';
-  src: url('/fonts/goldman-400-latin.woff2') format('woff2');
-  font-weight: 400;
+  font-family: 'Gotchu Display';
+  src: url('/fonts/archivo-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-stretch: 118%;
   font-display: swap;
 }
 @font-face {
-  font-family: 'Goldman';
-  src: url('/fonts/goldman-700-latin.woff2') format('woff2');
-  font-weight: 700;
+  font-family: 'Gotchu Text';
+  src: url('/fonts/archivo-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-stretch: 100%;
   font-display: swap;
 }
 
@@ -46,8 +48,8 @@
   --gc-info-bg: #25344d;
   --gc-unknown: #d6c6f3;
   --gc-unknown-bg: #352d47;
-  --gc-font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --gc-font-display: 'Goldman', 'Oxanium', var(--gc-font-body);
+  --gc-font-body: 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --gc-font-display: 'Gotchu Display', 'Archivo', sans-serif;
   --gc-font-code: ui-monospace, SFMono-Regular, Consolas, monospace;
   --gc-text-xs: 0.75rem;
   --gc-text-sm: 0.875rem;
