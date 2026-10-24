@@ -5,7 +5,7 @@ import './spatial-objects.css';
 
 type ObjectProps = { className?: string; spin?: MotionValue<number> };
 
-function useTilt(pose: (x: number, y: number) => string, spin?: MotionValue<number>, extra?: (x: number, y: number, spin: number) => void) {
+export function useTilt(pose: (x: number, y: number) => string, spin?: MotionValue<number>, extra?: (x: number, y: number, spin: number) => void) {
   const root = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const look = useFacing(root);
@@ -124,6 +124,20 @@ export function OriginGlobe({ className = '', spin }: ObjectProps) {
         <circle ref={element => { paths.current.node = element; }} cx="150" cy="150" r="7" fill="#e7147d" stroke="#fffefa" strokeWidth="2" />
       </svg>
       <span className="g-object-chip g-globe-chip">TXT <code>{'_gotchu.<dominio>'}</code></span>
+    </div>
+  </div>;
+}
+
+const reportPose = (x: number, y: number) => `rotateX(${(6 - y * 12).toFixed(2)}deg) rotateY(${(-18 + x * 20).toFixed(2)}deg)`;
+
+/** The report the lens returns: findings, evidence excerpt, coverage and JSON export. */
+export function ReportSheet({ className = '' }: { className?: string }) {
+  const { root, body } = useTilt(reportPose);
+  return <div ref={root} className={`g-object g-report-sheet ${className}`} aria-hidden="true">
+    <div className="g-object-shadow" />
+    <div ref={body} className="g-object-body" style={{ transform: reportPose(0, 0) }}>
+      {[4, 3, 2, 1].map(depth => <div key={depth} className="g-report-edge" style={{ transform: `translateZ(${-depth * 4}px)` }} />)}
+      <img className="g-report-face" src="/landing/report-sheet.svg" width="360" height="430" alt="" draggable={false} />
     </div>
   </div>;
 }

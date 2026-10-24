@@ -18,3 +18,7 @@
 .g-globe { width: var(--globe, 300px); }
 .g-globe-art { display: block; width: 100%; height: auto; overflow: visible; }
 .g-globe-chip { left: 50%; bottom: 2%; transform: translate3d(-50%, 0, 54px); }
+
+.g-report-sheet { width: var(--report, 340px); }
+.g-report-face { position: relative; display: block; width: 100%; height: auto; user-select: none; }
+.g-report-edge { position: absolute; inset: 1.5% 2% 1% 2%; border-radius: 14px; background: linear-gradient(150deg, #4b4653, #18171e 60%, #0b0a0f); }
