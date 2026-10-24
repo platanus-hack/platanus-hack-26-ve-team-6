@@ -151,7 +151,7 @@ export async function createLiveTriageStack() {
         providers: scenario.provider ? [scenario.provider.name] : [], targetId: verified.id, sourceSnapshotId: null, repositoryKey: null });
       await api.triage.declareProbeRoute(identity, { ...scope, route: '/', serviceId: service.id, dependencyId, role: 'application' });
       await api.triage.declareProbeRoute(identity, { ...scope, route: '/.well-known/security.txt', serviceId: service.id, dependencyId: null, role: 'control' });
-      const work = (await coordinator.operations.claimDue({ limit: 200 })).find(item => item.applicationId === scope.applicationId);
+      const work = (await coordinator.operations.claimDue({ limit: 50 })).find(item => item.applicationId === scope.applicationId);
       if (!work) throw new Error('evaluation_monitor_claim_missing');
       monitorClaim = { organizationId: work.organizationId, applicationId: work.applicationId, runId: work.runId, leaseToken: work.leaseToken };
     }
