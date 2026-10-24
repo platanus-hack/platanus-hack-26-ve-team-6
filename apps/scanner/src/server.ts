@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import { createSecureContext } from 'node:tls';
 import { customerAssessmentReportSchema, customerRunInputSchema, type CustomerRunInput, type CustomerAssessmentReport } from '@gotchu/contracts';
 import { createCustomerAssessmentRunner, assertReportBinding, isScannerCleanupError } from '@gotchu/customer-assessment';
 import { checkSecret, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, verifyScannerSignature } from './auth.js';
@@ -6,6 +8,7 @@ export interface ScannerRunner {
   run(input: CustomerRunInput): Promise<CustomerAssessmentReport>;
   readiness(): Promise<{ready:boolean;tools:Array<{name:string;available:boolean}>}>;
 }
+export interface ScannerTlsIdentity { cert: Uint8Array; key: Uint8Array }
 function send(response: ServerResponse, status: number, value: unknown) { if(!response.destroyed) response.writeHead(status,{'content-type':'application/json','cache-control':'no-store','connection':'close'}).end(JSON.stringify(value)); }
 async function body(request: IncomingMessage) {
   const chunks: Buffer[]=[]; let size=0;
@@ -18,8 +21,13 @@ async function responseWithin<T>(work: Promise<T>, milliseconds: number): Promis
     return await Promise.race([work,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('runner_timeout')),milliseconds);})]);
   } finally { if(timer) clearTimeout(timer); }
 }
-export function createScannerServer(options: {secret:Uint8Array;runner?:ScannerRunner;now?:()=>number}) {
+export function createScannerServer(options: {secret:Uint8Array;runner?:ScannerRunner;now?:()=>number;tls?:ScannerTlsIdentity}) {
   checkSecret(options.secret); const secret=Buffer.from(options.secret); const runner=options.runner??createCustomerAssessmentRunner();
+  const tls = options.tls ? { cert: Buffer.from(options.tls.cert), key: Buffer.from(options.tls.key) } : undefined;
+  if (tls) {
+    try { createSecureContext({ ...tls, minVersion: 'TLSv1.2' }); }
+    catch { throw new Error('invalid_scanner_tls_identity'); }
+  }
   const now=options.now??Date.now;
   const used=new Map<string,number>(); let active=false; let fault=false;
   type Readiness = Awaited<ReturnType<ScannerRunner['readiness']>>;
@@ -71,9 +79,12 @@ export function createScannerServer(options: {secret:Uint8Array;runner?:ScannerR
     } catch {send(res,503,{error:'assessment_unavailable'});}
     finally {if(!workOwnsSlot)active=false;}
   }
-  const server=createServer({maxHeaderSize:8192,requestTimeout:70000,headersTimeout:5000,keepAliveTimeout:1000},(req,res)=>{
+  const handleRequest = (req:IncomingMessage,res:ServerResponse)=>{
     handle(req,res).catch(()=>send(res,503,{error:'scanner_unavailable'}));
-  });
+  };
+  const server=tls
+    ? createHttpsServer({ ...tls, minVersion:'TLSv1.2', maxHeaderSize:8192, requestTimeout:70000, headersTimeout:5000, keepAliveTimeout:1000 },handleRequest)
+    : createServer({maxHeaderSize:8192,requestTimeout:70000,headersTimeout:5000,keepAliveTimeout:1000},handleRequest);
   server.maxConnections=16;
   return server;
 }
