@@ -18,7 +18,19 @@ The fictional vulnerable and corrected applications are regression fixtures only
 
 Reports retain evidence provenance and checksums, scanner coverage, severity, confidence, exploitability, limitations, and internal/external comparisons. Missing or partial coverage remains unknown, not clean. A match, response header, or correlation does not prove that source is deployed, that a package is reachable, or that exploitation occurred. The assessment does not attempt exploitation or make exploitability claims.
 
-## Run locally
+## Ejecutar en tu propia máquina
+
+Con Docker iniciado, Node 24 y pnpm 11 disponibles:
+
+```sh
+git clone <url-del-repositorio>
+cd gotchu
+./gotchu up
+```
+
+Abre el enlace de configuración de un solo uso que imprime el comando, crea el Owner y el primer espacio de trabajo, y luego sube una carpeta de código desde el dashboard para lanzar una evaluación `internal`. Los detalles, requisitos, componentes opcionales y límites están en [self-hosting](docs/self-hosting.md). El runtime se enlaza a loopback; no expongas el puerto sin configurar `GOTCHU_PUBLIC_URL` HTTPS y un proxy TLS.
+
+## Run in local development
 
 Use Node 24, pnpm 11, and Docker. After preparing the local dependencies, start the customer application:
 
