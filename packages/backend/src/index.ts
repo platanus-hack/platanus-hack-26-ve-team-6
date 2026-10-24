@@ -49,6 +49,7 @@ export * from './execution-artifacts.js';
 export * from './workflow-exceptions.js';
 export * from './decision-records.js';
 export * from './notifications.js';
+export * from './notification-secrets-file.js';
 export interface BackendDependencies { database: Database; clock?: Clock; credentials?: CredentialStore; notificationSecrets?: NotificationSecretStore; webhookValidator?: WebhookAddressValidator; eventCredentials?: WritableEventCredentials; stepUpVerifier?: StepUpVerifier; proposalVerifier?: ProposalVerifier; customerDnsVerifier?: CustomerDnsVerifier; webAuthn?: { rpID: string; origin: string; rpName?: string; verifyPassword?: (userId: string, password: string) => Promise<boolean | null> }; actionVerifier?: ActionVerifier }
 export function createBackend(deps: BackendDependencies) {
   const stepUp = deps.webAuthn ? createWebAuthnStepUpService({ ...deps, webAuthn: deps.webAuthn }) : null;
