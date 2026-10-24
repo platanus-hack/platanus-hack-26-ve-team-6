@@ -3,5 +3,5 @@ packages:
   - packages/*
   - infra/pulumi
 
-onlyBuiltDependencies:
-  - esbuild
+allowBuilds:
+  esbuild: true
