@@ -574,3 +574,26 @@ body { margin: 0; }
   .customer-ops-plan-actions { align-items: stretch; }
   .customer-ops-plan-actions > .customer-button { width: 100%; white-space: normal; }
 }
+.customer-onboarding { max-width: 900px; margin: 0 auto; padding: 36px 24px 64px; }
+.customer-onboarding-header { max-width: 680px; margin: 0 auto 28px; text-align: center; }
+.customer-onboarding-header h1 { margin: 8px 0; font-size: clamp(2rem, 4vw, 3rem); letter-spacing: -.04em; }
+.customer-onboarding-header p, .customer-onboarding-note { color: var(--customer-muted, #697386); line-height: 1.6; }
+.customer-onboarding-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0 0 20px; padding: 0; list-style: none; }
+.customer-onboarding-steps li { display: flex; align-items: center; gap: 10px; padding: 12px; border-bottom: 2px solid var(--customer-border, #dfe4eb); color: var(--customer-muted, #697386); font-size: .9rem; }
+.customer-onboarding-steps li.is-current { border-color: var(--customer-accent, #6456d9); color: var(--customer-ink, #171923); }
+.customer-onboarding-steps li span { display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid currentColor; border-radius: 50%; }
+.customer-onboarding-card { display: grid; gap: 14px; max-width: 700px; margin: auto; padding: 28px; }
+.customer-onboarding-card h2 { margin: 0; }
+.customer-onboarding-source-options { display: grid; gap: 10px; }
+.customer-onboarding-source-options label { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border: 1px solid var(--customer-border, #dfe4eb); border-radius: 12px; cursor: pointer; }
+.customer-onboarding-source-options label:has(input:checked) { border-color: var(--customer-accent, #6456d9); box-shadow: 0 0 0 1px var(--customer-accent, #6456d9); }
+.customer-onboarding-source-options input { margin-top: 4px; }
+.customer-onboarding-source-options span { display: grid; gap: 5px; }
+.customer-onboarding-source-options small { color: var(--customer-muted, #697386); line-height: 1.5; }
+.customer-onboarding-source-body { display: grid; gap: 12px; padding-top: 16px; }
+.customer-onboarding-source-body p { overflow-wrap: anywhere; line-height: 1.6; }
+.customer-next-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 20px; }
+.customer-next-actions > div { flex: 1 1 100%; }
+.customer-next-actions h2, .customer-next-actions p { margin: 4px 0; }
+.customer-next-actions p { color: var(--customer-muted, #697386); }
+@media (max-width: 640px) { .customer-onboarding { padding: 20px 12px 40px; } .customer-onboarding-steps li { flex-direction: column; text-align: center; font-size: .75rem; } .customer-onboarding-card { padding: 20px; } .customer-next-actions > button { flex: 1 1 100%; } }
