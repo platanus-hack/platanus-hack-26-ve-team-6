@@ -28,9 +28,10 @@ import { membersApi } from './members-client';
 import { ApprovalPanel } from './approval-panel';
 import { GitHubRepositoryPanel, Onboarding } from './onboarding';
 import { WorkflowExceptions } from './workflow-exceptions';
+import { DecisionRecordHistory } from './decision-record-history';
 import './customer-dashboard.css';
 
-type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members';
+type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records';
 
 const pages: { id: Page; label: string; glyph: string }[] = [
   { id: 'overview', label: 'Inicio', glyph: '⌂' },
@@ -38,6 +39,7 @@ const pages: { id: Page; label: string; glyph: string }[] = [
   { id: 'operations', label: 'Vigilancia', glyph: '◉' },
   { id: 'reports', label: 'Informes', glyph: '≋' },
   { id: 'members', label: 'Equipo', glyph: '♧' },
+  { id: 'decision-records', label: 'Decisiones', glyph: '◷' },
 ];
 
 const modeLabels: Record<AssessmentMode, string> = {
@@ -565,6 +567,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
         {operationError && <ErrorNotice message={operationError} retry={() => { setPageError(null); refreshApplicationData(); workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} />}
         {page === 'members' && organizationId && workspace ? <MembersPanel key={`${userId}:${organizationId}`} organizationId={organizationId} userId={userId} role={workspace.role} />
         : !organizationId ? <Onboarding userId={userId} onWorkspaceCreated={() => { queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); }} onScanQueued={(scope, jobId) => { setSelectedWorkspaceId(scope.organizationId); setSelectedApplicationId(scope.applicationId); setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />
+        : page === 'decision-records' && organizationId ? <>
+          <div className="customer-page-heading"><div><span className="customer-eyebrow">{workspace?.name}</span><h1>Historial de decisiones</h1><p>Consulta quién realizó cambios y qué evaluaciones, alertas y acciones quedaron registradas en este espacio de trabajo.</p></div></div>
+          <DecisionRecordHistory userId={userId} organizationId={organizationId} />
+        </>
         : applications.isPending ? <Loading label="Cargando aplicaciones…" />
         : applications.error ? <ErrorNotice message={readableError(applications.error)} retry={() => { applications.refetch().catch(caught => setPageError(readableError(caught))); }} />
         : !selectedApplication ? <Onboarding userId={userId} initialOrganizationId={organizationId} canManage={canManage} onWorkspaceCreated={() => undefined} onScanQueued={(scope, jobId) => { setSelectedApplicationId(scope.applicationId); setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />

@@ -13,6 +13,8 @@ import {
   customerQueueSchema,
   customerUpdateApplicationSchema,
   customerUploadSourceSchema,
+  decisionRecordPageSchema,
+  decisionRecordQuerySchema,
   type AssessmentMode,
   type CustomerApplication,
   type CustomerAssessmentReport,
@@ -219,6 +221,15 @@ export const customerApi = {
   },
   reports: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/reports`, reportListSchema),
   report: (organizationId: string, applicationId: string, reportId: string) => request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(reportId)}`, customerAssessmentReportSchema),
+  decisionRecords(organizationId: string, query: { limit?: number; cursor?: string; subjectType?: string; subjectId?: string; from?: string; to?: string } = {}) {
+    const value = decisionRecordQuerySchema.parse(query);
+    const params = new URLSearchParams({ limit: String(value.limit) });
+    for (const key of ['cursor', 'subjectType', 'subjectId', 'from', 'to'] as const) {
+      const item = value[key];
+      if (item !== undefined) params.set(key, item);
+    }
+    return request(`${organizationPath(organizationId)}/decision-records?${params}`, decisionRecordPageSchema);
+  },
   recordReportDownload: (organizationId: string, applicationId: string, reportId: string) => request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(z.uuid().parse(reportId))}/download`, z.undefined(), { method: 'POST', ...jsonBody({}) }),
   async reportRecommendations(organizationId: string, applicationId: string, reportId: string) {
     const params = reportRecommendationsParamsSchema.parse({ reportId });

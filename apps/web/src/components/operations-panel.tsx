@@ -10,6 +10,7 @@ import {
   type OperationPlan,
 } from '@gotchu/contracts';
 import { CustomerApiError } from './customer-client';
+import { DecisionRecordHistory } from './decision-record-history';
 import { operationsApi, type MonitorSettings, type OperationsScope, type PlanKind, type PlanStepKey } from './operations-client';
 
 type Props = OperationsScope & {
@@ -95,6 +96,7 @@ function coverageTone(coverage: OperationCoverage) {
 export function OperationsPanel({ userId, organizationId, applicationId, sources, targets, canManage }: Props) {
   const scope = { organizationId, applicationId };
   const keys = scopeKeys(userId, scope);
+  const decisionRecordKey = ['customer-data', userId, 'decision-records', organizationId] as const;
   const queryClient = useQueryClient();
   const coverage = useQuery({ queryKey: keys.coverage, queryFn: () => operationsApi.coverage(scope), retry: false, refetchInterval: 10_000 });
   const repositories = useQuery({ queryKey: keys.repositories, queryFn: () => operationsApi.repositories(scope), retry: false });
@@ -130,7 +132,10 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     onSuccess: async config => {
       setOperationError(null);
       setNotice(config.enabled ? 'La vigilancia quedó configurada.' : 'La vigilancia está desactivada y su alcance se limpió.');
-      await queryClient.invalidateQueries({ queryKey: keys.coverage });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: keys.coverage }),
+        queryClient.invalidateQueries({ queryKey: decisionRecordKey }),
+      ]);
     },
     onError: caught => {
       setOperationError(errorText(caught));
@@ -150,33 +155,40 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
   const updateAlert = useMutation({
     mutationFn: ({ alert, state, resolution }: { alert: OperationAlert; state: 'acknowledged' | 'resolved'; resolution?: string }) =>
       operationsApi.updateAlert(scope, alert.id, { state, ...(resolution === undefined ? {} : { resolution }) }),
-    onSuccess: updated => {
+    onSuccess: async updated => {
       setOperationError(null);
       setNotice(updated.state === 'resolved' ? 'La alerta se marcó como resuelta por el equipo.' : 'La alerta quedó marcada como revisada.');
       queryClient.setQueryData<OperationAlert[]>(keys.alerts, current => current?.map(alert => alert.id === updated.id ? updated : alert));
+      await queryClient.invalidateQueries({ queryKey: decisionRecordKey });
     },
     onError: caught => setOperationError(errorText(caught)),
   });
   const createPlan = useMutation({
     mutationFn: ({ alert, kind }: { alert: OperationAlert; kind: PlanKind }) => operationsApi.createPlan(scope, { kind, observationIds: [alert.observation.id] }),
-    onSuccess: plan => {
+    onSuccess: async plan => {
       setOperationError(null);
       setNotice(`Se creó la guía «${planNames[plan.kind]}».`);
       queryClient.setQueryData<OperationPlan[]>(keys.plans, current => current ? [plan, ...current] : [plan]);
+      await queryClient.invalidateQueries({ queryKey: decisionRecordKey });
     },
     onError: caught => setOperationError(errorText(caught)),
   });
   const preparePlan = useMutation({
     mutationFn: (plan: OperationPlan) => operationsApi.preparePlan(scope, plan),
-    onSuccess: plan => { updatePlanCache(plan); setNotice('Se solicitó la preparación de esta guía consultiva.'); },
+    onSuccess: async plan => {
+      updatePlanCache(plan);
+      setNotice('Se solicitó la preparación de esta guía consultiva.');
+      await queryClient.invalidateQueries({ queryKey: decisionRecordKey });
+    },
     onError: caught => { setOperationError(errorText(caught)); queryClient.invalidateQueries({ queryKey: keys.plans }).catch(() => undefined); },
   });
   const attestStep = useMutation({
     mutationFn: ({ plan, key, attestation }: { plan: OperationPlan; key: PlanStepKey; attestation: string }) => operationsApi.attestStep(scope, plan, key, attestation),
-    onSuccess: (plan, variables) => {
+    onSuccess: async (plan, variables) => {
       updatePlanCache(plan);
       setStepDrafts(current => { const next = { ...current }; delete next[`${plan.id}:${variables.key}`]; return next; });
       setNotice('La declaración se guardó como autoinformada; no es una verificación independiente.');
+      await queryClient.invalidateQueries({ queryKey: decisionRecordKey });
     },
     onError: caught => { setOperationError(errorText(caught)); queryClient.invalidateQueries({ queryKey: keys.plans }).catch(() => undefined); },
   });
@@ -286,7 +298,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
       {alerts.isPending ? <div className="customer-loading" role="status"><span className="customer-spinner" />Cargando alertas…</div>
         : alerts.error ? <div className="customer-inline-error" role="alert">{errorText(alerts.error)} <button className="customer-link-button" type="button" onClick={() => { alerts.refetch().catch(() => undefined); }}>Reintentar</button></div>
           : alerts.data?.length === 0 ? <div className="customer-empty-inline">Todavía no hay alertas para esta aplicación. La cobertura seleccionada aparecerá aquí cuando genere observaciones.</div>
-            : <div className="customer-ops-alert-list">{alerts.data?.map(alert => <AlertCard key={alert.id} alert={alert} canManage={canManage} busy={updateAlert.isPending || createPlan.isPending} resolution={resolutionDrafts[alert.id] ?? ''}
+            : <div className="customer-ops-alert-list">{alerts.data?.map(alert => <AlertCard key={alert.id} userId={userId} organizationId={organizationId} alert={alert} canManage={canManage} busy={updateAlert.isPending || createPlan.isPending} resolution={resolutionDrafts[alert.id] ?? ''}
               onResolutionChange={value => setResolutionDrafts(current => ({ ...current, [alert.id]: value }))}
               onAcknowledge={() => updateAlert.mutate({ alert, state: 'acknowledged' })}
               onResolve={() => updateAlert.mutate({ alert, state: 'resolved', resolution: resolutionDrafts[alert.id]?.trim() ?? '' })}
@@ -299,7 +311,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
       {plans.isPending ? <div className="customer-loading" role="status"><span className="customer-spinner" />Cargando guías…</div>
         : plans.error ? <div className="customer-inline-error" role="alert">{errorText(plans.error)} <button className="customer-link-button" type="button" onClick={() => { plans.refetch().catch(() => undefined); }}>Reintentar</button></div>
           : plans.data?.length === 0 ? <div className="customer-empty-inline">Las guías aparecerán a partir de observaciones. El tipo sugerido depende de evidencia real; volumen de tráfico por sí solo no recomienda balanceo.</div>
-            : <div className="customer-ops-plan-list">{plans.data?.map(plan => <PlanCard key={plan.id} plan={plan} readiness={readiness[plan.id] ?? null} canManage={canManage} busy={preparePlan.isPending || attestStep.isPending || checkReadiness.isPending}
+            : <div className="customer-ops-plan-list">{plans.data?.map(plan => <PlanCard key={plan.id} userId={userId} organizationId={organizationId} plan={plan} readiness={readiness[plan.id] ?? null} canManage={canManage} busy={preparePlan.isPending || attestStep.isPending || checkReadiness.isPending}
               stepDrafts={stepDrafts} onStepDraft={(key, value) => setStepDrafts(current => ({ ...current, [`${plan.id}:${key}`]: value }))}
               onPrepare={() => preparePlan.mutate(plan)}
               onAttest={(key, attestation) => attestStep.mutate({ plan, key, attestation })}
@@ -310,7 +322,9 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
   </div>;
 }
 
-function AlertCard({ alert, canManage, busy, resolution, onResolutionChange, onAcknowledge, onResolve, onCreatePlan }: {
+function AlertCard({ userId, organizationId, alert, canManage, busy, resolution, onResolutionChange, onAcknowledge, onResolve, onCreatePlan }: {
+  userId: string;
+  organizationId: string;
   alert: OperationAlert;
   canManage: boolean;
   busy: boolean;
@@ -345,10 +359,13 @@ function AlertCard({ alert, canManage, busy, resolution, onResolutionChange, onA
       <button className="customer-button" type="button" disabled={!canManage || busy || !resolution.trim()} onClick={onResolve}>Resolver alerta</button>
       <button className="customer-button customer-button-primary" type="button" disabled={!canManage || busy || !canCreatePlan} title={!canCreatePlan ? 'Actualiza la evidencia antes de crear una guía.' : undefined} onClick={() => onCreatePlan(planKind)}>{planLabel}</button>
     </div>}
+    <DecisionRecordHistory userId={userId} organizationId={organizationId} filter={{ subjectType: 'alert', subjectId: alert.id }} compact />
   </article>;
 }
 
-function PlanCard({ plan, readiness, canManage, busy, stepDrafts, onStepDraft, onPrepare, onAttest, onReadiness }: {
+function PlanCard({ userId, organizationId, plan, readiness, canManage, busy, stepDrafts, onStepDraft, onPrepare, onAttest, onReadiness }: {
+  userId: string;
+  organizationId: string;
   plan: OperationPlan;
   readiness: OperationReadiness | null;
   canManage: boolean;
@@ -384,6 +401,7 @@ function PlanCard({ plan, readiness, canManage, busy, stepDrafts, onStepDraft, o
       <p id={`execute-reason-${plan.id}`}>La ejecución está desactivada: no se desplegarán servicios ni se modificarán proveedores desde aquí.</p>
     </div>
     {currentReadiness && <div className="customer-ops-readiness" role="status"><strong>Lista para ejecutar: no</strong><p>La ejecución permanece desactivada. Aún se requieren:</p><ul>{currentReadiness.requirements.map(item => <li key={item}>{item}</li>)}</ul></div>}
+    <DecisionRecordHistory userId={userId} organizationId={organizationId} filter={{ subjectType: 'plan', subjectId: plan.id }} compact />
   </article>;
 }
 
