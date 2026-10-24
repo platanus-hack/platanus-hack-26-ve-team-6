@@ -44,6 +44,7 @@ Semgrep está fijado en 1.182.0 por digest. La validación local Linux/amd64 cub
 ./gotchu up                 # reinicia y conserva los datos
 ./gotchu upgrade            # reconstruye desde el checkout actual y migra
 ./gotchu github setup       # callbacks exactos y ubicación de credenciales de sólo lectura
+./gotchu google setup       # origen y callback exactos para OAuth de Google
 ./gotchu reset              # pide escribir RESET; borra volúmenes y secretos locales
 ```
 
@@ -62,13 +63,23 @@ En la configuración de la GitHub App, registra la URL exacta que imprime `./got
 
 Para ofrecer además **Iniciar sesión con GitHub**, registra la URL exacta `<origin>/api/auth/callback/github` que imprime `./gotchu github setup` como callback URL de autorización de la GitHub App. Mantén también `<origin>/api/customer/github/callback` para **Conectar GitHub**. En `${state_dir}/.env`, define `AUTH_GITHUB_ID=<client-id>` y `AUTH_GITHUB_SECRET=<client-secret>` con las credenciales de esa App. También puedes crear una OAuth App separada, registrar allí `<origin>/api/auth/callback/github` y usar su client ID/secret en esas mismas variables. Gotchu muestra el botón de GitHub en la página de inicio de sesión sólo cuando ambas variables están configuradas. Reinicia con `./gotchu up` para aplicar cambios. No copies IDs ni secrets a páginas ni a logs. OIDC y el inicio local siguen disponibles. Consulta [callbacks de autorización de GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/about-the-user-authorization-callback-url) y la [configuración del proveedor GitHub de Auth.js](https://authjs.dev/guides/configuring-github).
 
+### Iniciar sesión con Google
+
+Ejecuta `./gotchu google setup`. El comando lee `PUBLIC_APP_URL` del archivo privado `${state_dir}/.env` y muestra el origen de JavaScript autorizado y el URI de redirección exactos. En Google Cloud Console, crea o abre un cliente OAuth de tipo **Aplicación web** y registra esos valores en **Orígenes de JavaScript autorizados** y **URI de redirección autorizados**. El callback es `<origin>/api/auth/callback/google`. Si compartes un cliente entre desarrollo y producción, registra también `http://localhost:3000` y `http://localhost:3000/api/auth/callback/google`.
+
+En la pantalla de consentimiento, configura el dominio autorizado y los enlaces públicos de privacidad y términos. Las páginas `/privacy` y `/terms` de Gotchu son borradores; el operador debe revisarlas antes de ofrecer el servicio. Si la aplicación OAuth continúa en modo de prueba, añade como usuarios de prueba a las personas que iniciarán sesión.
+
+En `${state_dir}/.env`, configura `AUTH_GOOGLE_ID=<client-id>` y `AUTH_GOOGLE_SECRET=<client-secret>`. El botón aparece sólo cuando ambas variables están presentes. Gotchu solicita `openid email profile` y acepta únicamente perfiles con correo verificado por Google. Los usuarios nuevos pasan al onboarding normal una vez iniciada la sesión. En una instalación autoalojada, Google no puede crear al primer Owner: antes debe completarse `/setup` con el enlace de un solo uso de `./gotchu up` o `./gotchu setup-link`.
+
+Si el correo verificado ya pertenece a una cuenta local, Gotchu no vincula Google automáticamente. Inicia sesión con la contraseña local; la vinculación explícita desde ajustes de cuenta queda pendiente porque la aplicación todavía no cuenta con persistencia de identidades enlazadas. Reinicia con `./gotchu up` después de cambiar las variables. No copies el client secret a páginas, capturas ni registros.
+
 ## Seguridad y exposición
 
 - Los puertos de web, coordinator, scanner, Postgres y Redis enlazan sólo a `127.0.0.1`. No cambies el bind a una interfaz pública.
 - Mantén `${state_dir:-.gotchu}` privado: `.env`, el secreto HMAC, la clave TLS local del scanner, las credenciales GitHub, archivos de identidad de procesos y registros viven ahí con permisos `0600`; el directorio de estado y `github/` usan `0700`. El coordinator confía en el certificado local sólo para la conexión HTTPS al scanner. No subas estos archivos a Git ni compartas enlaces de configuración.
 - `./gotchu up` verifica por HTTPS el mismo endpoint de readiness que ejecuta los perfiles fijados del scanner antes de anunciar que está listo. Web, coordinator y scanner son procesos locales; Compose inicia sólo Postgres y Redis. Así, el tráfico del scanner no cruza el host INPUT y la instalación no requiere cambios de firewall.
-- El bootstrap inicial usa credenciales locales para Auth.js. OIDC/GitHub son opciones posteriores. Las contraseñas usan el hash scrypt existente y los límites actuales de autenticación.
-- `GOTCHU_PUBLIC_URL` se debe configurar con un origen HTTPS si se accede a través de un proxy reverso. El proxy debe terminar TLS, autenticar la gestión del host, limitar tamaños y tiempos de petición y reenviar únicamente a la dirección loopback del puerto web configurado. Edita `.gotchu/.env` y reinicia con `./gotchu up` después de cambiarlo. Gotchu no termina TLS y no afirma que esta topología esté endurecida para producción.
+- El bootstrap inicial usa el flujo local `/setup` para crear el primer Owner. Google, GitHub y OIDC no pueden sustituirlo. Las contraseñas locales usan el hash scrypt existente y los límites actuales de autenticación.
+- `PUBLIC_APP_URL` es el origen canónico usado por Auth.js. En producción detrás de un proxy reverso, configúralo como `https://gotchu.kevinbravo.com`; TLS debe terminar en el proxy, que debe limitar tamaños y tiempos de petición y reenviar únicamente a la dirección loopback del puerto web configurado. `GOTCHU_PUBLIC_URL` sólo establece el valor inicial al crear `${state_dir}/.env`; después, edita `PUBLIC_APP_URL` en ese archivo y reinicia con `./gotchu up`. Gotchu no termina TLS y no afirma que esta topología esté endurecida para producción.
 - La evaluación externa sólo debe apuntar a un origen cuya autorización tenga el cliente. Las acciones de proveedor, ejecución de código cliente, respuesta automática y recuperación permanecen deshabilitadas.
 - Los backups/restore automatizados no están implementados. Antes de actualizar o eliminar datos, crea una copia consistente de los volúmenes de Postgres y Redis con un procedimiento local probado y protege esa copia como los secretos originales.
 
