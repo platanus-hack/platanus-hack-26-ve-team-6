@@ -58,6 +58,10 @@ const registeredAccountSchema = z.object({ id: z.string().min(1).max(256) }).str
 const deletedSourceSchema = z.union([z.undefined(), z.object({ deleted: z.literal(true) }).strict()]);
 const actionProposalSchema = z.object({ id: z.uuid(), actionHash: z.string().regex(/^[0-9a-f]{64}$/), kind: z.string(), state: z.enum(['proposed','eligible','ineligible','approved','expired','invalidated','executing','succeeded','failed','uncertain','reconciliation_required']), effect: z.string(), scope: z.string(), target: z.unknown(), cost: z.object({ state: z.literal('unknown'), amount: z.null() }).strict(), diff: z.object({ path: z.string(), summary: z.string() }).strict().nullable(), validations: z.array(z.object({ label: z.string(), state: z.enum(['pending','passed','failed','unknown']) }).strict()), limits: z.array(z.string()), blockingReasons: z.array(z.string()), createdAt: z.iso.datetime() }).strict();
 const actionListSchema = z.array(actionProposalSchema).max(100);
+const workflowExceptionsSchema = z.object({
+  repositories: z.array(z.object({ id:z.uuid(),repositoryKey:z.string().min(1) }).strict()).max(100),
+  exceptions: z.array(z.object({ repositoryLinkId:z.uuid(),id:z.uuid(),version:z.number().int().positive(),workflowPath:z.string(),rule:z.string(),justification:z.string(),createdBy:z.string(),createdAt:z.iso.datetime() }).strict()).max(1000),
+}).strict();
 const actionEligibilitySchema = z.object({ status: z.enum(['eligible','ineligible']), blockingReasons: z.array(z.string()) }).strict();
 const githubSelectSchema = z.object({ repository: githubRepositorySchema, link: z.object({ id: z.uuid(), applicationId: z.uuid(), repositoryKey: z.string(), fullName: z.string(), defaultBranch: z.string(), readAccess: z.literal('granted'), writeAccess: z.literal('not_granted') }).strict(), source: customerSourceSummarySchema, jobId: z.uuid() }).strict();
 
@@ -251,6 +255,19 @@ export const customerApi = {
   cancelAction(input: { organizationId: string; applicationId: string; proposalId: string; reject?: boolean }) {
     const suffix = input.reject ? 'reject' : 'cancel';
     return request(`${applicationPath(input.organizationId, input.applicationId)}/actions/${encodeURIComponent(input.proposalId)}/${suffix}`, z.object({ accepted: z.literal(true) }).strict(), { method: 'POST', ...jsonBody({}) }, 202);
+  },
+  workflowExceptions(organizationId:string,applicationId:string) {
+    return request(`${applicationPath(organizationId,applicationId)}/workflow-exceptions`,workflowExceptionsSchema);
+  },
+  workflowExceptionHash(input:{organizationId:string;applicationId:string;repositoryLinkId:string;workflowPath:string;rule:string;justification:string}) {
+    return request(`${applicationPath(input.organizationId,input.applicationId)}/workflow-exceptions/hash`,z.object({actionHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),{method:'POST',...jsonBody(input)});
+  },
+  createWorkflowException(input:{organizationId:string;applicationId:string;repositoryLinkId:string;workflowPath:string;rule:string;justification:string;stepUpProof:string}) {
+    return request(`${applicationPath(input.organizationId,input.applicationId)}/workflow-exceptions`,z.object({id:z.uuid(),version:z.number().int().positive(),workflowPath:z.string(),rule:z.string(),justification:z.string(),createdBy:z.string(),createdAt:z.iso.datetime()}).strict(),{method:'POST',...jsonBody(input)},201);
+  },
+  removeWorkflowException(input:{organizationId:string;applicationId:string;repositoryLinkId:string;id:string;version:number}) {
+    const path=`${applicationPath(input.organizationId,input.applicationId)}/workflow-exceptions/${encodeURIComponent(input.id)}?repositoryLinkId=${encodeURIComponent(input.repositoryLinkId)}&version=${input.version}`;
+    return request(path,z.object({removed:z.literal(true)}).strict(),{method:'DELETE'});
   },
   queue: (input: { organizationId: string; applicationId: string; mode: AssessmentMode; sourceSnapshotId: string | null; targetId: string | null }) => {
     const { organizationId, applicationId, ...selection } = input;

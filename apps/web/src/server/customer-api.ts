@@ -22,6 +22,7 @@ import { handleTriageApi } from './triage-api.js';
 import { handleMembersApi } from './members-api.js';
 import { handleActionsApi } from './actions-api.js';
 import { createGitHubApi } from './github-api.js';
+import { handleWorkflowExceptionsApi } from './workflow-exceptions-api.js';
 
 export interface CustomerServices {
   stepUp?: NonNullable<Backend['stepUp']>;
@@ -38,6 +39,7 @@ export interface CustomerServices {
   triage?: Backend['triage'];
   actions?: Backend['actions'];
   github?: Backend['github'];
+  workflowExceptions?: Backend['workflowExceptions'];
   repositoryCatalog?: (identity: Identity, scope: { organizationId: string; applicationId: string }) => Promise<Array<{ key: string; label: string }>>;
   listWorkspaces(identity: Identity): Promise<CustomerWorkspace[]>;
   createWorkspace(identity: Identity, value: z.infer<typeof customerCreateWorkspaceSchema>): Promise<CustomerWorkspace>;
@@ -152,6 +154,15 @@ export function createCustomerApi(options: {
         if (actionResponse) {
           for (const cookie of session.cookies) actionResponse.headers.append('set-cookie', cookie);
           return actionResponse;
+        }
+      }
+      if (pathParts.length >= 7 && pathParts[0] === 'api' && pathParts[1] === 'customer'
+        && pathParts[2] === 'workspaces' && pathParts[4] === 'applications' && pathParts[6] === 'workflow-exceptions') {
+        if (!services.workflowExceptions) throw new HttpError(503, 'workflow_exceptions_not_configured', 'Las excepciones de workflows no están configuradas.');
+        const exceptionResponse = await handleWorkflowExceptionsApi(request, identity, services.workflowExceptions, pathParts);
+        if (exceptionResponse) {
+          for (const cookie of session.cookies) exceptionResponse.headers.append('set-cookie', cookie);
+          return exceptionResponse;
         }
       }
       if (url.pathname === '/api/customer/workspaces') {

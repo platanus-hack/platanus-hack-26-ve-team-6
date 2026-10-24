@@ -26,6 +26,7 @@ import { MembersPanel } from './members-panel';
 import { membersApi } from './members-client';
 import { ApprovalPanel } from './approval-panel';
 import { GitHubRepositoryPanel, Onboarding } from './onboarding';
+import { WorkflowExceptions } from './workflow-exceptions';
 import './customer-dashboard.css';
 
 type Page = 'overview' | 'applications' | 'operations' | 'reports' | 'members';
@@ -580,6 +581,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
               <GitHubRepositoryPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:github`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} onScanQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPage('overview'); setNotice('La instantánea de GitHub está guardada y la primera evaluación se ejecuta en segundo plano.'); refreshApplicationData(); }} />
               <ContextPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} analyzedDigest={applicationReports[0]?.subject.sourceDigest ?? null} />
               <ApprovalPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:actions`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} isOwner={workspace?.role === 'owner'} />
+              <WorkflowExceptions userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} isOwner={workspace?.role === 'owner'} />
               <ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('La aplicación se actualizó.'); }} />
               {canManage && <StepUpPanel key={`${userId}:${organizationId}`} organizationId={organizationId} />}
             </>}
