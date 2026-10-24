@@ -11,11 +11,22 @@ const cacheDir = join(process.env.HOME ?? tmpdir(), '.cache', 'gotchu-runner');
 const organizationId = 'dc7dc303-1601-4d3e-ae5a-611839b33167';
 let root = '';
 
-function projectArchive(testBody: string): Buffer {
-  const manifest = JSON.stringify({ name: 'gotchu-vm-fixture', version: '1.0.0', scripts: { test: 'node test.js' } });
+function projectArchive(testBody: string, options: { readonly dependencies?: Record<string, string>; readonly postinstall?: string } = {}): Buffer {
+  const manifest = JSON.stringify({
+    name: 'gotchu-vm-fixture', version: '1.0.0',
+    scripts: { ...(options.postinstall ? { postinstall: options.postinstall } : {}), test: 'node test.js' },
+    ...(options.dependencies ? { dependencies: options.dependencies } : {}),
+  });
+  const packages: Record<string, unknown> = { '': { name: 'gotchu-vm-fixture', version: '1.0.0', ...(options.dependencies ? { dependencies: options.dependencies } : {}) } };
+  for (const [name, version] of Object.entries(options.dependencies ?? {})) {
+    packages[`node_modules/${name}`] = name === 'is-number' ? {
+      version, resolved: 'https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz',
+      integrity: 'sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==',
+    } : { version, resolved: version };
+  }
   const lock = JSON.stringify({
     name: 'gotchu-vm-fixture', version: '1.0.0', lockfileVersion: 3, requires: true,
-    packages: { '': { name: 'gotchu-vm-fixture', version: '1.0.0' } },
+    packages,
   });
   return makeTar([
     { path: 'package.json', content: manifest },
@@ -24,9 +35,8 @@ function projectArchive(testBody: string): Buffer {
   ]);
 }
 
-async function run(testBody: string, overrides: Partial<RunnerJob['limits']> = {}, signal?: AbortSignal) {
+async function runArchive(archive: Buffer, overrides: Partial<RunnerJob['limits']> = {}, signal?: AbortSignal, probe?: (unit: string) => Promise<{ networkIsolated: boolean; homeHidden: boolean; scopeLimitsApplied: boolean }>) {
   const jobId = crypto.randomUUID();
-  const archive = projectArchive(testBody);
   const job: RunnerJob = {
     jobId,
     organizationId,
@@ -35,12 +45,15 @@ async function run(testBody: string, overrides: Partial<RunnerJob['limits']> = {
     limits: { vcpu: 1, memMiB: 512, pids: 64, wallMs: 30_000, outputBytes: 32_768, diskMiB: 2048, ...overrides },
     networkPolicy: { mode: 'deny' },
   };
-  return { job, ...(await __testOnly.runMicroVm(job, archive, cacheDir, signal)) };
+  return { job, ...(await __testOnly.runMicroVm(job, archive, cacheDir, signal, probe)) };
+}
+
+async function run(testBody: string, overrides: Partial<RunnerJob['limits']> = {}, signal?: AbortSignal, probe?: (unit: string) => Promise<{ networkIsolated: boolean; homeHidden: boolean; scopeLimitsApplied: boolean }>) {
+  return runArchive(projectArchive(testBody), overrides, signal, probe);
 }
 
 describe('real Firecracker microVM execution', () => {
   beforeAll(async () => {
-    if (process.env.GOTCHU_TEST_VM !== '1') throw new Error('GOTCHU_TEST_VM=1 is required');
     root = await mkdtemp(join(tmpdir(), 'gotchu-runner-vm-host-'));
     await writeFile(join(root, 'host-secret.txt'), 'host-only-test-sentinel');
   });
@@ -58,6 +71,44 @@ describe('real Firecracker microVM execution', () => {
     const failed = await run('process.exit(7)');
     expect(failed.result.status).toBe('completed');
     if (failed.result.status === 'completed') expect(failed.result.exitCode).toBe(7);
+  });
+
+  it('installs one pure-JS registry dependency offline and preserves its failing test exit code', async () => {
+    const archive = projectArchive("const isNumber=require('is-number');if(!isNumber(7))process.exit(4)", { dependencies: { 'is-number': '7.0.0' } });
+    const passed = await runArchive(archive);
+    expect(passed.result.status, JSON.stringify(passed.result)).toBe('completed');
+    if (passed.result.status === 'completed') expect(passed.result.exitCode).toBe(0);
+    const failed = await runArchive(projectArchive("require('is-number');process.exit(9)", { dependencies: { 'is-number': '7.0.0' } }));
+    expect(failed.result.status, JSON.stringify(failed.result)).toBe('completed');
+    if (failed.result.status === 'completed') expect(failed.result.exitCode).toBe(9);
+  });
+
+  it('rejects git dependencies and bad tarball integrity before VM boot', async () => {
+    const gitArchive = projectArchive('process.exit(0)', { dependencies: { fixture: 'git+https://example.invalid/fixture.git' } });
+    await expect(runArchive(gitArchive)).rejects.toMatchObject({ reason: 'unsupported-dependency' });
+
+    const badIntegrity = projectArchive('process.exit(0)', { dependencies: { 'is-number': '7.0.0' } }).toString('utf8').replace(
+      '41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==',
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==',
+    );
+    await expect(runArchive(Buffer.from(badIntegrity))).rejects.toMatchObject({ reason: 'integrity-mismatch' });
+  });
+
+  it('does not run project postinstall scripts', async () => {
+    const result = await runArchive(projectArchive(
+      "const fs=require('fs');if(fs.existsSync('postinstall-ran'))process.exit(8)",
+      { postinstall: "node -e \"require('fs').writeFileSync('postinstall-ran','yes')\"" },
+    ));
+    expect(result.result.status, JSON.stringify(result.result)).toBe('completed');
+    if (result.result.status === 'completed') expect(result.result.exitCode).toBe(0);
+  });
+
+  it('verifies no host home or network in the VMM namespace and confirms scope limits', async () => {
+    const result = await run('process.exit(0)', {}, undefined, async (unit) => {
+      return __testOnly.inspectSandboxScope(unit, { memoryMiB: 1024, tasks: 80, cpuPercent: 100 });
+    });
+    expect(result.result.status).toBe('completed');
+    expect(result.hostProbe).toEqual({ networkIsolated: true, homeHidden: true, scopeLimitsApplied: true });
   });
 
   it('cannot read a host filesystem sentinel or reach public, host, or metadata addresses', async () => {
@@ -87,6 +138,19 @@ describe('real Firecracker microVM execution', () => {
       expect(result.result.stdout.bytes + result.result.stderr.bytes).toBeLessThanOrEqual(1024);
       expect(result.result.stdout.truncated || result.result.stderr.truncated).toBe(true);
     }
+  });
+
+  it('returns allowed artifacts with host-verified digests and rejects oversized artifacts', async () => {
+    const accepted = await run("const fs=require('fs');fs.mkdirSync('test-results');fs.writeFileSync('test-results/report.txt','verified artifact')");
+    expect(accepted.result.status).toBe('completed');
+    if (accepted.result.status === 'completed') {
+      expect(accepted.result.artifacts).toHaveLength(1);
+      expect(accepted.result.artifacts[0]?.path).toBe('test-results/report.txt');
+      expect(Buffer.from(accepted.result.artifacts[0]?.contentBase64 ?? '', 'base64').toString()).toBe('verified artifact');
+    }
+    const oversized = await run("const fs=require('fs');fs.mkdirSync('coverage');fs.writeFileSync('coverage/large.bin',Buffer.alloc(300000))");
+    expect(oversized.result.status).toBe('resource_exceeded');
+    if (oversized.result.status === 'resource_exceeded') expect(oversized.result.resource).toBe('artifact');
   });
 
   it('contains fork pressure inside the guest and removes the VM', async () => {

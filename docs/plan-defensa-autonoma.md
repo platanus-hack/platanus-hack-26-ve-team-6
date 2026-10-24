@@ -139,8 +139,8 @@ Trabajo:
 Trabajo:
 
 - [ ] Seleccionar un adaptador VM por trabajo y verificar virtualización, recursos y coste en el entorno disponible. Evaluar una microVM u otra VM desechable; el [diseño de Firecracker](https://github.com/firecracker-microvm/firecracker/blob/main/docs/design.md) es una referencia, no una decisión ni una garantía de disponibilidad local.
-- [ ] Definir imagen base fija, usuario sin privilegios, disco efímero, límites de CPU/RAM/PID/tiempo/salida, red denegada por defecto y destrucción comprobada. Sin DB, Redis, secretos productivos, socket Docker del host, mounts del control plane ni metadatos cloud.
-- [ ] Separar descarga de paquetes y ejecución. Las instalaciones usan destinos permitidos y artefactos exactos; los scripts/tests no heredan acceso abierto a Internet. Las opciones del package manager no sustituyen aislamiento.
+- [x] Definir imagen base fija, usuario sin privilegios, disco efímero, límites de CPU/RAM/PID/tiempo/salida, red denegada por defecto y destrucción comprobada. Sin DB, Redis, secretos productivos, socket Docker del host, mounts del control plane ni metadatos cloud.
+- [x] Separar descarga de paquetes y ejecución. Las instalaciones usan destinos permitidos y artefactos exactos; los scripts/tests no heredan acceso abierto a Internet. Las opciones del package manager no sustituyen aislamiento.
 - [ ] Entregar input por objeto acotado y resultado mediante permiso breve de un solo uso. Validar salida como no confiable; conservar digest, versión de runner, perfil y evidencia de limpieza.
 - [ ] Mantener ownership/admisión hasta terminar procesos y cleanup. Timeout, host perdido o limpieza incierta producen cuarentena y requieren reconciliación, nunca capacidad liberada como si el trabajo hubiera terminado.
 - [ ] Sustituir Semgrep 1.90.0 por un perfil mantenido, fijado por digest y validado con corpus. Revisar igualmente los otros perfiles y su política de actualización. No quitar el bloqueo de producción para pasar readiness.

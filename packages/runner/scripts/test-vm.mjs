@@ -2,11 +2,6 @@ import { spawnSync } from 'node:child_process';
 import { constants } from 'node:fs';
 import { accessSync } from 'node:fs';
 
-if (process.env.GOTCHU_TEST_VM !== '1') {
-  console.error('Set GOTCHU_TEST_VM=1 to run real Firecracker microVM tests.');
-  process.exit(2);
-}
-
 try {
   accessSync('/dev/kvm', constants.R_OK | constants.W_OK);
 } catch {
