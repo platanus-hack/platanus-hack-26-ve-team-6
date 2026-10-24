@@ -14,8 +14,7 @@
   <a href="#ejecutar-en-tu-máquina">Ejecutar</a> ·
   <a href="docs/self-hosting.md">Self-hosting</a> ·
   <a href="docs/architecture.md">Arquitectura</a> ·
-  <a href="docs/implementation-plan.md">Estado</a> ·
-  <a href="docs/validation.md">Verificación</a>
+  <a href="docs/implementation-plan.md">Estado</a>
 </p>
 
 <p align="center">
@@ -153,7 +152,7 @@ Para mover una instalación a otro espacio de trabajo, desconéctala primero del
 | Desactivado | Ejecución del código del cliente, escrituras en proveedores y acciones de respuesta automáticas. |
 | Identidad | Correo y contraseña con Auth.js, WebAuthn step-up e invitaciones por espacio. El correo no está verificado. No hay inicio de sesión externo configurado. |
 
-Las pruebas de integración del flujo del cliente están en `test/integration/customer-applications.test.ts`. La ruta TLS de producción del scanner está en `test/integration/production-scanner.test.ts`. El [registro de verificación](docs/validation.md) describe el alcance y los límites de cada prueba.
+Las pruebas de integración del flujo del cliente están en `test/integration/customer-applications.test.ts`. La ruta TLS de producción del scanner está en `test/integration/production-scanner.test.ts`.
 
 Las aplicaciones ficticias vulnerables y corregidas son fixtures de regresión. No son el producto y no limitan las evaluaciones de los clientes.
 
