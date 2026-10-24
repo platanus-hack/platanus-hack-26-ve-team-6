@@ -30,6 +30,7 @@ export const providerStatusInputSchema = z.object({
 }).strict();
 export const httpsProbeSchema = z.object({
   route: z.string().min(1).max(256), service: boundedName, dependsOnProvider: boundedName.nullable(),
+  role: z.enum(['application', 'control']).default('application'),
   outcome: z.enum(['healthy', 'degraded', 'unavailable', 'unknown']), at: timestamp,
 }).strict();
 export const baselineSchema = z.object({
