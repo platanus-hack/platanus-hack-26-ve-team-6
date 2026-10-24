@@ -470,7 +470,7 @@ function TelemetrySection({ userId, scope, canManage }: { userId: string; scope:
     {!canManage && <p className="customer-field-note">Sólo una persona propietaria u operadora puede administrar la clave.</p>}
     <details className="customer-ops-sdk"><summary>Integración manual con el SDK de Node</summary><p>La conexión no instala el SDK ni cambia tu aplicación. Genera eventos en el servidor y envía lotes firmados con la clave guardada como secreto privado.</p><pre>{`import { httpRequestEvent, applicationErrorEvent, sendEventBatch } from '@gotchu/sdk';
 
-const batch = { events: [
+const batch = { applicationId, events: [
   httpRequestEvent({ route: '/orders/:id', statusCode: 200, durationMs: 34 }),
   applicationErrorEvent('database'),
 ] };
