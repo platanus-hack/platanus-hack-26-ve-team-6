@@ -1,6 +1,6 @@
 .g-dots { --dot: currentColor; position: relative; width: var(--dots-size, 132px); aspect-ratio: 1; color: var(--gc-accent); }
 .g-dots > span { position: absolute; top: 0; left: 0; width: calc(100% / 11); height: calc(100% / 11); translate: 0 0; transition: transform 620ms cubic-bezier(.77, 0, .175, 1), translate 220ms var(--gc-ease); }
-.g-dots > span > i { display: block; width: 74%; height: 74%; margin: 13%; border-radius: 2px; background: var(--dot); }
+.g-dots > span > i { display: block; width: 74%; height: 74%; margin: 13%; border-radius: 0; background: var(--dot); }
 @media (prefers-reduced-motion: reduce) {
   .g-dots > span { transition: none; transition-delay: 0ms !important; }
 }

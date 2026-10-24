@@ -13,9 +13,9 @@
 .g-stage-one .g-stage-copy { text-align: left; margin: 0; }
 .g-stage-one .g-stage-copy p { margin-inline: 0 !important; }
 
-.g-report-card { border: 1px solid var(--gc-line); border-radius: 22px; background: #0f0f16; overflow: hidden; box-shadow: 0 30px 70px #08070d99; }
+.g-report-card { border: 1px solid var(--gc-line); border-radius: 0; background: #0f0f16; overflow: hidden; }
 .g-report-card header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 22px; border-bottom: 1px solid var(--gc-line-soft); color: var(--gc-muted); }
-.g-report-json { padding: 5px 10px; border-radius: 6px; background: var(--gc-action); color: var(--gc-paper); }
+.g-report-json { padding: 5px 10px; border-radius: 0; background: var(--gc-action); color: var(--gc-paper); }
 .g-report-card dl { margin: 0; }
 .g-report-card dl > div { display: grid; grid-template-columns: 120px 1fr; gap: 16px; padding: 16px 22px; border-bottom: 1px solid var(--gc-line-soft); }
 .g-report-card dl > div:last-child { border-bottom: 0; }
