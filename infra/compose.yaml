@@ -188,7 +188,7 @@ services:
       start_period: 30s
     user: "${GOTCHU_CONTAINER_UID:-1000}:${GOTCHU_CONTAINER_GID:-1000}"
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "host.docker.internal=${SCANNER_HOST_GATEWAY:-host-gateway}"
     volumes:
       - ${GOTCHU_STATE_DIR:-../.gotchu}/scanner.secret:/run/secrets/scanner.secret:ro
       - ${GOTCHU_STATE_DIR:-../.gotchu}/scanner.crt:/run/secrets/scanner.crt:ro

@@ -138,7 +138,7 @@ scanner_running() {
 }
 start_scanner() {
   command -v pnpm >/dev/null 2>&1 || fail 'Se requiere pnpm 11 y Node.js 24 para el scanner local.' 2
-  local port gateway fingerprint current; port="$(env_value SCANNER_HOST_PORT)"; gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
+  local port gateway fingerprint current; port="$(env_value SCANNER_HOST_PORT)"; gateway="${SCANNER_HOST_GATEWAY:-}"
   [[ "$gateway" =~ ^[0-9.]+$ ]] || fail 'No se pudo identificar la puerta de enlace de Docker para conectar el coordinator con el scanner.'
   ensure_scanner_tls "$gateway"
   fingerprint="$(sha256sum "$state_dir/scanner.crt" "$state_dir/scanner.key" | sha256sum | cut -d' ' -f1)"
@@ -183,9 +183,17 @@ up() {
   pnpm build
   "${compose[@]}" up -d postgres redis; compose_ready
   INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" bash "$root/scripts/infra-db-bootstrap.sh"
-  start_scanner; local port gateway; port="$(env_value SCANNER_HOST_PORT)"; gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
-  NODE_EXTRA_CA_CERTS="$state_dir/scanner.crt" wait_http "https://${gateway}:${port}/readyz" scanner
+  local bridge_gateway; bridge_gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
+  [[ "$bridge_gateway" =~ ^[0-9.]+$ ]] || fail 'No se pudo identificar una puerta de enlace Docker para preparar el certificado del scanner.'
+  ensure_scanner_tls "$bridge_gateway"
   "${compose[@]}" --profile web --profile coordinator build web coordinator
+  "${compose[@]}" --profile web --profile coordinator create --no-build web coordinator
+  local network gateway port; network="${project}_local-app-host"; port="$(env_value SCANNER_HOST_PORT)"
+  gateway="$(docker network inspect "$network" --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
+  [[ "$gateway" =~ ^[0-9.]+$ ]] || fail 'No se pudo identificar la puerta de enlace de la red local del coordinator.'
+  export SCANNER_HOST_GATEWAY="$gateway"
+  start_scanner
+  NODE_EXTRA_CA_CERTS="$state_dir/scanner.crt" wait_http "https://${gateway}:${port}/readyz" scanner
   local coordinator_image="${project}-coordinator:latest"
   "${compose[@]}" --profile web --profile coordinator config --format json | node "$root/scripts/infra-check.mjs" "$coordinator_image"
   "${compose[@]}" --profile web --profile coordinator up -d web coordinator

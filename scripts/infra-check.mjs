@@ -39,6 +39,14 @@ for (const name of ['AUTH_GITHUB_ID', 'AUTH_GITHUB_SECRET', 'AUTH_OIDC_ISSUER', 
 }
 
 const coordinatorEnvironment = environment('coordinator');
+requireValue(
+  composeText.includes('host.docker.internal=${SCANNER_HOST_GATEWAY:-host-gateway}'),
+  'coordinator scanner access must use the gateway for its local-app-host network.',
+);
+requireValue(
+  (services.coordinator.extra_hosts ?? []).some((entry) => typeof entry === 'string' && entry.startsWith('host.docker.internal=')),
+  'coordinator must resolve the scanner host through an explicit local gateway.',
+);
 requireValue(Object.hasOwn(coordinatorEnvironment, 'GOTCHU_DEMO_TARGET_ORIGIN'), 'coordinator must accept an optional GOTCHU_DEMO_TARGET_ORIGIN override.');
 requireValue(coordinatorEnvironment.GOTCHU_DEMO_TARGET_ORIGIN === null || typeof coordinatorEnvironment.GOTCHU_DEMO_TARGET_ORIGIN === 'string', 'coordinator target origin must be optional.');
 requireValue(/^\s+GOTCHU_DEMO_TARGET_ORIGIN:\s*$/m.test(composeText), 'coordinator demo target origin must remain unset unless the operator supplies it.');
