@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://gotchu.kevinbravo.com">App</a> ·
   <a href="#ejecutar-en-tu-máquina">Ejecutar</a> ·
   <a href="docs/self-hosting.md">Self-hosting</a> ·
   <a href="docs/architecture.md">Arquitectura</a> ·
@@ -22,7 +23,7 @@
   <img alt="pnpm 11" src="https://img.shields.io/badge/pnpm-11-191923?style=flat-square">
   <img alt="TanStack Start" src="https://img.shields.io/badge/TanStack-Start-191923?style=flat-square">
   <img alt="Auth.js" src="https://img.shields.io/badge/Auth.js-191923?style=flat-square">
-  <img alt="Runtime local" src="https://img.shields.io/badge/runtime-desarrollo%20local-191923?style=flat-square">
+  <a href="https://gotchu.kevinbravo.com"><img alt="Producción en AWS" src="https://img.shields.io/badge/producción-AWS-e7147d?style=flat-square&labelColor=191923"></a>
 </p>
 
 ---
@@ -35,6 +36,15 @@ Gotchu responde a esa pregunta. Revisa el código fuente, el origen HTTPS o los 
 - **Muestra la evidencia.** Cada hallazgo enlaza su evidencia, su severidad y su confianza.
 - **No oculta lo que no revisó.** Una cobertura parcial queda como desconocida, no como limpia.
 - **No ejecuta tu código.** Gotchu no instala paquetes, no ejecuta scripts y no intenta explotar nada.
+
+## En vivo
+
+| | |
+|---|---|
+| Aplicación | https://gotchu.kevinbravo.com |
+| Infraestructura | AWS Lightsail en `us-east-1`, con TLS en Caddy y backups cifrados en S3 |
+
+Abre `/dashboard` y elige **Crear una cuenta**. Cada cuenta nueva crea su propio espacio de trabajo aislado. El runbook de producción está en [infra/aws](infra/aws/README.md).
 
 ## Cómo funciona
 
@@ -105,7 +115,7 @@ pnpm dev:prepare   # solo si faltan las imágenes fijadas
 pnpm dev:start
 ```
 
-Abre http://localhost:3000/dashboard. El registro está activo solo en desarrollo. No hay cuentas, espacios ni datos de demostración precargados.
+Abre http://localhost:3000/dashboard. En desarrollo, el registro local está activo. No hay cuentas, espacios ni datos de demostración precargados.
 
 | Servicio | Puerto | Variable para cambiarlo |
 |---|---|---|
@@ -136,11 +146,13 @@ Para mover una instalación a otro espacio de trabajo, desconéctala primero del
 
 | Área | Estado |
 |---|---|
-| Runtime | Desarrollo local. Este README no afirma un despliegue en la nube. AWS es el objetivo principal futuro. |
-| Scanner HTTPS | Implementado y probado en local en Linux/amd64, con Semgrep CE 1.182.0 fijado. |
-| Abierto | Ingress web alojado, política de red en la nube, ciclo de secretos de producción, backups y restauración, capacidad representativa y otras arquitecturas. |
+| Producción | Desplegado en AWS: un servidor Lightsail de 4 GB en `us-east-1`. Web, coordinator y scanner corren como servicios systemd. Solo los puertos 80 y 443 son públicos. |
+| Registro | Público en producción. Cada cuenta nueva no tiene acceso a los espacios existentes. |
+| Backups | Cada diez minutos, cifrados y enviados a S3. Una restauración en una base de datos desechable funcionó. |
+| Scanner | Semgrep, Gitleaks y Trivy fijados. Probado en vivo con casos sintéticos. |
+| Abierto | Un solo servidor sin failover. Falta medir la capacidad con usuarios reales y la recuperación completa en un servidor limpio. |
 | Desactivado | Ejecución del código del cliente, escrituras en proveedores y acciones de respuesta automáticas. |
-| Identidad | El registro local es solo para desarrollo. Existen el inicio de sesión local, WebAuthn step-up e invitaciones por espacio. La identidad de producción no está certificada. |
+| Identidad | Correo y contraseña con Auth.js, WebAuthn step-up e invitaciones por espacio. El correo no está verificado. No hay inicio de sesión externo configurado. |
 
 Las pruebas de integración del flujo del cliente están en `test/integration/customer-applications.test.ts`. La ruta TLS de producción del scanner está en `test/integration/production-scanner.test.ts`. El [registro de verificación](docs/validation.md) describe el alcance y los límites de cada prueba.
 
