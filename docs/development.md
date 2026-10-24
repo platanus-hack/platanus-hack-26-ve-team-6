@@ -20,6 +20,8 @@ Local Auth.js credentials are enabled, including local registration for creating
 
 Before starting services, the script inspects the exact image references exported by `@gotchu/customer-assessment` and the PostgreSQL and Redis references from Compose. The scanner must pass `/readyz` using actual Semgrep, Gitleaks, Trivy, and OSV metadata-only checks before startup reports ready. The first check can take up to 90 seconds; it never treats missing images or tools as ready. `GOTCHU_SCANNER_OSV=1` enables the bounded free OSV query for exact package names and versions; source contents and customer credentials are not sent to that service.
 
+Deterministic source/HTTPS assessments do not need a model key. Keep `LANGSMITH_TRACING`, `LANGSMITH_TRACING_V2`, `LANGCHAIN_TRACING`, `LANGCHAIN_TRACING_V2`, and `LANGCHAIN_VERBOSE` disabled for customer scans. If tracing or verbosity is enabled, scanner readiness and each run fail closed before input or adapter work so private source is not sent to tracing callbacks. The optional model-investigation path is separate and reports unavailable when it is not configured.
+
 If a pinned image is missing, startup stops before launching the Node services and names the missing image. `dev:prepare` builds the small profile package and checks Docker storage before pulling only missing pinned scanner and data-service images. It requires at least 5 GiB free in Docker storage before beginning any pull. With less free space, it pulls nothing and asks you to free space first. The scanner profile pins Semgrep 1.90.0 and is enforced as development/test-only; scanner production readiness is not established.
 
 Useful local locations:

@@ -52,9 +52,9 @@ Owners and Operators can delete a snapshot. Deletion clears its stored body and 
 
 ### Authorized public HTTPS targets
 
-Enrollment accepts a canonical public HTTPS origin only: a DNS hostname, no credentials, path, query, fragment, or custom port. The customer must affirm authorization, then publish the issued random TXT challenge at `_gotchu.<hostname>`. The challenge expires after 30 minutes. Successful verification records the actor and time and authorizes the target for seven days. Customers can revoke authorization sooner; enrolling again creates a new version. Only one target is active for an application.
+Enrollment accepts a canonical public HTTPS origin only: a DNS hostname, no credentials, path, query, fragment, or custom port. The customer must affirm authorization and prove DNS control by publishing the issued random TXT challenge at `_gotchu.<hostname>`. The challenge expires after 30 minutes. Successful verification records the actor and time and authorizes the target for seven days. Customers can revoke authorization sooner; enrolling again creates a new version. Only one target is active for an application.
 
-At scan time, the trusted HTTPS transport resolves the hostname again, rejects nonpublic or reserved answers, pins a validated public IP, verifies the certificate and original hostname, and honors the target's expiration deadline. It sends no customer credentials or cookies, does not follow redirects, and uses the exact consented profile. Root consent permits one GET to `/`; `public_surface` permits bounded fixed paths and same-origin discoveries, capped at ten requests and a total response budget. DNS, TLS, scope, cap or deadline failures remain unknown coverage. External assessment needs no source snapshot.
+At scan time, the trusted HTTPS transport resolves the hostname again, rejects nonpublic or reserved answers, pins a validated public IP, verifies the certificate and original hostname, and honors the target's expiration deadline. It sends no customer credentials or cookies, does not follow redirects, and uses the exact consented profile. Root consent permits one GET to `/`; `public_surface` permits up to ten serial GETs to `/`, `/.well-known/security.txt`, `/security.txt`, `/robots.txt`, `/sitemap.xml`, and safe query-free same-origin links from readable HTML/robots/sitemap responses. It waits 250 ms between requests, reads at most 64 KiB total and 16 KiB per response. DNS, TLS, scope, cap or deadline failures remain unknown coverage. External assessment needs no source snapshot.
 
 ## Assessment modes and reports
 
@@ -68,7 +68,23 @@ The request contract binds source and target inputs to the selected mode:
 
 The internal and external branches collect evidence independently. Internal work uses bounded parsers against uploaded bytes. The current local scanner profile includes Semgrep CE 1.90.0, Gitleaks 8.28.0, Trivy 0.67.2, and an optional OSV-compatible package-lock lookup. It does not inspect installed packages or prove reachability. The OSV adapter sends package names and exact versions only. Semgrep 1.90.0 is enforced as development/test-only; the production runtime cannot execute this profile or receive green aggregate scanner readiness. A maintained scanner replacement and representative validation are required before production internal scanning.
 
+### Deterministic scanner pipeline
+
+Each invocation in `@gotchu/customer-assessment` compiles and invokes this LangGraph sequence:
+
+```text
+START -> validate -> analyze -> compare -> finalize -> END
+```
+
+`validate` parses the run contract and verifies the uploaded source digest. `analyze` starts the requested internal and external branches together, waits for both to settle, and leaves an unrequested branch absent. A private invocation closure holds that run's input and intermediate analyses; graph state exposes only stage counters. `compare` groups findings with the same correlation key. If the opposite analysis was not requested, unavailable, or partial without a matching finding, the item remains unverified; even a match does not imply deployment equivalence or exploitability. `finalize` validates the report and binds its tenant, application, job, source/target subject, and evidence references. The graph has no checkpointer, retry policy, or source checkpoints. Scanner execution, job leases, failure quarantine, and report persistence are handled by the surrounding services.
+
+Manual, scheduled, and correction-rescan assessments use the same durable assessment lane and scanner runner. Signed telemetry intake, scheduling, outbox delivery, lease claims, tenant authorization, approvals, and the independent provider-write executor remain outside this graph. The deterministic scan needs no model key and makes no model call; the separate optional model-investigation path remains unavailable when unconfigured. The scanner does not write to customer providers.
+
+For `public_surface`, reports derive path-specific missing CSP, HSTS, and `X-Content-Type-Options` observations only from complete TLS-verified responses. A returned `Server` or `X-Powered-By` banner is an informational, unverified technology indication. Response bodies are used only for inert same-origin discovery and are discarded; cookies and credentials are neither sent nor retained. These observations do not prove software identity, vulnerability, or exploitation.
+
 Reports bind organization, application, job, source ID/digest, and target ID/version/origin. They persist bounded evidence excerpts with checksums, scanner and transport provenance, limitations, findings, coverage states, and internal/external comparisons. Coverage distinguishes inspected, unavailable, unsupported, and not-requested capabilities. Missing or partial coverage remains unknown. Lack of a finding is not a clean assessment. Findings do not claim exploitability; there is no exploitation, deployment equivalence, or compromise proof.
+
+The report UI lists observed HTTPS responses even when no findings were derived, shows finding presence separately from cross-perspective verification, and renders unknown exploitability as unknown. The incident list and visible incident details poll every ten seconds while the page remains visible, so new incidents and revisions appear without a manual reload.
 
 Assessments are observation-only. The report records no performed actions. Severity never expands permissions. Exact approval, bounded preauthorized automation, provider writes, recovery, and automatic response are separate capabilities and are not enabled by this customer assessment flow.
 

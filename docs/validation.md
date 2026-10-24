@@ -1,5 +1,22 @@
 # Verification record
 
+## Deterministic customer assessment pipeline — 2026-10-24
+
+This follow-up records the implemented scanner graph and report behavior. Checks below are local development evidence; the complete updated customer-process and operational-alert live reruns are not yet green. No AWS deployment, general source/technology inventory, exploitation proof, or production release is established.
+
+| Check | Observed result |
+| --- | --- |
+| Core web/coordinator/sdk dependency build and frozen offline install | Passed. |
+| `pnpm typecheck` | Passed for the whole workspace, including integration tests. |
+| Focused unit suites | `@gotchu/customer-assessment` **78 passed**; `@gotchu/scanner` **20 passed**; `@gotchu/web` **74 passed**, with two pre-existing opt-in web tests skipped; `@gotchu/agent` **21 passed**. |
+| Assessment pipeline integration | **14 passed** against real PostgreSQL/Redis with the worker and LangGraph. The model endpoint returned `model_not_configured`; no model call is claimed. |
+| Coordinator `test:live` | **20 passed**, including five triage cases using real PostgreSQL/Redis, marked provider/TLS fixtures, and synthetic assessment ports. |
+| Development app and incident polling | Updated app restarted healthy. Browser regression used a fresh app with no incidents, submitted 20 HMAC-signed synthetic request events including six errors, and observed a persisted incident plus revision 2 while the page stayed open. No reload, UI errors, or visible signing key. |
+| Customer process integration | The existing five cases passed, including actual Docker/OSV paths, all assessment modes, and combined `public_surface`. A new external-only sixth case had an incorrect job URL; fix `acdbf3c` is present, but its rerun is pending. |
+| Operational-alert integration | The full updated run found three failures from same-window metric idempotency conflicts. A fix retaining the first metric snapshot per window while recomputing alerts is in progress; rerun is pending. |
+
+The final customer-process rerun and operational-alert rerun, plus post-fix UI verification, remain open. Parser-gated CSP source/HTTPS correlation is separate active work, not integrated or covered by this milestone. The graph has no checkpoint/retry mechanism for source work; the durable coordinator and scanner boundaries remain responsible for delivery, settlement, and reconciliation.
+
 
 ## Continuous monitoring and dashboard corrections — 2026-10-24
 
