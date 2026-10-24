@@ -58,6 +58,12 @@ export function createCoordinatorTransport(options: {
   }
   return {
     queues,
+    setOrganizationIds(ids: readonly string[]) {
+      if (ids.length > 500) throw new Error('Coordinator organization batch exceeds its bound');
+      const checked = ids.map(id => jobEnvelopeSchema.shape.organizationId.parse(id));
+      allowedOrganizations.clear();
+      for (const id of checked) allowedOrganizations.add(id);
+    },
     // Outbox publication and Postgres reconciliation must use this same route.
     publish: (envelope: JobEnvelope) => ensureQueueDelivery(queueFor(envelope.kind), envelope),
     waitUntilReady: async () => { await Promise.all([...Object.values(queues).map((queue) => queue.waitUntilReady()), ...workers.map((worker) => worker.waitUntilReady())]); },

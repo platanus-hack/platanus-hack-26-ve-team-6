@@ -3,8 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.test.json", "test": "vitest run", "test:live": "node test/run-live.mjs", "start": "node dist/main.js" },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:live": "node test/run-live.mjs",
+    "start": "node dist/main.js"
+  },
   "dependencies": {
     "@gotchu/assessment": "workspace:*",
     "@gotchu/demo-target": "workspace:*",
@@ -15,6 +26,7 @@
     "bullmq": "6.4.0",
     "ioredis": "^6.0.0",
     "jose": "^6.2.13",
-    "zod": "^4.0.0"
+    "zod": "^4.0.0",
+    "@gotchu/scanner": "workspace:*"
   }
 }

@@ -1,4 +1,6 @@
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { createScannerClient } from '@gotchu/scanner';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { createBackend } from '@gotchu/backend';
@@ -36,24 +38,40 @@ async function main() {
   if (Boolean(workerUrl) !== Boolean(privateKeyPem)) throw new Error('Worker URL and capability signing key must be configured together');
   const investigator = workerUrl && privateKeyPem ? await createHttpInvestigator({ workerUrl, privateKeyPem, allowLoopbackHttp: config.nodeEnv !== 'production' }) : undefined;
   const allowedOrganizations = new Set(config.organizationIds);
+  const customerDiscovery = process.env.GOTCHU_CUSTOMER_DISCOVERY === 'true';
+  let discoveryHealthy = !customerDiscovery;
+  const scannerOrigin = process.env.GOTCHU_SCANNER_ORIGIN;
+  const scannerSecretFile = process.env.GOTCHU_SCANNER_SECRET_FILE;
+  if (Boolean(scannerOrigin) !== Boolean(scannerSecretFile)) throw new Error('Scanner origin and secret file must be configured together');
+  const customerAssessmentRunner = scannerOrigin && scannerSecretFile ? createScannerClient({
+    origin: scannerOrigin, secret: await readFile(scannerSecretFile), allowDevelopmentHttp: config.nodeEnv !== 'production',
+  }) : undefined;
   const demoEnabled = process.env.GOTCHU_DEMO_ENABLED === 'true';
   if (demoEnabled && !allowedOrganizations.has(DEMO_ASSESSMENT_SCOPE.organizationId)) throw new Error('Assign the controlled demo organization before enabling its runner');
   const controlledTarget = demoEnabled && !process.env.GOTCHU_DEMO_TARGET_ORIGIN ? await startDemoTargetServer({ host: '127.0.0.1', port: 4100 }) : undefined;
   const origin = process.env.GOTCHU_DEMO_TARGET_ORIGIN ?? controlledTarget?.origin;
   const assessmentRunner = demoEnabled ? createControlledAssessmentRunner(origin ? { origin } : {}) : undefined;
-  const dependencies = { database, backend, ...(investigator ? { investigator } : {}), ...(assessmentRunner ? { assessmentRunner } : {}) };
+  const dependencies = { database, backend, ...(investigator ? { investigator } : {}), ...(assessmentRunner ? { assessmentRunner } : {}), ...(customerAssessmentRunner ? { customerAssessmentRunner } : {}) };
   const transport = createCoordinatorTransport({ redisUrl: config.redisUrl, organizationIds: config.organizationIds, dependencies, report });
   const stop = new AbortController();
   const loop = (async () => {
     let lastReconciliation = 0;
     while (!stop.signal.aborted) {
       try {
-        for (const organizationId of config.organizationIds) await dispatchOutbox(backend, organizationId, transport.publish);
+        if (customerDiscovery) {
+          const pending = await backend.customers.pendingOrganizations({ limit: 100 });
+          const current = [...new Set([...config.organizationIds, ...pending])];
+          transport.setOrganizationIds(current);
+          allowedOrganizations.clear();
+          for (const id of current) allowedOrganizations.add(id);
+          discoveryHealthy = true;
+        }
+        for (const organizationId of allowedOrganizations) await dispatchOutbox(backend, organizationId, transport.publish);
         if (Date.now() - lastReconciliation >= 10_000) {
-          for (const organizationId of config.organizationIds) await reconcileDurableDeliveries(database, organizationId, transport.publish);
+          for (const organizationId of allowedOrganizations) await reconcileDurableDeliveries(database, organizationId, transport.publish);
           lastReconciliation = Date.now();
         }
-      } catch (error) { report('coordinator_dispatch_delayed', error); }
+      } catch (error) { discoveryHealthy = !customerDiscovery; report('coordinator_dispatch_delayed', error); }
       try { await delay(500, undefined, { signal: stop.signal }); }
       catch (error) { if (!stop.signal.aborted) throw error; }
     }
@@ -64,9 +82,9 @@ async function main() {
     }
     if (request.url !== '/health/ready') { response.writeHead(404); response.end(); return; }
     void Promise.all([database.checkHealth(), transport.checkHealth()]).then(() => {
-      const ready = allowedOrganizations.size > 0;
+      const ready = discoveryHealthy && (allowedOrganizations.size > 0 || customerDiscovery);
       response.writeHead(ready ? 200 : 503, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ status: ready ? 'ready' : 'unassigned', assignedOrganizations: allowedOrganizations.size, investigatorConfigured: Boolean(investigator) }));
+      response.end(JSON.stringify({ status: ready ? 'ready' : 'unassigned', assignedOrganizations: allowedOrganizations.size, investigatorConfigured: Boolean(investigator), customerDiscovery, customerScannerConfigured: Boolean(customerAssessmentRunner) }));
     }).catch((error: unknown) => {
       report('coordinator_not_ready', error); response.writeHead(503); response.end('{"status":"unavailable"}');
     });

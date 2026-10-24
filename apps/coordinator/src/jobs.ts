@@ -4,7 +4,7 @@ import { BackendError, completeJob, createRunService, enqueue, type Backend, typ
 import { jobEnvelopeSchema, securityEventSchema, type JobEnvelope } from '@gotchu/contracts';
 import type { Database, Transaction } from '@gotchu/database';
 import { z } from 'zod';
-import { runAssessment, type AssessmentRunner } from './assessment.js';
+import { runAssessment, runCustomerAssessment, type AssessmentRunner, type CustomerAssessmentRunner } from './assessment.js';
 
 const WINDOW_MS = 600_000;
 const MAX_WINDOW_EVENTS = 10_000;
@@ -14,7 +14,7 @@ const payloadSchema = z.object({ incidentId: z.uuid(), evidenceIds: z.array(z.uu
 export interface Investigator {
   investigate(input: { organizationId: string; applicationId: string; runId: string; deadline: Date; evidenceIds: readonly string[] }): Promise<InvestigationResult>;
 }
-export interface CoordinatorDependencies { readonly database: Database; readonly backend: Backend; readonly investigator?: Investigator; readonly assessmentRunner?: AssessmentRunner }
+export interface CoordinatorDependencies { readonly database: Database; readonly backend: Backend; readonly investigator?: Investigator; readonly assessmentRunner?: AssessmentRunner; readonly customerAssessmentRunner?: CustomerAssessmentRunner }
 
 async function failJob(tx: Transaction, claim: JobClaim, reason: string) {
   const result = await tx.query("UPDATE gotchu.jobs SET state='failed',result=$4::jsonb,completed_at=clock_timestamp(),lease_until=NULL WHERE organization_id=$1 AND id=$2 AND lease_token=$3 AND state='running' AND lease_until>clock_timestamp()", [claim.envelope.organizationId, claim.envelope.id, claim.leaseToken, JSON.stringify({ reasonCode: reason })]);
@@ -151,6 +151,13 @@ async function investigate(dependencies: CoordinatorDependencies, claim: JobClai
 async function assess(dependencies: CoordinatorDependencies, claim: JobClaim) {
   const { organizationId, applicationId, id: jobId } = claim.envelope;
   try {
+    if (claim.payload && typeof claim.payload === 'object' && 'version' in claim.payload && claim.payload.version === 2) {
+      if (!dependencies.customerAssessmentRunner) throw new BackendError('customer_scanner_not_configured', 'Customer scanner is not configured', 503);
+      const input = await dependencies.backend.customers.getRequest({ organizationId, applicationId, jobId, leaseToken: claim.leaseToken });
+      const report = await runCustomerAssessment(dependencies.customerAssessmentRunner, input);
+      await dependencies.backend.customers.recordResult({ input, leaseToken: claim.leaseToken, report });
+      return;
+    }
     if (!dependencies.assessmentRunner) throw new BackendError('audit_adapter_not_configured', 'Assessment adapter is not configured', 503);
     const input = await dependencies.backend.assessments.getRequest({ organizationId, applicationId, jobId, leaseToken: claim.leaseToken });
     // Source and HTTP reads happen after the request transaction has committed.

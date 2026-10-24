@@ -26,6 +26,9 @@ importers:
       '@gotchu/coordinator':
         specifier: workspace:*
         version: link:apps/coordinator
+      '@gotchu/customer-assessment':
+        specifier: workspace:*
+        version: link:packages/customer-assessment
       '@gotchu/database':
         specifier: workspace:*
         version: link:packages/database
@@ -35,6 +38,9 @@ importers:
       '@gotchu/gateway':
         specifier: workspace:*
         version: link:apps/gateway
+      '@gotchu/scanner':
+        specifier: workspace:*
+        version: link:apps/scanner
       '@gotchu/sdk':
         specifier: workspace:*
         version: link:packages/sdk
@@ -89,6 +95,9 @@ importers:
       '@gotchu/demo-target':
         specifier: workspace:*
         version: link:../demo-target
+      '@gotchu/scanner':
+        specifier: workspace:*
+        version: link:../scanner
       bullmq:
         specifier: 6.4.0
         version: 6.4.0(ioredis@6.0.0)(pg@8.23.1)
@@ -151,6 +160,18 @@ importers:
       '@types/pg':
         specifier: ^8.15.5
         version: 8.23.1
+
+  apps/scanner:
+    dependencies:
+      '@gotchu/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@gotchu/customer-assessment':
+        specifier: workspace:*
+        version: link:../../packages/customer-assessment
+      zod:
+        specifier: ^4.0.0
+        version: 4.6.7
 
   apps/web:
     dependencies:
@@ -277,6 +298,15 @@ importers:
 
   packages/contracts:
     dependencies:
+      zod:
+        specifier: ^4.0.0
+        version: 4.6.7
+
+  packages/customer-assessment:
+    dependencies:
+      '@gotchu/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       zod:
         specifier: ^4.0.0
         version: 4.6.7
