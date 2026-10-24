@@ -81,7 +81,7 @@ test('scroll narrative tracks chapters and does not trap page scrolling', async 
   await page.goto('/', { waitUntil: 'networkidle' });
   for (const [index, id] of ['codigo', 'https', 'evidencia'].entries()) {
     await page.locator(`#${id}`).evaluate(element => window.scrollTo(0, element.getBoundingClientRect().top + scrollY - innerHeight * .25));
-    if (!isMobile) await expect(page.locator('.g-scene-compact')).toHaveAttribute('data-perspective', String(index));
+    if (!isMobile) await expect(page.locator('.g-journey-visual .g-product-flow')).toHaveAttribute('data-step', String(index));
   }
   await page.locator('.g-footer').scrollIntoViewIfNeeded();
   await expect(page.getByRole('link', { name: 'Gotchu, volver al inicio' })).toBeVisible();
@@ -97,6 +97,27 @@ test('reduced motion and a 320px viewport retain all content without pointer or 
   await page.getByRole('tab', { name: 'HTTPS', exact: true }).click();
   await expect(page.getByRole('tabpanel')).toContainText('sin compartir el código fuente');
   expect(await page.locator('.g-hero h1').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
+  await checkLayout(page); await checkA11y(page);
+});
+
+test('the product journey presents source versioning, DNS authorization and persisted report capabilities', async ({ page, isMobile }) => {
+  await page.goto('/', { waitUntil: 'networkidle' });
+  const steps = [
+    { id: 'codigo', title: 'Instantánea de código', text: 'Huella SHA-256' },
+    { id: 'https', title: 'Origen HTTPS', text: '_gotchu.<dominio>' },
+    { id: 'evidencia', title: 'Informe de evaluación', text: 'Extracto, herramienta y checksum' },
+  ];
+  for (const [index, step] of steps.entries()) {
+    await page.locator(`#${step.id}`).evaluate(element => window.scrollTo(0, element.getBoundingClientRect().top + scrollY - innerHeight * .25));
+    const flow = isMobile ? page.locator(`#${step.id} .g-mobile-flow`) : page.locator('.g-journey-visual .g-product-flow');
+    await expect(flow).toHaveAttribute('data-step', String(index));
+    await expect(flow.getByRole('heading', { name: step.title, exact: true })).toBeVisible();
+    await expect(flow).toContainText(step.text);
+  }
+  await expect(page.locator('.g-workflow')).toContainText('Historial de evaluaciones');
+  await expect(page.locator('.g-workflow')).toContainText('Exportación JSON');
+  await expect(page.getByRole('link', { name: 'Ir a mis aplicaciones', exact: true })).toHaveAttribute('href', '/dashboard');
+  await page.locator('.g-workflow').scrollIntoViewIfNeeded();
   await checkLayout(page); await checkA11y(page);
 });
 

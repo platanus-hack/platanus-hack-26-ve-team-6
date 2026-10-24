@@ -32,7 +32,7 @@ Gotchu is the repository/application name; the reference's earlier â€œPrototipoâ
 
 ## Evidence on Hand
 
-Jenn's supplied `prototipo.html` and its reviewed second iteration establish visual direction, not proof of implemented continuous monitoring or remediation. Existing contracts and workflows establish actual scope. No fabricated customers, testimonials, certifications, performance figures or security guarantees. Do not fabricate assessment results. Use original abstract assets instead of pseudo-reports, and omit meta/helper captions that explain the artwork or the page.
+Jenn's supplied `prototipo.html` and its reviewed second iteration establish visual direction, not proof of implemented continuous monitoring or remediation. Existing contracts and workflows establish actual scope. No fabricated customers, testimonials, certifications, performance figures or security guarantees. Do not fabricate assessment results. Use authored assets and product-structure panels instead of invented records or pseudo-results, and omit meta/helper captions that explain the artwork or the page. The landing explicitly covers snapshot revisions/digests, DNS authorization, evidence fields, coverage, workspace/application organization, queued-job history and JSON export.
 
 ## Product Principles
 

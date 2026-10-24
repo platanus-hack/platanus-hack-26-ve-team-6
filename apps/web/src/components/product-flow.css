@@ -1,0 +1,58 @@
+.g-product-flow { position: relative; perspective: 1200px; padding: 18px 24px 22px 4px; }
+.g-flow-sheet { position: relative; min-height: 370px; background: var(--gc-surface); border: 1px solid var(--gc-line); border-radius: 6px; box-shadow: var(--gc-shadow-dialog); transform: rotateY(-5deg) rotateX(3deg); transform-style: preserve-3d; }
+.g-flow-sheet::before { content: ''; position: absolute; inset: 14px -13px -14px 13px; border: 1px solid var(--gc-line-soft); border-radius: inherit; background: var(--gc-raised); transform: translateZ(-14px); }
+.g-flow-sheet > header { display: flex; align-items: center; gap: 14px; padding: 22px 24px; border-bottom: 1px solid var(--gc-line-soft); }
+.g-flow-sheet > header > svg { color: var(--gc-accent-ink); flex-shrink: 0; }
+.g-flow-sheet h3 { font-size: 18px; line-height: 1.4; }
+.g-file-formats { display: flex; flex-wrap: wrap; gap: 8px; padding: 24px 24px 6px; }
+.g-file-formats code { padding: 7px 10px; border: 1px solid var(--gc-line); border-radius: 6px; font: 12px/1.5 var(--gc-font-code); color: var(--gc-paper); }
+.g-flow-fields { margin: 0; padding: 12px 24px; }
+.g-flow-fields > div { display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; padding-block: 16px; border-bottom: 1px solid var(--gc-line-soft); font-size: 14px; }
+.g-flow-fields > div:last-child { border-bottom: 0; }
+.g-flow-fields dt { color: var(--gc-paper); }
+.g-flow-fields dd { margin: 0; color: var(--gc-muted); }
+.g-source-checks { display: flex; flex-wrap: wrap; gap: 18px; padding: 4px 24px 24px; color: var(--gc-accent-ink); font-size: 12px; }
+.g-flow-sheet > footer { display: flex; align-items: center; gap: 10px; padding: 18px 24px; background: var(--gc-canvas); border-top: 1px solid var(--gc-line-soft); color: var(--gc-silver); font-size: 12px; border-radius: 0 0 6px 6px; }
+.g-flow-sheet > footer svg { color: var(--gc-accent-ink); flex-shrink: 0; }
+.g-flow-sheet > footer code { margin-left: auto; color: var(--gc-accent-ink); font-family: var(--gc-font-code); }
+.g-dns-record { margin: 24px; padding: 18px; background: var(--gc-canvas); border: 1px solid var(--gc-line-soft); border-radius: 6px; }
+.g-dns-record > span { display: block; color: var(--gc-muted); font-size: 12px; margin-bottom: 8px; }
+.g-dns-record code { color: var(--gc-accent-ink); font: 18px/1.5 var(--gc-font-code); overflow-wrap: anywhere; }
+.g-dns-steps { list-style: decimal; margin: 0; padding: 0 30px 22px 50px; font-size: 14px; }
+.g-dns-steps li { padding-block: 7px; color: var(--gc-silver); }
+.g-dns-steps li::marker { color: var(--gc-accent-ink); }
+.g-report-fields { padding-block: 6px; }
+.g-mobile-flow { display: none; }
+.g-workflow { padding-block: 76px 10px; }
+.g-workflow h2 { font-size: 32px; line-height: 1.25; letter-spacing: -.025em; }
+.g-workflow > dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; margin: 34px 0 20px; }
+.g-workflow > dl > div { padding-top: 22px; border-top: 1px solid var(--gc-line); }
+.g-workflow dt { font-size: 18px; color: var(--gc-paper); margin-bottom: 12px; }
+.g-workflow dd { margin: 0; color: var(--gc-silver); font-size: 14px; }
+.g-workflow .g-secondary-link { color: var(--gc-accent-ink); }
+@media (prefers-reduced-motion: no-preference) {
+  .g-flow-sheet { animation: g-flow-change 200ms var(--gc-ease); }
+}
+@keyframes g-flow-change { from { opacity: .5; } to { opacity: 1; } }
+@media (max-width: 1050px) {
+  .g-product-flow { padding-right: 14px; }
+  .g-flow-sheet > header, .g-flow-sheet > footer { padding-inline: 18px; }
+  .g-flow-fields { padding-inline: 18px; }
+  .g-flow-fields > div { grid-template-columns: 1fr; gap: 6px; padding-block: 12px; }
+  .g-workflow > dl { gap: 24px; }
+}
+@media (max-width: 760px) {
+  .g-mobile-flow { display: block; margin-top: 24px; }
+  .g-product-flow { padding: 0 10px 14px 0; perspective: none; }
+  .g-flow-sheet { min-height: 0; transform: none; box-shadow: none; }
+  .g-flow-sheet::before { inset: 9px -9px -9px 9px; transform: none; z-index: -1; }
+  .g-flow-fields > div { grid-template-columns: 1fr 1.3fr; gap: 12px; }
+  .g-file-formats { padding-inline: 18px; gap: 6px; }
+  .g-file-formats code { padding: 6px 8px; }
+  .g-dns-record { margin-inline: 18px; }
+  .g-dns-record code { font-size: 16px; }
+  .g-workflow { padding-block: 44px 0; }
+  .g-workflow h2 { font-size: 28px; }
+  .g-workflow > dl { grid-template-columns: 1fr; gap: 24px; margin-top: 26px; }
+  .g-workflow > dl > div { padding-top: 18px; }
+}

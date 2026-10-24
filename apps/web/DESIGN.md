@@ -108,9 +108,9 @@ Oxanium is a product voice, not an instruction to typeset every paragraph as sci
 
 ## Layout
 
-The sequence is centered headline and original product object; a scroll-linked narrative with a sticky object and three real product distinctions; a light scope selector; native FAQ; a short closing action and typographic footer. Do not reuse the earlier split hero, boxed radial sculpture, ticker band or numbered-card grid.
+The sequence is centered headline and original product object; a scroll-linked narrative with concrete source-snapshot, DNS-authorization and report-anatomy panels; a light scope selector; native FAQ; a short closing action and typographic footer. Do not reuse the earlier split hero, boxed radial sculpture, ticker band or numbered-card grid.
 
-Container max is 1180px; side gutters are 56px above 1050px, 32px up to 1050px, and 20px up to 760px. The header uses its own wider 1300px shell. Desktop story holds the object beside the copy; mobile shows the hero object once and presents the three chapters as direct content, without sticky obstruction. Never hijack scrolling or require an animation to finish before continuing.
+Container max is 1180px; side gutters are 56px above 1050px, 32px up to 1050px, and 20px up to 760px. The header uses its own wider 1300px shell. Desktop holds the matching product panel beside each chapter; mobile places the corresponding panel directly below its paragraph. The lens appears once in the hero. No invented records, findings, tokens or verification statuses are shown. Never hijack scrolling or require an animation to finish before continuing.
 
 ## Elevation & Depth
 
@@ -123,7 +123,8 @@ Machined circles are specific to the lens; panels represent a source snapshot an
 ## Components
 
 - **Actions:** anchors navigate to the existing `/dashboard`; no waitlist or fake form. Press feedback is 160ms and scale .97. Fine-pointer hover shifts 2px; touch has no hover movement.
-- **Lens:** `EvidenceLens` uses Motion springs, duration .4 and bounce 0, on direct element transforms. Pointer response is fine-pointer-only. Scroll provides bounded 18px depth travel; the sticky story changes the spatial relationship at chapter boundaries. No React state updates per animation frame, no autonomous loops and no loader.
+- **Lens:** the hero `EvidenceLens` uses Motion springs, duration .4 and bounce 0, on direct element transforms. Pointer response is fine-pointer-only with bounded 18px scroll travel. No React state updates per animation frame, no autonomous loops and no loader.
+- **Product story:** `ProductFlow` shows actual snapshot formats/revision/digest, the authorization/TXT procedure, then real report fields and JSON export. A 200ms opacity change connects chapter changes; readable data is never fabricated. Mobile renders each panel in place. Workflow rows below describe workspace/application organization, job history and JSON export. Panels illustrate product structure, not an active customer session.
 - **Scope selector:** three ARIA tabs; ArrowLeft/Right and Home/End move focus and selection. All controlled panels exist. Pointer selection gets a 200ms opacity crossfade; keyboard selection remains immediate.
 - **FAQ:** native details/summary, Enter/Space support, 200ms disclosure with a non-animated fallback. Responses explain actual scope rather than making guarantees.
 - **Menu:** native button, explicit expanded state, Escape returns focus. No modal and no focus trap because the page remains available.

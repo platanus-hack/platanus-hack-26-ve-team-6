@@ -3,7 +3,7 @@
 - **Surface and mode:** `/`, Persuade → Understand → Act. A person maintaining a real application should understand the three assessment modes and reach `/dashboard` without a fabricated result or forced tour.
 - **Visual authority:** original evidence-lens world, graphite/magenta/porcelain. The earlier supplied site is a palette reference, not a layout or asset template. Apple and Churupitos are interaction studies only; no borrowed images, code or initial loader.
 - **Content:** compare source and HTTPS observations with evidence; never claim ongoing monitoring, automated fixes, attack confirmation or complete coverage. User forbids explanatory artwork and mock-interface captions. Therefore do not fabricate an interface or report that needs one.
-- **Signature moment:** a layered optical instrument responds to pointer input, then accompanies the desktop scroll story. Source and origin layers change relationship to explain separate perspectives. Touch and reduced motion keep a complete static presentation.
+- **Signature moment:** a layered optical instrument responds to pointer input in the hero. The scroll story then shows concrete product panels for a source snapshot, DNS authorization and the report structure. Touch presents each panel inline; reduced motion removes the transition.
 - **Boundaries:** only landing, local design context, reusable presentation helpers and tests. Customer/demo UI, backend, permissions, auth and all production deployment remain untouched.
 
 ## Motion decisions
@@ -12,7 +12,7 @@
 | --- | --- | --- | --- |
 | Hero group | Arrival / first-time orientation | Rare | Transform 8px and opacity .6→1, 600ms strong ease-out, 60ms stagger; immediately usable |
 | Lens pointer response | Spatial consistency and first-visit delight | Rare marketing exploration | Two interruptible Motion springs, duration .4, bounce 0; ±6°/±4°; fine pointer only |
-| Lens scroll story | Explain source/HTTPS/evidence relationship | Once per visit | Native sticky; chapter observer; 500ms transform retargeting and 300ms opacity; bounded 18px depth travel |
+| Product scroll story | Explain actual snapshot, authorization and report workflow | Once per visit | Native sticky; chapter observer; 200ms opacity on panel changes; static inline panels on mobile |
 | Scope selection | Prevent abrupt change | Occasional | 200ms opacity crossfade for pointer; keyboard updates immediately |
 | Press / hover | Immediate feedback | Frequent | .97 press scale, 160ms token ease; 2px hover lift only with fine pointer |
 | FAQ | State indication | Occasional | 200ms native disclosure; static fallback and reduced-motion variant |
@@ -25,6 +25,7 @@ Rejected: moving paragraphs, perpetual lens rotation, animated invented metrics,
 - Three assets: `public/landing/evidence-lens.svg`, `source-snapshot.svg`, `https-origin.svg`.
 - Spatial behavior: `src/components/evidence-lens.tsx`.
 - Content and interaction: `src/components/landing.tsx`.
+- Verified product panels: `src/components/product-flow.tsx` and `product-flow.css`; source of truth is `customer-dashboard.tsx` SourceEnrollment, TargetEnrollment and ReportView, plus `docs/architecture.md`.
 - Theme and motion: `src/components/landing.css`, `src/styles/tokens.css`.
 - Regression gate: `e2e/design.spec.ts` plus `test/ui.test.ts`.
 

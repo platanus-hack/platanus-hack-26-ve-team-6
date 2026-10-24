@@ -1,17 +1,18 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
 import { Brand, UiIcon } from './ui';
 import { EvidenceLens, useChapterTracking } from './evidence-lens';
+import { ProductFlow } from './product-flow';
 import './landing.css';
 
 const perspectives = [
-  { id: 'code', label: 'Código', title: 'Lo que está en tu código.', description: 'Revisa una instantánea de tu aplicación sin ejecutarla. Conserva la versión analizada y la evidencia de cada hallazgo.', facts: ['Instantáneas inmutables', 'Análisis sin ejecutar tu código', 'Hallazgos vinculados a evidencia'], icon: 'code' },
-  { id: 'https', label: 'HTTPS', title: 'Lo que responde tu aplicación.', description: 'Evalúa la superficie HTTPS de un origen que controlas. Puedes empezar sin compartir el código fuente.', facts: ['Autorización mediante DNS', 'Evaluación sin acceso al código', 'Cobertura y límites por comprobación'], icon: 'globe' },
+  { id: 'code', label: 'Código', title: 'Lo que está en tu código.', description: 'Revisa una instantánea de tu aplicación sin ejecutarla. Conserva la versión analizada y la evidencia de cada hallazgo.', facts: ['Patrones de código y posibles secretos', 'Avisos de dependencias cuando están disponibles', 'Revisión y huella de los archivos analizados'], icon: 'code' },
+  { id: 'https', label: 'HTTPS', title: 'Lo que responde tu aplicación.', description: 'Revisa la respuesta HTTPS de un origen que controlas, sin cookies ni redirecciones. Puedes empezar sin compartir el código fuente.', facts: ['Autorización mediante DNS', 'Evaluación sin acceso al código', 'Cobertura y límites por comprobación'], icon: 'globe' },
   { id: 'both', label: 'Ambas', title: 'Dos perspectivas. Un informe.', description: 'Contrasta las señales de la instantánea con las del origen autorizado. Identifica coincidencias y diferencias sin perder su procedencia.', facts: ['Evaluación interna y externa', 'Comparación de hallazgos', 'Evidencia de cada perspectiva'], icon: 'report' },
 ] as const;
 const chapters = [
-  { title: 'El código cuenta una parte.', text: 'Una instantánea conserva lo que analizaste. Revisa sus hallazgos sin ejecutar el código ni modificar tu aplicación.', detail: 'Código fuente', id: 'codigo' },
-  { title: 'Tu web cuenta otra.', text: 'Observa cómo responde el origen HTTPS que autorizaste. Una segunda perspectiva, incluso sin acceso al código.', detail: 'HTTPS autorizado', id: 'https' },
-  { title: 'La evidencia las conecta.', text: 'Encuentra qué se observó, dónde y con qué confianza. Compara ambas perspectivas y lleva el contexto a la siguiente revisión de tu equipo.', detail: 'Hallazgos · Cobertura · Comparación', id: 'evidencia' },
+  { title: 'Sube los archivos. Conserva la revisión.', text: 'Selecciona una carpeta y etiqueta la versión. Gotchu guarda una instantánea con su huella SHA-256 y revisa código, posibles secretos y dependencias según el perfil disponible.', detail: 'Instantánea', id: 'codigo' },
+  { title: 'Tu dominio. Tu autorización.', text: 'Registra un origen HTTPS, confirma que puedes evaluarlo y publica el registro TXT que te entrega Gotchu. La evaluación externa puede iniciarse sin subir código.', detail: 'Autorización DNS', id: 'https' },
+  { title: 'Del hallazgo a su evidencia.', text: 'Abre una observación para revisar su severidad, confianza, extractos y herramienta de origen. Consulta la cobertura, contrasta ambas perspectivas y descarga el informe completo en JSON.', detail: 'Informe y evidencia', id: 'evidencia' },
 ];
 const questions = [
   ['¿Tengo que compartir mi código?', 'No. Puedes evaluar únicamente un origen HTTPS autorizado. Para el análisis interno, cargas una instantánea del código que quieres revisar.'],
@@ -49,14 +50,14 @@ export function LandingPage() {
     <main id="contenido" tabIndex={-1}>
       <section className="g-hero" aria-labelledby="hero-title">
         <h1 id="hero-title">Tu código y tu web.<br /><span>Bajo la misma lupa.</span></h1>
-        <p className="g-hero-description">Cruza lo que dice tu código con lo que expone tu aplicación. Hallazgos, evidencia y límites en un solo informe.</p>
+        <p className="g-hero-description">Carga una versión del código o autoriza tu dominio por DNS. Revisa los hallazgos, su evidencia y lo que no se pudo comprobar.</p>
         <div className="g-hero-actions"><a className="g-button" href="/dashboard">Revisar mi aplicación <UiIcon name="arrow" /></a><a className="g-secondary-link" href="#perspectivas">Conocer Gotchu <UiIcon name="chevron" /></a></div>
         <EvidenceLens />
         <div className="g-hero-foot"><span>Código fuente</span><span>HTTPS autorizado</span><span>Evidencia trazable</span></div>
       </section>
       <section ref={container} className="g-journey g-container" aria-label="Del análisis a la evidencia">
-        <div className="g-journey-visual"><EvidenceLens compact perspective={active} /><div className="g-chapter-marker" aria-hidden="true">{chapters.map((chapter, index) => <span key={chapter.id} className={active === index ? 'is-current' : ''}><span />{chapter.detail}</span>)}</div></div>
-        <div className="g-chapters">{chapters.map((chapter, index) => <article key={chapter.id} id={chapter.id} data-chapter={index}><h2>{chapter.title}</h2><p>{chapter.text}</p></article>)}</div>
+        <div className="g-journey-visual"><ProductFlow step={active} /><div className="g-chapter-marker" aria-hidden="true">{chapters.map((chapter, index) => <span key={chapter.id} className={active === index ? 'is-current' : ''}><span />{chapter.detail}</span>)}</div></div>
+        <div className="g-chapters">{chapters.map((chapter, index) => <article key={chapter.id} id={chapter.id} data-chapter={index}><h2>{chapter.title}</h2><p>{chapter.text}</p><ProductFlow step={index} className="g-mobile-flow" /></article>)}</div>
       </section>
       <section id="perspectivas" className="g-perspectives" aria-labelledby="perspectives-title">
         <div className="g-container"><div className="g-perspectives-heading"><h2 id="perspectives-title">Empieza donde<br />lo necesitas.</h2><p>Una aplicación. Tres formas de revisarla.<br />Tú eliges el alcance.</p></div>
@@ -66,6 +67,7 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      <section className="g-workflow g-container" aria-labelledby="workflow-title"><h2 id="workflow-title">Cada revisión, en su sitio.</h2><dl><div><dt>Espacios y aplicaciones</dt><dd>Organiza tus aplicaciones por espacio de trabajo y conserva los permisos de cada rol.</dd></div><div><dt>Historial de evaluaciones</dt><dd>Sigue los trabajos en cola o en curso y vuelve a consultar los informes guardados.</dd></div><div><dt>Exportación JSON</dt><dd>Descarga el informe completo con sus hallazgos, evidencia, cobertura y limitaciones.</dd></div></dl><a className="g-secondary-link" href="/dashboard">Ir a mis aplicaciones <UiIcon name="arrow" /></a></section>
       <section id="preguntas" className="g-faq g-container" aria-labelledby="faq-title"><h2 id="faq-title">Antes de<br />dar el paso.</h2><div>{questions.map(([question, answer]) => <details key={question}><summary>{question}<span aria-hidden="true"><UiIcon name="plus" /></span></summary><p>{answer}</p></details>)}</div></section>
       <section className="g-closing" aria-labelledby="closing-title"><div className="g-container"><h2 id="closing-title">La próxima decisión.<br /><span>Con la evidencia a mano.</span></h2><a className="g-button" href="/dashboard">Empezar mi revisión <UiIcon name="arrow" /></a></div></section>
     </main>

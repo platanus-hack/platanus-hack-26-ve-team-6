@@ -12,7 +12,7 @@ Scope: public `/` and local design context only. Customer/demo presentation, bac
 ## Verification exercised
 
 - Monorepo `pnpm build`, `pnpm typecheck` and `pnpm test` passed at `6bbafff`: 265 tests passed; 99 infrastructure-dependent cases were skipped by their normal configuration. These skipped cases are not live-infrastructure evidence.
-- After integrating the Codex visual refinement: web typecheck, all 48 web tests, the production web build and all 14 Playwright desktop/mobile cases passed again.
+- After integrating the Codex visual refinement: web typecheck, all 48 web tests, the production web build and all 14 Playwright desktop/mobile cases passed again at `7b1029a`.
 - The browser cases include axe checks, pointer tilt/reset, native scrolling through all chapters, ARIA tabs with pointer/keyboard, mobile menu/Escape, FAQ, CTA destinations, a 320px reduced-motion viewport and server-rendered content without JavaScript. Test projections do not replace real-device testing.
 - Impeccable detector returned `[]` for the final landing TSX, CSS and lens component.
 - Real desktop/mobile screenshots were inspected after integration. The story and scope states were exercised while recording a Chromium walkthrough; the screenshots in `screenshots/` are actual renders.
@@ -20,6 +20,12 @@ Scope: public `/` and local design context only. Customer/demo presentation, bac
 ## Collaborator and final refinements
 
 Codex `gpt-5.6-terra` at high reasoning supplied a read-only patch after Bubblewrap proved unavailable on this host. Parent reviewed/applied the exact file changes and regenerated the assets. The patch adds an optical reflection and glass rim, separates the source/origin planes, softens pointer tilt to ±6°/±4°, and initializes/reapplies the transform when motion preferences change. The collaborator did not edit the worktree or independently execute browser validation. Requested Astra model IDs were rejected by this account; no Astra contribution is claimed.
+
+## Product-capability expansion
+
+The repeated lens in the scroll story was replaced with `ProductFlow`, using actual customer UI concepts: supported source formats, revision and SHA-256; TXT authorization at `_gotchu.<domain>`; report severity/confidence, evidence/tool/checksum, coverage, comparison and JSON export. Supporting rows expose workspace/application organization and queued-job/report history. No invented finding, verification result or download is displayed.
+
+Sources: `customer-dashboard.tsx:162–211` (DNS), `231–289` (source), `293–334` (report/export), and `docs/architecture.md:41–75`. The final capability expansion passed 48 web tests, web typecheck/build and 16 desktop/mobile browser cases. All three product panels were also rendered at 1280px, 390px and 320px with no panel/page overflow or browser errors; representative renders were inspected. Impeccable reported `[]` after the radius scale was aligned.
 
 ## Remaining limits
 
