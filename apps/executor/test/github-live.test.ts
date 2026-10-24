@@ -180,7 +180,17 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
     try {
       const first=await queue.add('execution',envelope,{jobId:durableJob.id});
       const executionResult=await first.waitUntilFinished(events,180_000);
-      expect(executionResult,JSON.stringify(executionResult)).toMatchObject({status:'verified'});
+      let executionDiagnostics: unknown;
+      if (executionResult.status !== 'verified') {
+        const attempts=await f.admin.query('SELECT attempt,step,state,provider_reference,detail FROM gotchu.executor_attempts WHERE organization_id=$1 AND execution_id=$2 ORDER BY attempt',
+          [envelope.organizationId,present(executionResult.executionId)]);
+        const publication={action:input.action,actionHash:input.actionHash,executionId:present(executionResult.executionId),
+          artifact:await executor.executionArtifacts.readForExecutor({organizationId:f.a.organizationId,applicationId:f.a.applicationId,candidateSourceId:input.candidateSourceId})};
+        const branchHead=await adapter.readHead(input.branch).then(commitSha=>({commitSha})).catch(error=>({error:error instanceof GitAdapterError?error.code:'unknown'}));
+        const pullRequest=await adapter.findPullRequestByBranch(input.branch).then(value=>value??null).catch(error=>({error:error instanceof GitAdapterError?error.code:'unknown'}));
+        executionDiagnostics={result:executionResult,attempts:attempts.rows,reconciliation:await actionProvider.reconcile(publication),branchHead,pullRequest};
+      }
+      expect(executionResult,JSON.stringify(executionDiagnostics??executionResult)).toMatchObject({status:'verified'});
       const pullRequest=present(await adapter.findPullRequestByBranch(input.branch));
       const publication=publications.find(item=>item.branch===input.branch);
       if (!publication) throw new Error('live_publication_cleanup_registration_missing');
