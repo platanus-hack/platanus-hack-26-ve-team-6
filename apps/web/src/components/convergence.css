@@ -32,12 +32,13 @@
 .g-stage[data-live='true'] .g-stage-step, .g-stage[data-live='true'] .g-stage-one { display: contents; }
 .g-stage[data-live='true'] h2 { font-size: clamp(2rem, 3.4vw, 3.4rem); }
 .g-stage[data-live='true'] .g-stage-copy { position: absolute; left: 0; right: 0; bottom: 7svh; width: min(1040px, calc(100% - 112px)); margin-inline: auto; text-align: center; opacity: 0; }
-.g-stage[data-live='true'] .g-stage-one .g-stage-copy p { margin-inline: auto !important; }
-.g-stage[data-live='true'] .g-stage-report { position: absolute; right: 6vw; top: 12svh; width: min(42vw, 600px); opacity: 0; }
-.g-stage[data-live='true'] .g-report-card dl > div { grid-template-columns: 140px 1fr; padding: 18px 26px; }
-.g-stage[data-live='true'] .g-report-card dt { font-size: 16px; }
-.g-stage[data-live='true'] .g-report-card dd { font-size: 15px; }
-.g-stage[data-live='true'] .g-stage-one .g-stage-copy { bottom: 6svh; }
+/* Settled frame: mark and caption share the left half, the report is centred on the right. */
+.g-stage[data-live='true'] .g-stage-one .g-stage-copy { left: 6vw; right: auto; bottom: 9svh; width: min(42vw, 580px); margin: 0; text-align: left; }
+.g-stage[data-live='true'] .g-stage-one .g-stage-copy p { margin-inline: 0 !important; }
+.g-stage[data-live='true'] .g-stage-report { position: absolute; right: 5vw; top: 0; bottom: 0; height: fit-content; margin-block: auto; width: min(42vw, 560px); opacity: 0; }
+.g-stage[data-live='true'] .g-report-card dl > div { grid-template-columns: 116px 1fr; gap: 14px; padding: 14px 22px; }
+.g-stage[data-live='true'] .g-report-card dt { font-size: 14px; }
+.g-stage[data-live='true'] .g-report-card dd { font-size: 14px; line-height: 1.5; }
 .g-stage[data-live='true'] .g-stage-copy p { margin-top: 14px !important; }
 
 @media (max-width: 1050px) {

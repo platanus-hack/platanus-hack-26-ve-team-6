@@ -74,7 +74,7 @@ export function Convergence() {
     set('flash', 'none', wipeIn > 0 && wipeOut < 1 ? 1 : 0);
     parts.current.flash?.style.setProperty('clip-path', `inset(${((1 - wipeIn) * 100).toFixed(2)}% 0 ${(wipeOut * 100).toFixed(2)}% 0)`);
     const emit = ease(seg(.68, .86));
-    set('mark', `translate3d(${(-emit * 21).toFixed(2)}vw, 0, 0) scale(${(1 - .12 * emit).toFixed(3)})`, 1);
+    set('mark', `translate3d(${(-emit * 24).toFixed(2)}vw, ${(-emit * 5).toFixed(2)}svh, 0) scale(${(1 - .25 * emit).toFixed(3)})`, 1);
     set('report', `translate3d(${((1 - emit) * 12).toFixed(2)}vw, 0, 0)`, seg(.7, .78));
     const one = seg(.8, .88);
     set('one', `translate3d(0, ${((1 - one) * 24).toFixed(1)}px, 0)`, one);
