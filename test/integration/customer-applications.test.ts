@@ -271,6 +271,10 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
   }
 
   it('requires a real session and same-origin writes; authenticates and rejects replay at the scanner HTTP boundary', async () => {
+    const dashboard = await fetch(`${origin}/dashboard`, { signal: AbortSignal.timeout(5000) });
+    expect(dashboard.status).toBe(200);
+    expect(dashboard.headers.get('content-type')).toContain('text/html');
+    expect(await dashboard.text()).toContain('gotchu');
     const anonymous = cookieClient(origin);
     await rejected(await anonymous.api('/workspaces'), 401, 'unauthenticated');
     const denied = await fetch(`${origin}/api/customer/register`, { method: 'POST', headers: { origin: 'https://other.org', 'content-type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(5000) });

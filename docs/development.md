@@ -2,7 +2,7 @@
 
 The local development starter runs the authenticated Gotchu customer app, coordinator, and scanner against persistent local PostgreSQL and Redis. It does not enable the fictional assessment fixture, seed a principal or workspace, or need an OAuth or model provider.
 
-The root package scripts are added by the parent after this change is integrated. They will expose:
+The root package provides:
 
 ```sh
 pnpm dev:start
@@ -10,7 +10,7 @@ pnpm dev:stop
 pnpm dev:prepare # only when a pinned image is missing
 ```
 
-`dev:start` creates `infra/.env` with `scripts/infra-local-setup.sh` only when that file is absent. The setup script creates private local credentials and never overwrites an existing file. Startup builds only the coordinator and web workspace graphs; the scanner and customer-assessment engine are included through the coordinator dependency graph. It then calls `scripts/infra-local-up.sh`, which applies migrations and provisions the restricted runtime database roles while retaining persistent data volumes.
+`dev:start` creates `infra/.env` with `scripts/infra-local-setup.sh` only when that file is absent. The setup script creates private local credentials and never overwrites an existing file. Startup compiles the built assets with `NODE_ENV=production` while running the local services with `NODE_ENV=development`. This keeps the React JSX runtime consistent and enables only the explicit development registration settings. It builds only the coordinator and web workspace graphs; the scanner and customer-assessment engine are included through the coordinator dependency graph. It then calls `scripts/infra-local-up.sh`, which applies migrations and provisions the restricted runtime database roles while retaining persistent data volumes.
 
 The three Node services bind to literal loopback addresses. Defaults are web `127.0.0.1:3000`, coordinator `127.0.0.1:3003`, and scanner `127.0.0.1:4400`. Set trusted `GOTCHU_DEV_WEB_PORT`, `GOTCHU_DEV_COORDINATOR_PORT`, or `GOTCHU_DEV_SCANNER_PORT` values to choose other distinct ports. The web service uses the API and ingestion database roles, the coordinator uses its own database role and Redis, and the scanner receives only its port, raw secret-file path, and scanner settings. Child process environments are built from an explicit allowlist and do not inherit operator database URLs or provider credentials.
 

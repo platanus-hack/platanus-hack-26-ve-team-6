@@ -383,7 +383,7 @@ function composeDataImages() {
 async function ensureBuild(...filters) {
   const args = filters.flatMap(filter => ['--filter', filter]);
   args.push('--sort', 'build');
-  command('pnpm', args, { env: baseEnvironment, label: 'Required workspace build' });
+  command('pnpm', args, { env: { ...baseEnvironment, NODE_ENV: 'production' }, label: 'Required workspace build' });
 }
 
 async function prepare() {
@@ -562,7 +562,7 @@ async function start() {
       throw new Error(`Missing pinned Docker image${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}. Run pnpm dev:prepare after checking available disk space.`);
     }
 
-    command('bash', ['scripts/infra-local-up.sh'], { env: dockerEnvironment, label: 'Local PostgreSQL and Redis setup' });
+    command('bash', ['scripts/infra-local-up.sh'], { env: { ...baseEnvironment, DOCKER_HOST: dockerHost, DOCKER_CONFIG: '/nonexistent' }, label: 'Local PostgreSQL and Redis setup' });
     const urls = databaseUrls(infra);
     const scannerSecretFile = join(directory, 'scanner.secret');
     const origin = `http://127.0.0.1:${ports.web}`;
@@ -611,6 +611,10 @@ async function start() {
       return value?.localAuthEnabled === true && value.registrationEnabled === true
         && Array.isArray(value.providers) && value.providers.some(provider => isRecord(provider) && provider.id === 'credentials');
     });
+
+    const dashboard = await fetch(`${origin}/dashboard`, { signal: AbortSignal.timeout(10_000), redirect: 'error' });
+    if (!dashboard.ok || !dashboard.headers.get('content-type')?.includes('text/html')) throw new Error('The actual dashboard did not render successfully; inspect .local/dev/web.log.');
+    await dashboard.body?.cancel();
 
     state.status = 'running';
     state.readyAt = new Date().toISOString();

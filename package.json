@@ -14,8 +14,9 @@
     "test": "pnpm -r --sort --if-present test",
     "test:integration": "node test/run-stack.mjs",
     "check": "pnpm build && pnpm typecheck && pnpm test",
-    "demo:start": "node scripts/controlled-demo.mjs start",
-    "demo:stop": "node scripts/controlled-demo.mjs stop"
+    "dev:start": "node scripts/development.mjs start",
+    "dev:stop": "node scripts/development.mjs stop",
+    "dev:prepare": "node scripts/development.mjs prepare"
   },
   "devDependencies": {
     "@gotchu/assessment": "workspace:*",
