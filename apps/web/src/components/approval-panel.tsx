@@ -7,7 +7,7 @@ const stateLabels: Record<string, string> = {
   executing: 'Solicitud aceptada', succeeded: 'PR publicada y verificada', failed: 'Ejecución fallida', uncertain: 'Resultado incierto', reconciliation_required: 'Revisión necesaria', claimed: 'Ejecución reclamada',
 };
 const buttonLabels: Record<string, string> = {
-  source_patch_pull_request: 'Aprobar PR', merge_pull_request: 'Aprobación de merge no disponible', deploy_release: 'Aprobación de despliegue no disponible',
+  source_patch_pull_request: 'Aprobar PR de código', dependency_pull_request: 'Aprobar PR de dependencias', merge_pull_request: 'Aprobación de merge no disponible', deploy_release: 'Aprobación de despliegue no disponible',
 };
 const stepLabels: Record<string, string> = { claim:'autorización reclamada',publish_branch:'publicación de rama',open_pr:'apertura de PR',verify:'verificación en GitHub' };
 const attemptStateLabels: Record<string, string> = { claimed:'iniciado',branch_published:'rama publicada',pr_opened:'PR abierta',verified:'verificado',failed:'fallido',uncertain:'incierto',reconciliation_required:'requiere revisión' };
@@ -22,7 +22,7 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
   const eligibility = useQueries({ queries: (proposals.data ?? []).map(proposal => ({
     queryKey: ['customer-data', userId, 'action-eligibility', organizationId, applicationId, proposal.id],
     queryFn: () => customerApi.getActionEligibility(organizationId, applicationId, proposal.id),
-    enabled: isOwner && proposal.kind === 'source_patch_pull_request' && proposal.state === 'eligible',
+    enabled: isOwner && ['source_patch_pull_request','dependency_pull_request'].includes(proposal.kind) && proposal.state === 'eligible',
     refetchInterval: 30_000,
     retry: false,
   })) });
@@ -47,9 +47,10 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
     {proposals.data?.length === 0 && <div className="customer-empty-inline">Todavía no hay propuestas para esta aplicación.</div>}
     {proposals.data?.map((proposal, index) => {
       const serverEligibility = eligibility[index]?.data;
-      const canApprovePr = isOwner && proposal.kind === 'source_patch_pull_request' && proposal.state === 'eligible' && serverEligibility?.status === 'eligible';
+      const isPullRequestAction = proposal.kind === 'source_patch_pull_request' || proposal.kind === 'dependency_pull_request';
+      const canApprovePr = isOwner && isPullRequestAction && proposal.state === 'eligible' && serverEligibility?.status === 'eligible';
       const eligibilityReasons = serverEligibility?.status === 'ineligible' ? serverEligibility.blockingReasons : proposal.blockingReasons;
-      return <article className="customer-recommendation-card" key={proposal.id}>
+      return <article className="customer-recommendation-card" id={`action-${proposal.actionHash}`} key={proposal.id}>
       <div className="customer-recommendation-heading"><div><span className="customer-eyebrow">{stateLabels[proposal.state] ?? proposal.state}</span><h3>{proposal.effect}</h3></div></div>
       <p><strong>Alcance:</strong> {proposal.scope}</p>
       <p><strong>Destino:</strong> {targetLabel(proposal.target)}</p>
@@ -59,8 +60,8 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
       <ul>{proposal.limits.map(limit => <li key={limit}>{limit}</li>)}</ul>
       {eligibilityReasons.length > 0 && <div className="customer-field-note"><strong>Qué falta</strong><ul>{eligibilityReasons.map(reason => <li key={reason}>{reason}</li>)}</ul></div>}
       <div className="customer-recommendation-actions">
-        {canManage && isOwner && ['proposed','ineligible'].includes(proposal.state) && proposal.kind === 'source_patch_pull_request' && <button className="customer-link-button" type="button" disabled={checkEligibility.isPending} onClick={() => checkEligibility.mutate(proposal.id)}>{checkEligibility.isPending ? 'Revisando requisitos…' : 'Revisar requisitos'}</button>}
-        {canManage && proposal.state !== 'approved' && !['executing','succeeded','failed','uncertain','reconciliation_required','invalidated','expired'].includes(proposal.state) && <button className="customer-button" type="button" disabled={!canApprovePr || approve.isPending} title={!isOwner ? 'Solo una persona propietaria puede aprobar.' : eligibility[index]?.isPending ? 'Comprobando los requisitos actuales.' : eligibilityReasons[0] ?? (proposal.kind !== 'source_patch_pull_request' ? 'Esta acción no está disponible en esta fase.' : 'La propuesta todavía no es elegible.')} onClick={() => approve.mutate(proposal)}>{approve.isPending ? 'Solicitando verificación…' : buttonLabels[proposal.kind] ?? 'Acción no disponible'}</button>}
+        {canManage && isOwner && ['proposed','ineligible'].includes(proposal.state) && isPullRequestAction && <button className="customer-link-button" type="button" disabled={checkEligibility.isPending} onClick={() => checkEligibility.mutate(proposal.id)}>{checkEligibility.isPending ? 'Revisando requisitos…' : 'Revisar requisitos'}</button>}
+        {canManage && proposal.state !== 'approved' && !['executing','succeeded','failed','uncertain','reconciliation_required','invalidated','expired'].includes(proposal.state) && <button className="customer-button" type="button" disabled={!canApprovePr || approve.isPending} title={!isOwner ? 'Solo una persona propietaria puede aprobar.' : eligibility[index]?.isPending ? 'Comprobando los requisitos actuales.' : eligibilityReasons[0] ?? (!isPullRequestAction ? 'Esta acción no está disponible en esta fase.' : 'La propuesta todavía no es elegible.')} onClick={() => approve.mutate(proposal)}>{approve.isPending ? 'Solicitando verificación…' : buttonLabels[proposal.kind] ?? 'Acción no disponible'}</button>}
         {canManage && ['proposed','eligible','ineligible'].includes(proposal.state) && <button className="customer-link-button" type="button" disabled={cancel.isPending} onClick={() => cancel.mutate(proposal.id)}>Cancelar propuesta</button>}
       </div>
       <h4>Seguimiento del efecto</h4>
