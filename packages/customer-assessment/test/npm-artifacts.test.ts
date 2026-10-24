@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
 import { createCustomerAssessmentRunner } from '../src/index.js';
@@ -28,6 +28,59 @@ function archive(entries: Buffer[]) { return gzipSync(Buffer.concat([...entries,
 function sri(bytes: Uint8Array) { return `sha512-${createHash('sha512').update(bytes).digest('base64')}`; }
 
 describe('bounded npm artifact parsing', () => {
+  it('binds verified package evidence to the source assessment and retains the artifact digest', async () => {
+    const bytes = archive([tarEntry('package/index.js', Buffer.from('export const answer = 42;'))]);
+    const integrity = sri(bytes);
+    const adapter = createNpmArtifactAdapter(async ({ package: pkg, artifactSha256 }) => {
+      const excerpt = JSON.stringify({ package: pkg.name, version: pkg.version, artifactSha256 });
+      return {
+        findings: [],
+        tools: [{ name: 'semgrep', version: 'fixture', image: 'fixture', profileChecksum: '0'.repeat(64) }],
+        evidence: [{
+          id: randomUUID(), origin: 'internal', kind: 'configuration', locator: `${pkg.name}@${pkg.version}:artifact`,
+          collectedAt: new Date().toISOString(), snapshotRef: `dependency:${pkg.name}@${pkg.version}:sha256:${artifactSha256}`,
+          tool: { name: 'semgrep', version: 'fixture' }, checksum: createHash('sha256').update(excerpt).digest('hex'), excerpt,
+        }],
+        complete: true,
+      };
+    }, {
+      async get(url) {
+        if (url.pathname === '/alpha/1.2.3') return Buffer.from(JSON.stringify({
+          name: 'alpha', version: '1.2.3', dist: { tarball: 'https://registry.npmjs.org/alpha/-/alpha-1.2.3.tgz', integrity },
+        }));
+        if (url.pathname.endsWith('/alpha-1.2.3.tgz')) return bytes;
+        throw new Error('unexpected_registry_path');
+      },
+    });
+    const scanners = {
+      async run(name: 'semgrep' | 'gitleaks' | 'trivy', source: { files: Array<{ path: string }> }) {
+        const output: unknown = name === 'semgrep'
+          ? { version: 'fixture', results: [], errors: [], paths: { scanned: source.files.filter(file => file.path.endsWith('.js')).map(file => file.path) } }
+          : [];
+        return { output, image: 'fixture', version: 'fixture', profileChecksum: '0'.repeat(64) };
+      },
+      async readiness() { return { ready: true, tools: [] }; },
+    };
+    const sourceRun = input([
+      { path: 'package.json', content: JSON.stringify({ dependencies: { alpha: '^1.0.0' } }) },
+      { path: 'package-lock.json', content: JSON.stringify({ lockfileVersion: 3, packages: {
+        '': { dependencies: { alpha: '^1.0.0' } },
+        'node_modules/alpha': { version: '1.2.3', integrity, license: 'MIT' },
+      } }) },
+    ]);
+    const report = await createCustomerAssessmentRunner({
+      scanners,
+      artifacts: adapter,
+      advisory: { query: async () => [{ ids: ['GHSA-1111-1111-1111'], complete: true, advisories: [{ id: 'GHSA-1111-1111-1111', affected: [{ package: { ecosystem: 'npm', name: 'alpha' }, symbols: [] }] }] }] },
+    }).run(sourceRun);
+    const analysis = report.internal;
+    if (!analysis || !sourceRun.source) throw new Error('artifact_assessment_missing');
+    expect(analysis.dependencyInventory?.components[0]?.artifactAnalysis).toMatchObject({ status: 'verified', integrity: 'verified' });
+    expect(analysis.evidence.length).toBeGreaterThan(0);
+    expect(analysis.evidence.every(item => item.snapshotRef === analysis.snapshotRef)).toBe(true);
+    expect(analysis.evidence.some(item => item.excerpt.includes(createHash('sha256').update(bytes).digest('hex')))).toBe(true);
+  });
+
   it('extracts ordinary package source in memory and verifies the exact SHA-512 bytes', () => {
     const bytes = archive([tarEntry('package/index.js', Buffer.from('export const answer = 42;'))]);
     expect(extractNpmTarball(bytes)).toMatchObject({ fileCount: 1, files: [{ path: 'index.js', content: 'export const answer = 42;' }], capped: false });

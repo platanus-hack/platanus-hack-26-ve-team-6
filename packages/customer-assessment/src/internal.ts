@@ -386,7 +386,7 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
     const evidenceIds = new Set(retainedEvidence.map(item => item.id));
     const findings = result.analysis.findings.filter(item => item.evidenceIds.every(id => evidenceIds.has(id)));
     remaining -= retainedEvidence.length;
-    a.evidence.push(...retainedEvidence);
+    a.evidence.push(...retainedEvidence.map(item => ({ ...item, snapshotRef: a.snapshotRef })));
     const scanTruncated = findings.length !== result.analysis.findings.length || remaining < 0;
     artifactByPackage.set(key, {
       evidence: retainedEvidence,
