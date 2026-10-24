@@ -44,6 +44,9 @@ importers:
       '@gotchu/monitoring':
         specifier: workspace:*
         version: link:packages/monitoring
+      '@gotchu/runner':
+        specifier: workspace:*
+        version: link:packages/runner
       '@gotchu/scanner':
         specifier: workspace:*
         version: link:apps/scanner
@@ -368,6 +371,22 @@ importers:
       zod:
         specifier: ^4.0.0
         version: 4.6.7
+
+  packages/runner:
+    dependencies:
+      zod:
+        specifier: ^4.0.0
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@24.19.2)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)
 
   packages/scenarios:
     dependencies:
