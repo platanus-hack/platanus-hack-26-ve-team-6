@@ -19,6 +19,6 @@ STORY: See the claim and the mark; scroll as the brackets split into Código and
 
 FIRST VIEWPORT: Bento under the header. Left two-thirds: magenta card, giant uppercase "TU CÓDIGO. TU WEB." in graphite and "BAJO LA MISMA LUPA." in porcelain over drifting GOTCHU rows, ink "[ Solo observación ]" pill. Right top: ink card with the ASCII mark between [ Código ] and [ HTTPS ]. Right bottom: silver card with the lockup, lead and ink primary action.
 
-FORM: User-pinned direction from supplied references (supersedes the convergence roll). seed: none (unavailable). Signature interaction: the ASCII mark turns toward the pointer and its brackets snap shut on any `data-catch` action; the pinned stage spreads and closes them with a GOTCHU flash.
+FORM: User-pinned direction from supplied references; it supersedes the rolled convergence structure. seed:178bb61682de2680. Signature interaction: the ASCII mark turns toward the pointer and its brackets snap shut on any `data-catch` action; the pinned stage spreads and closes them with a GOTCHU flash.
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
