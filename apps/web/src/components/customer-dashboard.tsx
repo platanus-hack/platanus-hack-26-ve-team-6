@@ -17,6 +17,7 @@ import { CustomerApiError, customerApi, type CustomerJob, type CustomerScanProfi
 import { OperationsPanel } from './operations-panel';
 import { ReportRecommendations } from './report-recommendations';
 import { ContextPanel } from './context-panel';
+import { StepUpPanel } from './step-up-panel';
 import './customer-dashboard.css';
 
 type Page = 'overview' | 'applications' | 'operations' | 'reports';
@@ -548,6 +549,7 @@ function CustomerWorkspace({ session, userId }: { session: CustomerSession; user
               <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /></div>
               <ContextPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} analyzedDigest={applicationReports[0]?.subject.sourceDigest ?? null} />
               <ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('La aplicación se actualizó.'); }} />
+              {canManage && <StepUpPanel key={`${userId}:${organizationId}`} organizationId={organizationId} />}
             </>}
 
             {page === 'operations' && <OperationsPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} />}
