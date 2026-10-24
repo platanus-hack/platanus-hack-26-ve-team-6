@@ -24,7 +24,6 @@ Acordado el 24 de octubre de 2026: no bloquean el cierre del núcleo.
 
 - **Revocación inmediata (D14).** Protege la garantía central: nada se escribe sin una aprobación exacta y vigente. Desconectar GitHub, rotar la firma de eventos, borrar un canal de notificación o quitar una llave WebAuthn (por ejemplo, tras perder el dispositivo) debe cancelar en la misma operación las aprobaciones pendientes y las pruebas de segundo factor, y quedar en el historial de decisiones. Hoy una aprobación previa podría seguir vigente y ejecutarse después.
 - **Borrado permanente (D14).** Hoy sólo se puede archivar. Los clientes necesitan borrar del todo aplicaciones y espacios de trabajo por privacidad, cierre de cuenta o GDPR. Debe exigir un Owner y segundo factor reciente, para que un error o una sesión robada no borre todo, y quedar auditado.
-- **Vincular Google desde la configuración de la cuenta.** Sólo afecta a quien ya tiene cuenta con contraseña y entra con Google usando el mismo email. Hoy recibe un mensaje y no se une automáticamente, para que nadie se apodere de una cuenta ajena; la vinculación debe hacerse después de entrar con la contraseña.
 - Confirmar el destinatario de email antes de enviar.
 - Rotar el secreto de webhook con una ventana de solapamiento.
 - Añadir un watchdog independiente del coordinator.
