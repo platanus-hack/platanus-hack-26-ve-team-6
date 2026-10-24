@@ -42,7 +42,7 @@
 .g-chapters article.is-current h2 { color: var(--gc-paper); }
 .g-chapters article > p:not(.g-tag) { font-size: 18px; max-width: 460px; line-height: 1.7; }
 
-.g-perspectives { margin: 0 12px; padding: clamp(32px, 5vw, 72px); }
+.g-perspectives { padding: clamp(64px, 8vw, 120px) max(clamp(20px, 4.2vw, 68px), calc((100% - 1344px) / 2)); background: linear-gradient(180deg, var(--gc-silver), #d6cfcd); color: var(--gc-canvas); }
 .g-perspectives-heading { display: flex; align-items: end; justify-content: space-between; gap: 40px; margin-bottom: 40px; }
 .g-perspectives h2, .g-faq h2, .g-workflow h2 { font-size: clamp(2.5rem, 4.6vw, 4.5rem); line-height: .98; letter-spacing: -.025em; text-transform: uppercase; max-width: 14ch; }
 .g-perspectives p { color: #3b3742; }
@@ -63,22 +63,15 @@
 .g-perspective-panels:not([data-keyboard=true]) .g-perspective-panel:not([hidden]) { opacity: 1; transform: none; transition: opacity 260ms ease, transform 320ms var(--gc-ease); }
 @starting-style { .g-perspective-panels:not([data-keyboard=true]) .g-perspective-panel:not([hidden]) { opacity: 0; transform: translateY(10px); } }
 .g-scope-stage { display: grid; place-items: center; min-height: 420px; }
-.g-scope-stage .g-dots { --dots-size: min(300px, 70%); }
-.g-scope-stage .g-tag { position: absolute; left: 24px; bottom: 22px; color: var(--gc-muted) !important; }
+.g-scope-stage .g-dots { --dots-size: min(380px, 86%); color: var(--gc-action); }
 
 .g-workflow { padding-block: 140px 40px; }
-.g-workflow-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; margin-top: 40px; }
-.g-workflow-grid > .g-card { display: flex; flex-direction: column; justify-content: space-between; gap: 40px; min-height: 380px; padding: 32px; }
-.g-workflow-grid .g-dots { --dots-size: 176px; flex-shrink: 0; }
+.g-workflow-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 56px; margin-top: 56px; }
+.g-workflow-item { display: grid; grid-template-columns: auto 1fr; align-items: end; gap: 32px; padding-block: 36px; border-top: 1px solid var(--gc-line-soft); }
+.g-workflow-grid .g-dots { --dots-size: 120px; flex-shrink: 0; }
 .g-workflow-grid h3 { font-size: 22px; line-height: 1.1; text-transform: uppercase; letter-spacing: -.005em; margin-bottom: 12px; }
 .g-workflow-grid p { font-size: 15px; }
-.g-workflow-wide { flex-direction: row !important; align-items: flex-end; }
-.g-workflow-wide .g-dots { --dots-size: 240px; align-self: center; }
-.g-workflow-wide > div { max-width: 320px; }
-.g-workflow-history { background: var(--gc-action); color: var(--gc-paper); }
-.g-workflow-history .g-dots { color: var(--gc-paper); }
-.g-workflow-history p { color: var(--gc-paper); }
-.g-workflow-export { grid-column: 1 / -1; display: grid !important; grid-template-columns: .8fr 1.2fr; align-items: center; }
+.g-workflow-export { grid-column: 1 / -1; display: grid; grid-template-columns: .8fr 1.2fr; align-items: center; gap: 56px; padding-block: 36px; border-top: 1px solid var(--gc-line-soft); }
 .g-workflow-export > div { display: grid; gap: 14px; justify-items: start; }
 .g-workflow-export .g-dots { --dots-size: 132px; }
 .g-workflow-export .g-secondary-link { color: var(--gc-accent-ink); }
@@ -100,8 +93,8 @@
 .g-faq details::details-content { interpolate-size: allow-keywords; height: 0; overflow: clip; transition: height 240ms var(--gc-ease), content-visibility 240ms allow-discrete; }
 .g-faq details[open]::details-content { height: auto; }
 
-.g-closing { display: grid; justify-items: start; align-content: end; gap: 40px; min-height: 76svh; margin: 0 12px; padding: clamp(32px, 5vw, 72px); }
-.g-closing.g-card-magenta { background: linear-gradient(125deg, var(--gc-accent) 0%, var(--gc-accent) 38%, var(--gc-action) 68%, var(--gc-canvas) 118%); }
+.g-closing { position: relative; isolation: isolate; overflow: hidden; display: grid; justify-items: start; align-content: end; gap: 40px; min-height: 76svh; padding: clamp(48px, 6vw, 96px) max(clamp(20px, 4.2vw, 68px), calc((100% - 1344px) / 2)); }
+.g-closing { background: linear-gradient(125deg, var(--gc-accent) 0%, var(--gc-accent) 38%, var(--gc-action) 68%, var(--gc-canvas) 118%); }
 .g-closing-radar { position: absolute; z-index: -1; right: 9%; top: 50%; width: min(38vw, 520px); aspect-ratio: 1; translate: 0 -50%; display: grid; place-items: center; }
 .g-closing-radar > span { position: absolute; inset: 0; border: 2px solid #fffefa; opacity: 0; transform: scale(.18); }
 .g-closing-radar .g-mark { position: relative; width: 22%; height: 22%; color: var(--gc-canvas); }
@@ -147,7 +140,7 @@
   .g-chapters h2 { font-size: 34px; }
   .g-chapters article > p:not(.g-tag) { font-size: 16px; }
   .g-faq, .g-perspective-layout { gap: 36px; }
-  .g-workflow-grid, .g-workflow-export { grid-template-columns: 1fr !important; }
+  .g-workflow-grid, .g-workflow-export { grid-template-columns: 1fr; }
 }
 @media (max-width: 1180px) {
   .g-nav-number { display: none; }
@@ -170,7 +163,7 @@
   .g-journey-visual { display: none; }
   .g-chapters article { min-height: 0; padding: 36px 0; border-top: 1px solid var(--gc-line-soft); }
   .g-chapters h2 { font-size: 30px; color: var(--gc-paper); }
-  .g-perspectives { margin: 0 8px; padding: 28px 20px; }
+  .g-perspectives { padding: 56px 20px; }
   .g-perspectives-heading { display: block; margin-bottom: 28px; }
   .g-perspectives-heading > p { margin-top: 18px; font-size: 16px; }
   .g-perspectives h2, .g-faq h2, .g-workflow h2 { font-size: 36px; }
@@ -179,14 +172,15 @@
   .g-perspective-layout { grid-template-columns: 1fr; gap: 16px; }
   .g-scope-stage { order: -1; min-height: 260px; }
   .g-workflow { padding-block: 80px 0; }
-  .g-workflow-grid > .g-card { flex-direction: column !important; align-items: flex-start; min-height: 0; padding: 24px; }
-  .g-workflow-grid .g-dots, .g-workflow-wide .g-dots { --dots-size: 132px; align-self: flex-start; }
+  .g-workflow-item { grid-template-columns: 1fr; gap: 20px; padding-block: 28px; }
+  .g-workflow-grid .g-dots { --dots-size: 96px; }
+  .g-workflow-export { gap: 28px; }
   .g-export pre { font-size: 12px; }
   .g-export i { width: 34px; padding-right: 12px; }
   .g-faq { grid-template-columns: 1fr; gap: 30px; padding-block: 80px; }
   .g-faq summary { font-size: 16px; min-height: 76px; }
   .g-faq details p { padding-right: 0; }
-  .g-closing { margin: 0 8px; min-height: 0; padding: 48px 22px 28px; }
+  .g-closing { min-height: 0; padding: 64px 20px 40px; }
   .g-closing h2 { font-size: clamp(2.2rem, 11vw, 3.4rem); }
   .g-closing-radar { right: -20%; width: 90vw; opacity: .5; }
   .g-footer { padding: 56px 16px 24px; }

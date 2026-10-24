@@ -93,7 +93,7 @@ export function LandingPage() {
           <div className="g-chapters">{chapters.map((chapter, index) => <article key={chapter.id} id={chapter.id} data-chapter={index} className={active === index ? 'is-current' : ''}><h2>{chapter.title}</h2><p>{chapter.text}</p><ProductFlow step={index} className="g-mobile-flow" /></article>)}</div>
         </div>
       </section>
-      <section id="perspectivas" className="g-perspectives g-card g-card-silver" aria-labelledby="perspectives-title">
+      <section id="perspectivas" className="g-perspectives" aria-labelledby="perspectives-title">
         <div className="g-perspectives-heading"><h2 id="perspectives-title">Tú eliges dónde mirar.</h2><p>Código, HTTPS o las dos miradas juntas.</p></div>
         <div className="g-perspective-controls" role="tablist" aria-label="Perspectiva de evaluación">
           <span className="g-tab-indicator" aria-hidden="true" style={{ transform: `translateX(${perspective * 100}%)` }} />
@@ -101,15 +101,15 @@ export function LandingPage() {
         </div>
         <div className="g-perspective-layout">
           <div className="g-perspective-panels" data-keyboard={keyboardSelection}>{perspectives.map((item, index) => <div key={item.id} role="tabpanel" id={`panel-${item.id}`} aria-labelledby={`tab-${item.id}`} hidden={perspective !== index} tabIndex={0} className="g-perspective-panel"><h3>{item.title}</h3><p>{item.description}</p><ul>{item.facts.map(fact => <li key={fact}><span aria-hidden="true" />{fact}</li>)}</ul><a className="g-secondary-link" href="/dashboard">Probar con mi app <UiIcon name="arrow" /></a></div>)}</div>
-          <div className="g-scope-stage g-card g-card-ink" aria-hidden="true"><DotMatrix name={current.pictogram} /></div>
+          <div className="g-scope-stage" aria-hidden="true"><DotMatrix name={current.pictogram} /></div>
         </div>
       </section>
       <section className="g-workflow g-container" aria-labelledby="workflow-title">
         <h2 id="workflow-title">Que el equipo tenga contexto.</h2>
         <div className="g-workflow-grid">
-          <article className="g-card g-card-ink g-workflow-wide"><DotMatrix name="workspace" /><div><h3>Un espacio para cada equipo</h3><p>Organiza tus aplicaciones en espacios de trabajo y define quién puede hacer qué mediante roles.</p></div></article>
-          <article className="g-card g-card-magenta g-workflow-history"><DotMatrix name="history" /><div><h3>Cada revisión, en su lugar</h3><p>Consulta el historial de reportes para volver a lo que se revisó y a lo que se encontró.</p></div></article>
-          <article className="g-card g-card-ink g-workflow-export">
+          <article className="g-workflow-item"><DotMatrix name="workspace" /><div><h3>Un espacio para cada equipo</h3><p>Organiza tus aplicaciones en espacios de trabajo y define quién puede hacer qué mediante roles.</p></div></article>
+          <article className="g-workflow-item"><DotMatrix name="history" /><div><h3>Cada revisión, en su lugar</h3><p>Consulta el historial de reportes para volver a lo que se revisó y a lo que se encontró.</p></div></article>
+          <article className="g-workflow-export">
             <div><DotMatrix name="json" /><h3>Llévate los datos contigo</h3><p>Descarga el reporte en JSON para trabajar con sus datos fuera de Gotchu.</p><a className="g-secondary-link" href="/dashboard">Ir a mis aplicaciones <UiIcon name="arrow" /></a></div>
             <figure className="g-export" aria-label="Estructura del informe exportado">
               <figcaption className="g-tag">informe.json</figcaption>
@@ -119,7 +119,7 @@ export function LandingPage() {
         </div>
       </section>
       <section id="preguntas" className="g-faq g-container" aria-labelledby="faq-title"><h2 id="faq-title">Antes de dar el paso.</h2><div>{questions.map(([question, answer]) => <details key={question}><summary>{question}<span aria-hidden="true"><UiIcon name="plus" /></span></summary><p>{answer}</p></details>)}</div></section>
-      <section className="g-closing g-card g-card-magenta" aria-labelledby="closing-title">
+      <section className="g-closing" aria-labelledby="closing-title">
         <div className="g-closing-radar" aria-hidden="true"><span /><span /><span /><span /><GotchuMark size={0} /></div>
         <h2 id="closing-title">Dale otra mirada.<br /><span>Da el paso.</span></h2>
         <a className="g-button g-button-ink" href="/dashboard" data-catch>Empezar mi revisión <UiIcon name="arrow" /></a>
