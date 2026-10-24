@@ -13,14 +13,16 @@ live('customer schema privilege and RLS boundaries on real Postgres', () => {
     const sourceId = randomUUID(); const targetId = randomUUID();
     await f.admin.query("INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor) VALUES ($1,$2,$3,$4,$5::jsonb,$6)", [f.a.organizationId, f.a.applicationId, sourceId, 'a'.repeat(64), JSON.stringify({ revision: 'r', files: [{ path: 'a.ts', content: '' }] }), f.a.userId]);
     await f.admin.query("INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at) VALUES ($1,$2,$3,'https://acme.com',1,'pending',$4,$5,now()+interval '30 minutes')", [f.a.organizationId, f.a.applicationId, targetId, f.a.userId, 'b'.repeat(64)]);
+    await f.admin.query('INSERT INTO gotchu.customer_license_policies(organization_id,allow_licenses,deny_licenses,review_licenses,updated_by) VALUES ($1,$2,$3,$4,$5)', [f.a.organizationId, ['MIT'], [], ['UNKNOWN'], f.a.userId]);
     for (const role of ['gotchu_api', 'gotchu_coordinator'] as const) {
       for (const table of ['customer_sources', 'customer_targets', 'customer_requests', 'customer_reports'] as const) {
         const rows = await f.databases[role].tenant(f.b.organizationId, tx => tx.query(`SELECT * FROM gotchu.${table} WHERE organization_id=$1`, [f.a.organizationId]));
         expect(rows.rows).toEqual([]);
       }
     }
-    const policies = await f.admin.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relnamespace='gotchu'::regnamespace AND relname IN ('customer_sources','customer_targets','customer_requests','customer_reports')");
-    expect(policies.rows).toHaveLength(4); expect(policies.rows.every(row => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
+    expect((await f.databases.gotchu_api.tenant(f.b.organizationId, tx => tx.query('SELECT * FROM gotchu.customer_license_policies WHERE organization_id=$1', [f.a.organizationId]))).rows).toEqual([]);
+    const policies = await f.admin.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relnamespace='gotchu'::regnamespace AND relname IN ('customer_sources','customer_targets','customer_requests','customer_reports','customer_license_policies')");
+    expect(policies.rows).toHaveLength(5); expect(policies.rows.every(row => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
     await expect(f.databases.gotchu_api.tenant(f.b.organizationId, tx => tx.query("INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor) VALUES ($1,$2,$3,$4,$5::jsonb,$6)", [f.b.organizationId, f.a.applicationId, randomUUID(), 'a'.repeat(64), JSON.stringify({ revision: 'r', files: [{ path: 'a.ts', content: '' }] }), f.b.userId]))).rejects.toMatchObject({ code: '23503' });
   });
   it('permits discovery/bootstrap only through narrow API functions and never leaks a discovery setting into general reads', async () => {
