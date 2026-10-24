@@ -3,7 +3,7 @@ x-hardened-service: &hardened-service
   cap_drop: ["ALL"]
   security_opt: ["no-new-privileges:true"]
   tmpfs:
-    - /tmp:rw,noexec,nosuid,size=32m,uid=1000,gid=1000
+    - /tmp:rw,noexec,nosuid,size=32m,uid=${GOTCHU_CONTAINER_UID:-1000},gid=${GOTCHU_CONTAINER_GID:-1000}
   pids_limit: 100
 
 x-disabled-service: &disabled-service
@@ -101,6 +101,7 @@ services:
     init: true
     environment:
       NODE_ENV: production
+      GOTCHU_AUTH_MODE: ${GOTCHU_AUTH_MODE:-development}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
       AUTH_SECRET: ${AUTH_SECRET:?run scripts/infra-local-setup.sh first}
       AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
@@ -130,7 +131,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    user: "1000:1000"
+    user: "${GOTCHU_CONTAINER_UID:-1000}:${GOTCHU_CONTAINER_GID:-1000}"
     mem_limit: 512m
     cpus: 1.0
     ports:
@@ -155,9 +156,13 @@ services:
     restart: unless-stopped
     init: true
     environment:
-      NODE_ENV: production
+      # Self-host is a local development profile: the scanner bridge is private to Docker's host gateway.
+      NODE_ENV: development
       GOTCHU_COORDINATOR_DATABASE_URL: postgresql://${GOTCHU_COORDINATOR_DB_USERNAME:?run scripts/infra-local-setup.sh first}:${GOTCHU_COORDINATOR_DB_PASSWORD:?run scripts/infra-local-setup.sh first}@postgres:5432/${POSTGRES_DB:?run scripts/infra-local-setup.sh first}
       GOTCHU_REDIS_URL: redis://:${REDIS_PASSWORD:?run scripts/infra-local-setup.sh first}@redis:6379
+      GOTCHU_SCANNER_ORIGIN: http://host.docker.internal:${SCANNER_HOST_PORT:-4400}
+      GOTCHU_SCANNER_SECRET_FILE: /run/secrets/scanner.secret
+      GOTCHU_CUSTOMER_DISCOVERY: ${GOTCHU_CUSTOMER_DISCOVERY:-false}
       GOTCHU_ORGANIZATION_IDS: ${GOTCHU_ORGANIZATION_IDS:-}
       GOTCHU_WORKER_URL: ${GOTCHU_WORKER_URL:-}
       GOTCHU_RUN_CAPABILITY_PRIVATE_KEY: ${GOTCHU_RUN_CAPABILITY_PRIVATE_KEY:-}
@@ -180,7 +185,11 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    user: "1000:1000"
+    user: "${GOTCHU_CONTAINER_UID:-1000}:${GOTCHU_CONTAINER_GID:-1000}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${GOTCHU_STATE_DIR:-../.gotchu}/scanner.secret:/run/secrets/scanner.secret:ro
     mem_limit: 768m
     cpus: 1.0
     ports:

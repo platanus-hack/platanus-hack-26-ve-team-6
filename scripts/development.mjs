@@ -11,7 +11,7 @@ import { createServer } from 'node:net';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = join(root, '.local', 'dev');
 const stateFile = join(directory, 'state.json');
-const envFile = join(root, 'infra', '.env');
+const envFile = process.env.GOTCHU_ENV_FILE ?? join(root, 'infra', '.env');
 const dockerHost = 'unix:///var/run/docker.sock';
 const action = process.argv[2];
 const services = {
@@ -84,7 +84,7 @@ async function privateRegularFile(path, label) {
 
 async function ensureInfraEnvironment() {
   if (!await privateRegularFile(envFile, 'infra/.env')) {
-    command('bash', ['scripts/infra-local-setup.sh'], { env: baseEnvironment, label: 'Local credential setup' });
+    command('bash', ['scripts/infra-local-setup.sh'], { env: { ...baseEnvironment, GOTCHU_ENV_FILE: envFile, GOTCHU_AUTH_MODE: process.env.GOTCHU_AUTH_MODE ?? 'development' }, label: 'Local credential setup' });
   }
   await privateRegularFile(envFile, 'infra/.env');
   const contents = await readFile(envFile, 'utf8');
@@ -393,7 +393,8 @@ async function prepare() {
   await ensureBuild('@gotchu/customer-assessment...');
   const images = [...new Set([...await scannerProfiles(), ...composeDataImages()])];
   const missing = images.filter(image => !imageIsPresent(image));
-  if (missing.length === 0) {
+  const selfHostBuild = process.env.GOTCHU_AUTH_MODE === 'self_host';
+  if (missing.length === 0 && !selfHostBuild) {
     console.log('All pinned scanner, PostgreSQL, and Redis images are already cached. No images were pulled.');
     return;
   }
@@ -402,7 +403,14 @@ async function prepare() {
   const freeBytes = Number(space.bavail) * Number(space.bsize);
   if (freeBytes < minimumPreparationFreeBytes) {
     const freeGiB = (freeBytes / 1024 ** 3).toFixed(2);
-    throw new Error(`Docker storage has ${freeGiB} GiB free; image preparation requires at least 5 GiB. No images were pulled. Free space and rerun pnpm dev:prepare.`);
+    const retryCommand = process.env.GOTCHU_AUTH_MODE === 'self_host' ? './gotchu up' : 'pnpm dev:prepare';
+    const purpose = missing.length > 0 ? 'image preparation' : 'the self-host build';
+    throw new Error(`Docker storage has ${freeGiB} GiB free; ${purpose} requires at least 5 GiB. No images were pulled. Check usage with docker system df, remove only Docker data you recognize as unused, then rerun ${retryCommand}.`);
+  }
+
+  if (missing.length === 0) {
+    console.log('All pinned scanner, PostgreSQL, and Redis images are already cached. Docker storage is ready for the self-host build.');
+    return;
   }
 
   for (const image of missing) {

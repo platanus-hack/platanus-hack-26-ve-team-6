@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-env_file="${repo_root}/infra/.env"
+env_file="${INFRA_ENV_FILE:-${repo_root}/infra/.env}"
 compose_file="${repo_root}/infra/compose.yaml"
 
 if ! command -v docker >/dev/null 2>&1; then

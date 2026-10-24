@@ -42,6 +42,8 @@ const coordinatorEnvironment = environment('coordinator');
 requireValue(Object.hasOwn(coordinatorEnvironment, 'GOTCHU_DEMO_TARGET_ORIGIN'), 'coordinator must accept an optional GOTCHU_DEMO_TARGET_ORIGIN override.');
 requireValue(coordinatorEnvironment.GOTCHU_DEMO_TARGET_ORIGIN === null || typeof coordinatorEnvironment.GOTCHU_DEMO_TARGET_ORIGIN === 'string', 'coordinator target origin must be optional.');
 requireValue(/^\s+GOTCHU_DEMO_TARGET_ORIGIN:\s*$/m.test(composeText), 'coordinator demo target origin must remain unset unless the operator supplies it.');
+requireValue(coordinatorEnvironment.GOTCHU_CUSTOMER_DISCOVERY === 'true' || coordinatorEnvironment.GOTCHU_CUSTOMER_DISCOVERY === 'false', 'coordinator customer discovery must be an explicit boolean.');
+requireValue(composeText.includes('GOTCHU_CUSTOMER_DISCOVERY: ${GOTCHU_CUSTOMER_DISCOVERY:-false}'), 'coordinator customer discovery must default to disabled outside the self-host profile.');
 
 for (const [name, service] of Object.entries(services)) {
   for (const port of service.ports ?? []) {
