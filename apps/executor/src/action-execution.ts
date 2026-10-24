@@ -1,4 +1,4 @@
-import { BackendError, hashStoredAction } from '@gotchu/backend';
+import { BackendError, dependencyCommitMessage, expectedDependencyCommitSha, hashStoredAction, sha256 } from '@gotchu/backend';
 import type { ActionV2 } from '@gotchu/contracts';
 import type { ExecutionArtifact } from '@gotchu/backend';
 import { actionV2Schema } from '@gotchu/contracts';
@@ -13,19 +13,20 @@ const attemptSchema = z.object({
   attempt: z.number().int().positive(), state: z.enum(['claimed','branch_published','pr_opened','verified','failed','uncertain','reconciliation_required']),
   step: z.enum(['claim','publish_branch','open_pr','verify']),
 }).passthrough();
+const pullRequestActionSchema = z.union([actionV2Schema.options[0],actionV2Schema.options[1]]);
 const claimFieldsSchema = z.object({
   organizationId: uuid, applicationId: uuid, approvalId: uuid, executionId: uuid, claimToken: uuid,
-  actionHash: digest, recoveryEpoch: z.string().regex(/^[1-9][0-9]*$/), proposal: actionV2Schema,
+  actionHash: digest, recoveryEpoch: z.string().regex(/^[1-9][0-9]*$/), proposal: pullRequestActionSchema,
   providerReference: z.string().min(1).max(1000).optional(),
 }).strict();
-const claimSchema = claimFieldsSchema.refine(value => value.proposal.kind === 'source_patch_pull_request');
+const claimSchema = claimFieldsSchema;
 const storedExecutionSchema = claimFieldsSchema.extend({
   state: z.enum(['claimed','succeeded','failed','uncertain']), providerReference: z.string().min(1).max(1000).optional(),
-}).strict().refine(value => value.proposal.kind === 'source_patch_pull_request');
+}).strict();
 
-export type SourcePatchAction = Extract<ActionV2, { kind: 'source_patch_pull_request' }>;
+export type PullRequestAction = Extract<ActionV2, { kind: 'source_patch_pull_request' | 'dependency_pull_request' }>;
 export type RepositoryPublication = {
-  readonly action: SourcePatchAction;
+  readonly action: PullRequestAction;
   readonly actionHash: string;
   readonly executionId: string;
   readonly artifact: ExecutionArtifact;
@@ -61,12 +62,55 @@ function backendCode(error: unknown): string | undefined {
 }
 
 function matchesRequest(claim: z.infer<typeof claimSchema>, request: ActionExecutionRequest): boolean {
-  return claim.proposal.kind === 'source_patch_pull_request'
-    && claim.organizationId === request.organizationId && claim.applicationId === request.applicationId
+  return claim.organizationId === request.organizationId && claim.applicationId === request.applicationId
     && claim.approvalId === request.approvalId && claim.actionHash === request.expectedActionHash
     && claim.proposal.organizationId === request.organizationId && claim.proposal.applicationId === request.applicationId
     && claim.proposal.baseCommit === request.expectedResourceVersion
     && hashStoredAction(claim.proposal, claim.recoveryEpoch) === claim.actionHash;
+}
+
+export function expectedActionTreeSha(action: PullRequestAction, artifact: ExecutionArtifact): string | null {
+  if (artifact.treeSha === null || !artifact.treeComplete || artifact.baseCommit !== action.baseCommit) return null;
+  if (artifact.files.some(file => {
+    const content=Buffer.from(file.contentBase64,'base64');
+    return content.toString('base64') !== file.contentBase64 || sha256(content) !== file.sha256;
+  })) return null;
+  const candidate = action.evidence.find(item => item.kind === (action.kind === 'source_patch_pull_request' ? 'private_correction_candidate' : 'dependency_candidate'));
+  if (!candidate || artifact.snapshotSha256 !== candidate.sha256 || artifact.patchSha256 !== action.patchSha256) return null;
+  if (action.kind === 'source_patch_pull_request') return action.expectedTreeSha === artifact.treeSha ? artifact.treeSha : null;
+
+  const change = action.changes.length === 1 ? action.changes[0] : undefined;
+  if (!change || artifact.files.length !== 2
+    || canonicalPaths(artifact.files.map(file => file.path)) !== 'package-lock.json\u0000package.json') return null;
+  const message = dependencyCommitMessage({ packageName: change.name, fromVersion: change.from, toVersion: change.to });
+  const lockfile = artifact.files.find(file => file.path === 'package-lock.json');
+  const manifest = artifact.files.find(file => file.path === 'package.json');
+  if (!lockfile || !manifest || lockfile.mode !== '100644' || manifest.mode !== '100644') return null;
+  try {
+    if (sha256(Buffer.from(lockfile.contentBase64,'base64')) !== action.lockfileSha256) return null;
+    const manifestValue: unknown = JSON.parse(Buffer.from(manifest.contentBase64,'base64').toString('utf8'));
+    const lockfileValue: unknown = JSON.parse(Buffer.from(lockfile.contentBase64,'base64').toString('utf8'));
+    const packageSchema = z.record(z.string(),z.unknown());
+    const parsedManifest = packageSchema.parse(manifestValue);
+    const parsedLockfile = packageSchema.parse(lockfileValue);
+    const rootPackages = packageSchema.parse(parsedLockfile.packages);
+    const lockRoot = packageSchema.parse(rootPackages['']);
+    const targetPackage = packageSchema.parse(rootPackages[`node_modules/${change.name}`]);
+    const sections = ['dependencies','devDependencies','optionalDependencies'] as const;
+    const sectionVersion = (value: Record<string, unknown>) => sections.some(section => {
+      if (value[section] === undefined) return false;
+      return packageSchema.parse(value[section])[change.name] === change.to;
+    });
+    if (!sectionVersion(parsedManifest) || !sectionVersion(lockRoot)
+      || targetPackage.version !== change.to || targetPackage.name !== undefined && targetPackage.name !== change.name
+      || typeof targetPackage.integrity !== 'string' || !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(targetPackage.integrity)) return null;
+    if (artifact.commitMessage !== message || expectedDependencyCommitSha(artifact.treeSha, action.baseCommit, message) !== action.candidateCommit) return null;
+  } catch { return null; }
+  return artifact.treeSha;
+}
+
+function canonicalPaths(paths: string[]): string {
+  return paths.sort().join('\u0000');
 }
 
 export function createActionExecutor(options: {
@@ -157,14 +201,11 @@ export function createActionExecutor(options: {
     }
     if (!matchesRequest(claim, request)) return result('rejected', claim.actionHash === request.expectedActionHash ? 'resource_version_stale' : 'action_hash_mismatch', claim.executionId);
 
-    if (claim.proposal.kind !== 'source_patch_pull_request') {
-      if (previousState === 'claimed') await settle(claim, previousState, 'failed');
-      return result('rejected', 'unsupported_action', claim.executionId);
-    }
     const action = claim.proposal;
     let artifact: ExecutionArtifact;
     try {
-      const candidateSourceId = action.evidence.find(item => item.kind === 'private_correction_candidate')?.id;
+      const evidenceKind = action.kind === 'source_patch_pull_request' ? 'private_correction_candidate' : 'dependency_candidate';
+      const candidateSourceId = action.evidence.find(item => item.kind === evidenceKind)?.id;
       if (!candidateSourceId) throw new Error('candidate_artifact_missing');
       artifact = await options.loadArtifact({ organizationId: claim.organizationId, applicationId: claim.applicationId, candidateSourceId });
     } catch {
@@ -174,7 +215,7 @@ export function createActionExecutor(options: {
       }
       return result('uncertain', 'artifact_unavailable', claim.executionId, claim.providerReference);
     }
-    if (!action.expectedTreeSha || artifact.baseCommit !== action.baseCommit || artifact.treeSha !== action.expectedTreeSha || !artifact.treeComplete) {
+    if (!expectedActionTreeSha(action, artifact)) {
       if (previousState === 'claimed') {
         await settle(claim, previousState, 'failed');
         return result('failed', 'artifact_mismatch', claim.executionId);

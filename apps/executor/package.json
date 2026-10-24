@@ -15,5 +15,5 @@
     "start": "node dist/main.js"
   },
   "dependencies": { "@gotchu/backend": "workspace:*", "@gotchu/contracts": "workspace:*", "@gotchu/database": "workspace:*", "@gotchu/git-adapters": "workspace:*", "@gotchu/monitoring": "workspace:*", "bullmq": "6.4.0", "ioredis": "^6.0.0", "zod": "^4.0.0" },
-  "devDependencies": { "@types/node": "^24.0.0", "vitest": "^3.2.4" }
+  "devDependencies": { "@gotchu/customer-assessment": "workspace:*", "@gotchu/validator": "workspace:*", "@types/node": "^24.0.0", "vitest": "^3.2.4" }
 }

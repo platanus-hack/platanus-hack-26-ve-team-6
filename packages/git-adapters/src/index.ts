@@ -31,7 +31,7 @@ export interface PullRequestAdapter {
   readTree(commitSha: string): Promise<GitTree>;
   readCommit(commitSha: string): Promise<{ treeSha: string; parents: readonly string[] }>;
   inspectAutomation(baseSha: string): Promise<WorkflowPolicyViolation[]>;
-  publishCommit(input: { actionHash: string; baseBranch: string; baseSha: string; files: readonly PatchFile[]; commitMessage?: string; workflowExceptions?: readonly WorkflowPolicyException[]; beforeWrite?: () => Promise<void> }): Promise<{ branch: string; commitSha: string }>;
+  publishCommit(input: { actionHash: string; baseBranch: string; baseSha: string; files: readonly PatchFile[]; commitMessage?: string; deterministicCommit?: boolean; workflowExceptions?: readonly WorkflowPolicyException[]; beforeWrite?: () => Promise<void> }): Promise<{ branch: string; commitSha: string }>;
   openOrFindPullRequest(input: { actionHash: string; branch: string; commitSha: string; baseBranch: string; baseSha: string; evidenceSummary: z.infer<typeof evidenceSummarySchema>; title?: string; body?: string; draft?: boolean; beforeWrite?: () => Promise<void> }): Promise<PullRequest>;
   findPullRequestByBranch(branch: string): Promise<PullRequest | undefined>;
   getPullRequest(number: number): Promise<PullRequest>;
@@ -420,7 +420,11 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
           return { branch,commitSha:sha.parse(existing) };
         }
         const commitMessage = z.string().trim().min(1).max(512).parse(input.commitMessage ?? `Gotchu approved action ${input.actionHash}`);
-        const commitSha = sha.parse(await git(root,['--git-dir',bare,'-c','user.name=Gotchu','-c','user.email=gotchu@localhost','commit-tree',treeSha,'-p',base,'-m',commitMessage]));
+        const deterministicIdentity = input.deterministicCommit ? {
+          ...process.env,GIT_AUTHOR_NAME:'Gotchu',GIT_AUTHOR_EMAIL:'actions@gotchu.dev',GIT_AUTHOR_DATE:'@0 +0000',
+          GIT_COMMITTER_NAME:'Gotchu',GIT_COMMITTER_EMAIL:'actions@gotchu.dev',GIT_COMMITTER_DATE:'@0 +0000',
+        } : { ...process.env,GIT_AUTHOR_NAME:'Gotchu',GIT_AUTHOR_EMAIL:'gotchu@localhost',GIT_COMMITTER_NAME:'Gotchu',GIT_COMMITTER_EMAIL:'gotchu@localhost' };
+        const commitSha = sha.parse(await git(root,['--git-dir',bare,'commit-tree',treeSha,'-p',base,'-m',commitMessage],{env:deterministicIdentity}));
         await input.beforeWrite?.();
         try { await git(root,['--git-dir',bare,'update-ref',`refs/heads/${branch}`,commitSha,'']); }
         catch {
@@ -558,7 +562,13 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
       if(existing.status!==404) throw new GitAdapterError(existing.status===401||existing.status===403?'provider_access_revoked':'unknown_outcome');
       const commitMessage=z.string().trim().min(1).max(512).parse(input.commitMessage ?? `Gotchu approved action ${input.actionHash}`);
       await input.beforeWrite?.();
-      const commit=await checked('POST','/git/commits',{message:commitMessage,tree:tree.sha,parents:[base]},z.object({sha}).passthrough());
+      const commit=await checked('POST','/git/commits',{
+        message:commitMessage,tree:tree.sha,parents:[base],
+        ...(input.deterministicCommit ? {
+          author:{name:'Gotchu',email:'actions@gotchu.dev',date:'1970-01-01T00:00:00Z'},
+          committer:{name:'Gotchu',email:'actions@gotchu.dev',date:'1970-01-01T00:00:00Z'},
+        } : {}),
+      },z.object({sha}).passthrough());
       let created: Response | undefined;
       if(await this.readHead(input.baseBranch)!==input.baseSha) throw new GitAdapterError('conflict');
       await input.beforeWrite?.();
