@@ -130,7 +130,7 @@ export function Convergence() {
         <div ref={bind('lens')} className="g-hero-lens"><LensEye greet boost={boost} spin={spin} /></div>
         <div ref={bind('slab')} className="g-hero-slab"><CodeSlab /></div>
         <div ref={bind('globe')} className="g-hero-globe"><OriginGlobe spin={spin} /></div>
-        <p ref={bind('lead')} className="g-hero-lead">Sube una versión de tu código o autoriza tu dominio por DNS. Gotchu reúne los hallazgos, su evidencia y lo que no pudo comprobar.</p>
+        <p ref={bind('lead')} className="g-hero-lead">Sube tu código o autoriza tu dominio: hallazgos con evidencia y lo que no se pudo comprobar.</p>
         <div ref={bind('actions')} className="g-hero-actions" onFocus={returnToStart}>
           <a className="g-button" href="/dashboard" data-lens-focus>Revisar mi aplicación <UiIcon name="arrow" /></a>
           <a className="g-secondary-link" href="#codigo">Cómo funciona <UiIcon name="chevron" /></a>

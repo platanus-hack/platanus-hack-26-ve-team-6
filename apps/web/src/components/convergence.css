@@ -17,7 +17,7 @@
 .g-hero-slab { grid-area: 3 / 1; justify-self: end; margin-top: clamp(12px, 3svh, 32px); --slab: clamp(220px, 21vw, 340px); }
 .g-hero-globe { grid-area: 3 / 3; justify-self: start; margin-top: clamp(4px, 2svh, 20px); --globe: clamp(200px, 18vw, 290px); }
 .g-hero-slab, .g-hero-globe, .g-hero-lens, .g-stage-report { will-change: transform, opacity; }
-.g-hero-lead { grid-area: 5 / 1 / 6 / -1; justify-self: center; max-width: 620px; margin-top: 16px !important; text-align: center; font-size: 18px; line-height: 1.65; text-wrap: pretty; }
+.g-hero-lead { grid-area: 5 / 1 / 6 / -1; justify-self: center; max-width: 820px; margin-top: 16px !important; text-align: center; font-size: 18px; line-height: 1.65; text-wrap: pretty; }
 .g-hero-actions { grid-area: 6 / 1 / 7 / -1; display: flex; justify-content: center; align-items: center; gap: 28px; margin-top: 28px; }
 
 .g-caption { padding: clamp(72px, 10vw, 120px) 56px 0; }
