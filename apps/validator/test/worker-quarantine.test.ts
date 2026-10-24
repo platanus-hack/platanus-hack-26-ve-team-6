@@ -77,6 +77,7 @@ function makeWorkerDatabase(runRow: Record<string, unknown>, leaseToken: string,
     role: 'gotchu_validator',
     tenant: async <T>(_organizationId: string, work: (tx: Transaction) => Promise<T>) => work(transaction),
     integration: async <T>(_integrationId: string, work: (tx: Transaction) => Promise<T>) => work(transaction),
+    system: async <T>(work: (tx: Transaction) => Promise<T>) => work(transaction),
     checkHealth: async () => undefined,
     close: async () => undefined,
   };

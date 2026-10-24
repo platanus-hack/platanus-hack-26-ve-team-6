@@ -236,4 +236,30 @@ live('D03 telemetry/provider/HTTPS end-to-end on live Postgres and Redis', () =>
     expect(coverage.rows[0]?.state).toBe('degraded');
     expect(accepted.accepted).toBe(20);
   }, 60_000);
+
+  it('finishes accepted event detection when observation projection has exhausted its quota', async () => {
+    const test = await setup();
+    await f.admin.query(`WITH seeded AS (SELECT gen_random_uuid() AS id,n FROM generate_series(1,2000) n)
+      INSERT INTO gotchu.operation_observations(organization_id,application_id,id,idempotency_key,content_hash,body,basis,expires_at)
+      SELECT $1,$2,id,'quota-seed:'||n,repeat('a',64),jsonb_build_object('id',id::text,'organizationId',$1::uuid::text,'applicationId',$2::uuid::text,'kind','application_error','summary','Quota fixture','severity','low','confidence','low',
+        'observedAt',to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),'expiresAt',to_char((clock_timestamp()+interval '1 day') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        'evidence','[]'::jsonb,'metrics',NULL,'incidentId',NULL,'upstreamImpact','not_applicable','verification','trusted_observation','fresh',true),
+        '{}'::jsonb,clock_timestamp()+interval '1 day' FROM seeded`, [test.scope.organizationId,test.scope.applicationId]);
+
+    const accepted = await ingest(test, Array.from({ length: 20 }, () => ({ occurredAt: new Date().toISOString(), statusCode: 500, release: 'quota-full' })));
+    const persisted = await f.admin.query<{ count: number }>('SELECT count(*)::int AS count FROM gotchu.events WHERE organization_id=$1 AND application_id=$2 AND job_id=$3',
+      [test.scope.organizationId,test.scope.applicationId,accepted.jobId]);
+    const aggregate = await f.admin.query<{ state: string; projection: string }>("SELECT state,result->>'operationalProjection' AS projection FROM gotchu.jobs WHERE organization_id=$1 AND id=$2",
+      [test.scope.organizationId,accepted.jobId]);
+    const coverage = await f.admin.query<{ state: string }>("SELECT state FROM gotchu.coverage WHERE organization_id=$1 AND application_id=$2 AND capability='operational_detection'",
+      [test.scope.organizationId,test.scope.applicationId]);
+    const count = await f.admin.query<{ count: number }>('SELECT count(*)::int AS count FROM gotchu.operation_observations WHERE organization_id=$1 AND application_id=$2',
+      [test.scope.organizationId,test.scope.applicationId]);
+
+    expect(accepted.accepted).toBe(20);
+    expect(persisted.rows[0]?.count).toBe(20);
+    expect(aggregate.rows[0]).toMatchObject({ state: 'succeeded', projection: 'degraded' });
+    expect(coverage.rows[0]?.state).toBe('degraded');
+    expect(count.rows[0]?.count).toBe(2000);
+  }, 60_000);
 });

@@ -17,6 +17,7 @@ export interface ApiServices {
   auth: AuthService;
   origin: string;
   ingest(input: { integrationId: string; timestamp: string; signature: string; rawBody: Buffer }): Promise<unknown>;
+  signedPolicy?(input: { integrationId: string; timestamp: string; requestSignature: string }): Promise<unknown>;
   execute(identity: { userId: string }, operation: ApiOperation): Promise<unknown>;
 }
 
@@ -66,6 +67,15 @@ export function createApi(services: ApiServices) {
         if (!timestamp || !signature) throw new HttpError(401, 'signature_required', 'Signed integration credentials are required');
         const result = await services.ingest({ integrationId, timestamp, signature, rawBody: await readBoundedBody(request, 256 * 1024) });
         return json(result, 202);
+      }
+      if (request.method === 'GET' && url.pathname === '/api/v1/protection/policy') {
+        if (!services.signedPolicy) throw new HttpError(503, 'protection_not_configured', 'Runtime protection policy is unavailable');
+        const integrationId = validated(idSchema, request.headers.get('X-Gotchu-Integration'));
+        const timestamp = request.headers.get('X-Gotchu-Timestamp');
+        const requestSignature = request.headers.get('X-Gotchu-Signature');
+        if (!timestamp || !requestSignature) throw new HttpError(401, 'signature_required', 'Signed integration credentials are required');
+        const result = await services.signedPolicy({ integrationId, timestamp, requestSignature });
+        return json(result);
       }
       const identity = await services.auth.identity(request);
       if (!identity) throw new HttpError(401, 'unauthenticated', 'Sign in to access this resource');

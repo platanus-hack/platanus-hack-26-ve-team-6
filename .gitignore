@@ -19,6 +19,8 @@ Pulumi.*.yaml
 *.log
 .DS_Store
 .local/
+.gotchu/
+.gotchu.backups/
 
 # Locally installed skill bundles, engines and private hook state
 .agents/skills/

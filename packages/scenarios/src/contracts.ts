@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dependencyFixRecommendationSchema } from '@gotchu/contracts';
 import {
   customerOriginSchema,
   customerSourceFileSchema,
@@ -69,6 +70,7 @@ export const reportRecommendationsResponseSchema = z.object({
   repositoryContext: repositoryContextSchema,
   coverage: z.array(recipeCoverageStatusSchema).max(20),
   recommendations: z.array(recipeRecommendationSchema).max(200),
+  dependencyFixes: z.array(dependencyFixRecommendationSchema).max(20),
 }).strict();
 
 export const reportRecommendationsParamsSchema = z.object({ reportId: uuid }).strict();

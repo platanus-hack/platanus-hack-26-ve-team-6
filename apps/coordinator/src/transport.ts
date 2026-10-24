@@ -28,9 +28,11 @@ export function createCoordinatorTransport(options: {
     investigation: new Queue<JobEnvelope>('gotchu-investigations-v1', { connection: queueConnection, prefix }),
     assessment: new Queue<JobEnvelope>('gotchu-assessments-v1', { connection: queueConnection, prefix }),
     notification: new Queue<JobEnvelope>('gotchu-observations-v1', { connection: queueConnection, prefix }),
+    execution: new Queue<JobEnvelope>('gotchu-executions-v1', { connection: queueConnection, prefix }),
   };
   for (const queue of Object.values(queues)) queue.on('error', (error) => options.report('coordinator_queue_error', error));
   function queueFor(kind: JobEnvelope['kind']) {
+    if (kind === 'execution') return queues.execution;
     // Other kinds retain the domain's explicit adapter-not-configured failure.
     if (kind === 'investigation') return queues.investigation;
     if (kind === 'notification') return queues.notification;

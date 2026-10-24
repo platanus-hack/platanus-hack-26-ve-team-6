@@ -35,9 +35,19 @@ function finding(ruleId: string, location: string) {
   };
 }
 
-function reportFor(input: CustomerRunInput, ruleId: string, location: string, coverageState: 'inspected' | 'unavailable' = 'inspected'): CustomerAssessmentReport {
+function reportFor(
+  input: CustomerRunInput,
+  ruleId: string,
+  location: string,
+  coverageState: 'inspected' | 'unavailable' = 'inspected',
+  binding?: { checkId: string; startLine: number; endLine: number; propertyLine: number },
+): CustomerAssessmentReport {
   if (!input.source) throw new Error('test_requires_source');
   const f = finding(ruleId, location);
+  const pathAndLine = /^(.+):(\d+)$/.exec(location);
+  const excerpt = binding && pathAndLine
+    ? JSON.stringify({ rule: ruleId, path: pathAndLine[1], line: binding.startLine, checkId: binding.checkId, causeStartLine: binding.startLine, causeEndLine: binding.endLine, correctionLocationLine: binding.propertyLine, sourceDigest: input.source.digest })
+    : '[redacted]';
   return customerAssessmentReportSchema.parse({
     version: 2, id: reportId, organizationId, applicationId, jobId, applicationName: input.applicationName,
     mode: 'internal', startedAt: timestamp, finishedAt: timestamp, responseMode: 'observation', actionsPerformed: [],
@@ -45,7 +55,7 @@ function reportFor(input: CustomerRunInput, ruleId: string, location: string, co
     internal: {
       origin: 'internal', status: 'completed', startedAt: timestamp, finishedAt: timestamp, snapshotRef: `source:${sourceId}:sha256:${input.source.digest}`,
       tool: { name: 'test-profile', version: '1.0.0' }, findings: [f],
-      evidence: [{ id: evidenceId, origin: 'internal', kind: 'configuration', locator: location, collectedAt: timestamp, snapshotRef: `source:${sourceId}:sha256:${input.source.digest}`, tool: { name: 'test-profile', version: '1.0.0' }, checksum: 'a'.repeat(64), excerpt: '[redacted]' }],
+      evidence: [{ id: evidenceId, origin: 'internal', kind: 'configuration', locator: location, collectedAt: timestamp, snapshotRef: `source:${sourceId}:sha256:${input.source.digest}`, tool: { name: binding ? 'trivy' : 'test-profile', version: '1.0.0' }, checksum: createHash('sha256').update(excerpt).digest('hex'), excerpt }],
       coverage: [{ capability: 'semgrep', state: coverageState, detail: 'Test coverage state.' }], limitations: ['Test-only evidence.'],
     },
     external: null, comparison: [{ key: f.correlationKey, classification: 'unverified', internalFindingIds: [findingId], externalFindingIds: [], explanation: 'No external comparison was requested.' }],
@@ -159,10 +169,10 @@ describe('versioned evidence-selected recipes', () => {
     expect(prepareCandidatePatch(invalid, invalidReport, selection(invalid, 'tls-certificate-verification'))).toMatchObject({ status: 'blocked', reason: 'syntax_invalid' });
   });
 
-  it('patches only a unique exact Kubernetes securityContext literal associated with the finding line', () => {
-    const content = 'apiVersion: v1\nkind: Pod\nspec:\n  containers:\n    - name: app\n      securityContext:\n        privileged: true # customer comment\n';
+  it('binds a Trivy parent range to the exact KSV017 privileged literal', () => {
+    const content = 'apiVersion: v1\nkind: Pod\nmetadata:\n  name: customer\nspec:\n  containers:\n    - name: app\n      securityContext:\n        privileged: true # customer comment\n';
     const input = runInput([{ path: 'k8s/pod.yaml', content }]);
-    const report = reportFor(input, 'AVD-KSV-0040', 'k8s/pod.yaml:7');
+    const report = reportFor(input, 'AVD-KSV-0017', 'k8s/pod.yaml:9', 'inspected', { checkId: 'KSV017', startLine: 7, endLine: 9, propertyLine: 9 });
     const result = prepareCandidatePatch(input, report, selection(input, 'kubernetes-config-hardening'));
 
     expect(result.status).toBe('prepared');
@@ -170,28 +180,44 @@ describe('versioned evidence-selected recipes', () => {
     expect(result.afterBytes).toBe(content.replace('privileged: true # customer comment', 'privileged: false # customer comment'));
   });
 
-  it('blocks duplicate or opaque YAML values instead of guessing', () => {
+  it.each([
+    ['AVD-KSV-0001', 'KSV001', 'allowPrivilegeEscalation: true', 'allowPrivilegeEscalation: false'],
+    ['AVD-KSV-0012', 'KSV012', 'runAsNonRoot: false', 'runAsNonRoot: true'],
+    ['AVD-KSV-0014', 'KSV014', 'readOnlyRootFilesystem: false', 'readOnlyRootFilesystem: true'],
+  ])('supports the exact %s Trivy correction only', (ruleId, checkId, before, after) => {
+    const content = `apiVersion: v1\nkind: Pod\nmetadata:\n  name: customer\nspec:\n  containers:\n    - name: app\n      securityContext:\n        ${before}\n`;
+    const input = runInput([{ path: 'k8s/pod.yaml', content }]);
+    const report = reportFor(input, ruleId, 'k8s/pod.yaml:9', 'inspected', { checkId, startLine: 7, endLine: 9, propertyLine: 9 });
+    const result = prepareCandidatePatch(input, report, selection(input, 'kubernetes-config-hardening'));
+
+    expect(result.status).toBe('prepared');
+    if (result.status !== 'prepared') return;
+    expect(result.afterBytes).toBe(content.replace(before, after));
+  });
+
+  it('keeps Kubernetes findings guidance-only without a unique scanner binding', () => {
     const duplicate = 'spec:\n  containers:\n    - name: app\n      securityContext:\n        privileged: true\n        privileged: true\n';
     const input = runInput([{ path: 'k8s/pod.yaml', content: duplicate }]);
-    const report = reportFor(input, 'AVD-KSV-0040', 'k8s/pod.yaml:5');
-    expect(prepareCandidatePatch(input, report, selection(input, 'kubernetes-config-hardening'))).toMatchObject({ status: 'blocked', reason: 'ambiguous_transform' });
+    const report = reportFor(input, 'AVD-KSV-0017', 'k8s/pod.yaml:5');
+    expect(buildRecipeRecommendations(input, report).recommendations[0]).toMatchObject({ availability: 'guided_review' });
+    expect(prepareCandidatePatch(input, report, selection(input, 'kubernetes-config-hardening'))).toMatchObject({ status: 'blocked', reason: 'location_unbound' });
 
     const opaque = 'metadata:\n  annotations:\n    description: |\n      securityContext:\n        privileged: true\n';
     const opaqueInput = runInput([{ path: 'k8s/pod.yaml', content: opaque }]);
-    const opaqueReport = reportFor(opaqueInput, 'AVD-KSV-0040', 'k8s/pod.yaml:5');
-    expect(prepareCandidatePatch(opaqueInput, opaqueReport, selection(opaqueInput, 'kubernetes-config-hardening'))).toMatchObject({ status: 'blocked', reason: 'unsupported_transform' });
+    const opaqueReport = reportFor(opaqueInput, 'AVD-KSV-0017', 'k8s/pod.yaml:5');
+    expect(prepareCandidatePatch(opaqueInput, opaqueReport, selection(opaqueInput, 'kubernetes-config-hardening'))).toMatchObject({ status: 'blocked', reason: 'location_unbound' });
 
     const plainText = 'metadata:\n  annotations:\n    note: ordinary text\n      securityContext:\n        privileged: true\n';
     const plainInput = runInput([{ path: 'k8s/pod.yaml', content: plainText }]);
-    const plainReport = reportFor(plainInput, 'AVD-KSV-0040', 'k8s/pod.yaml:5');
-    expect(prepareCandidatePatch(plainInput, plainReport, selection(plainInput, 'kubernetes-config-hardening'))).toMatchObject({ status: 'blocked', reason: 'unsupported_transform' });
+    const plainReport = reportFor(plainInput, 'AVD-KSV-0017', 'k8s/pod.yaml:5');
+    expect(prepareCandidatePatch(plainInput, plainReport, selection(plainInput, 'kubernetes-config-hardening'))).toMatchObject({ status: 'blocked', reason: 'location_unbound' });
   });
 
   it('blocks a candidate that would exceed the shared file-size cap', () => {
     const base = 'apiVersion: v1\nkind: Pod\nspec:\n  containers:\n    - name: app\n      securityContext:\n        privileged: true';
     const content = base + ' '.repeat(CUSTOMER_MAX_SOURCE_FILE_BYTES - base.length);
     const input = runInput([{ path: 'k8s/pod.yaml', content }]);
-    const report = reportFor(input, 'AVD-KSV-0040', 'k8s/pod.yaml:7');
+    const report = reportFor(input, 'AVD-KSV-0017', 'k8s/pod.yaml:7', 'inspected', { checkId: 'KSV017', startLine: 5, endLine: 7, propertyLine: 7 });
 
     expect(prepareCandidatePatch(input, report, selection(input, 'kubernetes-config-hardening'))).toMatchObject({ status: 'blocked', reason: 'source_limit_exceeded' });
   });
@@ -221,7 +247,7 @@ describe('versioned evidence-selected recipes', () => {
   it('keeps secret rotation and dependency fixes behind integrations', () => {
     const input = runInput([{ path: 'package.json', content: '{"dependencies":{"lodash":"4.17.20"}}\n' }]);
     const advisory = reportFor(input, 'osv.GHSA-example', 'package-lock.json:1');
-    const credential = reportFor(input, 'gotchu-assigned-secret', 'src/config.ts:1');
+    const credential = reportFor(input, 'generic-api-key', 'src/config.ts:1');
     expect(buildRecipeRecommendations(input, advisory).recommendations[0]?.availability).toBe('integration_required');
     expect(buildRecipeRecommendations(input, credential).recommendations[0]?.availability).toBe('integration_required');
     expect(prepareCandidatePatch(input, credential, selection(input, 'credential-exposure'))).toMatchObject({ status: 'blocked', reason: 'recipe_requires_integration' });

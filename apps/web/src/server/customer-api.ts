@@ -1,15 +1,24 @@
 import { z } from 'zod';
 import {
-  customerCreateWorkspaceSchema, customerCreateApplicationSchema, customerUpdateApplicationSchema,
+  customerCreateWorkspaceSchema, customerUpdateWorkspaceSchema, customerCreateApplicationSchema, customerUpdateApplicationSchema,
   customerEnrollTargetSchema, customerTargetIdSchema, customerUploadSourceSchema, customerQueueSchema,
   customerWorkspaceSchema, customerApplicationSchema, customerTargetSchema, customerEnrollmentSchema,
   customerSourceSummarySchema, customerReportSummarySchema, customerAssessmentReportSchema, CUSTOMER_MAX_SOURCE_BYTES,
+  CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, customerContainerImageSummarySchema, customerContainerImageUploadMetadataSchema,
   type CustomerWorkspace, type CustomerApplication, type CustomerTarget, type CustomerEnrollment,
   type CustomerSourceSummary, type CustomerReportSummary, type CustomerAssessmentReport,
+  type CustomerContainerImageSummary,
   telemetryIntegrationSchema, telemetryConnectionSchema,
   monitorConfigInputSchema, monitorConfigSchema, operationCoverageSchema, operationAlertSchema,
   operationPlanSchema, operationPlanKindSchema, operationPlanBindingSchema, operationPlanStepSchema, operationReadinessSchema,
   validationPublicProjectionSchema, validationSuiteConfigSchema, validationSuiteDefinitionSchema,
+  decisionRecordPageSchema, decisionRecordQuerySchema,
+  dependencyFixPreparationRequestSchema, dependencyFixPreparationResponseSchema,
+  type DependencyFixPreparationRequest, type DependencyFixPreparationResponse,
+  licensePolicySchema, workspaceLicensePolicySchema,
+  configureInvestigationModelSchema, investigationModelProbeResultSchema, investigationModelSettingsSchema,
+  investigationActionSchema, investigationRunSchema, investigationSubjectSchema,
+  workspaceRetentionPolicyInputSchema, workspaceRetentionPolicySchema,
 } from '@gotchu/contracts';
 import { type Identity, type Backend } from '@gotchu/backend';
 import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, reportRecommendationsResponseSchema, type PrepareCorrectionRequest, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
@@ -21,24 +30,41 @@ import { handleContextApi } from './context-api.js';
 import { handleTriageApi } from './triage-api.js';
 import { handleMembersApi } from './members-api.js';
 import { handleActionsApi } from './actions-api.js';
+import { createGitHubApi } from './github-api.js';
+import { handleWorkflowExceptionsApi } from './workflow-exceptions-api.js';
+import { handleProtectionApi } from './protection-api.js';
+import { handleNotificationsApi } from './notifications-api.js';
 
 export interface CustomerServices {
   stepUp?: NonNullable<Backend['stepUp']>;
   corrections?: {
     recommendations(identity: Identity, input: { organizationId: string; applicationId: string; reportId: string }): Promise<ReportRecommendationsResponse>;
     prepare(identity: Identity, input: PrepareCorrectionRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<PrepareCorrectionResponse>;
+    prepareDependencyFix(identity: Identity, input: DependencyFixPreparationRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<DependencyFixPreparationResponse>;
     validationStatus?(identity: Identity, input: { organizationId: string; applicationId: string; candidateSourceId: string }): Promise<unknown>;
   };
   validations?: Backend['validations'];
   telemetry?: Backend['telemetry'];
+  protection?: Backend['protection'];
   context?: Backend['context'];
   members?: Backend['members'];
   operations?: Backend['operations'];
+  decisionRecords?: Backend['decisionRecords'];
+  notifications?: Backend['notifications'];
+  retention?: Backend['retention'];
   triage?: Backend['triage'];
+  investigationModels?: Backend['investigationModels'];
+  investigations?: Backend['investigations'];
+  getLicensePolicy?: Backend['customers']['getLicensePolicy'];
+  updateLicensePolicy?: Backend['customers']['updateLicensePolicy'];
+  exportSbom?: Backend['customers']['exportSbom'];
   actions?: Backend['actions'];
+  github?: Backend['github'];
+  workflowExceptions?: Backend['workflowExceptions'];
   repositoryCatalog?: (identity: Identity, scope: { organizationId: string; applicationId: string }) => Promise<Array<{ key: string; label: string }>>;
   listWorkspaces(identity: Identity): Promise<CustomerWorkspace[]>;
   createWorkspace(identity: Identity, value: z.infer<typeof customerCreateWorkspaceSchema>): Promise<CustomerWorkspace>;
+  updateWorkspace(identity: Identity, value: z.infer<typeof customerUpdateWorkspaceSchema>): Promise<CustomerWorkspace>;
   listApplications(identity: Identity, value: { organizationId: string }): Promise<CustomerApplication[]>;
   createApplication(identity: Identity, value: z.infer<typeof customerCreateApplicationSchema>): Promise<CustomerApplication>;
   updateApplication(identity: Identity, value: z.infer<typeof customerUpdateApplicationSchema>): Promise<CustomerApplication>;
@@ -49,8 +75,12 @@ export interface CustomerServices {
   listSources(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerSourceSummary[]>;
   uploadSource(identity: Identity, value: z.infer<typeof customerUploadSourceSchema>): Promise<CustomerSourceSummary>;
   deleteSource(identity: Identity, value: { organizationId: string; applicationId: string; sourceSnapshotId: string }): Promise<unknown>;
+  listContainerImages(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerContainerImageSummary[]>;
+  uploadContainerImage(identity: Identity, value: { organizationId: string; applicationId: string; label: string; authorized: true }, bytes: Uint8Array): Promise<CustomerContainerImageSummary>;
+  deleteContainerImage(identity: Identity, value: { organizationId: string; applicationId: string; imageId: string }): Promise<unknown>;
   listReports(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerReportSummary[]>;
   getReport(identity: Identity, value: { organizationId: string; applicationId: string; reportId: string }): Promise<CustomerAssessmentReport>;
+  recordReportDownload(identity: Identity, value: { organizationId: string; applicationId: string; reportId: string }): Promise<void>;
   queue(identity: Identity, value: z.infer<typeof customerQueueSchema>): Promise<{ jobId: string }>;
   job(identity: Identity, value: { organizationId: string; jobId: string }): Promise<unknown>;
 }
@@ -71,8 +101,12 @@ async function body(request: Request, max = 8_192): Promise<unknown> {
 export function createCustomerApi(options: {
   auth: AuthService; origin: string; services: CustomerServices | null;
   localAccounts?: LocalAccounts; registrationEnabled: boolean;
+  selfHostSetup?: boolean;
   providers: readonly { id: string; name: string; type: string }[];
+  githubAppFile?: string; githubAppSlug?: string;
 }) {
+  const handleGitHub = createGitHubApi({ origin: options.origin, ...(options.githubAppFile ? { appFile: options.githubAppFile } : {}), ...(options.githubAppSlug ? { appSlug: options.githubAppSlug } : {}),
+    services: options.services?.github ? { github: options.services.github, uploadSource: options.services.uploadSource, queue: options.services.queue } : null });
   return async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url);
@@ -82,21 +116,52 @@ export function createCustomerApi(options: {
         const identity = options.auth.enabled ? await options.auth.identity(request) : null;
         const headers = new Headers();
         for (const cookie of identity?.cookies ?? []) headers.append('set-cookie', cookie);
-        return json({ user: identity ? { id: identity.userId } : null, providers: options.providers,
+        return json({ user: identity ? { id: identity.userId, ...(identity.displayName ? { displayName: identity.displayName } : {}) } : null, providers: options.providers,
           localAuthEnabled: Boolean(options.localAccounts), registrationEnabled: options.registrationEnabled }, 200, headers);
+      }
+      if (url.pathname === '/api/customer/github/callback' || url.pathname === '/api/customer/github/connect'
+        || /^\/api\/customer\/workspaces\/[^/]+\/(?:applications\/[^/]+\/)?github(?:\/|$)/.test(url.pathname)) {
+        const githubSession = await options.auth.identity(request);
+        const githubIdentity = githubSession ? { userId: githubSession.userId } : null;
+        const response = await handleGitHub(request, githubIdentity, githubSession?.cookies ?? []);
+        if (response) return response;
       }
       if (request.method === 'POST' && url.pathname === '/api/customer/register') {
         if (!options.registrationEnabled || !options.localAccounts) throw new HttpError(403, 'registration_disabled', 'El registro local no está habilitado.');
         return json(await options.localAccounts.register(parse(localRegistrationSchema, await body(request))), 201);
       }
+      if (request.method === 'POST' && url.pathname === '/api/customer/setup') {
+        if (!options.selfHostSetup || !options.localAccounts) throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
+        return json(await options.localAccounts.bootstrap(await body(request, 16_384)), 201);
+      }
       const session = await options.auth.identity(request);
       if (!session) throw new HttpError(401, 'unauthenticated', 'Inicia sesión para acceder al espacio de trabajo.');
+      if (request.method === 'POST' && url.pathname === '/api/customer/workspaces' && options.selfHostSetup
+        && (!options.localAccounts || !await options.localAccounts.bootstrapComplete())) {
+        throw new HttpError(403, 'self_host_setup_required', 'Completa primero la configuración inicial de /setup para crear el primer Owner.');
+      }
       const identity = { userId: session.userId };
       const services = options.services;
       if (!services) throw new HttpError(503, 'database_not_configured', 'La base de datos del servicio no está configurada.');
       const headers = new Headers();
       for (const cookie of session.cookies) headers.append('set-cookie', cookie);
       const send = (value: unknown, status = 200) => json(value, status, headers);
+      const retentionParts=url.pathname.split('/').filter(Boolean);
+      if(retentionParts.length===5&&retentionParts[0]==='api'&&retentionParts[1]==='customer'&&retentionParts[2]==='workspaces'&&retentionParts[4]==='retention'){
+        if(!services.retention)throw new HttpError(503,'retention_not_configured','La retención no está configurada.');
+        const organizationId=parse(uuid,retentionParts[3]);
+        if(request.method==='GET')return send(workspaceRetentionPolicySchema.parse(await services.retention.getPolicy(identity,{organizationId})));
+        if(request.method==='PUT'){
+          const policy=parse(workspaceRetentionPolicyInputSchema,await body(request));
+          return send(workspaceRetentionPolicySchema.parse(await services.retention.updatePolicy(identity,{organizationId,...policy})));
+        }
+      }
+      const notificationParts=url.pathname.split('/').filter(Boolean);
+      if(notificationParts.length>=5&&notificationParts[0]==='api'&&notificationParts[1]==='customer'&&notificationParts[2]==='workspaces'&&notificationParts[4]==='notifications'){
+        if(!services.notifications)throw new HttpError(503,'notifications_not_configured','Las notificaciones no están configuradas.');
+        const response=await handleNotificationsApi(request,identity,services.notifications,options.origin);
+        if(response){for(const cookie of session.cookies)response.headers.append('set-cookie',cookie);return response;}
+      }
       const memberPath = url.pathname === '/api/customer/invitations/accept'
         || /^\/api\/customer\/workspaces\/[^/]+\/(members|invitations)(\/|$)/.test(url.pathname);
       if (memberPath) {
@@ -120,6 +185,15 @@ export function createCustomerApi(options: {
       }
       const pathParts = url.pathname.split('/').filter(Boolean);
       if (pathParts.length >= 7 && pathParts[0] === 'api' && pathParts[1] === 'customer'
+        && pathParts[2] === 'workspaces' && pathParts[4] === 'applications' && pathParts[6] === 'protection') {
+        if (!services.protection) throw new HttpError(503, 'protection_not_configured', 'La protección runtime no está configurada.');
+        const protectionResponse = await handleProtectionApi(request, identity, services.protection, pathParts);
+        if (protectionResponse) {
+          for (const cookie of session.cookies) protectionResponse.headers.append('set-cookie', cookie);
+          return protectionResponse;
+        }
+      }
+      if (pathParts.length >= 7 && pathParts[0] === 'api' && pathParts[1] === 'customer'
         && pathParts[2] === 'workspaces' && pathParts[4] === 'applications' && pathParts[6] === 'context') {
         if (!services.context) throw new HttpError(503, 'context_not_configured', 'El inventario de contexto no está configurado.');
         const contextResponse = await handleContextApi(request, identity, services.context, services.repositoryCatalog);
@@ -135,6 +209,15 @@ export function createCustomerApi(options: {
         if (actionResponse) {
           for (const cookie of session.cookies) actionResponse.headers.append('set-cookie', cookie);
           return actionResponse;
+        }
+      }
+      if (pathParts.length >= 7 && pathParts[0] === 'api' && pathParts[1] === 'customer'
+        && pathParts[2] === 'workspaces' && pathParts[4] === 'applications' && pathParts[6] === 'workflow-exceptions') {
+        if (!services.workflowExceptions) throw new HttpError(503, 'workflow_exceptions_not_configured', 'Las excepciones de workflows no están configuradas.');
+        const exceptionResponse = await handleWorkflowExceptionsApi(request, identity, services.workflowExceptions, pathParts);
+        if (exceptionResponse) {
+          for (const cookie of session.cookies) exceptionResponse.headers.append('set-cookie', cookie);
+          return exceptionResponse;
         }
       }
       if (url.pathname === '/api/customer/workspaces') {
@@ -155,6 +238,41 @@ export function createCustomerApi(options: {
       }
       if (parts[0] !== 'api' || parts[1] !== 'customer' || parts[2] !== 'workspaces') throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
       const organizationId = parse(uuid, parts[3]);
+      if (parts.length === 5 && parts[4] === 'investigation-model') {
+        const modelSettings = services.investigationModels;
+        if (!modelSettings) throw new HttpError(503, 'investigation_model_not_configured', 'La configuración del modelo no está disponible.');
+        if (request.method === 'GET') return send(investigationModelSettingsSchema.parse(await modelSettings.get(identity, { organizationId })));
+        if (request.method === 'PUT') {
+          const value = parse(configureInvestigationModelSchema.extend({ clearApiKey: z.boolean().optional() }).strict(), await body(request, 12_288));
+          return send(investigationModelSettingsSchema.parse(await modelSettings.configure(identity, { organizationId, ...value })));
+        }
+        if (request.method === 'DELETE') return send(investigationModelSettingsSchema.parse(await modelSettings.disable(identity, { organizationId })));
+      }
+      if (parts.length === 6 && parts[4] === 'investigation-model' && parts[5] === 'test' && request.method === 'POST') {
+        const modelSettings = services.investigationModels;
+        if (!modelSettings) throw new HttpError(503, 'investigation_model_not_configured', 'La configuración del modelo no está disponible.');
+        return send(investigationModelProbeResultSchema.parse(await modelSettings.testConnection(identity, { organizationId })));
+      }
+      if (parts.length === 5 && parts[4] === 'license-policy') {
+        if (request.method === 'GET') {
+          if (!services.getLicensePolicy) throw new HttpError(503, 'license_policy_not_configured', 'La política de licencias no está configurada.');
+          return send(workspaceLicensePolicySchema.parse(await services.getLicensePolicy(identity, { organizationId })));
+        }
+        if (request.method === 'PUT') {
+          if (!services.updateLicensePolicy) throw new HttpError(503, 'license_policy_not_configured', 'La política de licencias no está configurada.');
+          const value = parse(licensePolicySchema, await body(request));
+          return send(workspaceLicensePolicySchema.parse(await services.updateLicensePolicy(identity, { organizationId, policy: value })));
+        }
+      }
+      if (parts.length === 4 && request.method === 'PATCH') {
+        const value = parse(customerUpdateWorkspaceSchema.omit({ organizationId: true }), await body(request));
+        return send(customerWorkspaceSchema.parse(await services.updateWorkspace(identity, { organizationId, ...value })));
+      }
+      if (parts.length === 5 && parts[4] === 'decision-records' && request.method === 'GET') {
+        if (!services.decisionRecords) throw new HttpError(503, 'decision_records_not_configured', 'El historial de decisiones no está configurado.');
+        const query = parse(decisionRecordQuerySchema, Object.fromEntries(url.searchParams.entries()));
+        return send(decisionRecordPageSchema.parse(await services.decisionRecords.list(identity, { organizationId, ...query })));
+      }
       if (parts.length === 6 && parts[4] === 'jobs' && request.method === 'GET') {
         const value = jobSchema.parse(await services.job(identity, { organizationId, jobId: parse(uuid, parts[5]) }));
         return send(value);
@@ -172,6 +290,22 @@ export function createCustomerApi(options: {
         if (!services.triage) throw new HttpError(503,'triage_not_configured','La clasificación de incidentes no está configurada.');
         const response = await handleTriageApi(request,identity,services.triage,scope,parts);
         if (response !== null) return send(response);
+      }
+      if (parts[6] === 'investigations') {
+        const investigations = services.investigations;
+        if (!investigations) throw new HttpError(503, 'investigations_not_configured', 'Las investigaciones no están disponibles.');
+        if (parts.length === 7 && request.method === 'GET') return send(z.array(investigationRunSchema).max(50).parse(await investigations.list(identity, scope)));
+        if (parts.length === 7 && request.method === 'POST') {
+          const value = parse(z.object({ subject: investigationSubjectSchema }).strict(), await body(request));
+          return send(investigationActionSchema.parse(await investigations.request(identity, { ...scope, ...value })), 202);
+        }
+        if (parts.length === 9 && request.method === 'POST') {
+          parse(z.object({}).strict(), await body(request));
+          const action = parts[8];
+          if (action === 'cancel') return send(investigationActionSchema.parse(await investigations.cancel(identity, { ...scope, jobId: parse(uuid, parts[7]) })));
+          if (action === 'resume') return send(investigationActionSchema.parse(await investigations.resume(identity, { ...scope, jobId: parse(uuid, parts[7]) })));
+        }
+        throw new HttpError(404, 'not_found', 'Ruta de investigación no encontrada.');
       }
       if (['monitoring', 'alerts', 'plans', 'repositories'].includes(parts[6] ?? '')) {
         const operations = services.operations;
@@ -243,9 +377,30 @@ export function createCustomerApi(options: {
             return send(customerSourceSummarySchema.parse(await services.uploadSource(identity, { ...scope, ...value })), 201);
           }
         }
+        if (parts[6] === 'container-images') {
+          if (request.method === 'GET') return send(z.array(customerContainerImageSummarySchema).max(20).parse(await services.listContainerImages(identity, scope)));
+          if (request.method === 'POST') {
+            const mime = request.headers.get('content-type')?.split(';')[0]?.trim();
+            if (!['application/x-tar', 'application/octet-stream', 'application/vnd.oci.image.layout.v1.tar'].includes(mime ?? '')) {
+              throw new HttpError(415, 'content_type', 'Sube un archivo tar OCI o Docker con un tipo de contenido admitido.');
+            }
+            const metadata = parse(customerContainerImageUploadMetadataSchema, {
+              label: url.searchParams.get('label'), authorized: url.searchParams.get('authorized') === 'true' ? true : undefined,
+            });
+            const archive = await readBoundedBody(request, CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, 30_000);
+            return send(customerContainerImageSummarySchema.parse(await services.uploadContainerImage(identity, { ...scope, ...metadata }, archive)), 201);
+          }
+        }
         if (parts[6] === 'reports' && request.method === 'GET') return send(z.array(customerReportSummarySchema).max(50).parse(await services.listReports(identity, scope)));
         if (parts[6] === 'assessments' && request.method === 'POST') {
-          const value = parse(z.object({ mode: customerAssessmentReportSchema.shape.mode, sourceSnapshotId: uuid.nullable(), targetId: uuid.nullable() }).strict(), await body(request));
+          const value = parse(z.object({
+            mode: customerAssessmentReportSchema.shape.mode, sourceSnapshotId: uuid.nullable(), targetId: uuid.nullable(),
+            inputKind: z.enum(['source_snapshot', 'container_image']).optional(),
+            containerImage: z.discriminatedUnion('kind', [
+              z.object({ kind: z.literal('archive'), imageId: uuid }).strict(),
+              z.object({ kind: z.literal('registry'), reference: z.string().max(512) }).strict(),
+            ]).nullable().optional(),
+          }).strict(), await body(request));
           const input = parse(customerQueueSchema, { ...scope, ...value, idempotencyKey: request.headers.get('idempotency-key') });
           return send(z.object({ jobId: uuid }).strict().parse(await services.queue(identity, input)), 202);
         }
@@ -257,7 +412,22 @@ export function createCustomerApi(options: {
         return new Response(null, { status: 204, headers });
       }
       if (parts.length === 8 && parts[6] === 'reports' && request.method === 'GET') return send(customerAssessmentReportSchema.parse(await services.getReport(identity, { ...scope, reportId: parse(uuid, parts[7]) })));
-      if (parts.length === 9 && parts[6] === 'reports' && ['recommendations', 'corrections'].includes(parts[8] ?? '')) {
+      if (parts.length === 9 && parts[6] === 'reports' && parts[8] === 'sbom.cyclonedx.json' && request.method === 'GET') {
+        if (!services.exportSbom) throw new HttpError(503, 'sbom_not_configured', 'La exportación SBOM no está configurada.');
+        const reportId = parse(uuid, parts[7]);
+        const sbom = await services.exportSbom(identity, { ...scope, reportId });
+        headers.set('Cache-Control', 'private, no-store');
+        headers.set('Content-Type', 'application/vnd.cyclonedx+json');
+        headers.set('Content-Disposition', `attachment; filename="gotchu-${reportId}.cdx.json"`);
+        return new Response(JSON.stringify(sbom), { status: 200, headers });
+      }
+      if (parts.length === 9 && parts[6] === 'reports' && parts[8] === 'download' && request.method === 'POST') {
+        parse(z.object({}).strict(), await body(request));
+        await services.recordReportDownload(identity, { ...scope, reportId: parse(uuid, parts[7]) });
+        headers.set('Cache-Control', 'private, no-store');
+        return new Response(null, { status: 204, headers });
+      }
+      if (parts.length === 9 && parts[6] === 'reports' && ['recommendations', 'corrections', 'dependency-fixes'].includes(parts[8] ?? '')) {
         if (!services.corrections) throw new HttpError(503, 'corrections_not_configured', 'La preparación de correcciones no está configurada.');
         const reportScope = { ...scope, reportId: parse(uuid, parts[7]) };
         if (parts[8] === 'recommendations' && request.method === 'GET') return send(reportRecommendationsResponseSchema.parse(await services.corrections.recommendations(identity, reportScope)));
@@ -265,9 +435,19 @@ export function createCustomerApi(options: {
           const selection = parse(prepareCorrectionRequestSchema, await body(request));
           return send(prepareCorrectionResponseSchema.parse(await services.corrections.prepare(identity, { ...reportScope, ...selection })), 201);
         }
+        if (parts[8] === 'dependency-fixes' && request.method === 'POST') {
+          const selection = parse(dependencyFixPreparationRequestSchema, await body(request));
+          return send(dependencyFixPreparationResponseSchema.parse(await services.corrections.prepareDependencyFix(identity, { ...reportScope, ...selection })), 201);
+        }
       }
       if (parts.length === 8 && parts[6] === 'sources' && request.method === 'DELETE') {
         await services.deleteSource(identity, { ...scope, sourceSnapshotId: parse(uuid, parts[7]) });
+        headers.set('Cache-Control', 'private, no-store');
+        headers.set('X-Content-Type-Options', 'nosniff');
+        return new Response(null, { status: 204, headers });
+      }
+      if (parts.length === 8 && parts[6] === 'container-images' && request.method === 'DELETE') {
+        await services.deleteContainerImage(identity, { ...scope, imageId: parse(uuid, parts[7]) });
         headers.set('Cache-Control', 'private, no-store');
         headers.set('X-Content-Type-Options', 'nosniff');
         return new Response(null, { status: 204, headers });

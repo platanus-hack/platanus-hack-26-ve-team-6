@@ -10,6 +10,8 @@ import {
   type OperationPlan,
 } from '@gotchu/contracts';
 import { CustomerApiError } from './customer-client';
+import { DecisionRecordHistory } from './decision-record-history';
+import { InvestigationActionButton } from './investigations-panel';
 import { operationsApi, type MonitorSettings, type OperationsScope, type PlanKind, type PlanStepKey } from './operations-client';
 
 type Props = OperationsScope & {
@@ -22,7 +24,7 @@ type OperationReadiness = z.infer<typeof operationReadinessSchema>;
 
 const providerNames = { cloudflare: 'Cloudflare', railway: 'Railway' } as const;
 const statusNames: Record<OperationCoverage['status'], string> = {
-  not_configured: 'Sin configurar', pending: 'En proceso', active: 'Ejecución completada', degraded: 'Cobertura incompleta', stale: 'Evidencia atrasada',
+  not_configured: 'Sin configurar', pending: 'En proceso', active: 'Ejecución completada', degraded: 'Cobertura incompleta', stale: 'Evidencia atrasada', stopped: 'Vigilancia detenida',
 };
 const observationNames: Record<OperationAlert['observation']['kind'], string> = {
   repository_change: 'Cambio en el repositorio', dependency_advisory: 'Aviso de dependencia', public_surface: 'Superficie pública',
@@ -87,6 +89,7 @@ function suggestedPlan(alert: OperationAlert): PlanKind {
 }
 
 function coverageTone(coverage: OperationCoverage) {
+  if (coverage.status === 'stopped') return 'customer-ops-status-stopped';
   if (coverage.status === 'degraded' || coverage.status === 'stale' || !coverage.scopeCurrent) return 'customer-ops-status-warning';
   if (coverage.status === 'active' && coverage.observations.fresh > 0 && coverage.observations.stale === 0) return 'customer-ops-status-ready';
   return 'customer-ops-status-muted';
@@ -95,6 +98,7 @@ function coverageTone(coverage: OperationCoverage) {
 export function OperationsPanel({ userId, organizationId, applicationId, sources, targets, canManage }: Props) {
   const scope = { organizationId, applicationId };
   const keys = scopeKeys(userId, scope);
+  const decisionRecordKey = ['customer-data', userId, 'decision-records', organizationId] as const;
   const queryClient = useQueryClient();
   const coverage = useQuery({ queryKey: keys.coverage, queryFn: () => operationsApi.coverage(scope), retry: false, refetchInterval: 10_000 });
   const repositories = useQuery({ queryKey: keys.repositories, queryFn: () => operationsApi.repositories(scope), retry: false });
@@ -130,7 +134,10 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     onSuccess: async config => {
       setOperationError(null);
       setNotice(config.enabled ? 'La vigilancia quedó configurada.' : 'La vigilancia está desactivada y su alcance se limpió.');
-      await queryClient.invalidateQueries({ queryKey: keys.coverage });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: keys.coverage }),
+        queryClient.invalidateQueries({ queryKey: decisionRecordKey }),
+      ]);
     },
     onError: caught => {
       setOperationError(errorText(caught));
@@ -150,33 +157,40 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
   const updateAlert = useMutation({
     mutationFn: ({ alert, state, resolution }: { alert: OperationAlert; state: 'acknowledged' | 'resolved'; resolution?: string }) =>
       operationsApi.updateAlert(scope, alert.id, { state, ...(resolution === undefined ? {} : { resolution }) }),
-    onSuccess: updated => {
+    onSuccess: async updated => {
       setOperationError(null);
       setNotice(updated.state === 'resolved' ? 'La alerta se marcó como resuelta por el equipo.' : 'La alerta quedó marcada como revisada.');
       queryClient.setQueryData<OperationAlert[]>(keys.alerts, current => current?.map(alert => alert.id === updated.id ? updated : alert));
+      await queryClient.invalidateQueries({ queryKey: decisionRecordKey });
     },
     onError: caught => setOperationError(errorText(caught)),
   });
   const createPlan = useMutation({
     mutationFn: ({ alert, kind }: { alert: OperationAlert; kind: PlanKind }) => operationsApi.createPlan(scope, { kind, observationIds: [alert.observation.id] }),
-    onSuccess: plan => {
+    onSuccess: async plan => {
       setOperationError(null);
       setNotice(`Se creó la guía «${planNames[plan.kind]}».`);
       queryClient.setQueryData<OperationPlan[]>(keys.plans, current => current ? [plan, ...current] : [plan]);
+      await queryClient.invalidateQueries({ queryKey: decisionRecordKey });
     },
     onError: caught => setOperationError(errorText(caught)),
   });
   const preparePlan = useMutation({
     mutationFn: (plan: OperationPlan) => operationsApi.preparePlan(scope, plan),
-    onSuccess: plan => { updatePlanCache(plan); setNotice('Se solicitó la preparación de esta guía consultiva.'); },
+    onSuccess: async plan => {
+      updatePlanCache(plan);
+      setNotice('Se solicitó la preparación de esta guía consultiva.');
+      await queryClient.invalidateQueries({ queryKey: decisionRecordKey });
+    },
     onError: caught => { setOperationError(errorText(caught)); queryClient.invalidateQueries({ queryKey: keys.plans }).catch(() => undefined); },
   });
   const attestStep = useMutation({
     mutationFn: ({ plan, key, attestation }: { plan: OperationPlan; key: PlanStepKey; attestation: string }) => operationsApi.attestStep(scope, plan, key, attestation),
-    onSuccess: (plan, variables) => {
+    onSuccess: async (plan, variables) => {
       updatePlanCache(plan);
       setStepDrafts(current => { const next = { ...current }; delete next[`${plan.id}:${variables.key}`]; return next; });
       setNotice('La declaración se guardó como autoinformada; no es una verificación independiente.');
+      await queryClient.invalidateQueries({ queryKey: decisionRecordKey });
     },
     onError: caught => { setOperationError(errorText(caught)); queryClient.invalidateQueries({ queryKey: keys.plans }).catch(() => undefined); },
   });
@@ -218,6 +232,12 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     ...(repositories.data ?? []).map(repository => `repository:${repository.key}`),
   ];
   const currentConfig = coverage.data?.config;
+  const quotaMeters = coverage.data ? [
+    { key: 'runs', label: 'Ejecuciones de vigilancia', used: coverage.data.quotas.runs.used, limit: coverage.data.quotas.runs.limit },
+    { key: 'observations', label: 'Observaciones conservadas', used: coverage.data.quotas.observations.used, limit: coverage.data.quotas.observations.limit },
+    { key: 'daily', label: 'Nuevas observaciones · últimas 24 h', used: coverage.data.quotas.observations.lastDayUsed, limit: coverage.data.quotas.observations.lastDayLimit },
+    { key: 'plans', label: 'Planes operativos', used: coverage.data.quotas.plans.used, limit: coverage.data.quotas.plans.limit },
+  ] : [];
   const selectedBasisIsMissing = basis !== '' && !availableBasis.includes(basis);
   const targetIsCurrent = verifiedTargets.some(target => target.id === targetId);
   const basisSelected = (basis !== '' && !selectedBasisIsMissing) || targetIsCurrent || providers.length > 0;
@@ -233,7 +253,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
       <p className="customer-card-copy">Programa revisiones con fuentes fijas, el origen HTTPS verificado y estados de proveedor disponibles. Una revisión incompleta o atrasada se muestra como tal; una señal no confirma por sí sola un ataque ni una corrección.</p>
       <div className="customer-ops-facts">
         <p>El intervalo permitido es de 1 a 24 horas; el valor inicial es cada 6 horas. El límite compartido es de hasta 20 evaluaciones por espacio de trabajo al día.</p>
-        <p>La cobertura se limita a las fuentes que selecciones. No equivale a un inventario completo de la empresa. Las alertas aparecen aquí; esta versión no envía notificaciones externas.</p>
+        <p>La cobertura se limita a las fuentes que selecciones. No equivale a un inventario completo de la empresa. La retención puede eliminar historial antes del plazo configurado para respetar estas cuotas.</p>
       </div>
       {coverage.isPending ? <div className="customer-loading" role="status"><span className="customer-spinner" />Cargando el estado de vigilancia…</div>
         : coverage.error ? <div className="customer-inline-error" role="alert">{errorText(coverage.error)} <button className="customer-link-button" type="button" onClick={() => { coverage.refetch().catch(() => undefined); }}>Reintentar</button></div>
@@ -242,6 +262,12 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
               <div><span>Observaciones vigentes</span><strong>{coverage.data.observations.fresh}</strong></div>
               <div><span>Observaciones atrasadas</span><strong>{coverage.data.observations.stale}</strong></div>
               <div><span>Alcance actual</span><strong>{coverage.data.scopeCurrent ? 'Vigente' : 'Revisar'}</strong></div>
+            </div>
+            <div className="customer-ops-quotas" role="group" aria-label="Consumo de cuotas de vigilancia">
+              {quotaMeters.map(quota => <div className="customer-ops-quota" key={quota.key}>
+                <div><span>{quota.label}</span><strong>{quota.used.toLocaleString('es')} / {quota.limit.toLocaleString('es')}</strong></div>
+                <progress max={quota.limit} value={Math.min(quota.used, quota.limit)} aria-label={`${quota.label}: ${quota.used} de ${quota.limit}`} />
+              </div>)}
             </div>
             {coverage.data.lastRun && <div className="customer-ops-last-run"><strong>Última ejecución</strong><span>{coverage.data.lastRun.status === 'completed' ? 'Completada' : coverage.data.lastRun.status === 'running' ? 'En curso' : coverage.data.lastRun.status === 'degraded' ? 'Incompleta' : 'Cancelada'} · {formatDate(coverage.data.lastRun.startedAt)}</span>{coverage.data.lastRun.reason && <p>{coverage.data.lastRun.reason}</p>}</div>}
             {coverage.data.limitations.length > 0 && <details className="customer-ops-limitations"><summary>Límites de esta cobertura</summary><ul>{coverage.data.limitations.map(item => <li key={item}>{item}</li>)}</ul></details>}
@@ -286,7 +312,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
       {alerts.isPending ? <div className="customer-loading" role="status"><span className="customer-spinner" />Cargando alertas…</div>
         : alerts.error ? <div className="customer-inline-error" role="alert">{errorText(alerts.error)} <button className="customer-link-button" type="button" onClick={() => { alerts.refetch().catch(() => undefined); }}>Reintentar</button></div>
           : alerts.data?.length === 0 ? <div className="customer-empty-inline">Todavía no hay alertas para esta aplicación. La cobertura seleccionada aparecerá aquí cuando genere observaciones.</div>
-            : <div className="customer-ops-alert-list">{alerts.data?.map(alert => <AlertCard key={alert.id} alert={alert} canManage={canManage} busy={updateAlert.isPending || createPlan.isPending} resolution={resolutionDrafts[alert.id] ?? ''}
+            : <div className="customer-ops-alert-list">{alerts.data?.map(alert => <AlertCard key={alert.id} userId={userId} organizationId={organizationId} alert={alert} canManage={canManage} busy={updateAlert.isPending || createPlan.isPending} resolution={resolutionDrafts[alert.id] ?? ''}
               onResolutionChange={value => setResolutionDrafts(current => ({ ...current, [alert.id]: value }))}
               onAcknowledge={() => updateAlert.mutate({ alert, state: 'acknowledged' })}
               onResolve={() => updateAlert.mutate({ alert, state: 'resolved', resolution: resolutionDrafts[alert.id]?.trim() ?? '' })}
@@ -299,7 +325,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
       {plans.isPending ? <div className="customer-loading" role="status"><span className="customer-spinner" />Cargando guías…</div>
         : plans.error ? <div className="customer-inline-error" role="alert">{errorText(plans.error)} <button className="customer-link-button" type="button" onClick={() => { plans.refetch().catch(() => undefined); }}>Reintentar</button></div>
           : plans.data?.length === 0 ? <div className="customer-empty-inline">Las guías aparecerán a partir de observaciones. El tipo sugerido depende de evidencia real; volumen de tráfico por sí solo no recomienda balanceo.</div>
-            : <div className="customer-ops-plan-list">{plans.data?.map(plan => <PlanCard key={plan.id} plan={plan} readiness={readiness[plan.id] ?? null} canManage={canManage} busy={preparePlan.isPending || attestStep.isPending || checkReadiness.isPending}
+            : <div className="customer-ops-plan-list">{plans.data?.map(plan => <PlanCard key={plan.id} userId={userId} organizationId={organizationId} plan={plan} readiness={readiness[plan.id] ?? null} canManage={canManage} busy={preparePlan.isPending || attestStep.isPending || checkReadiness.isPending}
               stepDrafts={stepDrafts} onStepDraft={(key, value) => setStepDrafts(current => ({ ...current, [`${plan.id}:${key}`]: value }))}
               onPrepare={() => preparePlan.mutate(plan)}
               onAttest={(key, attestation) => attestStep.mutate({ plan, key, attestation })}
@@ -310,7 +336,9 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
   </div>;
 }
 
-function AlertCard({ alert, canManage, busy, resolution, onResolutionChange, onAcknowledge, onResolve, onCreatePlan }: {
+function AlertCard({ userId, organizationId, alert, canManage, busy, resolution, onResolutionChange, onAcknowledge, onResolve, onCreatePlan }: {
+  userId: string;
+  organizationId: string;
   alert: OperationAlert;
   canManage: boolean;
   busy: boolean;
@@ -338,6 +366,7 @@ function AlertCard({ alert, canManage, busy, resolution, onResolutionChange, onA
       <p>Verificación: observación confiable. Esta etiqueta valida la procedencia registrada, no una corrección ni un impacto explotado.</p>
     </details>
     {alert.resolution && <p className="customer-ops-resolution"><strong>Nota del equipo:</strong> {alert.resolution}</p>}
+    {alert.state !== 'resolved' && <InvestigationActionButton organizationId={organizationId} applicationId={observation.applicationId} subject={{ kind: 'alert', subjectId: alert.id }} canManage={canManage && observation.fresh && ['medium', 'high', 'critical'].includes(observation.severity)} />}
     {alert.state !== 'resolved' && <div className="customer-ops-alert-actions">
       {alert.state === 'open' && <button className="customer-button" type="button" disabled={!canManage || busy} onClick={onAcknowledge}>Marcar revisada</button>}
       <label htmlFor={`resolution-${alert.id}`}>Nota para resolver <span>(seguimiento del equipo, no corrección verificada)</span></label>
@@ -345,10 +374,13 @@ function AlertCard({ alert, canManage, busy, resolution, onResolutionChange, onA
       <button className="customer-button" type="button" disabled={!canManage || busy || !resolution.trim()} onClick={onResolve}>Resolver alerta</button>
       <button className="customer-button customer-button-primary" type="button" disabled={!canManage || busy || !canCreatePlan} title={!canCreatePlan ? 'Actualiza la evidencia antes de crear una guía.' : undefined} onClick={() => onCreatePlan(planKind)}>{planLabel}</button>
     </div>}
+    <DecisionRecordHistory userId={userId} organizationId={organizationId} filter={{ subjectType: 'alert', subjectId: alert.id }} compact />
   </article>;
 }
 
-function PlanCard({ plan, readiness, canManage, busy, stepDrafts, onStepDraft, onPrepare, onAttest, onReadiness }: {
+function PlanCard({ userId, organizationId, plan, readiness, canManage, busy, stepDrafts, onStepDraft, onPrepare, onAttest, onReadiness }: {
+  userId: string;
+  organizationId: string;
   plan: OperationPlan;
   readiness: OperationReadiness | null;
   canManage: boolean;
@@ -384,6 +416,7 @@ function PlanCard({ plan, readiness, canManage, busy, stepDrafts, onStepDraft, o
       <p id={`execute-reason-${plan.id}`}>La ejecución está desactivada: no se desplegarán servicios ni se modificarán proveedores desde aquí.</p>
     </div>
     {currentReadiness && <div className="customer-ops-readiness" role="status"><strong>Lista para ejecutar: no</strong><p>La ejecución permanece desactivada. Aún se requieren:</p><ul>{currentReadiness.requirements.map(item => <li key={item}>{item}</li>)}</ul></div>}
+    <DecisionRecordHistory userId={userId} organizationId={organizationId} filter={{ subjectType: 'plan', subjectId: plan.id }} compact />
   </article>;
 }
 

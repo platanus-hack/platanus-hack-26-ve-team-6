@@ -164,7 +164,7 @@ describe('Helmet CSP Semgrep candidate gate', () => {
         return {
           image: 'semgrep/semgrep@sha256:fixture', version: '1.90.0', profileChecksum: '0'.repeat(64),
           output: { version: '1.90.0', errors: [], paths: { scanned: ['/source/app.ts'] }, results: [
-            { check_id: 'gotchu.javascript.helmet-csp-disabled', path: '/source/app.ts', start: { line: 2, col: 1, offset } },
+            { check_id: 'gotchu.javascript.helmet-csp-disabled', path: '/source/app.ts', start: { line: 2, col: 1, offset }, extra: { severity: 'WARNING' } },
           ] },
         };
       },

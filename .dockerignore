@@ -28,5 +28,6 @@ infra/.env*
 **/local-state
 .t3
 .local
+.gotchu
 infra/state
 infra/local-state

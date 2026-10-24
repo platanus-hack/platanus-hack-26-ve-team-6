@@ -1,0 +1,6 @@
+__metadata:
+  version: 6
+
+"is-number@npm:^7.0.0":
+  version: 7.0.0
+  resolution: "is-number@npm:7.0.0"

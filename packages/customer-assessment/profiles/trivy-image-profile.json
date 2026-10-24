@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "scanner": "Trivy",
+  "scannerVersion": "0.67.2",
+  "scanners": ["vuln"],
+  "inputModes": ["docker-save-or-oci-archive", "public-registry-digest"],
+  "networkDuringScan": "none",
+  "database": {
+    "repository": "ghcr.io/aquasecurity/trivy-db",
+    "artifactTag": "2",
+    "maximumAgeDays": 14,
+    "updatedOutsideScan": true,
+    "javaIndexDatabase": "not-downloaded"
+  }
+}

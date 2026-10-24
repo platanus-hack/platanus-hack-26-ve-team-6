@@ -23,6 +23,7 @@ export {
   type ProviderStatusReaderOptions,
 } from './status.js';
 export { createAuthorizedHttpsHealthAdapter, type AuthorizedHttpsHealthOptions, type AuthorizedHttpsHealthObservation } from './https-health.js';
+export { createPublicHttpsDestinationResolver, type PublicHttpsAddress, type PublicHttpsLookup } from './public-https-destination.js';
 export {
   MONITORING_ADAPTER_VERSION,
   type DependencyAdvisory,

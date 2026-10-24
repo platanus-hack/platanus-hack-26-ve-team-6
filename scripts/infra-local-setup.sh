@@ -2,10 +2,11 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-env_file="${repo_root}/infra/.env"
+env_file="${GOTCHU_ENV_FILE:-${repo_root}/infra/.env}"
+env_directory="$(dirname "$env_file")"
 
 if [[ -e "$env_file" ]]; then
-  printf '%s\n' 'Local infrastructure credentials already exist at infra/.env; refusing to overwrite them.' >&2
+  printf 'Local infrastructure credentials already exist at %s; refusing to overwrite them.\n' "$env_file" >&2
   exit 1
 fi
 if ! command -v openssl >/dev/null 2>&1; then
@@ -14,19 +15,25 @@ if ! command -v openssl >/dev/null 2>&1; then
 fi
 
 umask 077
-tmp_file="$(mktemp "${repo_root}/infra/.env.XXXXXX")"
+tmp_file="$(mktemp "${env_directory}/.env.XXXXXX")"
 trap 'rm -f "$tmp_file"' EXIT
 
 {
   printf 'POSTGRES_DB=gotchu\n'
   printf 'POSTGRES_USER=gotchu_bootstrap\n'
   printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 32)"
-  printf 'POSTGRES_HOST_PORT=55432\n'
+  printf 'POSTGRES_HOST_PORT=%s\n' "${GOTCHU_POSTGRES_PORT:-55432}"
   printf 'REDIS_PASSWORD=%s\n' "$(openssl rand -hex 32)"
-  printf 'REDIS_HOST_PORT=56379\n'
-  printf 'WEB_HOST_PORT=3000\n'
-  printf 'COORDINATOR_HOST_PORT=3003\n'
-  printf 'PUBLIC_APP_URL=http://localhost:3000\n'
+  printf 'REDIS_HOST_PORT=%s\n' "${GOTCHU_REDIS_PORT:-56379}"
+  printf 'WEB_HOST_PORT=%s\n' "${GOTCHU_WEB_PORT:-3000}"
+  printf 'COORDINATOR_HOST_PORT=%s\n' "${GOTCHU_COORDINATOR_PORT:-3003}"
+  printf 'SCANNER_HOST_PORT=%s\n' "${GOTCHU_SCANNER_PORT:-4400}"
+  printf 'EXECUTOR_HOST_PORT=%s\n' "${GOTCHU_EXECUTOR_PORT:-3004}"
+  printf 'PUBLIC_APP_URL=%s\n' "${GOTCHU_PUBLIC_URL:-http://localhost:${GOTCHU_WEB_PORT:-3000}}"
+  printf 'GOTCHU_AUTH_MODE=%s\n' "${GOTCHU_AUTH_MODE:-development}"
+  printf 'GOTCHU_CUSTOMER_DISCOVERY=%s\n' "${GOTCHU_CUSTOMER_DISCOVERY:-false}"
+  printf 'GOTCHU_CONTAINER_UID=%s\n' "$(id -u)"
+  printf 'GOTCHU_CONTAINER_GID=%s\n' "$(id -g)"
   printf 'AUTH_SECRET=%s\n' "$(openssl rand -hex 32)"
   printf 'GOTCHU_EVENT_SIGNING_KEYS_JSON=\n'
   printf 'GOTCHU_API_DB_USERNAME=gotchu_api_login\n'
@@ -40,10 +47,13 @@ trap 'rm -f "$tmp_file"' EXIT
   printf 'GOTCHU_RUN_CAPABILITY_PUBLIC_KEY=\n'
   printf 'GOTCHU_EXECUTOR_DB_USERNAME=gotchu_executor_login\n'
   printf 'GOTCHU_EXECUTOR_DB_PASSWORD=%s\n' "$(openssl rand -hex 32)"
+  printf 'GOTCHU_EXECUTOR_ENABLED=false\n'
+  printf 'GOTCHU_EXECUTOR_INTERNAL_URL=http://127.0.0.1:%s\n' "${GOTCHU_EXECUTOR_PORT:-3004}"
+  printf 'GOTCHU_EXECUTOR_INTERNAL_TOKEN=%s\n' "$(openssl rand -hex 32)"
+  printf 'GOTCHU_GITHUB_WRITER_INSTALLATION_ID=\n'
 } > "$tmp_file"
 
 chmod 600 "$tmp_file"
 mv "$tmp_file" "$env_file"
 trap - EXIT
-printf '%s\n' 'Generated local credentials in infra/.env (permissions 0600). Values were not printed.'
-printf '%s\n' 'Local service ports: PostgreSQL 127.0.0.1:55432, Redis 127.0.0.1:56379, web profile 127.0.0.1:3000, coordinator profile 127.0.0.1:3003.'
+printf 'Local credentials are private in %s (permissions 0600). Values were not printed.\n' "$env_file"

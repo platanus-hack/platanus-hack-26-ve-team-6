@@ -1,15 +1,18 @@
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 // PostgreSQL 17.11 and Redis 7.4.11 are pinned to OCI manifest digests for repeatable live tests.
 const postgresImage = 'postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb';
 const redisImage = 'redis:7.4.11-alpine@sha256:57e4255cc971b1c8d6f8a6ca283ac01bc3ecdd914273ef6bfaede87aaecd6541';
+const mailpitImage = 'axllent/mailpit@sha256:6abc8e633df15eaf785cfcf38bae48e66f64beecdc03121e249d0f9ec15f0707';
 const suffix = randomBytes(6).toString('hex');
 const postgres = `gotchu-assessment-pg-${suffix}`;
 const redis = `gotchu-assessment-redis-${suffix}`;
+const mailpit = `gotchu-assessment-mailpit-${suffix}`;
 const pgPassword = randomBytes(32).toString('hex');
 const redisPassword = randomBytes(32).toString('hex');
 const started = [];
@@ -25,6 +28,8 @@ try {
   started.push(postgres);
   command('docker', ['run', '--detach', '--rm', '--name', redis, '--memory', '256m', '--cpus', '0.5', '-p', '127.0.0.1::6379', '-e', 'REDIS_PASSWORD', redisImage, 'sh', '-ec', 'exec redis-server --appendonly no --requirepass "$REDIS_PASSWORD"'], { ...process.env, REDIS_PASSWORD: redisPassword });
   started.push(redis);
+  command('docker', ['run', '--detach', '--rm', '--name', mailpit, '--memory', '256m', '--cpus', '0.5', '-p', '127.0.0.1::1025', '-p', '127.0.0.1::8025', mailpitImage]);
+  started.push(mailpit);
   let ready = false;
   for (let attempt = 0; attempt < 60; attempt++) {
     const pgReady = spawnSync('docker', ['exec', postgres, 'pg_isready', '-U', 'postgres'], { stdio: 'ignore' }).status === 0;
@@ -35,12 +40,18 @@ try {
   if (!ready) throw new Error('Isolated assessment test services did not become ready');
   const pgPort = command('docker', ['port', postgres, '5432/tcp']).split(':').at(-1);
   const redisPort = command('docker', ['port', redis, '6379/tcp']).split(':').at(-1);
-  if (!pgPort || !redisPort || !/^\d+$/.test(pgPort) || !/^\d+$/.test(redisPort)) throw new Error('Invalid Docker loopback mapping');
-  console.log(`Live assessment persistence/delivery checks: Postgres 127.0.0.1:${pgPort}, Redis 127.0.0.1:${redisPort}; synthetic runner evidence.`);
-  const result = spawnSync('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/coordinator', 'test', '--', '--fileParallelism=false'], {
+  const smtpPort = command('docker', ['port', mailpit, '1025/tcp']).split(':').at(-1);
+  const mailpitPort = command('docker', ['port', mailpit, '8025/tcp']).split(':').at(-1);
+  if (!pgPort || !redisPort || !smtpPort || !mailpitPort || !/^\d+$/.test(pgPort) || !/^\d+$/.test(redisPort) || !/^\d+$/.test(smtpPort) || !/^\d+$/.test(mailpitPort)) throw new Error('Invalid Docker loopback mapping');
+  console.log(`Live assessment checks: Postgres 127.0.0.1:${pgPort}, Redis 127.0.0.1:${redisPort}, Mailpit SMTP 127.0.0.1:${smtpPort}; test runner path.`);
+  const testFile = process.env.GOTCHU_TEST_FILE;
+  const result = spawnSync('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/coordinator', 'exec', 'vitest', 'run', ...(testFile ? [testFile] : []), '--fileParallelism=false'], {
     cwd: root, stdio: 'inherit', env: { ...process.env,
       GOTCHU_TEST_DATABASE_URL: `postgres://postgres:${pgPassword}@127.0.0.1:${pgPort}/gotchu_test_assessments`,
       GOTCHU_TEST_REDIS_URL: `redis://:${redisPassword}@127.0.0.1:${redisPort}/0`,
+      GOTCHU_SCANNER_TRIVY_DB_DIRECTORY: join(root, '.local/dev/trivy-db'),
+      GOTCHU_TEST_SMTP_URL: `smtp://127.0.0.1:${smtpPort}`,
+      GOTCHU_TEST_MAILPIT_API: `http://127.0.0.1:${mailpitPort}`,
     },
   });
   process.exitCode = result.status ?? 1;

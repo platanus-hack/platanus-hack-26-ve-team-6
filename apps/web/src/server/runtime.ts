@@ -1,6 +1,8 @@
-import { createActionVerifier, createBackend, type Backend, type CredentialStore } from '@gotchu/backend';
+import { createActionVerifier, createBackend, createModelEndpointValidator, createValidationService, issueModelProbeToken, readPinnedRootfsDigest, actionPolicyVersion, BackendError, type Backend, type CredentialStore, type ModelProbeClient, createFileModelSecretStore, createFileNotificationSecretStore } from '@gotchu/backend';
 import { createDatabase } from '@gotchu/database';
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { createGitHubAppAdapter } from '@gotchu/git-adapters';
 import { createApi, type ApiOperation } from './api.js';
 import { authSettings, createAuthService, publicAuthProviders, type AuthService } from './auth.js';
 import { HttpError } from './http.js';
@@ -9,8 +11,65 @@ import { createLocalAccounts } from './local-accounts.js';
 import { createCustomerApi } from './customer-api.js';
 import { createCustomerDnsVerifier } from './customer-dns.js';
 import { createFileEventCredentials } from './event-credentials.js';
+import { createNotificationWebhookValidator } from './notification-dns.js';
+import { resolve } from 'node:path';
 import { createGitHubRepositoryReader, createLocalGitRepositoryReader, loadMonitoringRepositoryCatalog } from '@gotchu/monitoring';
 import { isIP } from 'node:net';
+import { investigationModelProbeResultSchema } from '@gotchu/contracts';
+
+function gatewayModelProbeClient(env: NodeJS.ProcessEnv): ModelProbeClient | undefined {
+  const gatewayUrl = env.GOTCHU_GATEWAY_URL;
+  const encodedSecret = env.GOTCHU_GATEWAY_MODEL_PROBE_SECRET;
+  if (!gatewayUrl || !encodedSecret) return undefined;
+  const endpoint = new URL(gatewayUrl);
+  if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== '/' ||
+    (endpoint.protocol !== 'https:' && !(env.NODE_ENV !== 'production' && ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)))) {
+    throw new Error('GOTCHU_GATEWAY_URL must be an HTTPS origin (loopback HTTP is allowed in development)');
+  }
+  const secret = Buffer.from(z.string().regex(/^[A-Za-z0-9_-]+$/).parse(encodedSecret), 'base64url');
+  if (secret.byteLength < 32 || secret.toString('base64url') !== encodedSecret) throw new Error('GOTCHU_GATEWAY_MODEL_PROBE_SECRET must be at least 32 bytes encoded as unpadded base64url');
+  const probeUrl = new URL('/internal/v1/model-probes', endpoint);
+  return {
+    async probe(input) {
+      const issuedAt = Math.floor(Date.now() / 1_000);
+      const token = issueModelProbeToken(secret, { version: 1, organizationId: input.organizationId,
+        requestId: input.requestId, issuedAt, expiresAt: issuedAt + 30 });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 35_000);
+      try {
+        const response = await fetch(probeUrl, {
+          method: 'POST', signal: controller.signal, redirect: 'error',
+          headers: { authorization: `GatewayProbe ${token}`, 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify(input), cache: 'no-store',
+        });
+        if (!response.ok || response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
+          await response.body?.cancel();
+          throw new Error('model_probe_gateway_unavailable');
+        }
+        const length = response.headers.get('content-length');
+        if (length && Number(length) > 4_096) { await response.body?.cancel(); throw new Error('model_probe_response_invalid'); }
+        if (!response.body) throw new Error('model_probe_response_invalid');
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let size = 0;
+        try {
+          while (true) {
+            const part = await reader.read();
+            if (part.done) break;
+            size += part.value.byteLength;
+            if (size > 4_096) { await reader.cancel(); throw new Error('model_probe_response_invalid'); }
+            chunks.push(part.value);
+          }
+        } finally { reader.releaseLock(); }
+        const bytes = new Uint8Array(size);
+        let offset = 0;
+        for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+        const raw: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+        return investigationModelProbeResultSchema.parse(raw);
+      } finally { clearTimeout(timeout); }
+    },
+  };
+}
 
 function credentialStore(value: string | undefined): CredentialStore | undefined {
   if (!value) return undefined;
@@ -25,6 +84,61 @@ function credentialStore(value: string | undefined): CredentialStore | undefined
     if (!key) throw new HttpError(503, 'credential_unavailable', 'Integration signing credential is unavailable');
     return key;
   } };
+}
+
+function githubReaderApp(env: NodeJS.ProcessEnv) {
+  const path = env.GOTCHU_GITHUB_READER_APP_CREDENTIALS_FILE;
+  if (!path) return null;
+  const raw: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  const parsed = z.object({
+    id: z.union([z.string(), z.number()]).optional(),
+    appId: z.union([z.string(), z.number()]).optional(),
+    app_id: z.union([z.string(), z.number()]).optional(),
+    installationId: z.union([z.string(), z.number()]).optional(),
+    installation_id: z.union([z.string(), z.number()]).optional(),
+    privateKeyPem: z.string().optional(),
+    privateKey: z.string().optional(),
+    private_key: z.string().optional(),
+  }).passthrough().parse(raw);
+  const appId = String(parsed.id ?? parsed.appId ?? parsed.app_id ?? '');
+  const installationId = String(parsed.installationId ?? parsed.installation_id ?? env.GOTCHU_GITHUB_READER_INSTALLATION_ID ?? '');
+  const privateKeyPem = parsed.privateKeyPem ?? parsed.privateKey ?? parsed.private_key;
+  if (!appId || !installationId || !privateKeyPem) throw new Error('github_reader_app_configuration_invalid');
+  return { appId, installationId, privateKeyPem };
+}
+
+function repositoryWriteAccessVerifier(env: NodeJS.ProcessEnv) {
+  const internalUrl = env.GOTCHU_EXECUTOR_INTERNAL_URL;
+  const token = env.GOTCHU_EXECUTOR_INTERNAL_TOKEN;
+  if (!internalUrl && !token) return undefined;
+  if (!internalUrl || !token || !/^[a-f0-9]{64}$/.test(token)) throw new Error('executor_internal_authentication_invalid');
+  const endpoint = new URL('/internal/repositories/verify-write-access', internalUrl);
+  if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+    throw new Error('executor_internal_url_invalid');
+  }
+  const responseSchema = z.object({ installationId:z.string().regex(/^[0-9]{1,20}$/),baseCommit:z.string().regex(/^[a-f0-9]{40,64}$/) }).strict();
+  return async (input: { organizationId:string; applicationId:string; repositoryLinkId:string; repositoryKey:string; branch:string }) => {
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method:'POST',headers:{ authorization:`Bearer ${token}`,'content-type':'application/json' },
+        body:JSON.stringify(input),signal:AbortSignal.timeout(10_000),redirect:'error',
+      });
+    } catch (cause) {
+      throw new BackendError('repository_writer_unavailable','The independent Writer App could not verify repository access',503,{cause});
+    }
+    if (!response.ok) throw new BackendError('repository_writer_unavailable','The independent Writer App could not verify repository access',503);
+    const payload: unknown = await response.json();
+    return responseSchema.parse(payload);
+  };
+}
+
+async function githubReaderAdapter(env: NodeJS.ProcessEnv, credentials: ReturnType<typeof githubReaderApp>, scope: { organizationId:string; applicationId:string; repositoryKey:string }) {
+  if (!credentials || !env.GOTCHU_MONITORING_CONFIG_FILE) throw new Error('repository_reader_unavailable');
+  const catalog = await loadMonitoringRepositoryCatalog(env.GOTCHU_MONITORING_CONFIG_FILE);
+  const entry = catalog.resolve(scope, scope.repositoryKey);
+  if (entry.provider !== 'github') throw new Error('repository_provider_mismatch');
+  return createGitHubAppAdapter({ appId: credentials.appId, installationId: credentials.installationId, privateKeyPem: credentials.privateKeyPem, owner: entry.owner, repository: entry.repository });
 }
 
 function execute(backend: Backend, identity: { userId: string }, operation: ApiOperation) {
@@ -45,6 +159,10 @@ export function createBackendApi(options: { auth: AuthService; origin: string; w
     ingest: async (input) => {
       if (!options.intake) throw new HttpError(503, 'database_not_configured', 'Event ingestion is unavailable');
       return options.intake.events.ingest(input);
+    },
+    signedPolicy: async (input) => {
+      if (!options.intake) throw new HttpError(503, 'database_not_configured', 'Runtime protection policy is unavailable');
+      return options.intake.protection.signedPolicy(input);
     },
     execute: async (identity, operation) => {
       if (!options.web) throw new HttpError(503, 'database_not_configured', 'Customer data access is unavailable');
@@ -72,16 +190,27 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const webAuthn = resolveWebAuthnConfiguration(configuredOrigin, env.GOTCHU_WEBAUTHN_RP_ID);
   const apiDatabase = env.GOTCHU_API_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_API_DATABASE_URL, role: 'gotchu_api', max: 5 }) : null;
   const ingestDatabase = env.GOTCHU_INGEST_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_INGEST_DATABASE_URL, role: 'gotchu_ingest', max: 5 }) : null;
-  const accounts = apiDatabase && env.GOTCHU_LOCAL_AUTH_ENABLED === 'true' ? createLocalAccounts(apiDatabase) : undefined;
+  const selfHostMode = env.GOTCHU_AUTH_MODE === 'self_host';
+  const accounts = apiDatabase && (selfHostMode || env.GOTCHU_LOCAL_AUTH_ENABLED === 'true') ? createLocalAccounts(apiDatabase) : undefined;
   const dnsServers = env.GOTCHU_DNS_SERVERS_JSON ? z.array(z.string().min(1).max(100)).max(5).parse(JSON.parse(env.GOTCHU_DNS_SERVERS_JSON)) : [];
   const eventCredentials = env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY ? createFileEventCredentials(env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY) : undefined;
-  const actionVerifier = apiDatabase ? createActionVerifier({ database: apiDatabase, repository: {
+  const readerApp = githubReaderApp(env);
+  const verifyRepositoryWriteAccess = repositoryWriteAccessVerifier(env);
+  const notificationSecretDirectory=env.GOTCHU_NOTIFICATION_SECRET_DIRECTORY??(env.NODE_ENV==='production'?undefined:resolve('.local/dev/notification-secrets'));
+  const notificationSecrets=notificationSecretDirectory?createFileNotificationSecretStore(notificationSecretDirectory):undefined;
+  const modelSecretDirectory=env.GOTCHU_MODEL_SECRET_DIRECTORY??(env.NODE_ENV==='production'?undefined:resolve('.local/dev/model-secrets'));
+  const modelSecrets=modelSecretDirectory?createFileModelSecretStore(modelSecretDirectory):undefined;
+  const modelProbeClient = gatewayModelProbeClient(env);
+  const validationService = apiDatabase ? createValidationService({ database: apiDatabase }) : undefined;
+  const actionVerifier = apiDatabase ? createActionVerifier({ database: apiDatabase, pinnedRootfsDigest: readPinnedRootfsDigest(), repository: {
+    ...(env.GOTCHU_GITHUB_WRITER_INSTALLATION_ID ? { writerInstallationId:env.GOTCHU_GITHUB_WRITER_INSTALLATION_ID } : {}),
     async readHead(scope) {
       if (!env.GOTCHU_MONITORING_CONFIG_FILE) throw new Error('repository_reader_unavailable');
       const catalog = await loadMonitoringRepositoryCatalog(env.GOTCHU_MONITORING_CONFIG_FILE);
       const entry = catalog.resolve(scope, scope.repositoryKey);
       if (entry.provider === 'github') {
         if (entry.ref && entry.ref !== scope.branch) throw new Error('repository_branch_mismatch');
+        if (readerApp) return await (await githubReaderAdapter(env, readerApp, { ...scope, repositoryKey: scope.repositoryKey })).readHead(scope.branch);
         const reader = createGitHubRepositoryReader(catalog);
         return (await reader.read({ ...scope, previousRevision: null })).commit.sha;
       }
@@ -89,13 +218,26 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
       const reader = createLocalGitRepositoryReader(catalog);
       return (await reader.read({ ...scope, previousRevision: null })).commit.sha;
     },
-    // The product policy registry is not wired yet; action eligibility stays closed.
-    async isPolicyCurrent() { return false; },
-    // Until the reader can inspect workflow contents at the pinned commit, automation is unknown.
-    async isAutomationSafe() { return false; },
-  // D05 integration binds getFacts to backend.validations.getValidationFacts(actionRef).
-  }, validationFacts: { getFacts: async () => null } }) : undefined;
-  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), customerDnsVerifier: createCustomerDnsVerifier(dnsServers), ...(actionVerifier ? { actionVerifier } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+    async readTree(scope) {
+      const adapter = await githubReaderAdapter(env, readerApp, { ...scope, repositoryKey: scope.repositoryKey });
+      return adapter.readTree(scope.commitSha);
+    },
+    async isPolicyCurrent(input) {
+      const codeVersion = actionPolicyVersion(input.capabilityId);
+      if (!codeVersion || codeVersion !== input.policyVersion) return false;
+      const result = await apiDatabase.tenant(input.organizationId, tx => tx.query<{ active_version: string }>(
+        'SELECT active_version FROM gotchu.action_policy_registry WHERE capability_id=$1', [input.capabilityId],
+      ));
+      return result.rows[0]?.active_version === codeVersion;
+    },
+    async inspectAutomation(scope) {
+      const adapter = await githubReaderAdapter(env, readerApp, { ...scope, repositoryKey: scope.repositoryKey });
+      return adapter.inspectAutomation(scope.baseCommit);
+    },
+  }, validationFacts: {
+    getFacts: input => validationService?.getValidationFacts(input) ?? Promise.resolve(null),
+  } }) : undefined;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), customerDnsVerifier: createCustomerDnsVerifier(dnsServers), webhookValidator: createNotificationWebhookValidator(dnsServers), modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true' }), ...(notificationSecrets ? { notificationSecrets } : {}), ...(modelSecrets ? { modelSecrets } : {}), ...(modelProbeClient ? { modelProbeClient } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(verifyRepositoryWriteAccess ? { repositoryWriteAccessVerifier: verifyRepositoryWriteAccess } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
   const stepUp = web?.stepUp;
   const settings = authSettings(env, accounts, stepUp ? userId => stepUp.invalidateSession(userId) : undefined);
   const auth = createAuthService(settings);
@@ -108,9 +250,13 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
-  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, operations: web.operations, corrections: web.corrections, context: web.context, triage: web.triage,
+  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, protection: web.protection, operations: web.operations, decisionRecords: web.decisionRecords, corrections: web.corrections, context: web.context, triage: web.triage, investigationModels: web.investigationModels, investigations: web.investigations,
     members: web.members,
+    github: web.github,
+    notifications: web.notifications,
+    retention: web.retention,
     actions: web.actions,
+    workflowExceptions: web.workflowExceptions,
     validations: web.validations,
     repositoryCatalog: async (identity, scope) => {
       await web.operations.getConfig(identity, scope);
@@ -120,8 +266,11 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
     },
     job: (identity, value) => web.web.getJob(identity, value) } : null,
     ...(accounts ? { localAccounts: accounts } : {}),
-    registrationEnabled: Boolean(accounts) && auth.enabled && env.NODE_ENV === 'development' && env.GOTCHU_ALLOW_LOCAL_REGISTRATION === 'true',
+    registrationEnabled: !selfHostMode && Boolean(accounts) && auth.enabled && env.NODE_ENV === 'development' && env.GOTCHU_ALLOW_LOCAL_REGISTRATION === 'true',
+    selfHostSetup: selfHostMode,
     providers: publicAuthProviders(settings),
+    ...(env.GOTCHU_GITHUB_READER_APP_FILE ? { githubAppFile: env.GOTCHU_GITHUB_READER_APP_FILE } : {}),
+    ...(env.GOTCHU_GITHUB_APP_SLUG ? { githubAppSlug: env.GOTCHU_GITHUB_APP_SLUG } : {}),
   });
   return {
     handle,
@@ -138,7 +287,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
       return {
         ready,
         dependencies: { apiDatabase: apiDatabaseReady, intakeDatabase: intakeDatabaseReady, signIn: auth.enabled },
-        capabilities: { eventSigningKeys: Boolean(credentials), freshSecondFactorApproval: Boolean(web?.stepUp), githubWrites: false, customerCodeExecution: false, deployedAwsCoverage: false },
+        capabilities: { eventSigningKeys: Boolean(credentials), notificationWebhookSecrets:Boolean(notificationSecrets), modelCredentialStore: Boolean(modelSecrets), freshSecondFactorApproval: Boolean(web?.stepUp), githubWrites: false, customerCodeExecution: false, deployedAwsCoverage: false },
       };
     },
     async close() { await Promise.all([apiDatabase?.close(), ingestDatabase?.close()]); },

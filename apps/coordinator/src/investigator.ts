@@ -36,7 +36,8 @@ export async function createHttpInvestigator(options: { workerUrl: string; priva
         iss: 'gotchu-run-capability-issuer', aud: 'gotchu-investigation-worker', sub: input.runId,
         jti: randomUUID(), iat: now, exp: expires, organizationId: input.organizationId,
         applicationId: input.applicationId, runId: input.runId,
-        allowedReadTools: ['evidence.read', 'auth.events.read'], evidenceIds: input.evidenceIds,
+        allowedReadTools: ['evidence.read', 'auth.events.read', 'application.context.read', 'finding.details.read',
+          'source.excerpt.read', 'assessment.diff.read', 'validation.results.read', 'triage.results.read'], evidenceIds: input.evidenceIds,
       });
       const capability = await new SignJWT(claims).setProtectedHeader({ alg: 'EdDSA', typ: 'JWT' }).sign(privateKey);
       const response = await fetch(new URL('/v1/investigations', url), {

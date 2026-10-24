@@ -5,11 +5,12 @@ import { createBackend, enqueue, type JobClaim } from '@gotchu/backend';
 import type { AssessmentReport } from '@gotchu/contracts';
 import { fixture, liveUrl, present } from '../../../packages/database/test/support.js';
 import { assessmentReportFixture } from '../../../packages/backend/test/assessment-fixtures.js';
+import { createCustomerAssessmentRunner, createDockerScanners } from '@gotchu/customer-assessment';
 import { createCoordinatorTransport, dispatchOutbox, processDurableJob, reconcileDurableDeliveries, type AssessmentRunner } from '../src/index.js';
 
 const redisUrl = process.env.GOTCHU_TEST_REDIS_URL;
 const live = liveUrl && redisUrl ? describe : describe.skip;
-live('live Postgres/Redis assessment delivery (synthetic bounded runner)', () => {
+live('live Postgres/Redis assessment delivery', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
   let api: ReturnType<typeof createBackend>;
   let backend: ReturnType<typeof createBackend>;
@@ -26,8 +27,9 @@ live('live Postgres/Redis assessment delivery (synthetic bounded runner)', () =>
     const { jobId } = await api.assessments.queue({ userId: f.a.userId }, { ...scope(), mode: 'both', revision: 'vulnerable', idempotencyKey: randomUUID() });
     return { version: 1 as const, id: jobId, ...scope(), kind: 'audit' as const };
   }
-  async function eventually(predicate: () => Promise<boolean>, label: string) {
-    for (let i = 0; i < 200; i++) { if (await predicate()) return; await delay(25); }
+  async function eventually(predicate: () => Promise<boolean>, label: string, timeoutMs = 5_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) { if (await predicate()) return; await delay(100); }
     throw new Error(`Timed out waiting for ${label}`);
   }
   const jobState = async (id: string) => (await f.admin.query<{ state: string }>('SELECT state FROM gotchu.jobs WHERE id=$1', [id])).rows[0]?.state;
@@ -83,6 +85,43 @@ live('live Postgres/Redis assessment delivery (synthetic bounded runner)', () =>
     await processDurableJob({ ...dependencies(), assessmentRunner: runner }, malformed);
     expect(await api.web.getJob({ userId: f.a.userId }, { organizationId: f.a.organizationId, jobId: malformed.id })).toMatchObject({ state: 'failed', reasonCode: 'assessment_scope_mismatch', reportId: null });
   });
+
+  it('scans a public digest through the durable job and persists its CVE report', async () => {
+    const customerApi = createBackend({ database: f.databases.gotchu_api });
+    const identity = { userId: `credentials:${randomUUID()}` };
+    const workspace = await customerApi.customers.createWorkspace(identity, { name: 'Container image live test' });
+    const application = await customerApi.customers.createApplication(identity, { organizationId: workspace.id, name: 'Pinned image' });
+    const customerScope = { organizationId: workspace.id, applicationId: application.applicationId };
+    const reference = 'docker.io/library/alpine@sha256:a15790640a6690aa1730c38cf0a440e2aa44aaca9b0e8931a9f2b0d7cc90fd65';
+    const { jobId } = await customerApi.customers.queue(identity, {
+      ...customerScope, mode: 'internal', sourceSnapshotId: null, targetId: null, inputKind: 'container_image',
+      containerImage: { kind: 'registry', reference }, idempotencyKey: randomUUID(),
+    });
+    const transport = createCoordinatorTransport({
+      redisUrl: present(redisUrl), organizationIds: [workspace.id],
+      dependencies: { ...dependencies(), customerAssessmentRunner: createCustomerAssessmentRunner({ scanners: createDockerScanners() }) },
+      prefix: `container-image-live-${randomUUID()}`,
+      report: () => undefined,
+    });
+    try {
+      await transport.waitUntilReady();
+      await dispatchOutbox(backend, workspace.id, transport.publish);
+      await eventually(async () => (await customerApi.web.getJob(identity, { organizationId: workspace.id, jobId })).state === 'succeeded', 'container image assessment completion', 120_000);
+      const job = await customerApi.web.getJob(identity, { organizationId: workspace.id, jobId });
+      if (job.state !== 'succeeded' || !job.reportId) throw new Error('container_image_report_not_persisted');
+      const report = await customerApi.customers.getReport(identity, { ...customerScope, reportId: job.reportId });
+      expect(report.subject).toMatchObject({ containerImageDigest: reference.slice(reference.lastIndexOf('@sha256:') + 8), containerImageReference: reference });
+      expect(report.internal?.findings.some(item => /^CVE-/.test(item.ruleId))).toBe(true);
+      expect(report.internal?.coverage).toEqual(expect.arrayContaining([
+        expect.objectContaining({ capability: 'container_image_os_cves', state: 'inspected' }),
+        expect.objectContaining({ capability: 'container_image_vulnerability_database', state: 'inspected' }),
+      ]));
+      const persisted = await f.admin.query<{ count: number }>('SELECT count(*)::int AS count FROM gotchu.customer_reports WHERE organization_id=$1 AND application_id=$2 AND id=$3', [workspace.id, application.applicationId, job.reportId]);
+      expect(persisted.rows[0]?.count).toBe(1);
+    } finally {
+      await transport.close();
+    }
+  }, 180_000);
 
   it('runs reads outside database transactions and rejects stale completion without touching the new owner', async () => {
     const envelope = await queue();

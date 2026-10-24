@@ -82,7 +82,7 @@ describe('customer report boundaries',()=>{
 describe('lockfile inventory and advisory adapter',()=>{
   const lock={lockfileVersion:3,packages:{'':{dependencies:{alpha:'^1.0.0'}},'node_modules/alpha':{version:'1.2.3'},'node_modules/alpha/node_modules/beta':{version:'2.0.0'},'node_modules/linked':{link:true},'node_modules/ranged':{version:'^3.0.0'}}};
   it.each([2,3])('extracts exact direct/transitive versions from v%s and preserves unknown entries',version=>{
-    const source=input([{path:'package-lock.json',content:JSON.stringify({...lock,lockfileVersion:version})}]).source;if(!source)throw new Error();const parsed=parseLockfile(source);expect(parsed.inventory.map(p=>[p.name,p.version,p.relationship])).toEqual([['alpha','1.2.3','direct'],['beta','2.0.0','transitive']]);expect(parsed.unknown).toHaveLength(2);
+    const source=input([{path:'package-lock.json',content:JSON.stringify({...lock,lockfileVersion:version})}]).source;if(!source)throw new Error();const parsed=parseLockfile(source);expect(parsed.inventory.map(p=>[p.name,p.version,p.relationship])).toEqual([['alpha','1.2.3','direct'],['beta','2.0.0','transitive']]);expect(parsed.unknownCount).toBe(2);expect(parsed.unknown).toContain('package-lock.json');
   });
   it('attributes fixture advisory matches without proving exploitation or severity',async()=>{
     const query=vi.fn(async(_packages: ReadonlyArray<{name:string;version:string}>)=>[{ids:['TEST-1'],complete:true},{ids:[],complete:true}]);

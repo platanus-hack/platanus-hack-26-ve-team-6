@@ -70,6 +70,13 @@ export function createJobService(deps: BaseDependencies) {
       const value = parse(tokenSchema, scope);
       await deps.database.tenant(value.organizationId, tx => completeJob(tx, { ...value, result }));
     },
+    async fail(input: { organizationId: string; jobId: string; leaseToken: string; reasonCode: string }): Promise<void> {
+      const value = parse(tokenSchema.extend({ reasonCode: z.string().min(1).max(100) }).strict(), input);
+      await deps.database.tenant(value.organizationId, async tx => {
+        const result = await tx.query("UPDATE gotchu.jobs SET state='failed',result=$4::jsonb,completed_at=clock_timestamp(),lease_until=NULL WHERE organization_id=$1 AND id=$2 AND lease_token=$3 AND state='running' AND lease_until>clock_timestamp()", [value.organizationId,value.jobId,value.leaseToken,JSON.stringify({reasonCode:value.reasonCode})]);
+        if (result.rowCount !== 1) throw new BackendError('stale_lease', 'Job claim is no longer current', 409);
+      });
+    },
     async heartbeat(input: { organizationId: string; jobId: string; leaseToken: string; leaseMs?: number }): Promise<void> {
       const value = parse(tokenSchema.extend({ leaseMs: leaseMsSchema }), input);
       await deps.database.tenant(value.organizationId, async tx => {

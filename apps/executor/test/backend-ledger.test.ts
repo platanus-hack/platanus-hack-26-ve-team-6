@@ -8,7 +8,7 @@ import { createBackendExecutionLedger } from '../src/index.js';
 function fixture() {
   const request = { organizationId: randomUUID(), approvalId: randomUUID() };
   const proposal = proposalFixture({ organizationId: request.organizationId, applicationId: randomUUID() });
-  const claim = { executionId: randomUUID(), claimToken: randomUUID(), actionHash: hashProposal(proposal, '1'), proposal, recoveryEpoch: '1' };
+  const claim = { ...request, applicationId: proposal.applicationId, executionId: randomUUID(), claimToken: randomUUID(), actionHash: hashProposal(proposal, '1'), proposal, recoveryEpoch: '1' };
   const stored = { ...claim, ...request, applicationId: proposal.applicationId, state: 'uncertain' as const };
   const executions = {
     claim: vi.fn<Backend['executions']['claim']>(async () => claim),

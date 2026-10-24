@@ -1,7 +1,7 @@
-import { createPrivateKey } from 'node:crypto';
+import { createHash, createPrivateKey } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import { SignJWT, importPKCS8 } from 'jose';
 import { load as parseYaml } from 'js-yaml';
@@ -12,43 +12,160 @@ const pathSchema = z.string().min(1).max(4096).refine(path => !path.startsWith('
 const patchFileSchema = z.object({ path:pathSchema,content:z.string().max(1_048_576),mode:z.enum(['100644','100755']).optional() }).strict();
 const workflowSchema = z.object({ path: pathSchema, content: z.string().max(2_000_000) }).strict();
 const evidenceSummarySchema = z.object({ rescan: z.literal('passed'), suite: z.literal('passed'), regression: z.literal('passed'), runnerIsolation: z.literal('verified') }).strict();
-const prSchema = z.object({ number: z.number().int().positive(), html_url: z.string().url(), state: z.enum(['open','closed']), head: z.object({ sha, ref: z.string().min(1) }), base: z.object({ sha, ref: z.string().min(1) }) }).passthrough();
+const prSchema = z.object({ number: z.number().int().positive(), html_url: z.string().url(), state: z.enum(['open','closed']), draft: z.boolean().optional(), head: z.object({ sha, ref: z.string().min(1) }), base: z.object({ sha, ref: z.string().min(1) }) }).passthrough();
+const contentEntrySchema = z.object({ path:z.string().min(1),type:z.enum(['file','dir']) }).passthrough();
+const contentFileSchema = z.object({ path:z.string().min(1),type:z.literal('file'),encoding:z.literal('base64').optional(),content:z.string().optional() }).passthrough();
 
 export class GitAdapterError extends Error {
   constructor(readonly code: 'conflict'|'repository_automation_unsafe'|'provider_access_revoked'|'malformed_response'|'unknown_outcome'|'not_found') { super(code); this.name = 'GitAdapterError'; }
 }
 export interface PatchFile { readonly path: string; readonly content: string; readonly mode?: '100644'|'100755' }
-export interface PullRequest { readonly number: number; readonly url: string; readonly state: 'open'|'closed'; readonly headSha: string; readonly headBranch: string; readonly baseSha: string; readonly baseBranch: string }
+export interface GitTreeEntry { readonly path: string; readonly mode: '100644'|'100755'|'120000'|'160000'; readonly type: 'blob'|'commit'; readonly sha: string }
+export interface GitTree { readonly treeSha: string; readonly entries: readonly GitTreeEntry[]; readonly truncated: boolean }
+export interface PullRequest { readonly number: number; readonly url: string; readonly state: 'open'|'closed'; readonly draft: boolean; readonly headSha: string; readonly headBranch: string; readonly baseSha: string; readonly baseBranch: string }
 export interface PullRequestAdapter {
   resolveTarget(repositoryKey: string): Promise<{ repositoryKey: string; baseBranch: string }>;
   readHead(branch: string): Promise<string>;
-  publishCommit(input: { actionHash: string; baseBranch: string; baseSha: string; files: readonly PatchFile[] }): Promise<{ branch: string; commitSha: string }>;
-  openOrFindPullRequest(input: { actionHash: string; branch: string; commitSha: string; baseBranch: string; baseSha: string; evidenceSummary: z.infer<typeof evidenceSummarySchema> }): Promise<PullRequest>;
+  listDir(path: string, ref: string): Promise<readonly { path:string; type:'file'|'dir' }[]>;
+  readFile(path: string, ref: string): Promise<string>;
+  readTree(commitSha: string): Promise<GitTree>;
+  readCommit(commitSha: string): Promise<{ treeSha: string; parents: readonly string[] }>;
+  inspectAutomation(baseSha: string): Promise<WorkflowPolicyViolation[]>;
+  publishCommit(input: { actionHash: string; baseBranch: string; baseSha: string; files: readonly PatchFile[]; commitMessage?: string; deterministicCommit?: boolean; workflowExceptions?: readonly WorkflowPolicyException[]; beforeWrite?: () => Promise<void> }): Promise<{ branch: string; commitSha: string }>;
+  openOrFindPullRequest(input: { actionHash: string; branch: string; commitSha: string; baseBranch: string; baseSha: string; evidenceSummary: z.infer<typeof evidenceSummarySchema>; title?: string; body?: string; draft?: boolean; beforeWrite?: () => Promise<void> }): Promise<PullRequest>;
+  findPullRequestByBranch(branch: string): Promise<PullRequest | undefined>;
   getPullRequest(number: number): Promise<PullRequest>;
   closePullRequest(number: number): Promise<void>;
   deleteBranch(branch: string): Promise<void>;
   listRequiredChecks(commitSha: string): Promise<readonly { name: string; state: string }[]>;
-  verifyAutomation(baseSha: string, policyAllowsUnsafe?: boolean, proposedBranch?: string): Promise<void>;
+  verifyAutomation(baseSha: string, workflowExceptions?: readonly WorkflowPolicyException[], proposedBranch?: string): Promise<void>;
+  readTreeSha(commitSha: string): Promise<string>;
 }
 export const deterministicBranch = (actionHash: string) => `gotchu/${z.string().regex(/^[a-f0-9]{64}$/).parse(actionHash).slice(0,16)}`;
+export async function computeGitTreeSha(files: readonly PatchFile[]): Promise<string> {
+  const checked = z.array(patchFileSchema).max(1000).parse(files);
+  const root = await mkdtemp(join(tmpdir(), 'gotchu-tree-'));
+  try {
+    await git(root, ['init', '--quiet']);
+    for (const file of checked) {
+      const target = resolve(root, file.path);
+      if (!target.startsWith(root + sep)) throw new Error('unsafe_path');
+      await mkdir(resolve(target, '..'), { recursive: true });
+      await writeFile(target, file.content, { mode: file.mode === '100755' ? 0o755 : 0o644 });
+    }
+    await git(root, ['add', '--all']);
+    return sha.parse(await git(root, ['write-tree']));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+/** Recomputes the complete repository tree after applying an exact file patch to a full base tree listing. */
+export function computeGitTreeShaAfterPatch(baseTree: GitTree, patch: readonly PatchFile[]): string {
+  if (baseTree.truncated) throw new GitAdapterError('repository_automation_unsafe');
+  const entries = z.array(z.object({
+    path: pathSchema,
+    mode: z.enum(['100644','100755','120000','160000']),
+    type: z.enum(['blob','commit']),
+    sha,
+  }).strict()).max(100_000).parse(baseTree.entries);
+  const changes = z.array(patchFileSchema).max(1000).parse(patch);
+  type Node = { leaf?: { mode: string; type: 'blob'|'commit'; sha: string }; children: Map<string, Node> };
+  const root: Node = { children: new Map() };
+  const nodeFor = (path: string, create: boolean): { node: Node; name: string } => {
+    const parts = path.split('/'); const name = parts.pop();
+    if (!name) throw new GitAdapterError('malformed_response');
+    let node = root;
+    for (const part of parts) {
+      if (node.leaf) throw new GitAdapterError('malformed_response');
+      let next = node.children.get(part);
+      if (!next && create) { next = { children: new Map() }; node.children.set(part, next); }
+      if (!next) return { node: { children: new Map() }, name };
+      node = next;
+    }
+    return { node, name };
+  };
+  for (const entry of entries) {
+    const { node, name } = nodeFor(entry.path, true);
+    if (node.children.has(name) || node.children.get(name)?.leaf) throw new GitAdapterError('malformed_response');
+    let parent = root;
+    for (const part of entry.path.split('/').slice(0, -1)) parent = parent.children.get(part)!;
+    const leaf = { mode: entry.mode, type: entry.type, sha: entry.sha } as const;
+    const prior = parent.children.get(name);
+    if (prior?.leaf || prior?.children.size) throw new GitAdapterError('malformed_response');
+    parent.children.set(name, { leaf, children: new Map() });
+  }
+  const hashTree = (node: Node): Buffer => {
+    const items = [...node.children.entries()].map(([name, child]) => ({
+      name,
+      sortName: Buffer.from(name + (child.leaf ? '' : '/'), 'utf8'),
+      mode: child.leaf?.mode ?? '40000',
+      objectSha: child.leaf ? Buffer.from(child.leaf.sha, 'hex') : hashTree(child),
+    }));
+    items.sort((a, b) => Buffer.compare(a.sortName, b.sortName));
+    const body = Buffer.concat(items.flatMap(item => [Buffer.from(`${item.mode} ${item.name}\0`), item.objectSha]));
+    return createHash('sha1').update(`tree ${body.byteLength}\0`).update(body).digest();
+  };
+  if (hashTree(root).toString('hex') !== sha.parse(baseTree.treeSha)) throw new GitAdapterError('malformed_response');
+  for (const file of changes) {
+    const { node, name } = nodeFor(file.path, true);
+    if (node.leaf) throw new GitAdapterError('malformed_response');
+    const target = node.children.get(name);
+    if (target?.children.size) throw new GitAdapterError('malformed_response');
+    const body = Buffer.from(file.content, 'utf8');
+    const blobSha = createHash('sha1').update(`blob ${body.byteLength}\0`).update(body).digest('hex');
+    node.children.set(name, { leaf: { mode: file.mode ?? '100644', type: 'blob', sha: blobSha }, children: new Map() });
+  }
+  return hashTree(root).toString('hex');
+}
+
+export async function verifyPublishedTree(input: { adapter: PullRequestAdapter; headCommitSha: string; artifactTreeSha: string }): Promise<boolean> {
+  const expected = sha.parse(input.artifactTreeSha);
+  return await input.adapter.readTreeSha(input.headCommitSha) === expected;
+}
 export function assertWorkflowPatchSafe(files: readonly PatchFile[]): void {
   const checked=z.array(patchFileSchema).max(1000).parse(files);
   if (checked.some(file => file.path === '.github/workflows' || file.path.startsWith('.github/workflows/'))) throw new GitAdapterError('repository_automation_unsafe');
 }
-export function assertAutomationSafe(workflows: readonly { path: string; content: string }[], policyAllowsUnsafe = false, proposedBranch?: string): void {
+export type WorkflowPolicyViolation = { path: string; rule: 'invalid_yaml'|'invalid_document'|'pull_request_target'|'push_without_branch_filter'|'push_to_gotchu_branch'|'forbidden_pull_request_secret' };
+export type WorkflowPolicyException = Pick<WorkflowPolicyViolation, 'path'|'rule'>;
+export function assertAutomationSafe(workflows: readonly { path: string; content: string }[], exceptionsOrPolicy: readonly WorkflowPolicyException[] | boolean = [], proposedBranch?: string): void {
   const parsed = z.array(workflowSchema).parse(workflows);
   if (proposedBranch !== undefined && !/^gotchu\/[a-f0-9]{16}$/.test(proposedBranch)) throw new GitAdapterError('repository_automation_unsafe');
+  if (exceptionsOrPolicy === true) {
+    for (const workflow of parsed) {
+      if (!workflow.path.startsWith('.github/workflows/')) continue;
+      let document: unknown;
+      try { document = parseYaml(workflow.content, { maxAliasCount: 50 }); }
+      catch { throw new GitAdapterError('repository_automation_unsafe'); }
+      if (!z.record(z.string(), z.unknown()).safeParse(document).success) throw new GitAdapterError('repository_automation_unsafe');
+    }
+    return;
+  }
+  const exceptions = typeof exceptionsOrPolicy === 'boolean' ? [] : exceptionsOrPolicy;
+  assertWorkflowViolationsSafe(inspectWorkflowPolicy(parsed, proposedBranch), exceptions);
+}
+function assertWorkflowViolationsSafe(violations: readonly WorkflowPolicyViolation[], exceptions: readonly WorkflowPolicyException[]): void {
+  const allowed = z.array(z.object({ path: workflowSchema.shape.path, rule: z.enum(['invalid_yaml','invalid_document','pull_request_target','push_without_branch_filter','push_to_gotchu_branch','forbidden_pull_request_secret']) }).strict()).parse(exceptions);
+  const denied = violations.filter(violation => !allowed.some(exception => exception.path === violation.path && exception.rule === violation.rule));
+  if (denied.length) throw new GitAdapterError('repository_automation_unsafe');
+}
+export function inspectWorkflowPolicy(workflows: readonly { path: string; content: string }[], proposedBranch?: string): WorkflowPolicyViolation[] {
+  const parsed = z.array(workflowSchema).parse(workflows);
+  if (proposedBranch !== undefined && !/^gotchu\/[a-f0-9]{16}$/.test(proposedBranch)) throw new GitAdapterError('repository_automation_unsafe');
+  const violations: WorkflowPolicyViolation[] = [];
   for (const workflow of parsed) {
     if (!workflow.path.startsWith('.github/workflows/')) continue;
     let document: unknown;
     try { document = parseYaml(workflow.content, { maxAliasCount: 50 }); }
-    catch { throw new GitAdapterError('repository_automation_unsafe'); }
+    catch { violations.push({ path: workflow.path, rule: 'invalid_yaml' }); continue; }
     const root = z.record(z.string(), z.unknown()).safeParse(document);
-    if (!root.success) throw new GitAdapterError('repository_automation_unsafe');
-    if (policyAllowsUnsafe) continue;
+    if (!root.success) { violations.push({ path: workflow.path, rule: 'invalid_document' }); continue; }
     const triggers = root.data.on ?? root.data.true;
-    const events = triggerMap(triggers);
-    if (events.has('pull_request_target')) throw new GitAdapterError('repository_automation_unsafe');
+    let events: Map<string, unknown>;
+    try { events = triggerMap(triggers); }
+    catch { violations.push({ path: workflow.path, rule: 'invalid_document' }); continue; }
+    if (events.has('pull_request_target')) violations.push({ path: workflow.path, rule: 'pull_request_target' });
     const push = events.get('push');
     if (events.has('push')) {
       const pushOptions = typeof push === 'object' && push !== null && !Array.isArray(push)
@@ -58,17 +175,18 @@ export function assertAutomationSafe(workflows: readonly { path: string; content
       if (hasBranches && hasBranchesIgnore) throw new GitAdapterError('repository_automation_unsafe');
       const branchPatterns = hasBranches ? parseBranchPatterns(pushOptions.branches, true) : undefined;
       const ignoredPatterns = hasBranchesIgnore ? parseBranchPatterns(pushOptions['branches-ignore'], false) : undefined;
-      if (!branchPatterns && !ignoredPatterns) throw new GitAdapterError('repository_automation_unsafe');
-      const triggersOwnedBranch = proposedBranch
-        ? branchPatterns ? matchesBranchPatterns(branchPatterns, proposedBranch) : !ignoredPatterns?.some(pattern => pattern.matches(proposedBranch))
-        : branchPatterns ? branchPatterns.some(pattern => !pattern.negative && couldMatchOwnedBranch(pattern.tokens))
-          : !ignoredPatterns?.some(pattern => pattern.source === 'gotchu/*' || pattern.source === 'gotchu/**');
-      if (triggersOwnedBranch)
-        throw new GitAdapterError('repository_automation_unsafe');
+      if (!branchPatterns && !ignoredPatterns) violations.push({ path: workflow.path, rule: 'push_without_branch_filter' });
+      else {
+        const triggersOwnedBranch = proposedBranch
+          ? branchPatterns ? matchesBranchPatterns(branchPatterns, proposedBranch) : !ignoredPatterns?.some(pattern => pattern.matches(proposedBranch))
+          : branchPatterns ? branchPatterns.some(pattern => !pattern.negative && couldMatchOwnedBranch(pattern.tokens))
+            : !ignoredPatterns?.some(pattern => pattern.source === 'gotchu/*' || pattern.source === 'gotchu/**');
+        if (triggersOwnedBranch) violations.push({ path: workflow.path, rule: 'push_to_gotchu_branch' });
+      }
     }
-    if (events.has('pull_request') && containsForbiddenSecret(root.data))
-      throw new GitAdapterError('repository_automation_unsafe');
+    if (events.has('pull_request') && containsForbiddenSecret(root.data)) violations.push({ path: workflow.path, rule: 'forbidden_pull_request_secret' });
   }
+  return violations;
 }
 
 function triggerMap(value: unknown): Map<string, unknown> {
@@ -240,16 +358,50 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
   const root = resolve(repositoryPath); const bare = join(root,'repository.git'); const workRoot = join(root,'worktrees'); const records = join(root,'pull-requests.json');
   await mkdir(root,{recursive:true}); await mkdir(workRoot,{recursive:true});
   try { await git(root,['--git-dir',bare,'rev-parse','--is-bare-repository']); } catch { await git(root,['init','--bare',bare]); }
-  const localPrSchema = z.object({ number:z.number().int().positive(),url:z.string().url(),state:z.enum(['open','closed']),headSha:sha,headBranch:z.string(),baseSha:sha,baseBranch:z.string() }).strict();
+  const localPrSchema = z.object({ number:z.number().int().positive(),url:z.string().url(),state:z.enum(['open','closed']),draft:z.boolean().optional(),headSha:sha,headBranch:z.string(),baseSha:sha,baseBranch:z.string() }).strict();
+  const toLocalPr = (pr: z.infer<typeof localPrSchema>): PullRequest => ({ ...pr, draft: pr.draft ?? false });
   const load = async () => { try { return z.array(localPrSchema).parse(JSON.parse(await readFile(records,'utf8'))); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; } };
   const save = async (items: unknown[]) => writeFile(records,JSON.stringify(items),'utf8');
+  const inspectAutomation = async (baseSha: string) => {
+    const ref = sha.parse(baseSha);
+    const paths = (await git(root,['--git-dir',bare,'ls-tree','-r','--name-only',ref,'.github/workflows']))
+      .split('\n').filter(path => /^\.github\/workflows\/[^/]+\.ya?ml$/i.test(path));
+    const files = await Promise.all(paths.map(async path => ({ path, content: await git(root,['--git-dir',bare,'show',`${ref}:${path}`]) })));
+    return inspectWorkflowPolicy(files);
+  };
+  const verifyAutomation = async (baseSha: string, exceptions: readonly WorkflowPolicyException[] = []) => {
+    assertWorkflowViolationsSafe(await inspectAutomation(baseSha), exceptions);
+  };
   return {
     async resolveTarget(repositoryKey) { const branch = await git(root,['--git-dir',bare,'symbolic-ref','HEAD']).catch(()=> 'refs/heads/main'); return { repositoryKey, baseBranch: branch.replace('refs/heads/','') }; },
     async readHead(branch) { return sha.parse(await git(root,['--git-dir',bare,'rev-parse',`refs/heads/${branch}`])); },
+    async listDir(path, ref) { const files=await git(root,['--git-dir',bare,'ls-tree','-r','--name-only',sha.parse(ref),pathSchema.parse(path)]); return files.split('\n').filter(Boolean).map(value=>({path:value,type:'file' as const})); },
+    async readFile(path, ref) { return await git(root,['--git-dir',bare,'show',`${sha.parse(ref)}:${pathSchema.parse(path)}`]); },
+    async readTree(commitSha) {
+      const checked = sha.parse(commitSha);
+      const treeSha = sha.parse(await git(root,['--git-dir',bare,'rev-parse',`${checked}^{tree}`]));
+      const raw = await git(root,['--git-dir',bare,'ls-tree','-r','--full-tree','--format=%(objectmode) %(objecttype) %(objectname)%x09%(path)',checked]);
+      const entries = raw.split('\n').filter(Boolean).map(line => {
+        const tab = line.indexOf('\t'); const [mode, type, objectSha] = line.slice(0, tab).split(' ');
+        return z.object({ path:pathSchema, mode:z.enum(['100644','100755','120000','160000']), type:z.enum(['blob','commit']), sha }).strict().parse({ path:line.slice(tab+1),mode,type,sha:objectSha });
+      });
+      if (entries.length > 100_000) throw new GitAdapterError('repository_automation_unsafe');
+      return { treeSha, entries, truncated:false };
+    },
+    async readTreeSha(commitSha) { return sha.parse(await git(root,['--git-dir',bare,'rev-parse',`${sha.parse(commitSha)}^{tree}`])); },
+    async readCommit(commitSha) {
+      const checked = sha.parse(commitSha);
+      const treeSha = sha.parse(await git(root,['--git-dir',bare,'rev-parse',`${checked}^{tree}`]));
+      const raw = await git(root,['--git-dir',bare,'rev-list','--parents','-n','1',checked]);
+      const [, ...parents] = raw.split(' ');
+      return { treeSha, parents: parents.map(parent => sha.parse(parent)) };
+    },
+    async inspectAutomation(baseSha) { return inspectAutomation(baseSha); },
     async publishCommit(input) {
       assertWorkflowPatchSafe(input.files);
       const branch = deterministicBranch(input.actionHash); const base = sha.parse(await git(root,['--git-dir',bare,'rev-parse',`refs/heads/${input.baseBranch}`]));
       if (base !== input.baseSha) throw new GitAdapterError('conflict');
+      await verifyAutomation(base, input.workflowExceptions);
       const dir = await mkdtemp(join(workRoot,'gotchu-'));
       try {
         const indexEnv = { ...process.env, GIT_INDEX_FILE: join(dir,'index') };
@@ -267,7 +419,13 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
           if (existingTree !== treeSha || existingParent !== base) throw new GitAdapterError('conflict');
           return { branch,commitSha:sha.parse(existing) };
         }
-        const commitSha = sha.parse(await git(root,['--git-dir',bare,'-c','user.name=Gotchu','-c','user.email=gotchu@localhost','commit-tree',treeSha,'-p',base,'-m',`Gotchu approved action ${input.actionHash}`]));
+        const commitMessage = z.string().trim().min(1).max(512).parse(input.commitMessage ?? `Gotchu approved action ${input.actionHash}`);
+        const deterministicIdentity = input.deterministicCommit ? {
+          ...process.env,GIT_AUTHOR_NAME:'Gotchu',GIT_AUTHOR_EMAIL:'actions@gotchu.dev',GIT_AUTHOR_DATE:'@0 +0000',
+          GIT_COMMITTER_NAME:'Gotchu',GIT_COMMITTER_EMAIL:'actions@gotchu.dev',GIT_COMMITTER_DATE:'@0 +0000',
+        } : { ...process.env,GIT_AUTHOR_NAME:'Gotchu',GIT_AUTHOR_EMAIL:'gotchu@localhost',GIT_COMMITTER_NAME:'Gotchu',GIT_COMMITTER_EMAIL:'gotchu@localhost' };
+        const commitSha = sha.parse(await git(root,['--git-dir',bare,'commit-tree',treeSha,'-p',base,'-m',commitMessage],{env:deterministicIdentity}));
+        await input.beforeWrite?.();
         try { await git(root,['--git-dir',bare,'update-ref',`refs/heads/${branch}`,commitSha,'']); }
         catch {
           const raced = await git(root,['--git-dir',bare,'rev-parse',`refs/heads/${branch}`]).catch(()=>undefined);
@@ -284,15 +442,20 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
       const rows = await load(); const branchHead = await git(root,['--git-dir',bare,'rev-parse',`refs/heads/${input.branch}`]);
       if (branchHead !== input.commitSha) throw new GitAdapterError('conflict');
       const old = rows.find(row => row.headBranch === input.branch);
-      if (old) { if (old.headSha !== input.commitSha || old.baseBranch !== input.baseBranch || old.baseSha !== input.baseSha) throw new GitAdapterError('conflict'); return old; }
-      const pr = { number: rows.length + 1, url:`https://local.invalid/${input.branch}`,state:'open' as const,headSha:branchHead,headBranch:input.branch,baseSha:input.baseSha,baseBranch:input.baseBranch };
+      if (old) { if (old.headSha !== input.commitSha || old.baseBranch !== input.baseBranch || old.baseSha !== input.baseSha) throw new GitAdapterError('conflict'); return toLocalPr(old); }
+      const pr = { number: rows.length + 1, url:`https://local.invalid/${input.branch}`,state:'open' as const,draft:input.draft ?? true,headSha:branchHead,headBranch:input.branch,baseSha:input.baseSha,baseBranch:input.baseBranch };
+      await input.beforeWrite?.();
       await save([...rows,pr]); return pr;
     },
-    async getPullRequest(number) { const found=(await load()).find(row=>row.number===number); if(!found) throw new GitAdapterError('not_found'); return found; },
+    async findPullRequestByBranch(branch) {
+      const found = (await load()).find(row => row.headBranch === branch);
+      return found ? toLocalPr(found) : undefined;
+    },
+    async getPullRequest(number) { const found=(await load()).find(row=>row.number===number); if(!found) throw new GitAdapterError('not_found'); return toLocalPr(found); },
     async closePullRequest(number) { await save((await load()).map(row=>row.number===number?{...row,state:'closed'}:row)); },
     async deleteBranch(branch) { await git(root,['--git-dir',bare,'update-ref','-d',`refs/heads/${branch}`]).catch(error => { if(!String(error).includes('unknown revision')) throw error; }); },
     async listRequiredChecks() { return []; },
-    async verifyAutomation() { return; },
+    async verifyAutomation(baseSha, exceptions) { await verifyAutomation(baseSha, exceptions); },
   };
 }
 
@@ -331,25 +494,56 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
     const response=await request(method,path,body); if(!response.ok) { if([401,403].includes(response.status)) throw new GitAdapterError('provider_access_revoked'); if(response.status===404) throw new GitAdapterError('not_found'); throw new GitAdapterError('unknown_outcome'); }
     try{return schema.parse(await json(response));}catch{throw new GitAdapterError('malformed_response');}
   }
-  const toPr=(pr:z.infer<typeof prSchema>):PullRequest=>({number:pr.number,url:pr.html_url,state:pr.state,headSha:pr.head.sha,headBranch:pr.head.ref,baseSha:pr.base.sha,baseBranch:pr.base.ref});
+  async function listDirAt(path: string, ref: string) {
+    const response=await request('GET',`/contents/${pathSchema.parse(path)}?ref=${sha.parse(ref)}`);
+    if(!response.ok){if([401,403].includes(response.status))throw new GitAdapterError('provider_access_revoked');if(response.status===404)return [];throw new GitAdapterError('unknown_outcome');}
+    try{return z.array(contentEntrySchema).max(1000).parse(await json(response)).map(entry=>({path:entry.path,type:entry.type}));}catch{throw new GitAdapterError('malformed_response');}
+  }
+  async function readFileAt(path: string, ref: string) {
+    const response=await request('GET',`/contents/${pathSchema.parse(path)}?ref=${sha.parse(ref)}`);
+    if(!response.ok){if([401,403].includes(response.status))throw new GitAdapterError('provider_access_revoked');if(response.status===404)throw new GitAdapterError('not_found');throw new GitAdapterError('unknown_outcome');}
+    try{const file=contentFileSchema.parse(await json(response));if(file.encoding!=='base64'||!file.content)throw new Error('invalid_content');return Buffer.from(file.content,'base64').toString('utf8');}catch{throw new GitAdapterError('malformed_response');}
+  }
+  const toPr=(pr:z.infer<typeof prSchema>):PullRequest=>({number:pr.number,url:pr.html_url,state:pr.state,draft:pr.draft ?? false,headSha:pr.head.sha,headBranch:pr.head.ref,baseSha:pr.base.sha,baseBranch:pr.base.ref});
+  const readWorkflowFiles = async (baseSha: string) => {
+    const ref = sha.parse(baseSha);
+    const tree=await checked('GET',`/git/trees/${ref}?recursive=1`,undefined,z.object({tree:z.array(z.object({path:z.string(),type:z.string(),sha}).passthrough()).max(100_000),truncated:z.boolean()}).passthrough());
+    if(tree.truncated) throw new GitAdapterError('repository_automation_unsafe');
+    const paths=tree.tree.filter(entry=>entry.type==='blob'&&entry.path.startsWith('.github/workflows/'));
+    return await Promise.all(paths.map(async entry=>{const blob=await checked('GET',`/git/blobs/${entry.sha}`,undefined,z.object({content:z.string(),encoding:z.literal('base64')}).passthrough());return {path:entry.path,content:Buffer.from(blob.content,'base64').toString('utf8')};}));
+  };
+  const inspectAutomation = async (baseSha: string): Promise<WorkflowPolicyViolation[]> => inspectWorkflowPolicy(await readWorkflowFiles(baseSha));
+  const verifyAutomation = async (baseSha: string, exceptions: readonly WorkflowPolicyException[] = [], proposedBranch?: string) => {
+    const policy = options.policyAllowsUnsafeAutomation ? true : exceptions;
+    assertAutomationSafe(await readWorkflowFiles(baseSha), policy, proposedBranch);
+  };
   return {
     async resolveTarget(repositoryKey) { if(repositoryKey!==`${options.owner}/${options.repository}`) throw new GitAdapterError('not_found'); const repo=await checked('GET',`?`,undefined,z.object({default_branch:z.string().min(1)}).passthrough()); return {repositoryKey,baseBranch:repo.default_branch}; },
     async readHead(branch) { const ref=await checked('GET',`/git/ref/heads/${encodeURIComponent(branch)}`,undefined,z.object({object:z.object({sha}).passthrough()}).passthrough()); return ref.object.sha; },
-    async verifyAutomation(baseSha,policyAllowsUnsafe=options.policyAllowsUnsafeAutomation??false,proposedBranch) {
-      const tree=await checked('GET',`/git/trees/${baseSha}?recursive=1`,undefined,z.object({tree:z.array(z.object({path:z.string(),type:z.string(),sha}).passthrough()).max(100_000),truncated:z.boolean()}).passthrough());
-      if(tree.truncated) throw new GitAdapterError('repository_automation_unsafe');
-      const paths=tree.tree.filter(entry=>entry.type==='blob'&&entry.path.startsWith('.github/workflows/'));
-      const files=await Promise.all(paths.map(async entry=>{const blob=await checked('GET',`/git/blobs/${entry.sha}`,undefined,z.object({content:z.string(),encoding:z.literal('base64')}).passthrough());return {path:entry.path,content:Buffer.from(blob.content,'base64').toString('utf8')};}));
-      assertAutomationSafe(files,policyAllowsUnsafe,proposedBranch);
+    async listDir(path, ref) { return listDirAt(path, ref); },
+    async readFile(path, ref) { return readFileAt(path, ref); },
+    async readTreeSha(commitSha) { const commit=await checked('GET',`/git/commits/${sha.parse(commitSha)}`,undefined,z.object({tree:z.object({sha}).passthrough()}).passthrough()); return commit.tree.sha; },
+    async readCommit(commitSha) {
+      const commit = await checked('GET',`/git/commits/${sha.parse(commitSha)}`,undefined,z.object({tree:z.object({sha}).passthrough(),parents:z.array(z.object({sha}).passthrough()).max(20)}).passthrough());
+      return { treeSha:commit.tree.sha, parents:commit.parents.map(parent => parent.sha) };
     },
+    async readTree(commitSha) {
+      const commit=await checked('GET',`/git/commits/${sha.parse(commitSha)}`,undefined,z.object({tree:z.object({sha}).passthrough()}).passthrough());
+      const tree=await checked('GET',`/git/trees/${commit.tree.sha}?recursive=1`,undefined,z.object({tree:z.array(z.object({path:z.string().min(1),mode:z.enum(['100644','100755','120000','160000','040000']),type:z.enum(['blob','commit','tree']),sha}).passthrough()).max(100_000),truncated:z.boolean()}).passthrough());
+      return { treeSha:commit.tree.sha, truncated:tree.truncated, entries:tree.tree.filter(entry=>entry.type!=='tree').map(entry=>({path:entry.path,mode:entry.mode==='040000'?'100644':entry.mode,type:entry.type as 'blob'|'commit',sha:entry.sha})) };
+    },
+    async inspectAutomation(baseSha) { return inspectAutomation(baseSha); },
+    async verifyAutomation(baseSha, exceptions, proposedBranch) { await verifyAutomation(baseSha, exceptions, proposedBranch); },
     async publishCommit(input) {
       assertWorkflowPatchSafe(input.files);
       const branch=deterministicBranch(input.actionHash); const base=await this.readHead(input.baseBranch); if(base!==input.baseSha) throw new GitAdapterError('conflict');
-      await this.verifyAutomation(input.baseSha,undefined,branch);
+      await this.verifyAutomation(input.baseSha,input.workflowExceptions,branch);
       const blobs = await Promise.all(input.files.map(async file => {
+        await input.beforeWrite?.();
         const blob = await checked('POST', '/git/blobs', { content: file.content, encoding: 'utf-8' }, z.object({ sha }).passthrough());
         return { path: pathSchema.parse(file.path), mode: file.mode ?? '100644', type: 'blob', sha: blob.sha };
       }));
+      await input.beforeWrite?.();
       const tree=await checked('POST','/git/trees',{base_tree:(await checked('GET',`/git/commits/${base}`,undefined,z.object({tree:z.object({sha}).passthrough()}).passthrough())).tree.sha,tree:blobs},z.object({sha}).passthrough());
       const expectedParent = base;
       const matchesCandidate = async (commitSha: string) => {
@@ -366,8 +560,18 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
         return {branch,commitSha:existingSha};
       }
       if(existing.status!==404) throw new GitAdapterError(existing.status===401||existing.status===403?'provider_access_revoked':'unknown_outcome');
-      const commit=await checked('POST','/git/commits',{message:`Gotchu approved action ${input.actionHash}\n\nEvidence: ${input.actionHash}`,tree:tree.sha,parents:[base]},z.object({sha}).passthrough());
+      const commitMessage=z.string().trim().min(1).max(512).parse(input.commitMessage ?? `Gotchu approved action ${input.actionHash}`);
+      await input.beforeWrite?.();
+      const commit=await checked('POST','/git/commits',{
+        message:commitMessage,tree:tree.sha,parents:[base],
+        ...(input.deterministicCommit ? {
+          author:{name:'Gotchu',email:'actions@gotchu.dev',date:'1970-01-01T00:00:00Z'},
+          committer:{name:'Gotchu',email:'actions@gotchu.dev',date:'1970-01-01T00:00:00Z'},
+        } : {}),
+      },z.object({sha}).passthrough());
       let created: Response | undefined;
+      if(await this.readHead(input.baseBranch)!==input.baseSha) throw new GitAdapterError('conflict');
+      await input.beforeWrite?.();
       try { created=await request('POST','/git/refs',{ref:`refs/heads/${branch}`,sha:commit.sha}); } catch { /* inspect remote state before reporting an unknown write */ }
       if(!created?.ok || created.status===422){
         const remoteHead=await this.readHead(branch).catch(()=>undefined);
@@ -378,6 +582,11 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
         catch { throw new GitAdapterError('malformed_response'); }
       }
       return {branch,commitSha:commit.sha};
+    },
+    async findPullRequestByBranch(branch) {
+      const existing = await checked('GET',`/pulls?head=${encodeURIComponent(options.owner+':'+branch)}&state=all`,undefined,z.array(prSchema));
+      const found = existing.find(pr=>pr.head.ref===branch);
+      return found ? toPr(found) : undefined;
     },
     async openOrFindPullRequest(input) {
       evidenceSummarySchema.parse(input.evidenceSummary);
@@ -390,7 +599,9 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
       if(found){if(found.head.sha!==input.commitSha||found.base.ref!==input.baseBranch||found.base.sha!==input.baseSha)throw new GitAdapterError('conflict');return toPr(found);}
       let created: z.infer<typeof prSchema>;
       try {
-        created = await checked('POST','/pulls',{title:`Approved Gotchu action ${input.actionHash.slice(0,16)}`,head:input.branch,base:input.baseBranch,body:`Approved action: ${input.actionHash}\n\nEvidence summary: objective rescan passed; validation suite passed; regression checks passed; runner isolation verified.`},prSchema);
+        if(await this.readHead(input.baseBranch)!==input.baseSha) throw new GitAdapterError('conflict');
+        await input.beforeWrite?.();
+        created = await checked('POST','/pulls',{title:input.title ?? `Approved Gotchu action ${input.actionHash.slice(0,16)}`,head:input.branch,base:input.baseBranch,draft:input.draft ?? true,body:input.body ?? `Approved action: ${input.actionHash}\n\nEvidence summary: objective rescan passed; validation suite passed; regression checks passed; runner isolation verified.`},prSchema);
       } catch (error) {
         // A timeout may have happened after GitHub created the PR. Reconcile by head before returning.
         const reconciled = await find().catch(() => undefined);
@@ -402,7 +613,15 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
     },
     async getPullRequest(number){return toPr(await checked('GET',`/pulls/${number}`,undefined,prSchema));},
     async closePullRequest(number){await checked('PATCH',`/pulls/${number}`,{state:'closed'},prSchema);},
-    async deleteBranch(branch){const response=await request('DELETE',`/git/refs/heads/${encodeURIComponent(branch)}`);if(response.status!==204&&response.status!==404)throw new GitAdapterError('unknown_outcome');},
+    async deleteBranch(branch){
+      const response=await request('DELETE',`/git/refs/heads/${encodeURIComponent(branch)}`);
+      if(response.status===204||response.status===404)return;
+      if(response.status===422){
+        // GitHub can return 422 when the reference is already absent; verify before treating it as idempotent.
+        try{await this.readHead(branch);}catch(error){if(error instanceof GitAdapterError&&error.code==='not_found')return;throw error;}
+      }
+      throw new GitAdapterError('unknown_outcome');
+    },
     async listRequiredChecks(commitSha){const data=await checked('GET',`/commits/${sha.parse(commitSha)}/check-runs`,undefined,z.object({check_runs:z.array(z.object({name:z.string(),status:z.string(),conclusion:z.string().nullable()}).passthrough()).max(1000)}).passthrough());return data.check_runs.map(item=>({name:item.name,state:item.status==='completed'?(item.conclusion??'unknown'):'pending'}));},
   };
 }

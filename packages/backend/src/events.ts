@@ -1,5 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { eventBatchSchema, type SecurityEvent } from '@gotchu/contracts';
+import { eventBatchSchema, runtimeAttackEventAttributesSchema, runtimeProtectionHeartbeatAttributesSchema, type SecurityEvent } from '@gotchu/contracts';
 import { z } from 'zod';
 import { audit, BackendError, canonicalJson, parse, sha256, systemClock, type BaseDependencies, type CredentialStore } from './core.js';
 import { enqueue } from './jobs.js';
@@ -68,7 +68,19 @@ export function createEventService(deps: BaseDependencies & { credentials?: Cred
         if (unique.size === 0) return { accepted: 0, duplicates: batch.events.length, jobId: null };
         const jobId = randomUUID();
         await enqueue(tx, { organizationId, applicationId: integration.application_id, id: jobId, kind: 'events.aggregate', idempotencyKey: jobId, payload: { integrationId: input.integrationId, eventIds: [...unique.keys()] } });
-        for (const { event, hash } of unique.values()) await tx.query('INSERT INTO gotchu.events(organization_id,application_id,integration_id,id,payload,payload_hash,job_id) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7)', [organizationId, integration.application_id, input.integrationId, event.id, JSON.stringify(event), hash, jobId]);
+        for (const { event, hash } of unique.values()) {
+          await tx.query('INSERT INTO gotchu.events(organization_id,application_id,integration_id,id,payload,payload_hash,job_id) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7)', [organizationId, integration.application_id, input.integrationId, event.id, JSON.stringify(event), hash, jobId]);
+          if (event.type === 'runtime.attack_detected') {
+            const attributes = parse(runtimeAttackEventAttributesSchema, event.attributes);
+            await tx.query(`INSERT INTO gotchu.runtime_protection_events(organization_id,application_id,integration_id,event_id,kind,attack_kind,sink,route,evidence,outcome,occurred_at)
+              VALUES($1,$2,$3,$4,'attack',$5,$6,$7,$8,$9,$10)`, [organizationId, integration.application_id, input.integrationId, event.id,
+              attributes.attackKind, attributes.sink, attributes.route, attributes.evidence, event.outcome, event.occurredAt]);
+          } else if (event.type === 'runtime.protection_heartbeat') {
+            parse(runtimeProtectionHeartbeatAttributesSchema, event.attributes);
+            await tx.query(`INSERT INTO gotchu.runtime_protection_events(organization_id,application_id,integration_id,event_id,kind,occurred_at)
+              VALUES($1,$2,$3,$4,'heartbeat',$5)`, [organizationId, integration.application_id, input.integrationId, event.id, event.occurredAt]);
+          }
+        }
         await tx.query('UPDATE gotchu.integrations SET last_event_at=$1 WHERE organization_id=$2 AND id=$3', [clock.now(), organizationId, input.integrationId]);
         await audit(tx, organizationId, `integration:${input.integrationId}`, 'events.accepted', jobId, { accepted: unique.size });
         return { accepted: unique.size, duplicates: batch.events.length - unique.size, jobId };

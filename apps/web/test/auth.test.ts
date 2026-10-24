@@ -1,7 +1,8 @@
 import { encode } from '@auth/core/jwt';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { authSettings, createAuthConfig, createAuthService, type AuthSettings } from '../src/server/auth.js';
+import { authSettings, createAuthConfig, createAuthService, publicAuthProviders, type AuthSettings } from '../src/server/auth.js';
+import type { LocalAccounts } from '../src/server/local-accounts.js';
 
 const settings: AuthSettings = {
   origin: 'http://localhost:3000',
@@ -12,8 +13,28 @@ const settings: AuthSettings = {
 const service = createAuthService(settings);
 const cookieName = 'authjs.session-token';
 
-async function sessionCookie(secret = settings.secret) {
-  const token = await encode({ secret, salt: cookieName, token: { sub: 'github:42', name: 'Test operator' } });
+function localAccounts(overrides: Partial<LocalAccounts> = {}): LocalAccounts {
+  return {
+    register: async () => ({ id: 'account-id' }),
+    bootstrap: async () => ({ id: 'account-id' }),
+    authenticate: async () => null,
+    emailExists: async () => false,
+    bootstrapComplete: async () => true,
+    accountEmail: async () => null,
+    reauthenticate: async () => null,
+    epoch: async () => null,
+    ...overrides,
+  };
+}
+
+const googleSignInInput = {
+  user: { id: '42', email: 'person@example.test' },
+  account: { provider: 'google', providerAccountId: '42', type: 'oidc' as const },
+  profile: { sub: '42', email: 'person@example.test', email_verified: true },
+};
+
+async function sessionCookie(secret = settings.secret, user: { sub: string; name?: string; email?: string } = { sub: 'github:42', name: 'Test operator' }) {
+  const token = await encode({ secret, salt: cookieName, token: user });
   return `${cookieName}=${token}`;
 }
 
@@ -21,7 +42,13 @@ describe('Auth.js Request/Response integration', () => {
   it('reads a real Auth.js encrypted session and propagates refreshed cookies', async () => {
     const identity = await service.identity(new Request(`${settings.origin}/api/v1/applications`, { headers: { cookie: await sessionCookie() } }));
     expect(identity?.userId).toBe('github:42');
+    expect(identity?.displayName).toBe('Test operator');
     expect(identity?.cookies.some((cookie) => cookie.startsWith(`${cookieName}=`))).toBe(true);
+  });
+
+  it('uses a bounded email local part as a workspace name hint when no display name exists', async () => {
+    const identity = await service.identity(new Request(`${settings.origin}/api/v1/applications`, { headers: { cookie: await sessionCookie(settings.secret, { sub: 'github:42', email: `${'a'.repeat(64)}@example.test` }) } }));
+    expect(identity?.displayName).toBe('a'.repeat(64));
   });
 
   it('does not accept unsigned identity headers or cookies encrypted with another key', async () => {
@@ -65,6 +92,52 @@ describe('Auth.js Request/Response integration', () => {
     expect(authSettings({})).toBeNull();
     expect((await createAuthService(null).handle(new Request(`${settings.origin}/api/auth/session`))).status).toBe(503);
     expect(() => authSettings({ AUTH_SECRET: settings.secret, AUTH_GITHUB_ID: 'id', AUTH_GITHUB_SECRET: 'secret', PUBLIC_APP_URL: 'http://public.example' })).toThrow('HTTPS');
+  });
+
+  it('publishes the GitHub sign-in provider only when both credentials are configured', () => {
+    const base = { AUTH_SECRET: settings.secret, PUBLIC_APP_URL: settings.origin };
+    expect(publicAuthProviders(authSettings({ ...base, AUTH_GITHUB_ID: 'client-id' }))).toEqual([]);
+    expect(publicAuthProviders(authSettings({ ...base, AUTH_GITHUB_SECRET: 'client-secret' }))).toEqual([]);
+    expect(publicAuthProviders(authSettings({ ...base, AUTH_GITHUB_ID: 'client-id', AUTH_GITHUB_SECRET: 'client-secret' }))).toContainEqual({ id: 'github', name: 'GitHub', type: 'oauth' });
+  });
+
+  it('publishes Google only when both credentials are configured and uses the requested scopes', () => {
+    const base = { AUTH_SECRET: settings.secret, PUBLIC_APP_URL: settings.origin };
+    expect(publicAuthProviders(authSettings({ ...base, AUTH_GOOGLE_ID: 'client-id' }))).toEqual([]);
+    expect(publicAuthProviders(authSettings({ ...base, AUTH_GOOGLE_SECRET: 'client-secret' }))).toEqual([]);
+    const configured = authSettings({ ...base, AUTH_GOOGLE_ID: 'client-id', AUTH_GOOGLE_SECRET: 'client-secret' });
+    if (!configured) throw new Error('Google provider credentials were not accepted');
+    expect(publicAuthProviders(configured)).toContainEqual({ id: 'google', name: 'Google', type: 'oidc' });
+    expect(createAuthConfig(configured).providers[0]).toMatchObject({ options: { authorization: { params: { scope: 'openid email profile' } } } });
+  });
+
+  it('requires verified Google email and blocks linking to an existing local account', async () => {
+    const emailExists = vi.fn(async () => true);
+    const configured: AuthSettings = { ...settings, googleClientId: 'google-client', googleClientSecret: 'google-secret', localAccounts: localAccounts({ emailExists }) };
+    const signIn = createAuthConfig(configured).callbacks?.signIn;
+    if (!signIn) throw new Error('Auth.js sign-in callback is not configured');
+    await expect(signIn({ ...googleSignInInput, profile: { ...googleSignInInput.profile, email_verified: false } }))
+      .resolves.toBe(`${settings.origin}/dashboard?authError=GoogleEmailUnverified`);
+    expect(emailExists).not.toHaveBeenCalled();
+    await expect(signIn(googleSignInInput)).resolves.toBe(`${settings.origin}/dashboard?authError=GoogleAccountRequiresPassword`);
+    expect(emailExists).toHaveBeenCalledExactlyOnceWith('person@example.test');
+  });
+
+  it('keeps self-host first-owner creation on the single-use setup flow', async () => {
+    const bootstrapComplete = vi.fn(async () => false);
+    const configured: AuthSettings = {
+      ...settings,
+      googleClientId: 'google-client',
+      googleClientSecret: 'google-secret',
+      selfHostSetup: true,
+      localAccounts: localAccounts({ bootstrapComplete }),
+    };
+    const signIn = createAuthConfig(configured).callbacks?.signIn;
+    if (!signIn) throw new Error('Auth.js sign-in callback is not configured');
+    await expect(signIn(googleSignInInput)).resolves.toBe(`${settings.origin}/dashboard?authError=BootstrapRequired`);
+    await expect(signIn({ ...googleSignInInput, account: { provider: 'github', providerAccountId: '42', type: 'oauth' as const } }))
+      .resolves.toBe(`${settings.origin}/dashboard?authError=BootstrapRequired`);
+    expect(bootstrapComplete).toHaveBeenCalledTimes(2);
   });
 
   it('supports generic OIDC without a GitHub account and exposes no client secret', async () => {

@@ -1,5 +1,19 @@
 # Verification record
 
+## Real-app triage measurement — 2026-10-24
+
+This is a local evaluation of the deterministic evidence path, not a production-accuracy or capacity claim. The separate `apps/demo-target` process uses the Gotchu SDK and runtime guard; it sends signed events to the HTTP intake and coordinator backed by disposable PostgreSQL and Redis/BullMQ. Provider availability and target HTTPS results come from explicitly marked local fixtures.
+
+| Check | Observed result |
+| --- | --- |
+| `pnpm eval:triage` | The live integration test passed and ran 140 app/windows (14 tuning + 14 holdout cases × 5 repetitions). The persisted report contains **2 labelled alert mismatches** in holdout; this test's safety assertions pass independently of report correctness metrics. |
+| Holdout metrics in [triage-evaluation.md](triage-evaluation.md) | Alerts P/R 100%/98.8% (79/79/80), causes P/R 100%/100% (25/25/25), false alarms 0/70 app-windows, confidence errors 1/85, impact errors 0/70, unknown coverage 10/10, decision p50/p95 228/2,637 ms, per-window runtime p50/p95 261/2,664 ms. |
+| Earlier same-matrix holdout readings | An isolated holdout preflight missed event-loop pressure once. A first combined run missed the CPU resource signal in 3/5 repetitions; the final combined run missed it in 1/5. Results remain separate in [triage-evaluation-holdout-repeat-v1.0.2.json](triage-evaluation-holdout-repeat-v1.0.2.json), not pooled. No triage rule or threshold changed after observing holdout. |
+| Coordinator | Build and strict typecheck passed; focused `operational-detectors.test.ts` passed **6/6**. |
+| Demo target and integration project | Demo target build and strict source/test typecheck passed; `pnpm exec tsc -p test/tsconfig.json --noEmit` passed. The earlier full `pnpm build` and `pnpm typecheck` also passed. |
+
+The tuning-only fixes were justified before holdout: the resource-pressure confidence was raised to the detector's high-confidence semantics, the event-loop injection was bounded to cross the measured p95 threshold, and scenario truth labels were corrected. The final holdout's intermittent `runtime.resources.v1` omission remains unresolved because it did not occur in the frozen tuning result; no holdout-derived threshold change was made. The report records `worktreeDirty: true`: D15 documentation was being updated during the run, and pnpm rewrote the shared lockfile; the lockfile diff was restored and not committed. The evaluation used zero model calls/tokens. SQLi/path-traversal probes were blocked before local sinks; traffic-spike controls did not produce attack alerts; stale/missing telemetry retained unknown coverage. Exploitability, real provider behavior, browser workflow, repair time, representative customer traffic, and production capacity remain unmeasured.
+
 ## Maintained scanner, production TLS, and real-source verification — 2026-10-24
 
 The final functional code revision is `51c42303bda1a16793fd9efa46e127c821b2b060`. It includes canonicalization of validated PEM certificates in the coordinator-scoped scanner CA bundle. The following is local Linux/amd64 evidence for the exercised paths, not a cloud deployment, broad scanner-accuracy guarantee, or production-capacity claim.
@@ -98,7 +112,8 @@ This record supersedes the fixture-only milestone below. The product now accepts
 | `pnpm --filter @gotchu/coordinator test:live` | **7 passed**: five real Postgres/Redis cases with explicitly synthetic runner outcomes and two watchdog units. Includes uncertain transport outcomes and reclaimed claims with and without a configured scanner. |
 | `pnpm --filter @gotchu/gateway test:postgres` | **23 passed**, including 18 actual PostgreSQL cases and the real HTTP worker/LangGraph path. TLS transport fixtures retained certificate verification. |
 | `pnpm --filter @gotchu/executor test:postgres` | **35 passed**, including nine actual PostgreSQL ledger cases. Provider/MFA/eligibility ports remain explicitly synthetic. |
-| `pnpm --filter @gotchu/customer-assessment test:live` | **4 passed**: actual pinned Docker profiles, malformed Trivy input with retained findings/unknown coverage, aborted Docker cleanup, and the actual OSV metadata service. No scanner findings were fabricated. |
+| `pnpm --filter @gotchu/customer-assessment test:live` | **5 passed**: actual pinned Docker profiles recognize a Kubernetes manifest alongside `package-lock.json`, bind Trivy KSV017 to its exact literal, and keep an omitted malformed Kubernetes file unknown; aborted Docker cleanup; scoped CSP correlation; and live OSV metadata confirming `lodash@4.17.21` no longer matches `GHSA-35jh-r3h4-6jhm`, the specific advisory matched by `lodash@4.17.20`. This does not claim that `lodash@4.17.21` has no advisories. No scanner findings were fabricated. |
+| `GOTCHU_TEST_SCANNERS=1 pnpm test:integration test/integration/customer-applications.test.ts` | **6 passed** with isolated PostgreSQL/Redis, built Nitro/coordinator processes, pinned Docker scanners, live OSV, and scanner HMAC. A real Trivy `KSV017` report produced a private candidate and durable independent rescan; the finding disappeared from the candidate report while the original stored manifest remained `privileged: true`. |
 | `bash scripts/infra-compose-validate.sh` and `docker build --check --progress=plain .` | Compose policy and Dockerfile checks passed. This is static image validation, not a build/run of the updated images. |
 | `pnpm dev:start` / `pnpm dev:stop` | Started and verified actual scanner readiness, customer-discovery coordinator, web session API and rendered dashboard on loopback. Production-compiled assets run with explicit development registration. Stopped the recorded app processes without deleting data. |
 
@@ -128,6 +143,26 @@ The first broad runs exposed two test-harness errors: a case-sensitive assertion
 This establishes the implemented development customer path, not a production release. At that checkpoint Semgrep 1.90.0 remained development/test-only; that profile gate is superseded for the exercised Linux/amd64 scanner path by the maintained-profile validation above. Customer-code execution stays disabled pending VM-class isolation. Live AWS/OAuth, production ingress TLS, production identity operation, provider writes, alerts, restoration drills, measured retention/capacity/cost, and broader scanner profiles are not established. Model calls and provider writes remain disabled. The updated coordinator image dependency layout passed Dockerfile checks but was not rebuilt because local Docker storage had less than 0.5 GiB free; no unrelated data/images were pruned.
 
 The production web build reports upstream Nitro/Rolldown `use client` warnings; these are not suppressed. There is no lint script.
+
+# Runtime protection SDK verification — 2026-10-24
+
+This focused run exercises the opt-in Node protection path against an isolated local data stack. It does not measure production traffic accuracy, overhead, service capacity, or hosted behavior.
+
+| Command | Observed result |
+| --- | --- |
+| `pnpm --filter @gotchu/sdk test` | 13 unit cases passed across detector, middleware, policy, event queue, and failure behavior. |
+| `pnpm --filter @gotchu/contracts test` | 23 cases passed. |
+| `pnpm --filter @gotchu/backend test` | 10 passed; 123 database-gated cases skipped because this package run had no database URL. The focused live integration below covers the changed service path. |
+| `pnpm --filter @gotchu/coordinator test` | 15 passed; 11 database-gated cases skipped. |
+| `pnpm --filter @gotchu/web test` | 81 passed; 2 browser/Postgres-gated cases skipped. |
+| Affected package builds: `@gotchu/contracts`, `@gotchu/sdk`, `@gotchu/backend`, `@gotchu/coordinator`, `@gotchu/web` | All passed. The web build emitted existing upstream Nitro/Rolldown `use client` directive warnings. |
+| `pnpm typecheck` | Passed for workspace packages and root integration-test sources after building the workspace dependencies. |
+| `pnpm exec tsc -p test/tsconfig.json` | Passed after adding the middleware and live integration cases. |
+| `pnpm test:integration test/integration/runtime-protection.test.ts` | One end-to-end case passed against temporary isolated Postgres and Redis. A first attempt exposed a Zod v4 refined-schema `.omit()` failure in the settings route; the route now validates a dedicated payload schema, and the final live run passed. |
+
+The end-to-end case starts a real `node:http` target, installs the SDK wrapper, sends four attack-shaped requests through the signed web intake, checks that monitor mode continues and block mode returns 403 before each sink, and verifies the sanitized events in Postgres. It then checks cross-tenant denial, same-workspace Viewer denial for policy changes, event replay and app binding, and durable coordinator jobs producing medium-severity runtime indications with blocked attempts counted separately. Input values do not appear in the stored protection projection. This validates the exercised paths with disposable local services; it does not establish the general accuracy or false-positive rate of these patterns.
+
+The authenticated customer dashboard was typechecked and built, but its protected workspace panel was not browser-verified in this run because the available local browser session had no test account. No existing local account or workspace data was changed.
 
 ## Earlier controlled assessments and AWS direction — 2026-10-24
 

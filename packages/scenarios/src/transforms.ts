@@ -7,6 +7,21 @@ export type ExactTransform =
   | { status: 'blocked'; reason: TransformBlockReason };
 
 interface FindingLocation { path: string; line: number }
+export interface KubernetesCorrectionBinding { checkId: string; startLine: number; endLine: number; propertyLine: number }
+
+interface KubernetesPropertyCorrection {
+  ruleId: string;
+  key: 'privileged' | 'allowPrivilegeEscalation' | 'runAsNonRoot' | 'readOnlyRootFilesystem';
+  before: boolean;
+  after: boolean;
+}
+
+const kubernetesCorrections: Readonly<Record<string, KubernetesPropertyCorrection>> = {
+  KSV001: { ruleId: 'AVD-KSV-0001', key: 'allowPrivilegeEscalation', before: true, after: false },
+  KSV012: { ruleId: 'AVD-KSV-0012', key: 'runAsNonRoot', before: false, after: true },
+  KSV014: { ruleId: 'AVD-KSV-0014', key: 'readOnlyRootFilesystem', before: false, after: true },
+  KSV017: { ruleId: 'AVD-KSV-0017', key: 'privileged', before: true, after: false },
+};
 
 function parseSourceLocation(location: string): FindingLocation | undefined {
   const match = /^(.+):(\d+)$/.exec(location);
@@ -99,11 +114,22 @@ function isInsideAmbiguousScalar(lines: readonly YamlLine[], targetIndex: number
   return false;
 }
 
-function exactKubernetesTransform(source: CustomerSourceSnapshot, location: FindingLocation | undefined): ExactTransform {
+function exactKubernetesTransform(
+  source: CustomerSourceSnapshot,
+  location: FindingLocation | undefined,
+  ruleId: string | undefined,
+  binding: KubernetesCorrectionBinding | undefined,
+): ExactTransform {
   if (!location) return { status: 'blocked', reason: 'location_unbound' };
   if (!/\.ya?ml$/i.test(location.path)) return { status: 'blocked', reason: 'unsupported_transform' };
   const sourceFile = source.files.find((file) => file.path === location.path);
   if (!sourceFile) return { status: 'blocked', reason: 'source_file_not_found' };
+  if (!binding) return { status: 'blocked', reason: 'location_unbound' };
+  const correction = kubernetesCorrections[binding.checkId];
+  if (!correction || correction.ruleId !== ruleId || binding.propertyLine !== location.line
+    || binding.startLine < 1 || binding.endLine < binding.startLine
+    || binding.propertyLine < binding.startLine || binding.propertyLine > binding.endLine
+    || binding.endLine - binding.startLine > 500) return { status: 'blocked', reason: 'location_unbound' };
 
   // Block scalar bodies are opaque text. This small YAML recognizer never edits inside one.
   if (/^[ \t]*(?:[^#\n]*?:[ \t]*|-[ \t]+[^#\n]*?:[ \t]*)[|>][+-]?[0-9]?[ \t]*(?:#.*)?$/m.test(sourceFile.content)) {
@@ -112,16 +138,18 @@ function exactKubernetesTransform(source: CustomerSourceSnapshot, location: Find
   if (/^[ ]*\t/m.test(sourceFile.content)) return { status: 'blocked', reason: 'unsupported_transform' };
   const lines = yamlLines(sourceFile.content);
   const scalarMatches = lines.flatMap((line) => {
-    const match = /^([ \t]*)(privileged|allowPrivilegeEscalation):([ \t]*)true([ \t]*(?:#.*)?)$/.exec(line.text);
+    const match = /^([ \t]*)(privileged|allowPrivilegeEscalation|runAsNonRoot|readOnlyRootFilesystem):([ \t]*)(true|false)([ \t]*(?:#.*)?)$/.exec(line.text);
     if (!match) return [];
     const indentation = match[1];
     const key = match[2];
     const spacing = match[3];
-    if (indentation === undefined || key === undefined || spacing === undefined) return [];
+    const value = match[4];
+    if (indentation === undefined || key === undefined || spacing === undefined || value === undefined) return [];
     const tokenStart = line.start + indentation.length + key.length + 1 + spacing.length;
-    return [{ line, key, tokenStart, tokenEnd: tokenStart + 4 }];
+    return [{ line, key, value: value === 'true', tokenStart, tokenEnd: tokenStart + value.length }];
   });
-  const target = scalarMatches.find((candidate) => candidate.line.number === location.line);
+  const target = scalarMatches.find((candidate) => candidate.line.number === binding.propertyLine
+    && candidate.key === correction.key && candidate.value === correction.before);
   if (!target) return { status: 'blocked', reason: 'unsupported_transform' };
   if (isInsideAmbiguousScalar(lines, target.line.number - 1)) return { status: 'blocked', reason: 'unsupported_transform' };
 
@@ -141,9 +169,10 @@ function exactKubernetesTransform(source: CustomerSourceSnapshot, location: Find
     const childIndent = children.reduce<number | undefined>((minimum, line) => minimum === undefined || line.indent < minimum ? line.indent : minimum, undefined);
     return { ...parent, end, childIndent };
   });
-  const context = contexts.find((candidate) => candidate.childIndent !== undefined
+  const containingContexts = contexts.filter((candidate) => candidate.childIndent !== undefined
     && target.line.number - 1 > candidate.index && target.line.number - 1 < candidate.end
     && target.line.indent === candidate.childIndent);
+  const context = containingContexts.length === 1 ? containingContexts[0] : undefined;
   if (!context) return { status: 'blocked', reason: 'unsupported_transform' };
 
   const sameKeyInContext = scalarMatches.filter((candidate) => candidate.key === target.key
@@ -151,14 +180,20 @@ function exactKubernetesTransform(source: CustomerSourceSnapshot, location: Find
     && candidate.line.indent === context.childIndent);
   if (sameKeyInContext.length !== 1) return { status: 'blocked', reason: 'ambiguous_transform' };
 
-  const afterBytes = `${sourceFile.content.slice(0, target.tokenStart)}false${sourceFile.content.slice(target.tokenEnd)}`;
+  const afterBytes = `${sourceFile.content.slice(0, target.tokenStart)}${correction.after}${sourceFile.content.slice(target.tokenEnd)}`;
   return { status: 'ready', path: sourceFile.path, beforeBytes: sourceFile.content, afterBytes };
 }
 
-export function inspectExactTransform(recipeId: string, source: CustomerSourceSnapshot, findingLocation: string): ExactTransform {
+export function inspectExactTransform(
+  recipeId: string,
+  source: CustomerSourceSnapshot,
+  findingLocation: string,
+  ruleId?: string,
+  kubernetesBinding?: KubernetesCorrectionBinding,
+): ExactTransform {
   const location = parseSourceLocation(findingLocation);
   if (recipeId === 'tls-certificate-verification') return exactTlsTransform(source, location);
-  if (recipeId === 'kubernetes-config-hardening') return exactKubernetesTransform(source, location);
+  if (recipeId === 'kubernetes-config-hardening') return exactKubernetesTransform(source, location, ruleId, kubernetesBinding);
   return { status: 'blocked', reason: 'unsupported_transform' };
 }
 

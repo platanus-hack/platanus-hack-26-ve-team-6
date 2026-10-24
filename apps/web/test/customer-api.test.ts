@@ -1,17 +1,21 @@
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { BackendError } from '@gotchu/backend';
 import { createCustomerApi, type CustomerServices } from '../src/server/customer-api.js';
 import { contextClient } from '../src/components/context-client.js';
 import type { AuthService } from '../src/server/auth.js';
-import { operationPlanSchema } from '@gotchu/contracts';
+import type { LocalAccounts } from '../src/server/local-accounts.js';
+import { decisionRecordPageSchema, operationPlanSchema, customerAssessmentReportSchema } from '@gotchu/contracts';
+import type { LicensePolicy, WorkspaceRetentionPolicy } from '@gotchu/contracts';
+import { buildCycloneDx } from '@gotchu/customer-assessment';
 const origin = 'http://localhost:3000';
 const organizationId = randomUUID();
 const applicationId = randomUUID();
 const userId = `credentials:${randomUUID()}`;
 function ports() {
   const unused = async (): Promise<never> => { throw new Error('Unexpected service invocation'); };
-  const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listReports: unused, getReport: unused, queue: unused, job: unused };
+  const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, updateWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listContainerImages: unused, uploadContainerImage: unused, deleteContainerImage: unused, listReports: unused, getReport: unused, recordReportDownload: unused, queue: unused, job: unused };
   const auth: AuthService = { enabled: true, handle: async () => new Response(), identity: async () => ({ userId, cookies: ['authjs.session-token=refreshed; Path=/; HttpOnly'] }), accountEmail: async () => null };
   return { services, auth };
 }
@@ -26,6 +30,112 @@ function operationPorts() {
   return { ...result, operations };
 }
 describe('authenticated customer HTTP adapter (injected services)', () => {
+  it('downloads CycloneDX only through the authenticated report scope', async () => {
+    const { services, auth } = ports();
+    const reportId = randomUUID();
+    const timestamp = new Date().toISOString();
+    const targetId = randomUUID();
+    const report = customerAssessmentReportSchema.parse({ version: 2, id: reportId, organizationId, applicationId, jobId: randomUUID(), applicationName: 'App', mode: 'external', startedAt: timestamp, finishedAt: timestamp, internal: null, external: { origin: 'external', status: 'completed', startedAt: timestamp, finishedAt: timestamp, snapshotRef: 'target:snapshot:1', tool: { name: 'synthetic-test', version: '1' }, findings: [], evidence: [], coverage: [], limitations: [] }, comparison: [], limitations: [], responseMode: 'observation', actionsPerformed: [], subject: { sourceSnapshotId: null, sourceDigest: null, targetId, targetVersion: 1, origin: 'https://app.example.com' } });
+    const bom = buildCycloneDx(report);
+    const exportSbom = vi.fn(async () => bom);
+    services.exportSbom = exportSbom;
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `workspaces/${organizationId}/applications/${applicationId}/reports/${reportId}/sbom.cyclonedx.json`;
+    const response = await handle(new Request(`${origin}/api/customer/${path}`));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('application/vnd.cyclonedx+json');
+    expect(response.headers.get('content-disposition')).toContain(`${reportId}.cdx.json`);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(await response.json()).toEqual(bom);
+    expect(exportSbom).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, reportId });
+    auth.identity = async () => null;
+    expect((await handle(new Request(`${origin}/api/customer/${path}`))).status).toBe(401);
+    expect(exportSbom).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads and updates workspace license policy through the authenticated path scope', async () => {
+    const { services, auth } = ports();
+    const policy: LicensePolicy = { allow: ['MIT'], deny: [], review: ['UNKNOWN'] };
+    const getPolicy = vi.fn(async () => ({ organizationId, policy, updatedAt: null, configured: false }));
+    const updatePolicy = vi.fn(async (_identity: { userId: string }, input: { organizationId: string; policy: LicensePolicy }) => ({ organizationId: input.organizationId, policy: input.policy, updatedAt: new Date().toISOString(), configured: true }));
+    services.getLicensePolicy = getPolicy;
+    services.updateLicensePolicy = updatePolicy;
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `/api/customer/workspaces/${organizationId}/license-policy`;
+    const fetched = await handle(new Request(`${origin}${path}`));
+    expect(fetched.status).toBe(200);
+    expect(await fetched.json()).toMatchObject({ organizationId, policy, configured: false });
+    expect(getPolicy).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId });
+
+    const invalid = await handle(new Request(`${origin}${path}`, { method: 'PUT', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ allow: ['MIT'], deny: ['MIT'], review: [] }) }));
+    expect(invalid.status).toBe(400);
+    expect(updatePolicy).not.toHaveBeenCalled();
+    const updated = await handle(new Request(`${origin}${path}`, { method: 'PUT', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(policy) }));
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({ organizationId, policy, configured: true });
+    expect(updatePolicy).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, policy });
+  });
+
+  it('renames a workspace using the authenticated path scope', async () => {
+    const { services, auth } = ports();
+    const workspace = { id: organizationId, name: 'Renamed', role: 'owner' as const };
+    services.updateWorkspace = vi.fn(async (identity, input) => {
+      expect(identity).toEqual({ userId });
+      expect(input).toEqual({ organizationId, name: 'Renamed' });
+      return workspace;
+    });
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const response = await handle(new Request(`${origin}/api/customer/workspaces/${organizationId}`, { method: 'PATCH', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Renamed' }) }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(workspace);
+    expect(services.updateWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let an authenticated identity create the first self-host Owner outside /setup', async () => {
+    const { services, auth } = ports();
+    const bootstrapComplete = vi.fn(async () => false);
+    const localAccounts: LocalAccounts = {
+      register: async () => ({ id: 'account-id' }),
+      bootstrap: async () => ({ id: 'account-id' }),
+      authenticate: async () => null,
+      emailExists: async () => false,
+      bootstrapComplete,
+      accountEmail: async () => null,
+      reauthenticate: async () => null,
+      epoch: async () => null,
+    };
+    const createWorkspace = vi.fn(async () => ({ id: organizationId, name: 'Unapproved', role: 'owner' as const }));
+    services.createWorkspace = createWorkspace;
+    const handle = createCustomerApi({ auth, origin, services, localAccounts, selfHostSetup: true, registrationEnabled: false, providers: [] });
+    const response = await handle(request('workspaces', { name: 'Unapproved' }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: 'self_host_setup_required' } });
+    expect(bootstrapComplete).toHaveBeenCalledExactlyOnceWith();
+    expect(createWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('reads and updates workspace retention through the authenticated workspace path', async () => {
+    const { services, auth } = ports();
+    const policy: WorkspaceRetentionPolicy = { organizationId, sourceSnapshotDays: 90, containerImageDays: 30, reportDays: 365,
+      observationDays: 30, runDays: 30, notificationDeliveryDays: 90, protectionEventDays: 30, updatedAt: new Date().toISOString() };
+    const getPolicy = vi.fn(async () => policy);
+    const updatePolicy = vi.fn(async (_identity: { userId: string }, input: { organizationId: string; sourceSnapshotDays: number; containerImageDays: number; reportDays: number; observationDays: number; runDays: number; notificationDeliveryDays: number; protectionEventDays: number }) => ({ ...input, updatedAt: new Date().toISOString() }));
+    services.retention = { getPolicy, updatePolicy, claimDue: async () => [], purge: async () => ({ sourceSnapshots: 0, containerImages: 0, reports: 0, observations: 0, runs: 0, notificationDeliveries: 0, protectionEvents: 0, proposalsInvalidated: 0, runsTrimmed: 0, observationsTrimmed: 0, plansTrimmed: 0 }) };
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `/api/customer/workspaces/${organizationId}/retention`;
+    const fetched = await handle(new Request(`${origin}${path}`));
+    expect(fetched.status).toBe(200);
+    expect(await fetched.json()).toMatchObject(policy);
+    expect(getPolicy).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId });
+    const invalid = await handle(new Request(`${origin}${path}`, { method: 'PUT', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ ...policy, sourceSnapshotDays: 0 }) }));
+    expect(invalid.status).toBe(400);
+    expect(updatePolicy).not.toHaveBeenCalled();
+    const updated = await handle(new Request(`${origin}${path}`, { method: 'PUT', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ ...policy, updatedAt: undefined, organizationId: undefined }) }));
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({ ...policy, updatedAt: expect.any(String) });
+    expect(updatePolicy).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, sourceSnapshotDays: 90, containerImageDays: 30, reportDays: 365, observationDays: 30, runDays: 30, notificationDeliveryDays: 90, protectionEventDays: 30 });
+  });
+
   it('fails closed when step-up routes are unavailable', async () => {
     const { services, auth } = ports();
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
@@ -62,7 +172,7 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     const selection = { recipeId: 'tls-certificate-verification', findingId, expectedSourceDigest: 'a'.repeat(64) };
     const result = { sourceId: randomUUID(), jobId: randomUUID(), changes: [{ path: 'src/tls.ts', description: 'Enable certificate verification.' }], patchHash: 'b'.repeat(64) };
     const prepare = vi.fn(async () => result);
-    services.corrections = { prepare, recommendations: async () => { throw new Error('Unexpected recommendations read'); } };
+    services.corrections = { prepare, prepareDependencyFix: async () => { throw new Error('Unexpected dependency fix preparation'); }, recommendations: async () => { throw new Error('Unexpected recommendations read'); } };
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
     const path = `workspaces/${organizationId}/applications/${applicationId}/reports/${reportId}/corrections`;
     for (const extra of [{ verified: true }, { command: 'arbitrary command' }, { organizationId: randomUUID() }, { source: { files: [] } }]) {
@@ -77,7 +187,7 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     const { services, auth } = ports();
     const candidateSourceId = randomUUID(); const repositoryLinkId = randomUUID();
     const validationStatus = vi.fn(async () => null);
-    services.corrections = { recommendations: async () => { throw new Error('Unexpected recommendations read'); }, prepare: async () => { throw new Error('Unexpected correction preparation'); }, validationStatus };
+    services.corrections = { recommendations: async () => { throw new Error('Unexpected recommendations read'); }, prepare: async () => { throw new Error('Unexpected correction preparation'); }, prepareDependencyFix: async () => { throw new Error('Unexpected dependency fix preparation'); }, validationStatus };
     const suite = { id: randomUUID(), organizationId, applicationId, repositoryLinkId, version: 1, profile: 'node24-npm-test' as const, scriptName: 'test', suiteName: 'API tests', requiredCount: 4, regressionTestPath: null, createdAt: new Date().toISOString() };
     const configureSuite = vi.fn(async () => suite);
     services.validations = { configureSuite, getStatus: async () => null, getValidationFacts: async () => null };
@@ -94,7 +204,7 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     const { services, auth } = ports();
     const proposalId = randomUUID();
     const propose = vi.fn(async (_identity: { userId: string }, _input: { organizationId: string; applicationId: string; kind: string; sourceRef: unknown }) => ({ proposalId, actionHash: 'a'.repeat(64) }));
-    const projection = { id: proposalId, actionHash: 'a'.repeat(64), kind: 'source_patch_pull_request' as const, state: 'ineligible' as const, effect: 'Abrir una solicitud de cambio', scope: 'Aplicación', target: { kind: 'repository' as const, repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, cost: { state: 'unknown' as const, amount: null }, diff: null, validations: [], limits: [], blockingReasons: [], createdAt: new Date().toISOString() };
+    const projection = { id: proposalId, actionHash: 'a'.repeat(64), kind: 'source_patch_pull_request' as const, state: 'ineligible' as const, effect: 'Abrir una solicitud de cambio', scope: 'Aplicación', target: { kind: 'repository' as const, repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, cost: { state: 'unknown' as const, amount: null }, diff: null, validations: [], limits: [], blockingReasons: [], execution: { status:null, pullRequestUrl:null, attempts:[] }, createdAt: new Date().toISOString() };
     services.actions = {
       list: async () => [], get: async () => projection, propose, getEligibility: async () => ({ status: 'ineligible' as const, blockingReasons: ['sin adaptador de escritura'] }),
       approve: async () => ({ approvalId: randomUUID(), expiresAt: new Date() }), cancel: async () => undefined,
@@ -123,6 +233,41 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect((await handle(request(`workspaces/${organizationId}/applications`, { name: 'Actual app' }))).status).toBe(201);
     expect(services.createApplication).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, name: 'Actual app' });
   });
+  it('validates workspace decision-history queries and forwards only the authenticated identity', async () => {
+    const { services, auth } = ports();
+    const page = decisionRecordPageSchema.parse({ records: [], nextCursor: null });
+    const list = vi.fn(async () => page);
+    services.decisionRecords = { list };
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `${origin}/api/customer/workspaces/${organizationId.toUpperCase()}/decision-records`;
+    const response = await handle(new Request(`${path}?limit=10&subjectType=alert&subjectId=${applicationId}`));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(await response.json()).toEqual(page);
+    expect(list).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, limit: 10, subjectType: 'alert', subjectId: applicationId });
+
+    list.mockRejectedValueOnce(new BackendError('forbidden', 'No tienes acceso a este espacio.', 403));
+    expect((await handle(new Request(`${path}`))).status).toBe(403);
+
+    expect((await handle(new Request(`${path}?limit=51`))).status).toBe(400);
+    expect((await handle(new Request(`${path}?unknown=value`))).status).toBe(400);
+    expect(list).toHaveBeenCalledTimes(2);
+    auth.identity = async () => null;
+    expect((await handle(new Request(`${path}`))).status).toBe(401);
+    expect(list).toHaveBeenCalledTimes(2);
+  });
+  it('records report downloads only after the authenticated workspace service accepts them', async () => {
+    const { services, auth } = ports();
+    const reportId = randomUUID();
+    const record = vi.fn(async () => undefined);
+    services.recordReportDownload = record;
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `workspaces/${organizationId}/applications/${applicationId}/reports/${reportId}/download`;
+    expect((await handle(request(path, {}))).status).toBe(204);
+    expect(record).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, reportId });
+    record.mockRejectedValueOnce(new BackendError('forbidden', 'No tienes acceso.', 403));
+    expect((await handle(request(path, {}))).status).toBe(403);
+  });
   it('rejects cross-origin mutations before calling any backend service', async () => {
     const { services, auth } = ports();
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
@@ -142,6 +287,37 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect((await handle(request('register', { email: 'person@example.com', password: 'a long passphrase for fixture' }))).status).toBe(403);
     const oversized = new Request(`${origin}/api/customer/workspaces/${organizationId}/applications/${applicationId}/sources`, { method: 'POST', headers: { origin, 'content-type': 'application/json', 'content-length': '99999999' }, body: '{}' });
     expect((await handle(oversized)).status).toBe(413);
+  });
+  it('accepts a bounded raw image archive only through the authenticated, authorized upload route', async () => {
+    const { services, auth } = ports();
+    const imageId = randomUUID();
+    const createdAt = new Date().toISOString();
+    const archive = new Uint8Array([0x1f, 0x8b, 0x08, 0x00]);
+    const upload = vi.fn(async (
+      _identity: Parameters<CustomerServices['uploadContainerImage']>[0],
+      input: Parameters<CustomerServices['uploadContainerImage']>[1],
+      bytes: Parameters<CustomerServices['uploadContainerImage']>[2],
+    ) => ({
+      organizationId: input.organizationId, applicationId: input.applicationId, id: imageId,
+      digest: 'a'.repeat(64), label: input.label, size: bytes.byteLength, createdAt,
+    }));
+    services.uploadContainerImage = upload;
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `workspaces/${organizationId}/applications/${applicationId}/container-images?label=customer.tar&authorized=true`;
+    const response = await handle(new Request(`${origin}/api/customer/${path}`, {
+      method: 'POST', headers: { origin, 'content-type': 'application/x-tar' }, body: archive,
+    }));
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({
+      organizationId, applicationId, id: imageId, digest: 'a'.repeat(64), label: 'customer.tar', size: archive.byteLength, createdAt,
+    });
+    expect(upload).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, applicationId, label: 'customer.tar', authorized: true }, Buffer.from(archive));
+
+    const invalidType = await handle(new Request(`${origin}/api/customer/${path}`, {
+      method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: '{}',
+    }));
+    expect(invalidType.status).toBe(415);
+    expect(upload).toHaveBeenCalledTimes(1);
   });
   it('reports invalid backend output as a server error rather than a successful empty result', async () => {
     const { services, auth } = ports(); services.job = async () => ({ id: randomUUID(), secret: 'must not be exposed' });
@@ -290,6 +466,8 @@ describe('authenticated context inventory HTTP adapter', () => {
       updateService: async () => undefined,
       createRepositoryLink,
       revokeRepositoryLink: async () => undefined,
+      getRepositoryWriteAccessChallenge: async () => ({ actionHash: 'a'.repeat(64) }),
+      setRepositoryWriteAccess: async () => undefined,
       createDeployment: async () => undefined,
       createDependency: async () => undefined,
       createOriginCandidate: async () => undefined,
@@ -333,6 +511,8 @@ describe('authenticated context inventory HTTP adapter', () => {
       createEnvironment: async () => undefined, updateEnvironment, archiveEnvironment,
       createService: async () => undefined, updateService: async () => undefined,
       createRepositoryLink: async () => undefined, revokeRepositoryLink: async () => undefined,
+      getRepositoryWriteAccessChallenge: async () => ({ actionHash: 'a'.repeat(64) }),
+      setRepositoryWriteAccess: async () => undefined,
       createDeployment: async () => undefined, createDependency: async () => undefined, createOriginCandidate: async () => undefined,
     };
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });

@@ -8,7 +8,7 @@ const proposal = proposalFixture({ organizationId: randomUUID(), applicationId: 
 const now = new Date();
 const actionV2: ActionV2 = {
   version: 2, kind: 'source_patch_pull_request', capabilityId: 'repository.source_patch_pr', organizationId: randomUUID(), applicationId: randomUUID(), policyVersion: 'policy-v2',
-  target: { kind: 'repository', repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, recipeId: 'tls-certificate-verification', recipeVersion: '1',
+  target: { kind: 'repository', repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, baseCommit: '1'.repeat(40), recipeId: 'tls-certificate-verification', recipeVersion: '1',
   snapshotSha256: 'a'.repeat(64), patchSha256: 'b'.repeat(64), findingIdentities: ['finding-1'], validationAttestationIds: [randomUUID()], evidence: [{ id: randomUUID(), sha256: 'c'.repeat(64), kind: 'candidate' }],
 };
 describe('exact proposals and verifier contracts (unit fixtures, not live provider evidence)', () => {
@@ -38,7 +38,7 @@ describe('exact proposals and verifier contracts (unit fixtures, not live provid
   });
   it('rejects caller payload fields and invalid dependency versions', () => {
     expect(actionV2Schema.safeParse({ ...actionV2, approved: true }).success).toBe(false);
-    const dependencyAction: ActionV2 = { version: 2, kind: 'dependency_pull_request', capabilityId: 'repository.dependency_pr', organizationId: actionV2.organizationId, applicationId: actionV2.applicationId, policyVersion: 'policy-v2', target: { kind: 'repository', repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, baseCommit: '1'.repeat(40), candidateCommit: '2'.repeat(40), changes: [{ name: 'library', from: '1.2.1', to: '1.3.0' }], lockfileSha256: 'd'.repeat(64), patchSha256: 'e'.repeat(64), rescanAttestationId: randomUUID(), suiteAttestationId: randomUUID(), evidence: [{ id: randomUUID(), sha256: 'c'.repeat(64), kind: 'manifest' }] };
+    const dependencyAction: ActionV2 = { version: 2, kind: 'dependency_pull_request', capabilityId: 'repository.dependency_pr', organizationId: actionV2.organizationId, applicationId: actionV2.applicationId, policyVersion: 'policy-v2', target: { kind: 'repository', repositoryLinkId: randomUUID(), repositoryKey: 'catalog:key', branch: 'main' }, baseCommit: '1'.repeat(40), candidateCommit: '2'.repeat(40), changes: [{ name: 'library', from: '1.2.1', to: '1.3.0' }], advisoryIds: ['GHSA-xxxx-yyyy-zzzz'], lockfileSha256: 'd'.repeat(64), patchSha256: 'e'.repeat(64), rescanAttestationId: randomUUID(), suiteAttestationId: randomUUID(), evidence: [{ id: randomUUID(), sha256: 'c'.repeat(64), kind: 'manifest' }] };
     expect(actionV2Schema.safeParse(dependencyAction).success).toBe(true);
     expect(actionV2Schema.safeParse({ ...dependencyAction, changes: [{ name: 'library', from: '1.2.1', to: '2.0.0' }] }).success).toBe(false);
   });

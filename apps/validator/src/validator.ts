@@ -3,18 +3,25 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { customerAssessmentReportSchema, customerRunInputSchema, customerSourceSnapshotSchema, scoreIndependentRescan, validationEvidenceSchema, validationLimitsSchema, validationSuiteDefinitionSchema, type ValidationEvidence, type ValidationRun } from '@gotchu/contracts';
-import { createCustomerAssessmentRunner } from '@gotchu/customer-assessment';
+import { createCustomerAssessmentRunner, createDockerScanners, createNpmArtifactAdapter, createNpmArtifactScanner, createNpmLicenseAdapter, createOsvAdapter } from '@gotchu/customer-assessment';
 import { createFirecrackerRunner, checkRunnerGate, runnerJobSchema, runnerPackageRoot, runnerResultSchema, type RunnerResult } from '@gotchu/runner';
 import type { Database } from '@gotchu/database';
 import { scoreValidation } from '@gotchu/backend';
 import { sourceArchive } from './archive.js';
 import { signAttestation, type ValidatorKey } from './keys.js';
 import { createValidationInputRegistry } from './input-registry.js';
-import { suiteModifiedByCandidate, validationAdmissionReason } from './validation-rules.js';
+import { rescanCoverage, suiteModifiedByCandidate, validationAdmissionReason } from './validation-rules.js';
 
 const leaseMs = 300_000;
-const scanner = createCustomerAssessmentRunner();
+const scanners = createDockerScanners();
+const scanner = createCustomerAssessmentRunner({
+  scanners,
+  advisory: createOsvAdapter(),
+  artifacts: createNpmArtifactAdapter(createNpmArtifactScanner(scanners)),
+  licenses: createNpmLicenseAdapter(),
+});
 const suiteResultSchema = z.object({ passed: z.number().int().nonnegative(), failed: z.number().int().nonnegative(), skipped: z.number().int().nonnegative(), regression: z.enum(['failed_for_target', 'passed']).optional() }).strict();
+const dependencyAllowlistSchema = z.array(z.object({ name: z.string().min(1).max(214), section: z.enum(['dependencies', 'devDependencies', 'optionalDependencies']), version: z.string().max(100) }).strict()).max(20);
 const imageLockSchema = z.object({ firecracker: z.object({ binarySha256: z.string().regex(/^[a-f0-9]{64}$/) }).passthrough(), kernel: z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/) }).passthrough(), rootfs: z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/) }).passthrough() }).passthrough();
 
 function scanIdentities(report: unknown) {
@@ -23,7 +30,7 @@ function scanIdentities(report: unknown) {
   if (!analysis || analysis.status !== 'completed') return { identities: [] as string[], coverage: 'unknown' as const };
   return {
     identities: [...new Set(analysis.findings.map(finding => finding.correlationKey))].sort(),
-    coverage: analysis.coverage.length > 0 && analysis.coverage.every(item => item.state === 'inspected') ? 'complete' as const : 'partial' as const,
+    coverage: rescanCoverage(analysis.coverage),
   };
 }
 
@@ -107,15 +114,20 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
       for (const item of attestations) await tx.query(`INSERT INTO gotchu.validation_attestations(organization_id,application_id,run_id,id,kind,body,key_id,signature,expires_at)
         VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [run.organizationId, run.applicationId, run.id, item.payload.id, item.payload.evidence.kind, JSON.stringify(item.payload), item.keyId, item.signature, item.payload.expiresAt]);
       await tx.query(`UPDATE gotchu.validation_runs SET state=$5,reason=$6,finished_at=clock_timestamp(),lease_token=NULL,lease_until=NULL,
-        runner_digest=$7,firecracker_digest=$8,kernel_digest=$9,rootfs_digest=$10 WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND lease_token=$4`,
+        runner_digest=$7,firecracker_digest=$8,kernel_digest=$9,rootfs_digest=$10,cleanup_verified=$11 WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND lease_token=$4`,
       [run.organizationId, run.applicationId, run.id, leaseToken, state, reason, results.length ? digests.runner : null,
-        results.length ? digests.firecracker : null, results.length ? digests.kernel : null, results.length ? digests.rootfs : null]);
+        results.length ? digests.firecracker : null, results.length ? digests.kernel : null, results.length ? digests.rootfs : null,
+        results.length > 0 && results.every(result => result.isolation.cleanupVerified)]);
     });
   }
 
   async function processClaimInner(claim: { organizationId: string; applicationId: string; runId: string; leaseToken: string }) {
     const row = await loadRun(claim.organizationId, claim.applicationId, claim.runId);
     if (!row) return;
+    const validationMode = row.validation_mode === 'dependency' ? 'dependency' : 'correction';
+    const dependencyAllowlist = dependencyAllowlistSchema.parse(row.dependency_allowlist ?? []);
+    const targetFindingIds = z.array(z.string().uuid()).max(20).safeParse(row.target_finding_ids);
+    const selectedFindingIds = targetFindingIds.success && targetFindingIds.data.length ? targetFindingIds.data : [String(row.target_finding_id)];
     const run: ValidationRun = {
       id: String(row.id), organizationId: claim.organizationId, applicationId: claim.applicationId, actionRef: String(row.action_ref), targetFindingId: String(row.target_finding_id), candidateSourceId: String(row.candidate_source_id), baseSourceId: String(row.base_source_id),
       baseSnapshotDigest: String(row.base_snapshot_digest), candidateTreeDigest: String(row.candidate_tree_digest), patchDigest: String(row.patch_digest), suiteRepositoryLinkId: row.suite_repository_link_id ? String(row.suite_repository_link_id) : null, suiteDefinitionId: row.suite_definition_id ? String(row.suite_definition_id) : null, suiteVersion: row.suite_version ? Number(row.suite_version) : null,
@@ -138,7 +150,8 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     const base = customerSourceSnapshotSchema.parse(row.base_body); const candidate = customerSourceSnapshotSchema.parse(row.candidate_body);
     const suite = validationSuiteDefinitionSchema.parse({ id: run.suiteDefinitionId, organizationId: run.organizationId, applicationId: run.applicationId, repositoryLinkId: String(row.repository_link_id ?? '00000000-0000-0000-0000-000000000000'), version: run.suiteVersion, profile: row.profile, scriptName: row.script_name, suiteName: row.suite_name, requiredCount: Number(row.required_count), regressionTestPath: row.regression_test_path, createdAt: run.queuedAt });
     if (suite.regressionTestPath && !base.files.some(file => file.path === suite.regressionTestPath)) return inconclusive('regression_test_missing');
-    if (suiteModifiedByCandidate(base, candidate, { scriptName: suite.scriptName, regressionTestPath: suite.regressionTestPath })) return inconclusive('suite_modified_by_candidate');
+    if (suiteModifiedByCandidate(base, candidate, { scriptName: suite.scriptName, regressionTestPath: suite.regressionTestPath,
+      ...(validationMode === 'dependency' ? { actionKind: 'dependency_pull_request' as const, dependencyAllowlist } : {}) })) return inconclusive('suite_modified_by_candidate');
     const beforeArchive = sourceArchive(base); const candidateArchive = sourceArchive(candidate);
     const runVm = async (bytes: Buffer) => {
       const objectId = randomUUID();
@@ -187,18 +200,19 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
         const body = reports.rows[0]?.body;
         if (typeof body !== 'object' || body === null) return [];
         const internal = (body as { internal?: { findings?: Array<{ id?: string; correlationKey?: string }> } }).internal;
-        return [...new Set((internal?.findings ?? []).filter(finding => finding.id === run.targetFindingId).map(finding => finding.correlationKey).filter((item): item is string => typeof item === 'string'))];
+        const selected = [...new Set((internal?.findings ?? []).filter(finding => selectedFindingIds.includes(finding.id ?? '')).map(finding => finding.correlationKey).filter((item): item is string => typeof item === 'string'))];
+        return selected.length === selectedFindingIds.length ? selected : [];
       });
       const baseEvidence = suiteCounts(baseResult); const regressionEvidence = suiteCounts(candidateRegression); const counts = suiteCounts(candidateSuite);
       const suiteShrank = counts !== null && baseEvidence !== null && (counts.counts.passed + counts.counts.failed + counts.counts.skipped < baseEvidence.counts.passed + baseEvidence.counts.failed + baseEvidence.counts.skipped || counts.counts.skipped > baseEvidence.counts.skipped);
       const rescan = scoreIndependentRescan({ before, after, targetedIdentities: selected });
       const evidence: ValidationEvidence[] = [
-        { kind: 'base_reproduction', result: suite.regressionTestPath && baseEvidence?.regression === 'failed_for_target' ? 'failed_for_target' : suite.regressionTestPath && baseEvidence?.regression === 'passed' ? 'passed' : 'unavailable', exitCode: baseResult.status === 'completed' ? baseResult.exitCode : null, durationMs: baseResult.durationMs },
+        { kind: 'base_reproduction', result: validationMode === 'dependency' ? 'not_required' : suite.regressionTestPath && baseEvidence?.regression === 'failed_for_target' ? 'failed_for_target' : suite.regressionTestPath && baseEvidence?.regression === 'passed' ? 'passed' : 'unavailable', exitCode: baseResult.status === 'completed' ? baseResult.exitCode : null, durationMs: baseResult.durationMs },
         { kind: 'candidate_regression', result: testPassed(candidateRegression) && (!suite.regressionTestPath || regressionEvidence?.regression === 'passed') ? 'passed' : candidateRegression.status === 'completed' ? 'failed' : 'unavailable', exitCode: candidateRegression.status === 'completed' ? candidateRegression.exitCode : null, durationMs: candidateRegression.durationMs },
         { kind: 'functional_suite', suiteName: suite.suiteName, result: counts ? (testPassed(candidateSuite) && !suiteShrank && counts.counts.passed >= suite.requiredCount && !(counts.counts.skipped > 0 && counts.counts.passed === 0) ? 'passed' : 'failed') : 'inconclusive', counts: counts?.counts ?? { passed: 0, failed: 0, skipped: 0 }, ...(baseEvidence ? { baseCounts: baseEvidence.counts } : {}), requiredCounts: suite.requiredCount },
         { kind: 'independent_rescan', result: rescan.result, before, after, targetedIdentities: selected },
       ];
-      const score = scoreValidation(evidence);
+      const score = scoreValidation(evidence, validationMode);
       await finish(run, claim.leaseToken, evidence, score.state, score.reason, results);
     } catch (error) {
       if (cleanupUncertainObserved) throw error;

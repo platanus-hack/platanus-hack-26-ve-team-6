@@ -3,7 +3,7 @@ import { z } from 'zod';
 const id = z.uuid();
 const timestamp = z.iso.datetime();
 export const contextStateSchema = z.enum(['declared', 'verified', 'unknown']);
-export const contextSourceSchema = z.enum(['customer_declared', 'signed_telemetry', 'operator']);
+export const contextSourceSchema = z.enum(['customer_declared', 'signed_telemetry', 'operator', 'github_app']);
 const provenance = { source: contextSourceSchema, observedAt: timestamp.nullable(), createdAt: timestamp };
 
 export const environmentSchema = z.object({

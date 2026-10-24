@@ -11,6 +11,7 @@ export interface Database {
   readonly role: RuntimeRole;
   tenant<T>(organizationId: string, work: (tx: Transaction) => Promise<T>): Promise<T>;
   integration<T>(integrationId: string, work: (tx: Transaction) => Promise<T>): Promise<T>;
+  system<T>(work: (tx: Transaction) => Promise<T>): Promise<T>;
   checkHealth(): Promise<void>;
   close(): Promise<void>;
 }
@@ -54,6 +55,10 @@ export function createDatabase(options: { connectionString: string; role: Runtim
     integration: (id, work) => {
       if (role !== 'gotchu_ingest') throw new Error('Integration lookup requires the intake database role');
       return transaction(null, z.uuid().parse(id), work);
+    },
+    system: work => {
+      if (role !== 'gotchu_executor') throw new Error('System transactions require the isolated executor database role');
+      return transaction(null, null, work);
     },
     checkHealth: () => transaction(null, null, async tx => { await tx.query('SELECT 1'); }),
     close: () => pool.end(),

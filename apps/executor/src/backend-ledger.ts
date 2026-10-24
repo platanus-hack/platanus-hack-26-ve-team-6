@@ -7,9 +7,7 @@ import { executionClaimSchema, existingExecutionSchema, ExecutionLedgerError, ty
 const uuid = z.uuid().refine(value => value === value.toLowerCase(), 'Use normalized UUIDs');
 const approvalRequestSchema = z.object({ organizationId: uuid, approvalId: uuid }).strict();
 const executorActionSchema = z.union([proposalSchema, actionV2Schema]);
-const backendClaimSchema = executionClaimSchema.omit({ organizationId: true, applicationId: true, approvalId: true }).extend({
-  executionId: uuid, claimToken: uuid, proposal: executorActionSchema,
-});
+const backendClaimSchema = executionClaimSchema.extend({ proposal: executorActionSchema });
 const backendStoredSchema = existingExecutionSchema.omit({ proposal: true }).extend({ proposal: executorActionSchema,
   organizationId: uuid, applicationId: uuid, approvalId: uuid, executionId: uuid, claimToken: uuid,
 });
@@ -39,12 +37,13 @@ export function createBackendExecutionLedger(executions: Pick<Backend['execution
       const claim = backendClaimSchema.parse(await executions.claim(request));
       const proposal = claim.proposal;
       if (proposal.version === 2) throw new ExecutionLedgerError('no_adapter');
-      if (proposal.organizationId !== request.organizationId
+      if (claim.organizationId !== request.organizationId || claim.approvalId !== request.approvalId
+        || claim.applicationId !== proposal.applicationId || proposal.organizationId !== request.organizationId
         || !uuid.safeParse(proposal.applicationId).success
         || hashStoredAction(proposal, claim.recoveryEpoch) !== claim.actionHash) {
         throw new ExecutionLedgerError('ledger_unavailable');
       }
-      return { ...claim, organizationId: proposal.organizationId, applicationId: proposal.applicationId, approvalId: request.approvalId };
+      return claim;
     }),
     findByApproval: input => ledgerCall(async () => {
       const request = parse(approvalRequestSchema, input);

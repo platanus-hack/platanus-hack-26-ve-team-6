@@ -1,13 +1,19 @@
+# Gotchu curated SAST rules v1.0.0 (2026-10-24).
+# Original rules maintained in this repository; no Semgrep Registry rules are copied.
 rules:
   - id: gotchu.javascript.eval
     languages: [javascript, typescript]
     message: Dynamic evaluation requires review of the argument trust boundary.
     severity: WARNING
     pattern: eval($X)
+    metadata:
+      cwe: CWE-95
+      owasp: A03:2021-Injection
+      precision_note: Direct eval call only; whether input is attacker controlled is unknown.
   - id: gotchu.javascript.shell-exec
     languages: [javascript, typescript]
     message: Shell execution requires review of the command trust boundary.
-    severity: WARNING
+    severity: ERROR
     patterns:
       - pattern-either:
           - pattern: require('child_process').exec($CMD, ...)
@@ -19,11 +25,19 @@ rules:
               import { exec as $EXEC } from 'node:child_process';
               ...
               $EXEC($CMD, ...)
+    metadata:
+      cwe: CWE-78
+      owasp: A03:2021-Injection
+      precision_note: Direct exec API calls only; runtime reachability and command construction are unknown.
   - id: gotchu.javascript.tls-disabled
     languages: [javascript, typescript]
     message: TLS certificate verification is disabled in this object.
     severity: ERROR
     pattern: '({..., rejectUnauthorized: false, ...})'
+    metadata:
+      cwe: CWE-295
+      owasp: A07:2021-Identification-and-Authentication-Failures
+      precision_note: Literal false property in an object; use and effective TLS client are unknown.
   - id: gotchu.javascript.helmet-csp-disabled
     languages: [javascript, typescript]
     message: Helmet may be configured without its default content security policy.
@@ -33,3 +47,95 @@ rules:
       - pattern-inside: |
           import $HELMET from 'helmet';
           ...
+    metadata:
+      cwe: CWE-693
+      owasp: A05:2021-Security-Misconfiguration
+      precision_note: Candidate only; a bounded TypeScript AST gate verifies unique top-level call structure.
+  - id: gotchu.python.subprocess-shell
+    languages: [python]
+    message: A subprocess call enables shell parsing; review whether arguments cross a trust boundary.
+    severity: ERROR
+    patterns:
+      - pattern: subprocess.$FUNC(..., shell=True, ...)
+      - metavariable-regex:
+          metavariable: $FUNC
+          regex: '^(?:run|call|check_call|check_output|Popen)$'
+    metadata:
+      cwe: CWE-78
+      owasp: A03:2021-Injection
+      precision_note: shell=True on a known subprocess API; taint and argument provenance are unknown.
+  - id: gotchu.python.pickle-load
+    languages: [python]
+    message: Pickle deserialization can execute attacker-controlled payloads.
+    severity: ERROR
+    pattern-either:
+      - pattern: pickle.loads($DATA)
+      - pattern: pickle.load($STREAM)
+      - pattern: _pickle.loads($DATA)
+      - pattern: _pickle.load($STREAM)
+    metadata:
+      cwe: CWE-502
+      owasp: A08:2021-Software-and-Data-Integrity-Failures
+      precision_note: Direct pickle API calls; source trust and reachable data are unknown.
+  - id: gotchu.python.yaml-unsafe-load
+    languages: [python]
+    message: yaml.load without a safe loader may construct unsafe Python objects.
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: yaml.load($DATA)
+          - pattern: yaml.load($DATA, Loader=yaml.Loader)
+          - pattern: yaml.load($DATA, Loader=yaml.UnsafeLoader)
+    metadata:
+      cwe: CWE-502
+      owasp: A08:2021-Software-and-Data-Integrity-Failures
+      precision_note: Explicit unsafe or absent loader on the yaml module name; aliases and wrappers are not covered.
+  - id: gotchu.go.shell-exec
+    languages: [go]
+    message: A shell command is launched through exec.Command; review command construction.
+    severity: ERROR
+    pattern-either:
+      - pattern: exec.Command("sh", "-c", $CMD, ...)
+      - pattern: exec.Command("bash", "-c", $CMD, ...)
+    metadata:
+      cwe: CWE-78
+      owasp: A03:2021-Injection
+      precision_note: Literal sh/bash -c invocation; input trust and execution reachability are unknown.
+  - id: gotchu.go.tls-disabled
+    languages: [go]
+    message: Go TLS certificate verification is disabled.
+    severity: ERROR
+    pattern: 'tls.Config{..., InsecureSkipVerify: true, ...}'
+    metadata:
+      cwe: CWE-295
+      owasp: A07:2021-Identification-and-Authentication-Failures
+      precision_note: Literal true in tls.Config; the config's use and any custom verification are unknown.
+  - id: gotchu.java.runtime-exec
+    languages: [java]
+    message: Runtime.exec launches a process; review whether untrusted data reaches the command.
+    severity: ERROR
+    pattern: Runtime.getRuntime().exec($CMD, ...)
+    metadata:
+      cwe: CWE-78
+      owasp: A03:2021-Injection
+      precision_note: Direct Runtime.exec call; command provenance and process policy are unknown.
+  - id: gotchu.java.object-deserialization
+    languages: [java]
+    message: Java native object deserialization can instantiate unsafe object graphs.
+    severity: ERROR
+    pattern: new ObjectInputStream($INPUT)
+    metadata:
+      cwe: CWE-502
+      owasp: A08:2021-Software-and-Data-Integrity-Failures
+      precision_note: ObjectInputStream construction only; filter configuration and input trust are unknown.
+  - id: gotchu.java.sql-concatenation
+    languages: [java]
+    message: SQL text is concatenated into a Statement execution call.
+    severity: ERROR
+    pattern-either:
+      - pattern: $STMT.executeQuery($QUERY + $VALUE)
+      - pattern: $STMT.executeUpdate($QUERY + $VALUE)
+    metadata:
+      cwe: CWE-89
+      owasp: A03:2021-Injection
+      precision_note: Direct string concatenation at these Statement sinks; constant-only concatenation can also match.

@@ -6,12 +6,19 @@ const evidenceIds = z.array(uuid).min(1).max(20)
   .refine(ids => new Set(ids).size === ids.length, 'Evidence IDs must be unique');
 
 // This is the gateway's exported durable-job input boundary, shared with the coordinator.
-export const gatewayJobPayloadSchema = z.object({ incidentId: uuid, evidenceIds }).strict();
+export const gatewayJobPayloadSchema = z.union([
+  z.object({ incidentId: uuid, evidenceIds }).strict(),
+  z.object({ version: z.literal(2), subject: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('finding'), subjectId: uuid, reportId: uuid }).strict(),
+    z.object({ kind: z.literal('alert'), subjectId: uuid }).strict(),
+    z.object({ kind: z.literal('incident'), subjectId: uuid }).strict(),
+  ]), evidenceIds, resumeOf: uuid.optional() }).strict(),
+]);
 export const inputRequestSchema = z.object({ organizationId: uuid, applicationId: uuid }).strict();
 export const readRequestSchema = inputRequestSchema.extend({
   callId: uuid,
   callType: z.enum(['required_evidence', 'additional']),
-  name: z.enum([...runReadToolSchema.options, 'repository.excerpt.read', 'inventory.snapshot.read']),
+  name: runReadToolSchema,
   evidenceId: uuid,
 });
 export const checkpointRequestSchema = z.object({

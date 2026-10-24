@@ -8,7 +8,7 @@ import { scoreIndependentRescan } from '@gotchu/contracts';
 import { scoreValidation, verifyValidationAttestation } from '@gotchu/backend';
 import { sourceArchive } from '../src/archive.js';
 import { loadValidatorKey, signAttestation } from '../src/keys.js';
-import { suiteModifiedByCandidate, validationAdmissionReason } from '../src/validation-rules.js';
+import { rescanCoverage, suiteModifiedByCandidate, validationAdmissionReason } from '../src/validation-rules.js';
 import type { ValidationEvidence } from '@gotchu/contracts';
 
 const completeEvidence: ValidationEvidence[] = [
@@ -19,6 +19,17 @@ const completeEvidence: ValidationEvidence[] = [
 ];
 
 describe('validator evidence rules', () => {
+  it('treats not-requested capabilities as resolved coverage while retaining unknown states', () => {
+    expect(rescanCoverage([
+      { capability: 'dependency_inventory', state: 'inspected' },
+      { capability: 'dependency_reachability', state: 'not_requested' },
+      { capability: 'trivy', state: 'unsupported' },
+    ])).toBe('complete');
+    expect(rescanCoverage([{ capability: 'dependency_inventory', state: 'unavailable' }])).toBe('partial');
+    expect(rescanCoverage([{ capability: 'dependency_inventory', state: 'unsupported' }])).toBe('partial');
+    expect(rescanCoverage([])).toBe('partial');
+  });
+
   it('refuses validation before VM execution when approval, configuration, or gate checks fail', () => {
     const good = { suiteConfigured: true, baseDigestMatches: true, candidateDigestMatches: true, scriptName: 'test', gateOpen: true };
     expect(validationAdmissionReason(good)).toBeNull();

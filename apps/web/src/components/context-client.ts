@@ -27,5 +27,11 @@ export const contextClient = {
   createService(input: z.input<typeof createServiceSchema>) { return call(`${root(input.organizationId, input.applicationId)}/services`, contextInventorySchema.shape.services.element, 'POST', { environmentId: input.environmentId, name: input.name, kind: input.kind }); },
   createRepositoryLink(input: z.input<typeof createRepositoryLinkSchema>) { return call(`${root(input.organizationId, input.applicationId)}/repositories`, contextInventorySchema.shape.repositoryLinks.element, 'POST', { repositoryKey: input.repositoryKey, subdirectory: input.subdirectory, defaultBranch: input.defaultBranch }); },
   revokeRepositoryLink(input: z.input<typeof revokeRepositoryLinkSchema>) { return call(`${root(input.organizationId, input.applicationId)}/repositories/${encodeURIComponent(input.repositoryLinkId)}/revoke`, contextInventorySchema.shape.repositoryLinks.element, 'POST', {}); },
+  repositoryWriteAccessChallenge(input:{organizationId:string;applicationId:string;repositoryLinkId:string;grant:boolean}) {
+    return call(`${root(input.organizationId,input.applicationId)}/repositories/${encodeURIComponent(input.repositoryLinkId)}/write-access/challenge`,z.object({actionHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),'POST',{grant:input.grant});
+  },
+  setRepositoryWriteAccess(input:{organizationId:string;applicationId:string;repositoryLinkId:string;grant:boolean;actionHash:string;stepUpProof:string}) {
+    return call(`${root(input.organizationId,input.applicationId)}/repositories/${encodeURIComponent(input.repositoryLinkId)}/write-access`,contextInventorySchema.shape.repositoryLinks.element,'POST',{grant:input.grant,actionHash:input.actionHash,stepUpProof:input.stepUpProof});
+  },
 };
 export type { ContextInventory };

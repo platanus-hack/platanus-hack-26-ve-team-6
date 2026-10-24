@@ -37,11 +37,26 @@ for (const name of ['AUTH_GITHUB_ID', 'AUTH_GITHUB_SECRET', 'AUTH_OIDC_ISSUER', 
   requireValue(Object.hasOwn(webEnvironment, name), `web must accept optional ${name}.`);
   requireValue(!composeText.includes(`${name}: \${${name}:?`), `${name} must not be mandatory for local Compose.`);
 }
+for (const name of ['GOTCHU_GITHUB_READER_APP_FILE', 'GOTCHU_GITHUB_READER_APP_CREDENTIALS_FILE', 'GOTCHU_GITHUB_READER_INSTALLATION_ID', 'GOTCHU_GITHUB_APP_SLUG']) {
+  requireValue(Object.hasOwn(webEnvironment, name), `web must accept optional ${name}.`);
+  requireValue(!composeText.includes(`${name}: \${${name}:?`), `${name} must not be mandatory for local Compose.`);
+}
+requireValue((services.web.volumes ?? []).some(({ source, target, read_only }) => target === '/run/secrets/github' && read_only === true && source.endsWith('/github')), 'web must mount the operator-managed GitHub credential directory read-only.');
 
 const coordinatorEnvironment = environment('coordinator');
+requireValue(
+  composeText.includes('host.docker.internal=${SCANNER_HOST_GATEWAY:-host-gateway}'),
+  'coordinator scanner access must use the gateway for its local-app-host network.',
+);
+requireValue(
+  (services.coordinator.extra_hosts ?? []).some((entry) => typeof entry === 'string' && entry.startsWith('host.docker.internal=')),
+  'coordinator must resolve the scanner host through an explicit local gateway.',
+);
 requireValue(Object.hasOwn(coordinatorEnvironment, 'GOTCHU_DEMO_TARGET_ORIGIN'), 'coordinator must accept an optional GOTCHU_DEMO_TARGET_ORIGIN override.');
 requireValue(coordinatorEnvironment.GOTCHU_DEMO_TARGET_ORIGIN === null || typeof coordinatorEnvironment.GOTCHU_DEMO_TARGET_ORIGIN === 'string', 'coordinator target origin must be optional.');
 requireValue(/^\s+GOTCHU_DEMO_TARGET_ORIGIN:\s*$/m.test(composeText), 'coordinator demo target origin must remain unset unless the operator supplies it.');
+requireValue(coordinatorEnvironment.GOTCHU_CUSTOMER_DISCOVERY === 'true' || coordinatorEnvironment.GOTCHU_CUSTOMER_DISCOVERY === 'false', 'coordinator customer discovery must be an explicit boolean.');
+requireValue(composeText.includes('GOTCHU_CUSTOMER_DISCOVERY: ${GOTCHU_CUSTOMER_DISCOVERY:-false}'), 'coordinator customer discovery must default to disabled outside the self-host profile.');
 
 for (const [name, service] of Object.entries(services)) {
   for (const port of service.ports ?? []) {
@@ -60,13 +75,19 @@ for (const stage of ['web', 'coordinator']) {
   const contentStart = markerIndex + marker.length;
   const nextStage = dockerfileText.indexOf('\nFROM ', contentStart);
   const runtimeStage = dockerfileText.slice(contentStart, nextStage < 0 ? undefined : nextStage);
-  for (const [sourceStage, path, description] of [
-    [`${stage}-build`, 'package.json', 'manifest'],
-    [`${stage}-build`, 'dist', 'built files'],
-    [`${stage}-production-dependencies`, 'node_modules', 'production dependencies'],
-  ]) {
-    const copy = `COPY --from=${sourceStage} --chown=node:node /workspace/packages/triage/${path} /workspace/packages/triage/${path}`;
-    requireValue(runtimeStage.includes(copy), `${stage} runtime image must include @gotchu/triage ${description}.`);
+  for (const packageName of ['triage', 'git-adapters']) {
+    for (const [sourceStage, path, description] of [
+      [`${stage}-build`, 'package.json', 'manifest'],
+      [`${stage}-build`, 'dist', 'built files'],
+      [`${stage}-production-dependencies`, 'node_modules', 'production dependencies'],
+    ]) {
+      const copy = `COPY --from=${sourceStage} --chown=node:node /workspace/packages/${packageName}/${path} /workspace/packages/${packageName}/${path}`;
+      requireValue(runtimeStage.includes(copy), `${stage} runtime image must include @gotchu/${packageName} ${description}.`);
+    }
+  }
+  if (stage === 'web') {
+    const runnerImagesLock = 'COPY --from=web-build --chown=node:node /workspace/packages/runner/images.lock.json /workspace/packages/runner/images.lock.json';
+    requireValue(runtimeStage.includes(runnerImagesLock), 'web runtime image must include the pinned runner image lockfile.');
   }
 }
 
@@ -81,10 +102,12 @@ if (!image) {
 const imageCheck = `
 import assert from 'node:assert/strict';
 import { createControlledAssessmentRunner, controlledTargetKey } from '@gotchu/assessment';
+import { createBackend } from '@gotchu/backend';
 import { startDemoTargetServer } from '@gotchu/demo-target';
 import { triageRevisionSchema } from '@gotchu/triage';
 
 assert.equal(process.getuid?.(), 1000, 'coordinator image must run this check as the nonroot Node user');
+assert.equal(typeof createBackend, 'function', 'coordinator image must bundle the backend and its transitive Git adapter runtime dependency');
 const triageRevision = triageRevisionSchema.parse({
   id: 'runtime-package-smoke',
   revision: 1,
@@ -103,6 +126,7 @@ const triageRevision = triageRevisionSchema.parse({
 });
 assert.equal(triageRevision.id, 'runtime-package-smoke');
 process.stdout.write('Runtime @gotchu/triage import and schema check passed.\\n');
+assert.equal(triageRevisionSchema.safeParse({}).success, false, 'coordinator image must bundle its transitive @gotchu/triage runtime dependency');
 const target = await startDemoTargetServer({ host: '127.0.0.1', port: 0 });
 try {
   const runner = createControlledAssessmentRunner({ origin: target.origin });

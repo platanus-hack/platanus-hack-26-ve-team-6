@@ -57,12 +57,27 @@ export const operationAlertSchema = z.object({
   id: z.uuid(), observation: operationObservationSchema, state: z.enum(['open', 'acknowledged', 'resolved']),
   updatedAt: timestamp, resolution: z.string().nullable(),
 });
+export const monitoringLivenessSchema = z.object({
+  state: z.enum(['unknown', 'healthy', 'late', 'stopped']),
+  reason: z.string().max(500).nullable(),
+  since: timestamp.nullable(),
+  lastSchedulerHeartbeatAt: timestamp.nullable(),
+  lastCheckHeartbeatAt: timestamp.nullable(),
+  consecutiveFailures: z.number().int().min(0).max(1000),
+}).strict();
 export const operationCoverageSchema = z.object({
-  config: monitorConfigSchema.nullable(), status: z.enum(['not_configured', 'pending', 'active', 'degraded', 'stale']), scopeCurrent: z.boolean(),
+  config: monitorConfigSchema.nullable(), status: z.enum(['not_configured', 'pending', 'active', 'degraded', 'stale', 'stopped']), scopeCurrent: z.boolean(),
+  liveness: monitoringLivenessSchema,
   lastRun: z.object({ runId: z.uuid(), jobId: z.uuid().nullable(), status: z.enum(['running', 'completed', 'degraded', 'cancelled']), reason: z.string().nullable(), startedAt: timestamp, finishedAt: timestamp.nullable() }).nullable(),
   observations: z.object({ fresh: z.number().int().nonnegative(), stale: z.number().int().nonnegative() }), limitations: z.array(z.string()),
+  quotas: z.object({
+    runs: z.object({ used: z.number().int().nonnegative(), limit: z.literal(1000) }).strict(),
+    observations: z.object({ used: z.number().int().nonnegative(), limit: z.literal(2000), lastDayUsed: z.number().int().nonnegative(), lastDayLimit: z.literal(100) }).strict(),
+    plans: z.object({ used: z.number().int().nonnegative(), limit: z.literal(100) }).strict(),
+  }).strict(),
 });
 export type OperationCoverage = z.infer<typeof operationCoverageSchema>;
+export type MonitoringLiveness = z.infer<typeof monitoringLivenessSchema>;
 export const operationPlanKindSchema = z.enum(['investigate_capacity', 'migration_readiness', 'review_improvement']);
 export const operationPlanRequestSchema = customerScopeSchema.extend({
   kind: operationPlanKindSchema, observationIds: z.array(z.uuid()).min(1).max(20),
