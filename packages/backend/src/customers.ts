@@ -3,7 +3,7 @@ import { z } from 'zod';
 import {
   CUSTOMER_MAX_REPORT_BYTES, CUSTOMER_MAX_SOURCE_BYTES, CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
   customerApplicationSchema, customerAssessmentIntentSchema, customerAssessmentReportSchema, customerClaimSchema,
-  customerCreateApplicationSchema, customerCreateWorkspaceSchema, customerDeleteSourceSchema, customerEnrollTargetSchema,
+  customerCreateApplicationSchema, customerCreateWorkspaceSchema, customerUpdateWorkspaceSchema, customerDeleteSourceSchema, customerEnrollTargetSchema,
   customerContainerImageSummarySchema, customerContainerImageUploadMetadataSchema,
   customerPendingOrganizationsSchema, customerQueueSchema, customerReportSummarySchema, customerRunInputSchema, customerScopeSchema,
   customerSourceSnapshotSchema, customerSourceSummarySchema, customerTargetIdSchema, customerTargetSchema,
@@ -184,6 +184,15 @@ export function createCustomerService(deps: CustomerDependencies) {
         const result = await tx.query<{ result: unknown }>('SELECT gotchu.customer_create_workspace($1,$2) AS result', [actor.userId, value.name]);
         const error = z.object({ error: z.enum(['workspace_limit', 'workspace_name_conflict']) }).safeParse(result.rows[0]?.result);
         if (error.success) throw new BackendError(error.data.error, error.data.error === 'workspace_limit' ? 'Workspace limit reached' : 'A workspace with this name already exists', error.data.error === 'workspace_limit' ? 429 : 409);
+        return parse(customerWorkspaceSchema, result.rows[0]?.result);
+      });
+    },
+    async updateWorkspace(identity: Identity, input: z.input<typeof customerUpdateWorkspaceSchema>) {
+      const actor = principal(identity); const value = parse(customerUpdateWorkspaceSchema, input);
+      return deps.database.tenant(discoveryTenant, async tx => {
+        const result = await tx.query<{ result: unknown }>('SELECT gotchu.customer_rename_workspace($1,$2,$3) AS result', [actor.userId, value.organizationId, value.name]);
+        const error = z.object({ error: z.enum(['workspace_not_found', 'workspace_name_conflict']) }).safeParse(result.rows[0]?.result);
+        if (error.success) throw new BackendError(error.data.error, error.data.error === 'workspace_name_conflict' ? 'A workspace with this name already exists' : 'Workspace not found', error.data.error === 'workspace_name_conflict' ? 409 : 404);
         return parse(customerWorkspaceSchema, result.rows[0]?.result);
       });
     },

@@ -94,6 +94,24 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     await expect(api.customers.createWorkspace({ userId: DEMO_ASSESSMENT_SCOPE.userId }, { name: 'No demo' })).rejects.toMatchObject({ status: 403 });
   });
 
+  it('renames workspaces only for Owner/Operator members and records the change', async () => {
+    const c = await customer();
+    const other = await api.customers.createWorkspace(c.identity, { name: 'Other workspace' });
+    const operator = { userId: `credentials:${randomUUID()}` };
+    const viewer = { userId: `credentials:${randomUUID()}` };
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES ($1,$2,'operator'),($1,$3,'viewer')", [c.workspace.id, operator.userId, viewer.userId]);
+
+    await expect(api.customers.updateWorkspace(viewer, { organizationId: c.workspace.id, name: 'Viewer rename' })).rejects.toMatchObject({ status: 404 });
+    await expect(api.customers.updateWorkspace({ userId: f.b.userId }, { organizationId: c.workspace.id, name: 'Foreign rename' })).rejects.toMatchObject({ status: 404 });
+    await expect(api.customers.updateWorkspace(c.identity, { organizationId: c.workspace.id, name: other.name.toUpperCase() })).rejects.toMatchObject({ code: 'workspace_name_conflict' });
+
+    const renamed = await api.customers.updateWorkspace(operator, { organizationId: c.workspace.id, name: 'Team workspace' });
+    expect(renamed).toMatchObject({ id: c.workspace.id, name: 'Team workspace', role: 'operator' });
+    expect(await api.customers.listWorkspaces(c.identity)).toEqual(expect.arrayContaining([expect.objectContaining({ id: c.workspace.id, name: 'Team workspace' })]));
+    const audit = await f.admin.query<{ action: string; detail: unknown }>("SELECT action,detail FROM gotchu.audit_records WHERE organization_id=$1 AND action='workspace.updated'", [c.workspace.id]);
+    expect(audit.rows).toContainEqual({ action: 'workspace.updated', detail: { name: 'Team workspace' } });
+  });
+
   it('records report downloads only for reports in the caller workspace', async () => {
     const c = await customer(); const result = await claim(c);
     await coordinator.customers.recordResult({ input: result.input, leaseToken: result.leaseToken, report: result.report });
