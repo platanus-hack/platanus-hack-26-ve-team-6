@@ -291,7 +291,10 @@ Trabajo:
 - [ ] Implementar retención y borrado reconciliados con jobs, evidencias, propuestas, aprobaciones y ejecuciones. Fuente borrada invalida candidatos que ya no pueden verificarse; no duplicar source completo en jobs, auditoría o prompts persistidos.
 - [ ] Resolver límites de retención antes de llamar al monitoreo continuo: hoy 1.000 runs/app detienen programación; 2.000 observaciones/app, 100 nuevas/día y 100 planes/app son cuotas finitas. Mostrar consumo y degradación y probar que una proyección sin cupo no bloquea detecciones aceptadas.
 - [ ] Añadir entrega externa por SMTP/webhook sustituible: destinatario verificado, pruebas de contacto, dedupe, retry acotado, estado de entrega y escalamiento. Blindar SSRF de webhooks; entrega no equivale a lectura humana.
-- [ ] Completar invitaciones, roles, baja de miembros y revocación de integraciones/MFA. No exponer registros privados de checkpoint o credenciales.
+- [x] Completar invitaciones de un solo uso y siete días, roles, baja y salida de miembros. PostgreSQL impone límites por espacio, último Owner y consumo atómico; cada cambio se audita. Una revocación o democión a Viewer invalida verificaciones de segundo factor y aprobaciones pendientes en la misma transacción. El executor vuelve a comprobar la membresía antes de reclamar y antes de I/O.
+- [ ] Completar la revocación de integraciones y MFA. No exponer registros privados de checkpoint o credenciales.
+
+Las invitaciones se vinculan al correo normalizado de la cuenta y el token sólo se almacena como SHA-256. El registro de cuentas locales todavía no verifica el correo; por tanto, esta unión es defensa en profundidad y no prueba control del buzón. El enlace se muestra una sola vez; la entrega por correo no está configurada.
 - [ ] Preparar identidad fuera de dev, TLS de cada frontera, actualizaciones de perfiles/imágenes, secretos fuera de logs, backups externos cifrados y restauración probada con freeze de escrituras.
 - [ ] Medir capacidad, equidad entre organizaciones, retrasos de entrega, coste por run y storage. Conservar carriles reservados para monitoreo determinista frente a investigaciones y validaciones lentas.
 - [ ] Presentar datos salientes al modelo, consentimiento, retención y borrado incluyendo backups. Redacción automática reduce riesgo pero no garantiza ausencia de información sensible.
