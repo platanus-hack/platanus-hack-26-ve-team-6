@@ -1,5 +1,31 @@
 # Verification record
 
+## Maintained scanner, production TLS, and real-source verification — 2026-10-24
+
+The final functional code revision is `51c42303bda1a16793fd9efa46e127c821b2b060`. It includes canonicalization of validated PEM certificates in the coordinator-scoped scanner CA bundle. The following is local Linux/amd64 evidence for the exercised paths, not a cloud deployment, broad scanner-accuracy guarantee, or production-capacity claim.
+
+| Check | Observed result |
+| --- | --- |
+| Root `pnpm typecheck` and scanner/coordinator dependency builds | Passed across the workspace, including the integration-test project; scanner and coordinator dependency builds passed. |
+| Scanner build, focused typecheck, and ordinary tests after CA canonicalization | Build and typecheck passed; **29 tests passed**. The separate opt-in production smoke was skipped by the ordinary test command. |
+| `pnpm --filter @gotchu/scanner test:production` | **1/1 passed, zero skipped** in an actual `NODE_ENV=production` process. It assessed `apps/web/src/server/customer-api.ts` using real Docker profiles and scoped TLS, and asserted Semgrep/Gitleaks coverage and profile evidence; this does not claim those profiles found issues in that file. Trivy's unsupported result for non-Kubernetes input was expected. |
+| `GOTCHU_TEST_SCANNERS=1 pnpm test:integration test/integration/production-scanner.test.ts` after CA canonicalization | **1/1 passed, zero skipped** with a production scanner, coordinator/private CA, PostgreSQL, Redis/BullMQ, durable source-bound report and outbox delivery, and tenant-denial checks. |
+| Maintained-profile assessment tests | A separate Linux/amd64 run passed **111 assessment unit tests and 5 actual scanner live tests**. The CA-only follow-up did not change assessment logic. |
+
+Before PEM canonicalization, the combined command `GOTCHU_TEST_SCANNERS=1 pnpm test:integration test/integration/production-scanner.test.ts test/integration/customer-applications.test.ts test/integration/operational-alerts.test.ts test/integration/scheduled-monitoring.test.ts` passed **19/19, zero skipped, in 58.05 seconds**: six customer, one production-scanner, four scheduled-monitoring, and eight operational-alert tests. It exercised Auth.js/Nitro, PostgreSQL/Redis/BullMQ, the coordinator and HMAC scanner, Docker profiles, OSV, controlled DNS/TLS, all three assessment modes, monitoring, alerts, and correction flows. The production scanner case was rerun separately after canonicalization as listed above.
+
+Independent Astra round 3 reviewed `8c03aca..51c4230` and returned GO with no actionable blockers. It rejected all 128 high-bit CA variants and eight invalid inputs; passed eight real loopback HTTPS requests covering whitespace/adjacent PEM and use of both distinct certificates; and rejected four untrusted-certificate or hostname cases. The review changed no product files and did not rerun repository infrastructure suites.
+
+### Actual selected-source and report evidence
+
+The browser selected declared server-source snapshots for NodeBB 4.16.4 (`38b0bbac00d26e663cbc40287e7c97788ab44ca7`, 638 files, about 2.7 MB) and Uptime Kuma 2.5.7 (`d54e4619e52553416e292549f435cc7e57330c29`, 273 files, about 2 MB). These are selected server files, not whole-application or all-repository assessments. Every stored file matched its upstream manifest hash; source digests, successful jobs, delivered outbox records, and report/evidence bindings were verified through restricted PostgreSQL read-only access.
+
+NodeBB produced two static indicators (shell execution and disabled TLS); it had no npm lockfile, so dependency coverage is unknown. Uptime Kuma produced one static TLS indicator and seven exact-version OSV advisory matches; the 200-package cap and unrecognized JSON configuration leave additional coverage unknown. Both reports are partial and exploitability is unknown. The supported source boundary is JS/TS, JSON, YAML, and TOML, with at most 1,000 files, 1 MiB per file, and 4 MiB serialized per snapshot. Dependency inventory recognizes npm lockfile v2/v3 only and checks at most 200 entries. No customer source was executed.
+
+The downloaded Uptime Kuma JSON report passed the current runtime schema and matched the stored report ID and source digest. A full reload followed by explicit workspace/application reselection retrieved the persisted reports. Expanded findings/evidence views at 1280, 390, and 320 CSS pixels had no horizontal overflow or UI alerts; mobile navigation targets were at least 44 px. After the integrated local services restarted, `GET /api/auth/session` on web `3000`, coordinator health on `3003`, and scanner readiness on `4400` each returned HTTP 200; all four scanner readiness tools were available. After a further browser reload, the saved report remained retrievable with its matching digest and no alerts.
+
+The local launcher remains development HTTP on loopback; production scanner checks used HTTPS. The controlled DNS/TLS fixture verifies transport, not DNS control of a real customer-owned public domain; none was authorized for this validation. Local Auth.js authentication, workspace membership, and WebAuthn step-up code exist, but production identity configuration and operation are unverified. No customer-code execution, provider writes, or cloud deployment was performed.
+
 ## Deterministic customer assessment pipeline — 2026-10-24
 
 The deterministic customer assessment path now includes the LangGraph runner, bounded source and public HTTPS profiles, their evidence comparison, and persisted reports. Checks and browser work below use local development infrastructure. They do not establish a cloud deployment, general-purpose audit, exploitation proof, or production release.
@@ -30,7 +56,7 @@ The first combined integration attempt exposed a readiness assertion that assume
 
 An initial final review of `5863578..87a5862` returned GO with no actionable blocker for the CSP gate and metric-window lock, including detector continuation, rollback, provenance, and bounded claims. The review was read-only and did not rerun tests. Test counts above overlap earlier runs and are not a unique-case total.
 
-The development core is verified locally, not as a general-purpose audit. Semgrep 1.90.0 remains development/test-only; customer-code execution, cloud deployment, production response/provider writes, and production recovery remain release gates. Monitoring requires configured signed telemetry or explicitly consented checks. Model investigation is unavailable when unconfigured and is not required for the deterministic core. These results do not establish broad public-source coverage, continuously refreshed same-window metrics, inferred technology-version vulnerabilities, or exploitability.
+This milestone's original final claim is historical: it said Semgrep 1.90.0 was development/test-only. The maintained-profile and local production-scanner validation gates are superseded for the exercised Linux/amd64 scope by the record above. Customer-code execution, cloud deployment, production response/provider writes, production recovery, and representative accuracy/capacity remain release gates. Monitoring requires configured signed telemetry or explicitly consented checks. Model investigation is unavailable when unconfigured and is not required for the deterministic core. These results do not establish broad public-source coverage, continuously refreshed same-window metrics, inferred technology-version vulnerabilities, or exploitability.
 
 
 ## Continuous monitoring and dashboard corrections — 2026-10-24
@@ -99,7 +125,7 @@ The first broad runs exposed two test-harness errors: a case-sensitive assertion
 
 ### Remaining release gates
 
-This establishes the implemented development customer path, not a production release. Semgrep 1.90.0 remains enforced development/test-only until a maintained pin is validated. Customer-code execution stays disabled pending VM-class isolation. Live AWS/OAuth, production ingress TLS, MFA, provider writes, alerts, restoration drills, measured retention/capacity/cost, invitation management, and broader scanner profiles are not established. Model calls and provider writes remain disabled. The updated coordinator image dependency layout passed Dockerfile checks but was not rebuilt because local Docker storage had less than 0.5 GiB free; no unrelated data/images were pruned.
+This establishes the implemented development customer path, not a production release. At that checkpoint Semgrep 1.90.0 remained development/test-only; that profile gate is superseded for the exercised Linux/amd64 scanner path by the maintained-profile validation above. Customer-code execution stays disabled pending VM-class isolation. Live AWS/OAuth, production ingress TLS, production identity operation, provider writes, alerts, restoration drills, measured retention/capacity/cost, and broader scanner profiles are not established. Model calls and provider writes remain disabled. The updated coordinator image dependency layout passed Dockerfile checks but was not rebuilt because local Docker storage had less than 0.5 GiB free; no unrelated data/images were pruned.
 
 The production web build reports upstream Nitro/Rolldown `use client` warnings; these are not suppressed. There is no lint script.
 
