@@ -16,6 +16,8 @@ import {
 import { CustomerApiError, customerApi, type CustomerJob, type CustomerScanProfile, type CustomerSession } from './customer-client';
 import { OperationsPanel } from './operations-panel';
 import { ReportRecommendations } from './report-recommendations';
+import { ComparisonPresence, ComparisonSummary, ComparisonVerification, ExternalHttpsEvidence } from './customer-report-components';
+import { exploitabilityLabel } from './customer-report-model';
 import { ContextPanel } from './context-panel';
 import { IncidentList } from './incident-card';
 import { StepUpPanel } from './step-up-panel';
@@ -39,7 +41,7 @@ const modeLabels: Record<AssessmentMode, string> = {
   external: 'HTTPS autorizado',
   both: 'Código + HTTPS',
 };
-const sourceLabels = { internal: 'Código', external: 'HTTPS', both: 'Ambos', internal_only: 'Sólo código', external_only: 'Sólo HTTPS', unverified: 'Sin contraste' };
+const sourceLabels = { internal: 'Código', external: 'HTTPS' };
 const severityLabels = { unknown: 'Sin evaluar', critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja', informational: 'Información' };
 const confidenceLabels = { observed: 'Observado', inferred: 'Indicado', uncertain: 'Sin comprobar' };
 const coverageLabels = { inspected: 'Evaluado', not_requested: 'No solicitado', unsupported: 'No disponible en este perfil', unavailable: 'No disponible' };
@@ -339,12 +341,14 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
       <div><span>Perfil</span><strong>Observación · {report.actionsPerformed.length} acciones</strong></div>
     </div>
     <div className="customer-report-callout"><strong>{entries.length} observaciones registradas</strong><p>Los resultados describen el alcance evaluado. Una fuente ausente, un indicio o una cobertura limitada no equivale a una comprobación aprobada. No se han realizado cambios en la aplicación.</p></div>
+    <ComparisonSummary comparisons={report.comparison} internal={report.internal} external={report.external} />
+    <ExternalHttpsEvidence analysis={report.external} />
     <section className="customer-report-section"><div className="customer-section-heading"><div><span className="customer-eyebrow">HALLAZGOS</span><h3>Observaciones y contraste</h3></div></div>
       {report.comparison.length === 0 ? <div className="customer-empty-inline">Este informe no contiene observaciones. Consulta la cobertura para ver qué perfiles y capacidades se evaluaron.</div> : <div className="customer-findings">{report.comparison.map(item => {
         const linked = [...item.internalFindingIds, ...item.externalFindingIds].map(id => byId.get(id)).filter((finding): finding is NonNullable<typeof finding> => finding !== undefined);
-        return <details className="customer-finding" key={item.key}><summary><span><strong>{linked[0]?.title ?? 'Aspecto no verificable'}</strong><small>{linked[0]?.location ?? item.explanation}</small></span><span className="customer-finding-badges"><span className="customer-status customer-status-muted">{sourceLabels[item.classification]}</span>{linked[0] && <span className={`customer-severity customer-severity-${linked[0].severity}`}>{severityLabels[linked[0].severity]}</span>}</span></summary>
+        return <details className="customer-finding" key={item.key}><summary><span><strong>{linked[0]?.title ?? 'Aspecto no verificable'}</strong><small>{linked[0]?.location ?? item.explanation}</small></span><span className="customer-finding-badges"><ComparisonPresence item={item} /><ComparisonVerification item={item} />{linked[0] && <span className={`customer-severity customer-severity-${linked[0].severity}`}>{severityLabels[linked[0].severity]}</span>}</span></summary>
           <p>{item.explanation}</p>
-          {linked.map(finding => <section className="customer-finding-body" key={finding.id}><div className="customer-tag-row"><span className="customer-status customer-status-muted">{sourceLabels[finding.origin]}</span><span className={`customer-severity customer-severity-${finding.severity}`}>{severityLabels[finding.severity]}</span><span className="customer-status customer-status-muted">Confianza: {confidenceLabels[finding.confidence]}</span><span className="customer-status customer-status-muted">Explotabilidad: {finding.exploitability === 'demonstrated_in_fixture' ? 'Demostrada en prueba controlada' : 'No demostrada'}</span></div><p>{finding.description}</p><h4>Impacto posible</h4><p>{finding.impact}</p><h4>Recomendación</h4><p>{finding.recommendation}</p>{finding.limitations.length > 0 && <><h4>Límites de esta observación</h4><ul>{finding.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></>}{finding.evidenceIds.map(id => {
+          {linked.map(finding => <section className="customer-finding-body" key={finding.id}><div className="customer-tag-row"><span className="customer-status customer-status-muted">{sourceLabels[finding.origin]}</span><span className={`customer-severity customer-severity-${finding.severity}`}>{severityLabels[finding.severity]}</span><span className="customer-status customer-status-muted">Confianza: {confidenceLabels[finding.confidence]}</span><span className="customer-status customer-status-muted">Explotabilidad: {exploitabilityLabel(finding.exploitability)}</span></div><p>{finding.description}</p><h4>Impacto posible</h4><p>{finding.impact}</p><h4>Recomendación</h4><p>{finding.recommendation}</p>{finding.limitations.length > 0 && <><h4>Límites de esta observación</h4><ul>{finding.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></>}{finding.evidenceIds.map(id => {
             const itemEvidence = evidenceById.get(id);
             return itemEvidence ? <details className="customer-evidence" key={id}><summary>{itemEvidence.locator}</summary><p>{itemEvidence.tool.name} · v{itemEvidence.tool.version} · {date(itemEvidence.collectedAt)}</p><pre>{itemEvidence.excerpt}</pre><p className="customer-evidence-meta">SHA-256: {itemEvidence.checksum}</p><p className="customer-evidence-meta">Snapshot: {itemEvidence.snapshotRef}</p></details> : null;
           })}</section>)}
