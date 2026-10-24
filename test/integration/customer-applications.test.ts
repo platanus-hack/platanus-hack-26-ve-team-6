@@ -576,7 +576,9 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
       expect(present(report.external).findings.some(finding => finding.location === appEvidence.locator && finding.evidenceIds.includes(appEvidence.id))).toBe(true);
       expect(JSON.stringify(report)).not.toContain('BODY_MUST_NOT_PERSIST');
       await rejected(await stranger.api(`${app.path}/reports/${report.id}`), 403, 'forbidden');
-      await rejected(await stranger.api(`${app.path}/jobs/${queued.jobId}`), 403, 'forbidden');
+      const job = await json(await owner.api(`${app.base}/jobs/${queued.jobId}`), 200, jobSchema);
+      expect(job).toMatchObject({ id: queued.jobId, applicationId: app.app.applicationId });
+      await rejected(await stranger.api(`${app.base}/jobs/${queued.jobId}`), 403, 'forbidden');
     } finally { publicSurfaceFixture = false; }
   }, 60_000);
 });
