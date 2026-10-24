@@ -101,9 +101,10 @@ live('workspace invitations and membership lifecycle on real Postgres', () => {
   it('removal invalidates an issued step-up proof and an unconsumed approval atomically', async () => {
     const anotherOwner = `oidc:${randomUUID()}`;
     await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'owner')", [f.a.organizationId, anotherOwner]);
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'operator')", [f.b.organizationId, f.a.userId]);
     const userId = f.a.userId; const factorId = randomUUID(); const proof = randomUUID(); const proofId = randomUUID();
     const epoch = await f.admin.query('SELECT recovery_epoch FROM gotchu.platform_state WHERE singleton');
-    await f.admin.query('INSERT INTO gotchu.step_up_factors(organization_id,user_id,id,credential_id,public_key,label) VALUES($1,$2,$3,$4,$5,$6)', [f.a.organizationId,userId,factorId,randomUUID(),Buffer.from([1,2,3]),'fixture']);
+    await f.admin.query('INSERT INTO gotchu.step_up_user_factors(user_id,id,credential_id,public_key,label) VALUES($1,$2,$3,$4,$5)', [userId,factorId,randomUUID(),Buffer.from([1,2,3]),'fixture']);
     await f.admin.query(`INSERT INTO gotchu.step_up_proofs(organization_id,id,user_id,proof_hash,action_hash,recovery_epoch,authenticated_at,expires_at,factor_id)
       VALUES($1,$2,$3,$4,$5,$6,clock_timestamp(),clock_timestamp()+interval '3 minutes',$7)`, [f.a.organizationId,proofId,userId,digest(proof),'a'.repeat(64),epoch.rows[0]?.recovery_epoch,factorId]);
     await f.admin.query(`INSERT INTO gotchu.step_up_challenges(organization_id,id,user_id,purpose,action_hash,challenge,recovery_epoch,expires_at)
@@ -120,6 +121,9 @@ live('workspace invitations and membership lifecycle on real Postgres', () => {
       await expect(executor.executions.claim({ organizationId: f.a.organizationId, approvalId: approval.approvalId })).rejects.toMatchObject({ code: 'approval_used' });
       const stored = await f.admin.query('SELECT consumed_at FROM gotchu.approvals WHERE organization_id=$1 AND id=$2', [f.a.organizationId, approval.approvalId]);
       expect(stored.rows[0]?.consumed_at).not.toBeNull();
+      expect(await api.stepUp!.list({ userId }, f.b.organizationId)).toMatchObject([{ id: factorId, label: 'fixture' }]);
+      const factors = await f.admin.query('SELECT count(*)::int AS count FROM gotchu.step_up_user_factors WHERE user_id=$1 AND id=$2 AND revoked_at IS NULL', [userId, factorId]);
+      expect(factors.rows[0]?.count).toBe(1);
     } finally {
       await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'owner') ON CONFLICT(organization_id,user_id) DO UPDATE SET role='owner'", [f.a.organizationId, userId]);
     }
