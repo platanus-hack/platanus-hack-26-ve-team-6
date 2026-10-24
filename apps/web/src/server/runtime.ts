@@ -2,9 +2,12 @@ import { createBackend, type Backend, type CredentialStore } from '@gotchu/backe
 import { createDatabase } from '@gotchu/database';
 import { z } from 'zod';
 import { createApi, type ApiOperation } from './api.js';
-import { authSettings, createAuthService, type AuthService } from './auth.js';
+import { authSettings, createAuthService, publicAuthProviders, type AuthService } from './auth.js';
 import { HttpError } from './http.js';
 import { bindDemoAssessmentServices, createDemoAssessmentApi } from './demo.js';
+import { createLocalAccounts } from './local-accounts.js';
+import { createCustomerApi } from './customer-api.js';
+import { customerDnsVerifier } from './customer-dns.js';
 
 function credentialStore(value: string | undefined): CredentialStore | undefined {
   if (!value) return undefined;
@@ -27,7 +30,6 @@ function execute(backend: Backend, identity: { userId: string }, operation: ApiO
     case 'incidents.list': return backend.web.listIncidents(identity, { organizationId: operation.organizationId, applicationId: operation.applicationId });
     case 'coverage.get': return backend.web.getCoverage(identity, { organizationId: operation.organizationId, applicationId: operation.applicationId });
     case 'proposals.list': return backend.web.listProposals(identity, { organizationId: operation.organizationId, applicationId: operation.applicationId });
-    case 'audit.queue': return backend.web.queueAudit(identity, { organizationId: operation.organizationId, applicationId: operation.applicationId, idempotencyKey: operation.idempotencyKey });
     case 'job.get': return backend.web.getJob(identity, { organizationId: operation.organizationId, jobId: operation.jobId });
     case 'proposal.approve': return backend.proposals.approve(identity, { organizationId: operation.organizationId, proposalId: operation.proposalId, actionHash: operation.actionHash, stepUpProof: operation.stepUpProof });
     default: { const exhaustive: never = operation; throw new Error(`Unsupported operation: ${String(exhaustive)}`); }
@@ -49,17 +51,25 @@ export function createBackendApi(options: { auth: AuthService; origin: string; w
 }
 
 export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
-  const auth = createAuthService(authSettings(env));
   const origin = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000').origin;
   const apiDatabase = env.GOTCHU_API_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_API_DATABASE_URL, role: 'gotchu_api', max: 5 }) : null;
   const ingestDatabase = env.GOTCHU_INGEST_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_INGEST_DATABASE_URL, role: 'gotchu_ingest', max: 5 }) : null;
-  const web = apiDatabase ? createBackend({ database: apiDatabase }) : null;
+  const accounts = apiDatabase && env.GOTCHU_LOCAL_AUTH_ENABLED === 'true' ? createLocalAccounts(apiDatabase) : undefined;
+  const settings = authSettings(env, accounts);
+  const auth = createAuthService(settings);
+  const web = apiDatabase ? createBackend({ database: apiDatabase, customerDnsVerifier }) : null;
   const credentials = credentialStore(env.GOTCHU_EVENT_SIGNING_KEYS_JSON);
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
+  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, job: (identity, value) => web.web.getJob(identity, value) } : null,
+    ...(accounts ? { localAccounts: accounts } : {}),
+    registrationEnabled: Boolean(accounts) && auth.enabled && env.NODE_ENV === 'development' && env.GOTCHU_ALLOW_LOCAL_REGISTRATION === 'true',
+    providers: publicAuthProviders(settings),
+  });
   return {
     handle,
+    handleCustomer,
     handleDemo,
     async readiness() {
       const check = async (database: typeof apiDatabase) => {
