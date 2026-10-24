@@ -75,6 +75,18 @@
 .g-scope-stage[data-scope='both'] .g-scope-lens { transform: translate3d(0, -38%, 0) scale(1); }
 .g-scope-stage .g-object-chip { display: none; }
 
+.g-workflow { display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: center; padding-block: 128px 40px; }
+.g-workflow-copy > dl { display: grid; gap: 0; margin: 36px 0 22px; }
+.g-workflow-copy > dl > div { display: grid; grid-template-columns: 220px 1fr; gap: 24px; padding-block: 20px; border-top: 1px solid var(--gc-line-soft); }
+.g-workflow dt { font: 500 18px/1.4 var(--gc-font-display); color: var(--gc-paper); }
+.g-workflow dd { margin: 0; color: var(--gc-silver); font-size: 15px; }
+.g-workflow .g-secondary-link { color: var(--gc-accent-ink); }
+.g-export { position: relative; padding: 34px 32px; border: 1px solid var(--gc-line); border-radius: 14px; background: linear-gradient(160deg, #24232f, #121118); box-shadow: 0 40px 80px #08070daa, inset 0 1px 0 #fffefa1a; transform: perspective(1200px) rotateY(-8deg) rotateX(4deg); }
+.g-export::before { content: ''; position: absolute; inset: 16px -16px -16px 16px; z-index: -1; border-radius: inherit; background: var(--gc-raised); border: 1px solid var(--gc-line-soft); }
+.g-export pre { overflow-x: auto; font: 14px/2 var(--gc-font-code); color: var(--gc-silver); }
+.g-export code > span { display: block; white-space: pre; }
+.g-export b { font-weight: 500; color: var(--gc-accent-ink); }
+.g-export i { font-style: normal; color: var(--gc-paper); }
 
 
 
@@ -123,6 +135,7 @@
   .g-journey { gap: 32px; }
   .g-chapters h2 { font-size: 36px; }
   .g-chapters p { font-size: 16px; }
+  .g-workflow { grid-template-columns: 1fr; gap: 56px; }
   .g-perspective-layout { gap: 32px; }
   .g-perspective-layout, .g-faq { gap: 40px; }
 }
@@ -154,6 +167,11 @@
   .g-scope-slab { --slab: 220px; margin: -80px 0 0 -110px; }
   .g-scope-globe { --globe: 190px; margin: -95px 0 0 -95px; }
   .g-scope-lens { width: 140px; margin: -70px 0 0 -70px; }
+  .g-workflow { padding-block: 72px 0; gap: 40px; }
+  .g-workflow-copy > dl > div { grid-template-columns: 1fr; gap: 6px; }
+  .g-export { padding: 24px 18px; transform: none; }
+  .g-export::before { inset: 10px -10px -10px 10px; }
+  .g-export pre { font-size: 12px; }
   .g-perspectives h2, .g-faq h2 { font-size: 36px; }
   .g-faq { grid-template-columns: 1fr; gap: 30px; padding-block: 56px; }
   .g-faq summary { font-size: 16px; min-height: 76px; }

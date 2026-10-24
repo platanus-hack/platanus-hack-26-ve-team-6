@@ -72,7 +72,25 @@ export function LandingPage() {
           </div>
         </div>
       </section>
-      <section className="g-workflow g-container" aria-labelledby="workflow-title"><h2 id="workflow-title">Cada revisión, en su sitio.</h2><dl><div><dt>Espacios y aplicaciones</dt><dd>Organiza tus aplicaciones por espacio de trabajo y conserva los permisos de cada rol.</dd></div><div><dt>Historial de evaluaciones</dt><dd>Sigue los trabajos en cola o en curso y vuelve a consultar los informes guardados.</dd></div><div><dt>Exportación JSON</dt><dd>Descarga el informe completo con sus hallazgos, evidencia, cobertura y limitaciones.</dd></div></dl><a className="g-secondary-link" href="/dashboard">Ir a mis aplicaciones <UiIcon name="arrow" /></a></section>
+      <section className="g-workflow g-container" aria-labelledby="workflow-title">
+        <div className="g-workflow-copy">
+          <h2 id="workflow-title">Cada revisión,<br />en su sitio.</h2>
+          <dl><div><dt>Espacios y aplicaciones</dt><dd>Organiza tus aplicaciones por espacio de trabajo y conserva los permisos de cada rol.</dd></div><div><dt>Historial de evaluaciones</dt><dd>Sigue los trabajos en cola o en curso y vuelve a consultar los informes guardados.</dd></div><div><dt>Exportación JSON</dt><dd>Descarga el informe completo con sus hallazgos, evidencia, cobertura y limitaciones.</dd></div></dl>
+          <a className="g-secondary-link" href="/dashboard">Ir a mis aplicaciones <UiIcon name="arrow" /></a>
+        </div>
+        <figure className="g-export" aria-label="Estructura del informe exportado">
+          <pre><code>
+            <span>{'{'}</span>
+            <span>  <b>"internal"</b>: {'{'} <b>"findings"</b>: […], <b>"coverage"</b>: […] {'}'},</span>
+            <span>  <b>"external"</b>: {'{'} <b>"findings"</b>: […], <b>"coverage"</b>: […] {'}'},</span>
+            <span>  <b>"comparison"</b>: […],</span>
+            <span>  <b>"limitations"</b>: […],</span>
+            <span>  <b>"responseMode"</b>: <i>"observation"</i>,</span>
+            <span>  <b>"actionsPerformed"</b>: []</span>
+            <span>{'}'}</span>
+          </code></pre>
+        </figure>
+      </section>
       <section id="preguntas" className="g-faq g-container" aria-labelledby="faq-title"><h2 id="faq-title">Antes de<br />dar el paso.</h2><div>{questions.map(([question, answer]) => <details key={question}><summary>{question}<span aria-hidden="true"><UiIcon name="plus" /></span></summary><p>{answer}</p></details>)}</div></section>
       <section className="g-closing" aria-labelledby="closing-title"><div className="g-container"><h2 id="closing-title">La próxima decisión.<br /><span>Con la evidencia a mano.</span></h2><a className="g-button" href="/dashboard" data-lens-focus>Empezar mi revisión <UiIcon name="arrow" /></a></div></section>
     </main>

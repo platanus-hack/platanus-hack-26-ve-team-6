@@ -24,13 +24,6 @@
 .g-dns-steps li::marker { color: var(--gc-accent-ink); }
 .g-report-fields { padding-block: 6px; }
 .g-mobile-flow { display: none; }
-.g-workflow { padding-block: 76px 10px; }
-.g-workflow h2 { font-size: 32px; line-height: 1.25; letter-spacing: -.025em; }
-.g-workflow > dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; margin: 34px 0 20px; }
-.g-workflow > dl > div { padding-top: 22px; border-top: 1px solid var(--gc-line); }
-.g-workflow dt { font-size: 18px; color: var(--gc-paper); margin-bottom: 12px; }
-.g-workflow dd { margin: 0; color: var(--gc-silver); font-size: 14px; }
-.g-workflow .g-secondary-link { color: var(--gc-accent-ink); }
 .g-flow-sheet { transition: opacity 320ms var(--gc-ease), transform 420ms var(--gc-ease), filter 320ms var(--gc-ease); }
 @starting-style { .g-flow-sheet { opacity: 0; transform: translate3d(28px, 0, 0) rotateY(-10deg); filter: blur(6px); } }
 @media (prefers-reduced-motion: reduce) {
@@ -42,7 +35,6 @@
   .g-flow-sheet > header, .g-flow-sheet > footer { padding-inline: 18px; }
   .g-flow-fields { padding-inline: 18px; }
   .g-flow-fields > div { grid-template-columns: 1fr; gap: 6px; padding-block: 12px; }
-  .g-workflow > dl { gap: 24px; }
 }
 @media (max-width: 760px) {
   .g-mobile-flow { display: block; margin-top: 24px; }
@@ -54,8 +46,4 @@
   .g-file-formats code { padding: 6px 8px; }
   .g-dns-record { margin-inline: 18px; }
   .g-dns-record code { font-size: 16px; }
-  .g-workflow { padding-block: 44px 0; }
-  .g-workflow h2 { font-size: 28px; }
-  .g-workflow > dl { grid-template-columns: 1fr; gap: 24px; margin-top: 26px; }
-  .g-workflow > dl > div { padding-top: 18px; }
 }
