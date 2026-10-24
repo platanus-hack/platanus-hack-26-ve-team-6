@@ -10,6 +10,7 @@ import {
   monitorConfigInputSchema, monitorConfigSchema, operationCoverageSchema, operationAlertSchema,
   operationPlanSchema, operationPlanKindSchema, operationPlanBindingSchema, operationPlanStepSchema, operationReadinessSchema,
   validationPublicProjectionSchema, validationSuiteConfigSchema, validationSuiteDefinitionSchema,
+  decisionRecordPageSchema, decisionRecordQuerySchema,
 } from '@gotchu/contracts';
 import { type Identity, type Backend } from '@gotchu/backend';
 import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, reportRecommendationsResponseSchema, type PrepareCorrectionRequest, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
@@ -38,6 +39,7 @@ export interface CustomerServices {
   context?: Backend['context'];
   members?: Backend['members'];
   operations?: Backend['operations'];
+  decisionRecords?: Backend['decisionRecords'];
   triage?: Backend['triage'];
   actions?: Backend['actions'];
   github?: Backend['github'];
@@ -194,6 +196,11 @@ export function createCustomerApi(options: {
       }
       if (parts[0] !== 'api' || parts[1] !== 'customer' || parts[2] !== 'workspaces') throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
       const organizationId = parse(uuid, parts[3]);
+      if (parts.length === 5 && parts[4] === 'decision-records' && request.method === 'GET') {
+        if (!services.decisionRecords) throw new HttpError(503, 'decision_records_not_configured', 'El historial de decisiones no está configurado.');
+        const query = parse(decisionRecordQuerySchema, Object.fromEntries(url.searchParams.entries()));
+        return send(decisionRecordPageSchema.parse(await services.decisionRecords.list(identity, { organizationId, ...query })));
+      }
       if (parts.length === 6 && parts[4] === 'jobs' && request.method === 'GET') {
         const value = jobSchema.parse(await services.job(identity, { organizationId, jobId: parse(uuid, parts[5]) }));
         return send(value);

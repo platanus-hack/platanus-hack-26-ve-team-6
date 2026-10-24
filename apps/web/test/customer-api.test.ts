@@ -4,7 +4,7 @@ import { BackendError } from '@gotchu/backend';
 import { createCustomerApi, type CustomerServices } from '../src/server/customer-api.js';
 import { contextClient } from '../src/components/context-client.js';
 import type { AuthService } from '../src/server/auth.js';
-import { operationPlanSchema } from '@gotchu/contracts';
+import { decisionRecordPageSchema, operationPlanSchema } from '@gotchu/contracts';
 const origin = 'http://localhost:3000';
 const organizationId = randomUUID();
 const applicationId = randomUUID();
@@ -122,6 +122,26 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     expect((await handle(request(`workspaces/${organizationId}/applications`, { name: 'Actual app', organizationId: randomUUID(), userId: 'attacker' }))).status).toBe(400);
     expect((await handle(request(`workspaces/${organizationId}/applications`, { name: 'Actual app' }))).status).toBe(201);
     expect(services.createApplication).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, name: 'Actual app' });
+  });
+  it('validates workspace decision-history queries and forwards only the authenticated identity', async () => {
+    const { services, auth } = ports();
+    const page = decisionRecordPageSchema.parse({ records: [], nextCursor: null });
+    const list = vi.fn(async () => page);
+    services.decisionRecords = { list };
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
+    const path = `${origin}/api/customer/workspaces/${organizationId.toUpperCase()}/decision-records`;
+    const response = await handle(new Request(`${path}?limit=10&subjectType=alert&subjectId=${applicationId}`));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(await response.json()).toEqual(page);
+    expect(list).toHaveBeenCalledExactlyOnceWith({ userId }, { organizationId, limit: 10, subjectType: 'alert', subjectId: applicationId });
+
+    expect((await handle(new Request(`${path}?limit=51`))).status).toBe(400);
+    expect((await handle(new Request(`${path}?unknown=value`))).status).toBe(400);
+    expect(list).toHaveBeenCalledTimes(1);
+    auth.identity = async () => null;
+    expect((await handle(new Request(`${path}`))).status).toBe(401);
+    expect(list).toHaveBeenCalledTimes(1);
   });
   it('rejects cross-origin mutations before calling any backend service', async () => {
     const { services, auth } = ports();
