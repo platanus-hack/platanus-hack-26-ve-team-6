@@ -6,10 +6,13 @@
 - `8` commits exceed 1,000 raw changed lines.
 - `5` commits exceed 1,000 authored changed lines.
 - `0` binary files changed in the measured history.
+- The largest authored change is 2,955 lines in `bb7c955342bd` (`feat(monitoring): add bounded read adapters`).
+
+The fixture-path correction restores 186 authored lines across two otherwise sub-threshold commits: 171 in `99dbfa939c9b` (demo target implementation) and 15 in `bda7955dc8d1` (validator harness). The threshold counts and large-authored rows below remain unchanged.
 
 ## Raw outliers with excluded-file contributions
 
-These commits exceed 1,000 raw lines and include large lockfile or generated-file deltas. The authored column applies the exclusions defined in [the index](commit-history.md). The lockfile and generated contributions below are read directly from each commit’s first-parent numstat. No >1,000-raw commit is driven by fixture data.
+These commits exceed 1,000 raw lines and include large lockfile or generated-file deltas. The authored column applies the precise path exclusions defined in [the index](commit-history.md). The lockfile and generated contributions below are read directly from each commit’s first-parent numstat. No >1,000-raw commit is driven by fixture data.
 
 | Commit | Subject | Raw + / − / total | Authored + / − / total | Excluded contribution |
 |---|---|---:|---:|---|

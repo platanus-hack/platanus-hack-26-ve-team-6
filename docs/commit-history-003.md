@@ -77,7 +77,7 @@ Range: `df2d71385cba` through `8c03aca79c9d`.
 | 2026-10-24 12:04:20 | `2e85ab04a032` | feat(backend): enqueue and expose correction validation | 5 | 191 / 2 / 193 | 191 / 2 / 193 | 0 | — |
 | 2026-10-24 12:04:20 | `ebe6ac6756c9` | feat(validator): add isolated worker service shell | 9 | 211 / 0 / 211 | 211 / 0 / 211 | 0 | — |
 | 2026-10-24 12:04:20 | `042183eaeada` | feat(validator): run independent candidate validation | 1 | 192 / 0 / 192 | 192 / 0 / 192 | 0 | — |
-| 2026-10-24 12:04:20 | `bda7955dc8d1` | test(validator): cover validation scoring and live VM cases | 6 | 130 / 0 / 130 | 112 / 0 / 112 | 0 | — |
+| 2026-10-24 12:04:20 | `bda7955dc8d1` | test(validator): cover validation scoring and live VM cases | 6 | 130 / 0 / 130 | 127 / 0 / 127 | 0 | — |
 | 2026-10-24 12:04:20 | `6797d747b1c7` | feat(web): expose correction validation status | 5 | 45 / 9 / 54 | 45 / 9 / 54 | 0 | — |
 | 2026-10-24 12:07:16 | `3bcc8476faf0` | build: register @gotchu/validator in the workspace lockfile | 1 | 34 / 0 / 34 | 0 / 0 / 0 | 0 | — |
 | 2026-10-24 12:07:52 | `a43cbb9d3ed5` | feat(git-adapters): add safe local and GitHub PR adapters | 5 | 240 / 1 / 241 | 240 / 1 / 241 | 0 | — |

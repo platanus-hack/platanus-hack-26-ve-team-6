@@ -57,7 +57,7 @@ Range: `9b1624f052b9` through `952e3c17f21b`.
 | 2026-10-24 06:11:30 | `b0805950837d` | feat(contracts): define the controlled demonstration API | 2 | 18 / 0 / 18 | 18 / 0 / 18 | 0 | — |
 | 2026-10-24 06:15:27 | `67c4075c7b11` | feat(backend): persist scoped controlled assessment requests and reports | 11 | 580 / 6 / 586 | 580 / 6 / 586 | 0 | auth>300 |
 | 2026-10-24 06:15:27 | `7a7a19815357` | feat(coordinator): run assessments in a bounded independent delivery lane | 11 | 241 / 11 / 252 | 241 / 11 / 252 | 0 | — |
-| 2026-10-24 06:16:23 | `99dbfa939c9b` | feat(demo-target): serve controlled vulnerable and corrected catalogs | 13 | 220 / 0 / 220 | 0 / 0 / 0 | 0 | — |
+| 2026-10-24 06:16:23 | `99dbfa939c9b` | feat(demo-target): serve controlled vulnerable and corrected catalogs | 13 | 220 / 0 / 220 | 171 / 0 / 171 | 0 | — |
 | 2026-10-24 06:16:23 | `ad6f62882669` | feat(assessment): compare bounded source and live HTTP evidence | 17 | 1,542 / 0 / 1,542 | 1,542 / 0 / 1,542 | 0 | raw>1k, auth>300, auth>1k |
 | 2026-10-24 06:16:23 | `819f0ba51ebe` | feat(infra): replace DigitalOcean baseline with AWS pilot foundation | 9 | 605 / 258 / 863 | 605 / 258 / 863 | 0 | auth>300 |
 | 2026-10-24 06:23:39 | `4a5fd702c365` | feat(auth): support issuer-scoped OIDC without mandatory GitHub | 2 | 67 / 10 / 77 | 67 / 10 / 77 | 0 | — |
