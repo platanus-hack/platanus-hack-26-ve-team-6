@@ -23,6 +23,7 @@ async function verifyPassword(password: string, encoded: string) {
 }
 export interface LocalAccounts {
   register(input: unknown): Promise<{ id: string }>;
+  bootstrap(input: unknown): Promise<{ id: string }>;
   authenticate(input: unknown): Promise<{ id: string; email: string; credentialEpoch: number } | null>;
   accountEmail(userId: string): Promise<string | null>;
   reauthenticate(userId: string, password: string): Promise<boolean | null>;
@@ -48,6 +49,24 @@ export function createLocalAccounts(database: Database): LocalAccounts {
     if (!permitted) throw new HttpError(429, 'authentication_rate_limit', 'Demasiados intentos. Espera antes de volver a entrar.');
   }
   return {
+    bootstrap: async input => {
+      const value = z.object({ token: z.string().min(32).max(256), email: z.email().max(254).transform(email => email.toLowerCase()), password: z.string().min(15).max(128), workspaceName: z.string().trim().min(1).max(200) }).strict().parse(input);
+      const admitted = await database.tenant(systemScope, async tx => {
+        const result = await tx.query<{ allowed: boolean }>("SELECT gotchu.auth_admit('register:global',10,3600) AS allowed");
+        return result.rows[0]?.allowed === true;
+      });
+      if (!admitted) throw new HttpError(429, 'registration_rate_limit', 'Se ha alcanzado el límite temporal de configuración inicial.');
+      return bounded(async () => {
+        const encoded = await hashPassword(value.password);
+        const result = await database.tenant(systemScope, async tx => tx.query<{ id: string | null }>(
+          'SELECT gotchu.self_host_complete_setup($1,$2,$3,$4,$5) AS id',
+          [createHash('sha256').update(value.token).digest('hex'), randomUUID(), value.email, encoded, value.workspaceName],
+        ));
+        const id = result.rows[0]?.id;
+        if (!id) throw new HttpError(409, 'setup_unavailable', 'El enlace caducó o la configuración inicial ya se completó.');
+        return { id };
+      });
+    },
     register: async input => {
       const value = localRegistrationSchema.parse(input);
       const admitted = await database.tenant(systemScope, async tx => {

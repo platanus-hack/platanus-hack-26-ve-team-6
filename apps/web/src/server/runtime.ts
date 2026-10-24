@@ -72,7 +72,8 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const webAuthn = resolveWebAuthnConfiguration(configuredOrigin, env.GOTCHU_WEBAUTHN_RP_ID);
   const apiDatabase = env.GOTCHU_API_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_API_DATABASE_URL, role: 'gotchu_api', max: 5 }) : null;
   const ingestDatabase = env.GOTCHU_INGEST_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_INGEST_DATABASE_URL, role: 'gotchu_ingest', max: 5 }) : null;
-  const accounts = apiDatabase && env.GOTCHU_LOCAL_AUTH_ENABLED === 'true' ? createLocalAccounts(apiDatabase) : undefined;
+  const selfHostMode = env.GOTCHU_AUTH_MODE === 'self_host';
+  const accounts = apiDatabase && (selfHostMode || env.GOTCHU_LOCAL_AUTH_ENABLED === 'true') ? createLocalAccounts(apiDatabase) : undefined;
   const dnsServers = env.GOTCHU_DNS_SERVERS_JSON ? z.array(z.string().min(1).max(100)).max(5).parse(JSON.parse(env.GOTCHU_DNS_SERVERS_JSON)) : [];
   const eventCredentials = env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY ? createFileEventCredentials(env.GOTCHU_EVENT_CREDENTIAL_DIRECTORY) : undefined;
   const actionVerifier = apiDatabase ? createActionVerifier({ database: apiDatabase, repository: {
@@ -121,7 +122,8 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
     },
     job: (identity, value) => web.web.getJob(identity, value) } : null,
     ...(accounts ? { localAccounts: accounts } : {}),
-    registrationEnabled: Boolean(accounts) && auth.enabled && env.NODE_ENV === 'development' && env.GOTCHU_ALLOW_LOCAL_REGISTRATION === 'true',
+    registrationEnabled: !selfHostMode && Boolean(accounts) && auth.enabled && env.NODE_ENV === 'development' && env.GOTCHU_ALLOW_LOCAL_REGISTRATION === 'true',
+    selfHostSetup: selfHostMode,
     providers: publicAuthProviders(settings),
     ...(env.GOTCHU_GITHUB_READER_APP_FILE ? { githubAppFile: env.GOTCHU_GITHUB_READER_APP_FILE } : {}),
     ...(env.GOTCHU_GITHUB_APP_SLUG ? { githubAppSlug: env.GOTCHU_GITHUB_APP_SLUG } : {}),

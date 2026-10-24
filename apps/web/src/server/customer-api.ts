@@ -73,6 +73,7 @@ async function body(request: Request, max = 8_192): Promise<unknown> {
 export function createCustomerApi(options: {
   auth: AuthService; origin: string; services: CustomerServices | null;
   localAccounts?: LocalAccounts; registrationEnabled: boolean;
+  selfHostSetup?: boolean;
   providers: readonly { id: string; name: string; type: string }[];
   githubAppFile?: string; githubAppSlug?: string;
 }) {
@@ -100,6 +101,10 @@ export function createCustomerApi(options: {
       if (request.method === 'POST' && url.pathname === '/api/customer/register') {
         if (!options.registrationEnabled || !options.localAccounts) throw new HttpError(403, 'registration_disabled', 'El registro local no está habilitado.');
         return json(await options.localAccounts.register(parse(localRegistrationSchema, await body(request))), 201);
+      }
+      if (request.method === 'POST' && url.pathname === '/api/customer/setup') {
+        if (!options.selfHostSetup || !options.localAccounts) throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
+        return json(await options.localAccounts.bootstrap(await body(request, 16_384)), 201);
       }
       const session = await options.auth.identity(request);
       if (!session) throw new HttpError(401, 'unauthenticated', 'Inicia sesión para acceder al espacio de trabajo.');
