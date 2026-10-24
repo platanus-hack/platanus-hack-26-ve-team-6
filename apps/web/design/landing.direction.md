@@ -1,34 +1,42 @@
 # Landing direction contract
 
-- **Surface and mode:** `/`, Persuade → Understand → Act. A person maintaining a real application should understand the three assessment modes and reach `/dashboard` without a fabricated result or forced tour.
-- **Visual authority:** original evidence-lens world, graphite/magenta/porcelain. The earlier supplied site is a palette reference, not a layout or asset template. Apple and Churupitos are interaction studies only; no borrowed images, code or initial loader.
-- **Content:** compare source and HTTPS observations with evidence; never claim ongoing monitoring, automated fixes, attack confirmation or complete coverage. User forbids explanatory artwork and mock-interface captions. Therefore do not fabricate an interface or report that needs one.
-- **Signature moment:** a layered optical instrument responds to pointer input in the hero. The scroll story then shows concrete product panels for a source snapshot, DNS authorization and the report structure. Touch presents each panel inline; reduced motion removes the transition.
-- **Boundaries:** only landing, local design context, reusable presentation helpers and tests. Customer/demo UI, backend, permissions, auth and all production deployment remain untouched.
+- **Surface and mode:** `/`, Persuade → Understand → Act. A person maintaining a real application should understand that Gotchu puts a source snapshot and an authorized HTTPS origin under one lens, see what the report keeps, and reach `/dashboard` without a fabricated result or forced tour.
+- **Visual authority:** graphite/magenta/porcelain with Oxanium, unchanged. The world is a machined lens-eye: brushed conic metal, dark glass, aperture blades, CSS-3D objects with real thickness. Apple (MacBook Pro) informs the pinned product story and physical springs; Churupitos informs objects that respond to the visitor. No borrowed artwork, code or initial loader.
+- **Content:** compare source and HTTPS observations with evidence; never claim ongoing monitoring, automated fixes, attack confirmation or complete coverage. No explanatory artwork captions, meta copy or mock-analysis instructions anywhere. Object labels name real product concepts (`SHA-256`, `TXT _gotchu.<dominio>`, report keys) and never invent values.
+- **Signature moment:** the headline "Tu código. ◉ Tu web." sets the lens inside the sentence. Its iris follows the pointer across the whole page, blinks once after hydration and narrows on primary actions (`data-lens-focus`). Scrolling the pinned stage parts the words, draws the code slab and HTTPS globe into the opening, then moves the lens aside and returns the report along a beam.
+- **Boundaries:** landing, local design context, presentation helpers and tests only. Customer/demo UI, backend, permissions, auth and deployment remain untouched.
 
 ## Motion decisions
 
 | Location | Purpose | Frequency | Implementation |
 | --- | --- | --- | --- |
-| Hero group | Arrival / first-time orientation | Rare | Transform 8px and opacity .6→1, 600ms strong ease-out, 60ms stagger; immediately usable |
-| Lens pointer response | Spatial consistency and first-visit delight | Rare marketing exploration | Two interruptible Motion springs, duration .4, bounce 0; ±6°/±4°; fine pointer only |
-| Product scroll story | Explain actual snapshot, authorization and report workflow | Once per visit | Native sticky; chapter observer; 200ms opacity on panel changes; static inline panels on mobile |
-| Scope selection | Prevent abrupt change | Occasional | 200ms opacity crossfade for pointer; keyboard updates immediately |
-| Press / hover | Immediate feedback | Frequent | .97 press scale, 160ms token ease; 2px hover lift only with fine pointer |
-| FAQ | State indication | Occasional | 200ms native disclosure; static fallback and reduced-motion variant |
+| Hero entrance | Arrival | Once | Opacity .35→1, 14px, 4px blur, 700ms strong ease-out, 70ms stagger, `backwards` fill so scroll transforms take over |
+| Lens blink | Delight, signals the object is alive | Once per load | Aperture .72→.04→.72 in 750ms, 500ms after hydration |
+| Pointer following | Spatial delight on a marketing page | Continuous while pointer moves | One shared window listener; per-object springs `duration .5, bounce .15`; ±13–22° tilt; iris translate; metal sheen turns with tilt; paused off screen |
+| Iris focus | Feedback on primary actions | Occasional | Spring to .22 opening (`duration .45, bounce .2`), back with bounce 0 |
+| Convergence | Explanation of the product mechanism | Once per visit | 340svh native sticky stage; smoothed scroll spring `duration .3`; transforms/opacity written directly per frame; cubic ease-in-out segments |
+| Chapter sheet | Prevent a jarring panel swap | Per chapter | `@starting-style` opacity + 28px + rotateY(-10°) + 6px blur, 320–420ms |
+| Scope regroup | Spatial consistency between tabs | Occasional | Transform/opacity 640ms `cubic-bezier(.77,0,.175,1)`; indicator 300ms |
+| Press / hover | Feedback | Frequent | .97 press; fine-pointer lift 2px, glint sweep 700ms, arrow 4px |
+| FAQ | State indication | Occasional | 240ms native disclosure, ringed control rotates 45° |
 
-Rejected: moving paragraphs, perpetual lens rotation, animated invented metrics, page loader, custom cursor, magnetic buttons that move away from the pointer, full-screen parallax, scroll snapping and scroll hijacking. The object never obstructs the reading column or captures touch scrolling.
+Rejected: perpetual rotation or idle loops, page loader, custom cursor, scroll snapping or hijacking, magnetic buttons, animated invented metrics, particles. The pinned sequence never blocks scrolling, and focus on a faded hero action scrolls back to the start.
+
+## Fallbacks
+
+Below 761px wide, below 560px tall, under reduced motion and without JavaScript, the stage renders stacked: hero, "Dos perspectivas", then "Cada hallazgo" beside the report. Reduced motion also freezes pointer tilt and iris tracking. Touch input moves the iris to the tapped point.
 
 ## Source and implementation map
 
-- Original asset generator: `scripts/generate-landing-assets.py`.
-- Three assets: `public/landing/evidence-lens.svg`, `source-snapshot.svg`, `https-origin.svg`.
-- Spatial behavior: `src/components/evidence-lens.tsx`.
-- Content and interaction: `src/components/landing.tsx`.
-- Verified product panels: `src/components/product-flow.tsx` and `product-flow.css`; source of truth is `customer-dashboard.tsx` SourceEnrollment, TargetEnrollment and ReportView, plus `docs/architecture.md`.
-- Theme and motion: `src/components/landing.css`, `src/styles/tokens.css`.
-- Regression gate: `e2e/design.spec.ts` plus `test/ui.test.ts`.
+- Asset generator: `scripts/generate-landing-assets.py` → `public/landing/code-slab.svg`, `report-sheet.svg`.
+- Procedural geometry: aperture blades (`lens-eye.tsx`), projected globe and orbit (`spatial-objects.tsx`).
+- Pointer field and facing springs: `src/components/pointer-field.ts`.
+- Stage choreography: `src/components/convergence.tsx` / `.css`.
+- Objects: `lens-eye.tsx`, `spatial-objects.tsx` (CodeSlab, OriginGlobe, ReportSheet, `useTilt`).
+- Product panels: `product-flow.tsx` / `.css`; source of truth is `customer-dashboard.tsx` and `packages/contracts`.
+- Page and theme: `landing.tsx`, `landing.css`, `src/styles/tokens.css`.
+- Regression gate: `e2e/design.spec.ts`, `test/ui.test.ts`.
 
 ## Open decisions
 
-Commercial AIRNT licensing and buyer-specialization research are not resolved. No synthetic test or screenshot proves cloud deployment, scanner production readiness or real-device GPU performance.
+Commercial AIRNT licensing and buyer-specialization research remain open. No synthetic test or screenshot proves cloud deployment, scanner production readiness or real-device GPU performance.
