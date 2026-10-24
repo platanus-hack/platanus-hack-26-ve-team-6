@@ -70,6 +70,16 @@ function requireTarget(row: TargetRow | null): TargetRow {
   if (!row) throw new BackendError('not_found', 'Target not found', 404);
   return row;
 }
+/** Caller holds lockApplication through the mutation, serializing with queue/getRequest. */
+async function requireTargetIdle(tx: Transaction, scope: Scope, targetId: string) {
+  // Neither an expired lease nor an uncertain runner failure proves that I/O stopped.
+  const unfinished = await tx.query(`SELECT 1 FROM gotchu.customer_requests r
+    JOIN gotchu.jobs j ON j.organization_id=r.organization_id AND j.application_id=r.application_id AND j.id=r.job_id
+    WHERE r.organization_id=$1 AND r.application_id=$2 AND r.target_id=$3
+      AND (j.state IN ('queued','running') OR (j.state='failed' AND j.result->>'reasonCode'='assessment_reconciliation_required')) LIMIT 1`,
+  [scope.organizationId, scope.applicationId, targetId]);
+  if (unfinished.rowCount) throw new BackendError('target_assessment_in_progress', 'Target authorization remains active while assessments are outstanding; retry once they finish or an operator reconciles uncertain work.', 409);
+}
 async function checkJsonSize(tx: Transaction, serialized: string, limit: number) {
   const size = await tx.query<{ bytes: number }>('SELECT octet_length($1::jsonb::text) AS bytes', [serialized]);
   if (!size.rows[0] || size.rows[0].bytes > limit) throw new BackendError('payload_too_large', 'JSON exceeds the storage bound', 413);
@@ -179,6 +189,8 @@ export function createCustomerService(deps: CustomerDependencies) {
       const actor = principal(identity); const value = parse(customerEnrollTargetSchema, input);
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, actor, writeRoles); await lockApplication(tx, value);
+        const current = await targetRow(tx, value);
+        if (current) await requireTargetIdle(tx, value, current.id);
         const token = randomBytes(32).toString('base64url');
         await tx.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at)
           VALUES ($1,$2,$3,$4,1,'pending',$5,$6,clock_timestamp()+interval '30 minutes')
@@ -229,6 +241,7 @@ export function createCustomerService(deps: CustomerDependencies) {
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, actor, writeRoles); await lockApplication(tx, value, true);
         requireTarget(await targetRow(tx, value, value.targetId));
+        await requireTargetIdle(tx, value, value.targetId);
         await tx.query("UPDATE gotchu.customer_targets SET status='revoked',version=version+1,verified_at=NULL,expires_at=NULL WHERE organization_id=$1 AND application_id=$2 AND id=$3", [value.organizationId, value.applicationId, value.targetId]);
         await audit(tx, value.organizationId, actor.userId, 'target.revoked', value.targetId);
         return targetView(value, requireTarget(await targetRow(tx, value, value.targetId)));
