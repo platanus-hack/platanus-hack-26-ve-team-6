@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <strong>Revisa el código de tu app, tu web o ambos. Cada hallazgo trae su evidencia.</strong>
+  <strong>Mira de cerca. Decide con pruebas.</strong>
 </p>
 
 <p align="center">

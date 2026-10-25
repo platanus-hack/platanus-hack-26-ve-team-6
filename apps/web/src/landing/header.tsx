@@ -7,8 +7,8 @@ import { cn } from '@/lib/utils';
 import { ThemeSwitch } from '../components/theme-switch';
 
 const LINKS = [
-  { href: '#gl-codigo', label: 'Cómo funciona' },
-  { href: '#gl-alcance', label: 'Alcance' },
+  { href: '#gl-funciona', label: 'Cómo funciona' },
+  { href: '#gl-informe', label: 'Informe' },
   { href: '#gl-preguntas', label: 'Preguntas' },
 ] as const;
 
@@ -42,7 +42,7 @@ export function Header() {
       </nav>
       <div className="gl-header-tools">
         <ThemeSwitch className="max-[519px]:hidden" />
-        <a href="/dashboard" data-catch="" className={cn(buttonVariants({ size: 'sm' }), 'max-[899px]:hidden')}>Abrir Gotchu</a>
+        <a href="/dashboard" data-catch="" className={cn(buttonVariants({ size: 'sm' }), 'max-[899px]:hidden')}>Entrar</a>
         <MobileMenu open={open} onOpenChange={setOpen} />
       </div>
     </div>
@@ -51,8 +51,8 @@ export function Header() {
 
 function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
-    <Dialog.Trigger render={<Button variant="outline" size="sm" className="min-[900px]:hidden" />}>
-      <MenuIcon aria-hidden="true" />Menú
+    <Dialog.Trigger render={<Button variant="outline" size="icon" aria-label={open ? 'Cerrar menú' : 'Abrir menú'} aria-expanded={open} className="min-[900px]:hidden" />}>
+      {open ? <XIcon aria-hidden="true" /> : <MenuIcon aria-hidden="true" />}
     </Dialog.Trigger>
     <Dialog.Portal>
       <Dialog.Backdrop className="gl gl-mobile-menu-backdrop" />
@@ -60,8 +60,8 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
         <div className="gl-mobile-menu-header">
           <div className="gl-header-in">
             <div className="gl-brand" aria-hidden="true"><GotchuMark size={26} /><span>Gotchu</span></div>
-            <Dialog.Close render={<Button variant="outline" size="sm" aria-expanded={open} />}>
-              <XIcon aria-hidden="true" />Cerrar
+            <Dialog.Close render={<Button variant="outline" size="icon" aria-label="Cerrar menú" aria-expanded={open} />}>
+              <XIcon aria-hidden="true" />
             </Dialog.Close>
           </div>
         </div>
@@ -72,7 +72,7 @@ function MobileMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open
           </nav>
           <div className="gl-mobile-menu-foot">
             <ThemeSwitch />
-            <a href="/dashboard" data-catch="" className={buttonVariants()}>Abrir Gotchu</a>
+            <a href="/dashboard" data-catch="" className={buttonVariants()}>Entrar</a>
           </div>
         </div>
       </Dialog.Popup>

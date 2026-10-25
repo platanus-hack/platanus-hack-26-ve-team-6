@@ -224,8 +224,8 @@ Four brand colours (magenta, graphite, porcelain, silver) over two absolute grou
 
 ### Primary
 - **Signal Magenta** (magenta): the brand mark in both themes. The band behind large highlighted phrases (with porcelain type), list diamonds, the left rule of mobile margin notes, the 2px nav hover underline, the link hover underline, the button hover offset and the finding in dot fields. Never behind small text.
-- **Action Magenta** (action): magenta for small text and marks on white: superscript references, JSON keys, item numerals, the TXT record type, the open FAQ control, link hover text and the focus ring (light). In dark it becomes the body highlighter band under porcelain text.
-- **Pink Ink** (pink-ink): the light-theme body highlighter band under graphite text and text selection; in dark it takes over every action-magenta role (references, keys, focus ring, open FAQ control) because action is too dark on black.
+- **Action Magenta** (action): magenta for small text and marks on white: superscript references, JSON keys, item numerals, the TXT record type, the open FAQ control and link hover text. In dark it becomes the body highlighter band under porcelain text.
+- **Pink Ink** (pink-ink): the light-theme body highlighter band under graphite text and text selection; in dark it takes over every action-magenta role (references, keys, open FAQ control) because action is too dark on black.
 
 ### Neutral
 - **White / Black** (white, black): the ground, cards and header of the light and dark themes respectively. Also the page behind the landing, so overscroll never shows another colour.
@@ -297,7 +297,7 @@ Flat. Nothing at rest casts a shadow; depth is hairlines, rules and type scale o
 
 ## Shapes
 
-Near-square and straight. Corners come from a fixed scale: 2px for pixels and the link focus shape, 6px for chips and the JSON exhibit frame, 8px for buttons, toggles, the FAQ control and the skip link, 12–16px reserved for panels and cards. Sections, the header, the top sheet and the dot fields stay square. Rules carry the structure: 2px foreground rules open sections and close the DNS record and glossary; 1px hairlines separate list rows, scope columns and FAQ rows; 2px dotted leaders join glossary terms to their definitions. The finding is a diamond (a square rotated 45°): 8px magenta list bullets, `◆` in the ASCII plates, and the FAQ control rotating into it when open. Dot fields draw square pixels, never round dots.
+Near-square and straight. Corners come from a fixed scale: 2px for pixels, 6px for chips and the JSON exhibit frame, 8px for buttons, toggles, the FAQ control and the skip link, 12–16px reserved for panels and cards. Sections, the header, the top sheet and the dot fields stay square. Rules carry the structure: 2px foreground rules open sections and close the DNS record and glossary; 1px hairlines separate list rows, scope columns and FAQ rows; 2px dotted leaders join glossary terms to their definitions. The finding is a diamond (a square rotated 45°): 8px magenta list bullets, `◆` in the ASCII plates, and the FAQ control rotating into it when open. Dot fields draw square pixels, never round dots.
 
 ### Named Rules
 **The Small Radius Rule.** Radius never exceeds 16px and always comes from the scale; a radius softens a corner, it does not change the silhouette. No pills, no circles (badges map to 6px).
@@ -309,7 +309,7 @@ shadcn/ui (style `base-nova` on Base UI), restyled in `src/components/ui/`. Navi
 ### Buttons
 - **Shape:** 8px corners; 34px tall on mobile, 48px from md; large 56px from md; small and icon 34px at every width.
 - **Primary:** foreground fill with ground-coloured text (graphite/white in light, porcelain/black in dark), 600 text face, trailing 16px lucide arrow.
-- **Hover / Press:** up-left 2px over the hard 4px magenta offset, arrow nudges 4px right, 160ms; press scales to 0.97; focus is a 2px ring outline at 4px offset (action in light, pink ink in dark).
+- **Hover / Press:** up-left 2px over the hard 4px magenta offset, arrow nudges 4px right, 160ms; press scales to 0.97; keyboard focus changes the border colour (brand ink in both themes).
 - **Outline:** border-colour hairline on the ground; hover darkens the border to foreground and fills muted. Used by the Menú trigger and the sheet's close button.
 - **Link:** no fill, foreground text over a 2px underline at .28em; hover turns text action/pink ink and the underline magenta, arrow nudges right.
 - **Catch:** every primary path into `/dashboard` carries `data-catch`; hovering or focusing it pulls the dot fields toward their finding.

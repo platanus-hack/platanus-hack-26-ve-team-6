@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AssessmentAnalysis, AssessmentComparison, AssessmentEvidence } from '@gotchu/contracts';
-import { comparisonCounts, comparisonPresence, comparisonVerification, perspectiveStatus } from './customer-report-model';
+import { comparisonPresence, comparisonVerification, perspectiveStatus } from './customer-report-model';
 
 const httpResponseExcerptSchema = z.object({
   status: z.number().int().min(100).max(599),
@@ -59,7 +59,7 @@ export function ExternalHttpsEvidence({ analysis }: { analysis: AssessmentAnalys
   return <section className="customer-report-section">
     <div className="customer-section-heading"><div><span className="customer-eyebrow">EVIDENCIA HTTPS</span><h3>Recursos observados</h3></div></div>
     {responses.length === 0
-      ? <div className="customer-empty-inline">No se registraron respuestas HTTPS. Consulta la cobertura para ver qué impidió o limitó la inspección.</div>
+      ? <div className="customer-empty-inline">Sin respuestas HTTPS registradas.</div>
       : <div className="customer-http-evidence-list">{responses.map(item => <HttpEvidence item={item} key={item.id} />)}</div>}
   </section>;
 }
@@ -69,10 +69,9 @@ export function ComparisonSummary({ comparisons, internal, external }: {
   internal: AssessmentAnalysis | null;
   external: AssessmentAnalysis | null;
 }) {
-  const counts = comparisonCounts(comparisons);
+  if (comparisons.length === 0) return null;
   return <div className="customer-comparison-summary">
-    <p>Hallazgos referenciados: Código <strong>{counts.internal}</strong> · HTTPS <strong>{counts.external}</strong> · grupos con referencias en ambas <strong>{counts.matched}</strong>.</p>
-    <p>Perspectivas: Código {perspectiveStatus(internal)} · HTTPS {perspectiveStatus(external)}. Una observación en una perspectiva no demuestra ausencia en la otra.</p>
+    <p>Código: {perspectiveStatus(internal).toLocaleLowerCase('es')} · HTTPS: {perspectiveStatus(external).toLocaleLowerCase('es')}. Una perspectiva no descarta la otra.</p>
   </div>;
 }
 

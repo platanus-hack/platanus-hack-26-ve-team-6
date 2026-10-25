@@ -107,7 +107,7 @@ browserSuite('opt-in real WebAuthn browser ceremony with CDP virtual authenticat
     expect(application).toBe(201);
     expect((await page.evaluate(async () => (await fetch('/api/customer/session')).status))).toBe(200);
     await page.goto(`${origin}/dashboard`);
-    await page.getByRole('button', { name: 'Aplicaciones' }).click();
+    await page.getByRole('link', { name: 'Fuentes' }).click();
     await page.getByRole('heading', { name: 'Verificación en dos pasos' }).waitFor();
     const bootstrapWithoutPassword = await page.evaluate(async organizationId => {
       const response = await fetch('/api/customer/step-up/factors/enrollment-options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organizationId }) });

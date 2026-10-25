@@ -13,6 +13,10 @@ Acordado el 24 de octubre de 2026: no bloquean el cierre del núcleo.
 - **Recorrido completo en navegador real, ya en producción.** Recorrer y corregir todo el flujo: inicio de sesión con Google o GitHub → conectar repo o subir código → escaneo → informe → recomendación → candidato → validación → aprobación con WebAuthn → PR real → vigilancia y alertas. Incluye `./gotchu backup` y `./gotchu restore` con la topología de procesos en el host.
 - **Pasada de textos.**
   - La interfaz debe estar entera en español; hoy hay recomendaciones en inglés.
+  - Al superar el límite de 5 intentos de inicio de sesión por cuenta cada 15 minutos, mostrar el mensaje real del límite: el flujo de credenciales de Auth.js descarta el 429 y dice que el correo o la contraseña no son correctos.
+  - Traducir los aproximadamente 330 mensajes de error del backend; `customer-client.ts` solo traduce los códigos de los flujos principales.
+  - Traducir los títulos y las recomendaciones de hallazgos generados por los escáneres.
+- **Dividir `customer-dashboard.tsx`.** Las rutas por sección ya conservan el marco y cada sección tiene su URL, pero las consultas del proyecto y el contenido de cada sección siguen en ese archivo (~1.080 líneas). Moverlos a un proveedor del proyecto y a componentes por sección.
   - Corregir "Protege lo que construyes" en el dashboard.
   - Corregir "continuous monitoring" en el README; son revisiones periódicas.
   - Traducir la página de cierre de sesión de Auth.js.

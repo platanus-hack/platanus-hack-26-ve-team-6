@@ -3,17 +3,53 @@ import type { AssessmentAnalysis, AssessmentComparison, CustomerAssessmentReport
 const coverageLabels: Record<string, string> = {
   semgrep: 'Semgrep · SAST (JavaScript/TypeScript, Python, Go y Java)',
   gitleaks: 'Gitleaks · detección de secretos',
-  trivy: 'Trivy · configuración de Kubernetes, Terraform y Dockerfile',
-  trivy_kubernetes: 'Trivy · Kubernetes',
-  trivy_terraform: 'Trivy · Terraform',
-  trivy_dockerfile: 'Trivy · Dockerfile',
+  trivy_kubernetes: 'Kubernetes',
+  trivy_terraform: 'Terraform',
+  trivy_dockerfile: 'Dockerfile',
+  trivy: 'Configuración',
   container_image_trivy_profile: 'Perfil Trivy · vulnerabilidades de imagen',
   container_image_os_cves: 'Trivy · CVE de paquetes del sistema operativo',
   container_image_language_cves: 'Trivy · CVE de paquetes de lenguaje',
   container_image_java_cves: 'Trivy · CVE de paquetes Java (cobertura desconocida)',
   container_image_vulnerability_database: 'Base de datos CVE de Trivy',
   container_image_finding_limit: 'Límite de observaciones de imagen',
+  application_versions_and_exploitability: 'Versiones y explotabilidad',
+  authenticated_routes: 'Rutas autenticadas',
+  'customer-code-execution': 'Ejecución del código del cliente',
+  dependency_inventory: 'Inventario de dependencias',
+  dependency_reachability: 'Alcance de dependencias',
+  dependency_advisories: 'Avisos de dependencias',
+  dependency_artifact_analysis: 'Análisis de artefactos de dependencias',
+  'external-exploitation': 'Explotación externa',
+  'general-static-scanners': 'Escáneres estáticos generales',
+  'http.catalog-headers': 'Cabeceras de recursos conocidos',
+  'http.response': 'Respuesta HTTP',
+  javascript_and_query_routes: 'Rutas JavaScript y con parámetros',
+  license_metadata: 'Metadatos de licencias',
+  public_https_root: 'Origen HTTPS público',
+  public_surface_known_paths: 'Rutas públicas conocidas',
+  public_surface_origin: 'Origen público',
+  public_surface_response_headers: 'Cabeceras de respuestas públicas',
+  root_headers: 'Cabeceras de la página principal',
+  same_origin_link_discovery: 'Enlaces del mismo origen',
+  subdomains_and_non_https_services: 'Subdominios y servicios sin HTTPS',
+  tls_https: 'Conexión TLS por HTTPS',
 };
+
+export function groupCoverage(coverage: AssessmentAnalysis['coverage']) {
+  const groups = new Map<string, { capabilities: string[]; state: AssessmentAnalysis['coverage'][number]['state']; detail: string }>();
+  for (const item of coverage) {
+    const isTrivyNoCandidate = item.state === 'unsupported'
+      && ['trivy', 'trivy_kubernetes', 'trivy_terraform', 'trivy_dockerfile'].includes(item.capability)
+      && item.detail.startsWith('No se encontraron candidatos');
+    const detail = isTrivyNoCandidate ? 'No se encontraron candidatos en la configuración evaluada.' : item.detail;
+    const key = `${item.state}\0${detail}`;
+    const group = groups.get(key);
+    if (group) group.capabilities.push(item.capability);
+    else groups.set(key, { capabilities: [item.capability], state: item.state, detail });
+  }
+  return [...groups.values()];
+}
 
 export function reportInputLabel(report: Pick<CustomerAssessmentReport, 'mode' | 'subject'>) {
   if (report.subject.containerImageDigest) return 'Imagen de contenedor';
@@ -25,7 +61,17 @@ export function reportInputLabel(report: Pick<CustomerAssessmentReport, 'mode' |
 }
 
 export function coverageCapabilityLabel(capability: string) {
-  return coverageLabels[capability] ?? capability;
+  return coverageLabels[capability] ?? capability.replace(/[._-]+/g, ' ').replace(/^\w/, letter => letter.toLocaleUpperCase('es'));
+}
+
+export function coverageCapabilitiesLabel(capabilities: readonly string[]) {
+  const labels = capabilities.map(coverageCapabilityLabel);
+  const trivyCapabilities = new Set(['trivy', 'trivy_kubernetes', 'trivy_terraform', 'trivy_dockerfile']);
+  if (capabilities.length > 0 && capabilities.every(capability => trivyCapabilities.has(capability))) {
+    const scopes = labels.length > 1 ? `${labels.slice(0, -1).join(', ')} y ${labels.at(-1)}` : labels[0];
+    return `Trivy · ${scopes}`;
+  }
+  return labels.join(' · ');
 }
 
 export function comparisonPresence(item: AssessmentComparison) {
@@ -46,14 +92,6 @@ export function comparisonVerification(classification: AssessmentComparison['cla
   }
 }
 
-export function comparisonCounts(comparisons: readonly AssessmentComparison[]) {
-  return {
-    internal: comparisons.reduce((count, item) => count + item.internalFindingIds.length, 0),
-    external: comparisons.reduce((count, item) => count + item.externalFindingIds.length, 0),
-    matched: comparisons.filter(item => item.internalFindingIds.length > 0 && item.externalFindingIds.length > 0).length,
-  };
-}
-
 export function perspectiveStatus(analysis: AssessmentAnalysis | null) {
   if (!analysis) return 'No solicitada';
   switch (analysis.status) {
@@ -67,6 +105,6 @@ export function exploitabilityLabel(exploitability: AssessmentAnalysis['findings
   switch (exploitability) {
     case 'unknown': return 'Desconocida';
     case 'not_demonstrated': return 'No demostrada';
-    case 'demonstrated_in_fixture': return 'Demostrada en fixture de prueba autorizada';
+    case 'demonstrated_in_fixture': return 'Demostrada en prueba controlada';
   }
 }

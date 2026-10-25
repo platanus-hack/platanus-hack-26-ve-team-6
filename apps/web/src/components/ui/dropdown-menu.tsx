@@ -22,11 +22,11 @@ function DropdownMenuContent({
 }: MenuPrimitive.Popup.Props & Pick<MenuPrimitive.Positioner.Props, "align" | "sideOffset">) {
   return (
     <MenuPrimitive.Portal>
-      <MenuPrimitive.Positioner align={align} sideOffset={sideOffset} className="isolate z-[80] outline-none">
+      <MenuPrimitive.Positioner align={align} sideOffset={sideOffset} className="isolate z-[80]">
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
           className={cn(
-            "gl min-w-40 origin-(--transform-origin) rounded-lg border border-border bg-popover p-1 text-popover-foreground outline-none transition-[opacity,scale] duration-160 ease-[cubic-bezier(.23,1,.32,1)] data-ending-style:scale-[.98] data-ending-style:opacity-0 data-starting-style:scale-[.98] data-starting-style:opacity-0",
+            "gl min-w-40 origin-(--transform-origin) rounded-lg border border-border bg-popover p-1 text-popover-foreground transition-[opacity,scale] duration-160 ease-[cubic-bezier(.23,1,.32,1)] data-ending-style:scale-[.98] data-ending-style:opacity-0 data-starting-style:scale-[.98] data-starting-style:opacity-0",
             className
           )}
           {...props}
@@ -45,7 +45,7 @@ function DropdownMenuRadioItem({ className, children, ...props }: MenuPrimitive.
     <MenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
       className={cn(
-        "relative flex min-h-[34px] cursor-default items-center gap-2 rounded-md py-1.5 pr-8 pl-2.5 text-sm font-medium outline-none select-none data-highlighted:bg-muted data-highlighted:outline-2 data-highlighted:-outline-offset-2 data-highlighted:outline-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex min-h-[34px] cursor-default items-center gap-2 rounded-md border border-transparent py-1.5 pr-8 pl-2.5 text-sm font-medium select-none data-highlighted:border-brand-ink [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

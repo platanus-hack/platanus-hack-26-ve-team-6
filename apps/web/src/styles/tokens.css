@@ -20,7 +20,6 @@
   --gc-paper: #fffefa;
   --gc-line: #646174;
   --gc-action: #c80c68;
-  --gc-focus: #ffabd0;
   --gc-font-body: 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
@@ -29,7 +28,9 @@ body:has(.g-page) { margin: 0; }
 .g-page ::selection { background: var(--gc-action); color: var(--gc-paper); }
 .g-page { scrollbar-color: var(--gc-line) var(--gc-canvas); }
 .g-page a { text-underline-offset: .22em; }
-.g-page :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--gc-focus);
-  outline-offset: 4px;
+.gl :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
+.gl :where(button, input, select, textarea, summary):focus-visible { border-color: var(--brand-ink); }
+.gl a:focus-visible { color: var(--brand-ink); text-decoration-color: var(--brand-ink); }

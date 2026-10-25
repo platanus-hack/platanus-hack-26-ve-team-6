@@ -127,16 +127,15 @@ globalThis.fetch = async (input, init) => {
 
   it('uploads a chosen folder and queues an internal assessment in two clicks', async () => {
     await signIn(page, origin, `onboarding-${randomUUID()}@example.test`);
-    await page.getByRole('heading', { name: 'Empieza en dos pasos' }).waitFor();
+    await page.getByRole('heading', { name: 'Tu primera revisión' }).waitFor();
     await startClickCounter(page);
-    await page.getByRole('textbox', { name: 'Espacio de trabajo' }).fill('Onboarding browser fixture');
-    await page.getByLabel('Nombre de la aplicación').fill('Upload-only application');
+    await page.getByLabel('Nombre del proyecto').fill('Upload-only project');
     uploadedFolder = await mkdtemp(join(tmpdir(), 'gotchu-onboarding-source-'));
     await mkdir(join(uploadedFolder, 'src'));
     await writeFile(join(uploadedFolder, 'src', 'index.ts'), 'export const ready = true;\n');
     await page.waitForFunction(() => document.querySelector('#onboarding-folder')?.hasAttribute('webkitdirectory'));
     const chooserPromise = page.waitForEvent('filechooser');
-    await page.getByLabel('Carpeta del proyecto').click();
+    await page.locator('label[for="onboarding-folder"]').click();
     await (await chooserPromise).setFiles(uploadedFolder);
     const queued = page.waitForResponse(response => response.url().endsWith('/assessments') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Analizar carpeta' }).click();
@@ -151,10 +150,10 @@ globalThis.fetch = async (input, init) => {
     expect(await page.evaluate(() => window.sessionStorage.getItem('onboarding-click-count'))).toBe('2');
     const workspaces = await page.evaluate(async () => await (await fetch('/api/customer/workspaces')).json());
     const workspace = customerWorkspaceSchema.parse(Array.isArray(workspaces) ? workspaces[0] : null);
-    expect(workspace.name).toBe('Onboarding browser fixture');
+    expect(workspace.name).toMatch(/^Espacio de Onboarding /);
     const applications = await page.evaluate(async (organizationId) => await (await fetch(`/api/customer/workspaces/${organizationId}/applications`)).json(), workspace.id);
     const application = customerApplicationSchema.parse(Array.isArray(applications) ? applications[0] : null);
-    expect(application.name).toBe('Upload-only application');
+    expect(application.name).toBe('Upload-only project');
     const counts = await db.admin.query<{ sources: number; jobs: number }>(`SELECT
       (SELECT count(*)::int FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2) AS sources,
       (SELECT count(*)::int FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2 AND kind='audit') AS jobs`, [workspace.id, application.applicationId]);
@@ -166,8 +165,9 @@ globalThis.fetch = async (input, init) => {
     await page.goto(origin);
     await page.evaluate(() => sessionStorage.clear());
     await signIn(page, origin, `onboarding-github-${randomUUID()}@example.test`);
-    await page.getByRole('heading', { name: 'Empieza en dos pasos' }).waitFor();
+    await page.getByRole('heading', { name: 'Tu primera revisión' }).waitFor();
     await startClickCounter(page);
+    await page.getByRole('radio', { name: 'GitHub' }).check();
     await page.route(`${origin}/api/customer/github/connect`, async route => {
       const response = await route.fetch();
       const payload: unknown = await response.json();
@@ -205,13 +205,13 @@ globalThis.fetch = async (input, init) => {
     await page.getByRole('button', { name: 'Analizar fixture-owner/vulnerable-app' }).click();
     expect((await scan).status()).toBe(201);
     await page.locator('.customer-job-banner').waitFor({ timeout: 10_000 });
-    expect(await page.evaluate(() => window.sessionStorage.getItem('onboarding-click-count'))).toBe('3');
+    expect(await page.evaluate(() => window.sessionStorage.getItem('onboarding-click-count'))).toBe('4');
     const workspaces = await page.evaluate(async () => await (await fetch('/api/customer/workspaces')).json());
     const workspace = customerWorkspaceSchema.parse(Array.isArray(workspaces) ? workspaces[0] : null);
     const applications = await page.evaluate(async (organizationId) => await (await fetch(`/api/customer/workspaces/${organizationId}/applications`)).json(), workspace.id);
     const application = customerApplicationSchema.parse(Array.isArray(applications) ? applications[0] : null);
     expect(application.name).toBe('fixture-owner/vulnerable-app');
-    expect(workspace.name).toMatch(/^Espacio de onboarding github /);
+    expect(workspace.name).toMatch(/^Espacio de Onboarding github /);
     const counts = await db.admin.query<{ sources: number; jobs: number }>(`SELECT
       (SELECT count(*)::int FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2) AS sources,
       (SELECT count(*)::int FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2 AND kind='audit') AS jobs`, [workspace.id, application.applicationId]);
@@ -224,6 +224,7 @@ globalThis.fetch = async (input, init) => {
     await page.goto(origin);
     await page.evaluate(() => sessionStorage.clear());
     await signIn(page, origin, `scope-owner-${randomUUID()}@example.test`);
+    await page.getByRole('radio', { name: 'GitHub' }).check();
     await page.route(`${origin}/api/customer/github/connect`, route => route.fulfill({ json: { installUrl: `${origin}/dashboard` } }));
     await page.getByRole('button', { name: 'Conectar GitHub' }).click();
     await page.getByRole('heading', { name: 'Elige cómo empezar' }).waitFor();

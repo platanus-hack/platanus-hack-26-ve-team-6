@@ -36,12 +36,11 @@ const coverageLabels: Record<RecipeCoverage, string> = {
   not_reported: 'Sin datos',
 };
 const severityLabels: Record<RecipeRecommendation['risk']['severity'], string> = {
-  unknown: 'Sin evaluar', critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja', informational: 'Información',
+  unknown: 'Sin evaluar', critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja', informational: 'Informativa',
 };
 const confidenceLabels: Record<RecipeRecommendation['risk']['confidence'], string> = {
   observed: 'Observada', inferred: 'Indicada', uncertain: 'Sin comprobar',
 };
-const modeLabels = { internal: 'Código fuente', external: 'HTTPS autorizado', both: 'Código + HTTPS' } as const;
 const dependencyReasonLabels: Record<NonNullable<DependencyFixRecommendation['reason']>, string> = {
   source_not_repository_bound: 'La instantánea no está ligada a un repositorio y commit conocidos.',
   github_connection_unavailable: 'La conexión activa de GitHub para este repositorio no está disponible.',
@@ -81,7 +80,7 @@ function recommendationError(error: unknown) {
       assessment_changed: 'La evidencia cambió durante la preparación. Actualiza las recomendaciones antes de reintentar.',
       dependency_candidate_invalid: 'La instantánea del candidato no coincide con el cambio validado.',
       dependency_validation_missing: 'La validación firmada aún no está disponible.',
-      dependency_artifact_unavailable: 'No se pudo leer el árbol completo del repositorio para fijar la propuesta.',
+      dependency_artifact_unavailable: 'No se pudo leer el árbol de dependencias del repositorio para preparar la propuesta.',
     };
     if (messages[error.code]) return messages[error.code];
     if (['source_not_found', 'source_snapshot_not_found', 'source_deleted', 'source_unavailable'].includes(error.code)) {
@@ -132,20 +131,15 @@ export function ReportRecommendations(props: Props) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'action-proposals', organizationId, applicationId] }),
   });
 
-  if (query.isPending) return <section className="customer-report-section customer-recommendations" aria-labelledby="recommendations-title"><div className="customer-section-heading"><h3 id="recommendations-title">Opciones de corrección</h3></div><div className="customer-loading" role="status"><span className="customer-spinner" />Cargando recomendaciones…</div></section>;
-  if (query.error) return <section className="customer-report-section customer-recommendations" aria-labelledby="recommendations-title"><div className="customer-section-heading"><h3 id="recommendations-title">Opciones de corrección</h3></div><div className="customer-error" role="alert"><strong>No se pudieron cargar las opciones de este informe</strong><p>{recommendationError(query.error)}</p><button className="customer-link-button" type="button" onClick={() => { query.refetch().catch(() => undefined); }}>Reintentar</button></div></section>;
-  if (!query.data || !scopeMatchesReport(query.data, props)) return <section className="customer-report-section customer-recommendations" aria-labelledby="recommendations-title"><div className="customer-section-heading"><h3 id="recommendations-title">Opciones de corrección</h3></div><div className="customer-error" role="alert"><strong>El alcance de las opciones no coincide con este informe</strong><p>Actualiza el informe antes de preparar una propuesta.</p><button className="customer-link-button" type="button" onClick={() => { query.refetch().catch(() => undefined); }}>Actualizar opciones</button></div></section>;
+  if (query.isPending) return <section className="customer-report-section customer-recommendations" aria-labelledby="recommendations-title"><div className="customer-section-heading"><h3 id="recommendations-title">Recomendaciones de corrección</h3></div><div className="customer-loading" role="status"><span className="customer-spinner" />Cargando recomendaciones…</div></section>;
+  if (query.error) return <section className="customer-report-section customer-recommendations" aria-labelledby="recommendations-title"><div className="customer-section-heading"><h3 id="recommendations-title">Recomendaciones de corrección</h3></div><div className="customer-error" role="alert"><strong>No se pudieron cargar las recomendaciones de corrección</strong><p>{recommendationError(query.error)}</p><button className="customer-link-button" type="button" onClick={() => { query.refetch().catch(() => undefined); }}>Reintentar</button></div></section>;
+  if (!query.data || !scopeMatchesReport(query.data, props)) return <section className="customer-report-section customer-recommendations" aria-labelledby="recommendations-title"><div className="customer-section-heading"><h3 id="recommendations-title">Recomendaciones de corrección</h3></div><div className="customer-error" role="alert"><strong>La instantánea de código de estas recomendaciones no coincide con la de este informe</strong><p>Vuelve a cargar las recomendaciones antes de preparar una propuesta.</p><button className="customer-link-button" type="button" onClick={() => { query.refetch().catch(() => undefined); }}>Volver a cargar recomendaciones</button></div></section>;
 
   const data = query.data;
   const sourceAvailable = data.scope.sourceSnapshotId !== null && data.scope.sourceDigest !== null;
   const prepared = correction.data;
   return <section className="customer-report-section customer-recommendations" aria-labelledby="recommendations-title">
-    <div className="customer-section-heading"><h3 id="recommendations-title">Opciones de corrección</h3></div>
-    <div className="customer-recommendations-intro">
-      <p>Estas opciones se basan en este informe ({modeLabels[data.scope.mode]}) y su evidencia. Un aviso o hallazgo no demuestra por sí solo explotación ni garantiza que un cambio sea seguro.</p>
-      <p>Los candidatos de dependencias pasan por un reanálisis y la suite configurada dentro del runner aislado. Las correcciones de código basadas en recetas siguen su flujo de validación propio. Ninguno modifica el repositorio ni producción durante la preparación.</p>
-    </div>
-
+    <div className="customer-section-heading"><h3 id="recommendations-title">Recomendaciones de corrección</h3></div>
     {correction.error && <div className="customer-error" role="alert"><strong>No se pudo preparar la propuesta</strong><p>{recommendationError(correction.error)}</p></div>}
 
     {prepared && <div className="customer-correction-result" role="status" aria-live="polite">
@@ -159,7 +153,7 @@ export function ReportRecommendations(props: Props) {
     </div>}
 
     {data.recommendations.length === 0
-      ? <div className="customer-empty-inline">Este informe no tiene recomendaciones disponibles. Consulta la cobertura para distinguir lo revisado de lo desconocido o no solicitado.</div>
+      ? <div className="customer-empty-inline">Este informe no tiene recomendaciones disponibles.</div>
       : <div className="customer-recommendation-list">{data.recommendations.map(recommendation => <RecommendationCard
         key={`${recommendation.recipeId}:${recommendation.evidenceFindingIds[0]}`}
         recommendation={recommendation}
@@ -238,7 +232,7 @@ function DependencyFixCard({ userId, organizationId, applicationId, reportId, re
   return <article className="customer-recommendation-card customer-dependency-fix">
     <div className="customer-recommendation-heading">
       <div><h5><code>{recommendation.packageName}</code></h5><p>{recommendation.fromVersion} → {recommendation.toVersion ?? 'sin versión compatible'}</p></div>
-      <span className={`customer-status ${recommendation.status === 'eligible' ? 'customer-status-ready' : 'customer-status-muted'}`}>{recommendation.status === 'eligible' ? 'Candidato disponible' : 'Solo orientación'}</span>
+      <span className={`customer-status ${recommendation.status === 'eligible' ? 'customer-status-ready' : 'customer-status-muted'}`}>{recommendation.status === 'eligible' ? 'Se puede preparar una corrección' : 'Recomendación manual'}</span>
     </div>
     <p><strong>Avisos OSV:</strong> {recommendation.advisoryIds.map(id => <code className="customer-dependency-advisory" key={id}>{id}</code>)}</p>
     {recommendation.withdrawnAdvisoryIds.length > 0 && <p><strong>Avisos retirados (ignorados):</strong> {recommendation.withdrawnAdvisoryIds.map(id => <code className="customer-dependency-advisory" key={id}>{id}</code>)}</p>}
@@ -254,7 +248,7 @@ function DependencyFixCard({ userId, organizationId, applicationId, reportId, re
     {candidateSourceId && <div className="customer-dependency-validation" aria-live="polite">
       <strong>Validación independiente</strong>
       {validation.isPending && <p role="status">Consultando el estado de la validación…</p>}
-      {validation.error && <p className="customer-field-note" role="alert">No se pudo cargar el estado. <button className="customer-link-button" type="button" onClick={() => { validation.refetch().catch(() => undefined); }}>Reintentar</button></p>}
+      {validation.error && <p className="customer-field-note" role="alert">No se pudo cargar el estado de la validación. <button className="customer-link-button" type="button" onClick={() => { validation.refetch().catch(() => undefined); }}>Reintentar</button></p>}
       {!validation.error && validationState && <p role="status">{validationStateLabels[validationState]}</p>}
       {validationState === 'failed' && <p className="customer-field-note">No se creó una propuesta de PR porque la validación detectó una regresión.</p>}
       {validationState === 'inconclusive' && <p className="customer-field-note">No se creó una propuesta de PR porque faltan pruebas independientes concluyentes.</p>}
@@ -289,7 +283,7 @@ function RecommendationCard({
     <p>{recommendation.risk.summary}</p>
     <div className="customer-tag-row"><span className="customer-status customer-status-muted">Confianza: {confidenceLabels[recommendation.risk.confidence]}</span><span className="customer-status customer-status-muted">Explotabilidad: {recommendation.risk.exploitability === 'demonstrated_in_fixture' ? 'Demostrada en prueba controlada' : recommendation.risk.exploitability === 'not_demonstrated' ? 'No demostrada' : 'Desconocida'}</span></div>
     <p className="customer-recommendation-evidence">Basado en: <strong>{findingTitle}</strong></p>
-    <h5>Opciones</h5><ul>{recommendation.options.map(option => <li key={option.id}><strong>{option.title}</strong><p>{option.detail}</p></li>)}</ul>
+    <h5>Recomendaciones</h5><ul>{recommendation.options.map(option => <li key={option.id}><strong>{option.title}</strong><p>{option.detail}</p></li>)}</ul>
     {recommendation.requirements.length > 0 && <><h5>Requisitos para revisar el cambio</h5><ul>{recommendation.requirements.map(requirement => <li key={requirement}>{requirement}</li>)}</ul></>}
     <p className="customer-recommendation-availability">{availabilityLabels[recommendation.availability]}. {recommendation.availabilityReason}</p>
 
@@ -298,15 +292,14 @@ function RecommendationCard({
       {archived && <p className="customer-field-note">La aplicación está archivada; reactívala para preparar una propuesta.</p>}
       {readOnly && <p className="customer-field-note">Una persona propietaria u operadora puede preparar una propuesta.</p>}
       {!canPrepare && <button className="customer-button" type="button" disabled>Preparar propuesta privada</button>}
-      {canPrepare && !confirming && <button className="customer-button" type="button" disabled={busy} onClick={onBegin}>Revisar y preparar propuesta</button>}
+      {canPrepare && !confirming && <button className="customer-button" type="button" disabled={busy} onClick={onBegin}>Preparar propuesta de corrección</button>}
       {confirming && <form className="customer-recommendation-confirm" onSubmit={event => { event.preventDefault(); onPrepare(); }}>
         <h5>Confirma esta preparación</h5>
-        <p>Receta <code>{recommendation.recipeId}</code> para <strong>{findingTitle}</strong>, con la huella de origen <code>{recommendation.scope.sourceDigest}</code>. Se creará solo una instantánea privada y se iniciará un análisis interno independiente. No se tocarán el repositorio, la fuente original ni producción, y no se ejecutarán pruebas de comportamiento.</p>
+        <p>Prepararás una propuesta para <strong>{findingTitle}</strong> con esta huella de origen: <code>{recommendation.scope.sourceDigest}</code>. Se creará una instantánea privada y se iniciará un análisis independiente.</p>
         <label><input autoFocus={confirming} type="checkbox" checked={confirmed} onChange={event => onConfirmChange(event.target.checked)} /> Confirmo preparar la propuesta «{recommendation.title}» para este hallazgo.</label>
         <div className="customer-recommendation-actions"><button className="customer-button customer-button-primary" type="submit" disabled={!confirmed || busy}>{busy ? 'Preparando…' : 'Confirmar y analizar en privado'}</button><button className="customer-link-button" type="button" disabled={busy} onClick={onCancel}>Cancelar</button></div>
       </form>}
     </>}
-    {recommendation.availability === 'guided_review' && <p className="customer-field-note">No se ofrece un cambio automático. Sigue las opciones y requisitos de revisión con tu equipo.</p>}
     {recommendation.availability === 'integration_required' && <p className="customer-field-note">Esta opción depende de una integración disponible y no prepara cambios de código desde este informe.</p>}
   </article>;
 }
