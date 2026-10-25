@@ -70,18 +70,7 @@ export function ProjectOverview({ risk, history, watch, recentReports, onOpenRep
     <div className="customer-overview-split">
       <section aria-labelledby="recent-reports-title">
         <div className="customer-section-head"><div><h2 id="recent-reports-title">Informes recientes</h2><p>Cada informe conserva su evidencia, cobertura y límites.</p></div>{recentReports.length > 0 && <button className="customer-link-button" type="button" onClick={onOpenReports}>Ver todos</button>}</div>
-        {recentReports.length === 0 ? <p className="customer-empty-inline">Este proyecto aún no tiene informes.</p> : <>
-          <ul className="customer-report-rows">{recentReports.map(report => <li key={report.id}>
-            <button type="button" onClick={() => onOpenReport(report.id)}>
-              <i className="customer-report-mark" aria-hidden="true" />
-              <span className="customer-report-row-text"><strong>{report.title}</strong><small>{report.detail}</small></span>
-              <SeveritySquares severities={report.severities} total={report.findingCount} />
-              <span className="customer-report-row-count"><strong>{report.findingCount}</strong><small>{report.delta === null ? '—' : report.delta > 0 ? `+${report.delta}` : report.delta === 0 ? '=' : `−${Math.abs(report.delta)}`}</small></span>
-              <ChevronRightIcon aria-hidden="true" />
-            </button>
-          </li>)}</ul>
-          <p className="customer-report-legend"><span><i className="is-high" />Alta</span><span><i className="is-medium" />Media</span><span><i />Sin evaluar</span></p>
-        </>}
+        {recentReports.length === 0 ? <p className="customer-empty-inline">Este proyecto aún no tiene informes.</p> : <ReportRows reports={recentReports} onOpenReport={onOpenReport} />}
       </section>
       {assessmentForm}
     </div>
@@ -124,6 +113,22 @@ function CoverageCells({ sources, pending }: { sources: readonly ProjectSource[]
 
 function AlertCells({ open }: { open: number }) {
   return <span className="customer-cells">{Array.from({ length: 18 }, (_, index) => <i key={index} className={index < open ? 'is-on' : undefined} />)}</span>;
+}
+
+/** Report rows with a square per finding, coloured by severity; shared by the overview and the report list. */
+export function ReportRows({ reports, onOpenReport }: { reports: readonly RecentReportRow[]; onOpenReport: (reportId: string) => void }) {
+  return <>
+    <ul className="customer-report-rows">{reports.map(report => <li key={report.id}>
+      <button type="button" onClick={() => onOpenReport(report.id)}>
+        <i className="customer-report-mark" aria-hidden="true" />
+        <span className="customer-report-row-text"><strong>{report.title}</strong><small>{report.detail}</small></span>
+        <SeveritySquares severities={report.severities} total={report.findingCount} />
+        <span className="customer-report-row-count"><strong>{report.findingCount}</strong><small>{report.delta === null ? '—' : report.delta > 0 ? `+${report.delta}` : report.delta === 0 ? '=' : `−${Math.abs(report.delta)}`}</small></span>
+        <ChevronRightIcon aria-hidden="true" />
+      </button>
+    </li>)}</ul>
+    <p className="customer-report-legend"><span><i className="is-high" />Alta</span><span><i className="is-medium" />Media</span><span><i />Sin evaluar</span></p>
+  </>;
 }
 
 function SeveritySquares({ severities, total }: { severities: readonly AssessmentFinding['severity'][] | null; total: number }) {

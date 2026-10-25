@@ -91,28 +91,44 @@ export function comparisonPresence(item: AssessmentComparison) {
   return 'Sin observaciones enlazadas';
 }
 
-export function comparisonVerification(classification: AssessmentComparison['classification']) {
-  switch (classification) {
-    case 'both': return 'Agrupadas por regla';
-    case 'internal_only': return 'Sin grupo equivalente observado en HTTPS';
-    case 'external_only': return 'Sin grupo equivalente observado en código';
-    case 'unverified': return 'Sin contraste verificado';
-  }
-}
-
-export function perspectiveStatus(analysis: AssessmentAnalysis | null) {
-  if (!analysis) return 'No solicitada';
-  switch (analysis.status) {
-    case 'completed': return 'Evaluada';
-    case 'partial': return 'Parcial';
-    case 'unavailable': return 'No disponible';
-  }
-}
-
 export function exploitabilityLabel(exploitability: AssessmentAnalysis['findings'][number]['exploitability']) {
   switch (exploitability) {
     case 'unknown': return 'Desconocida';
     case 'not_demonstrated': return 'No demostrada';
     case 'demonstrated_in_fixture': return 'Demostrada en prueba controlada';
   }
+}
+
+/** Report tabs, each with the `pestana` search value that links to it; findings is the default and has none. */
+export const reportTabSlugs = ['correcciones', 'dependencias', 'cobertura'] as const;
+export type ReportTabSlug = (typeof reportTabSlugs)[number];
+export const reportTabs = [
+  { id: 'findings', slug: undefined, label: 'Observaciones' },
+  { id: 'fixes', slug: 'correcciones', label: 'Correcciones' },
+  { id: 'dependencies', slug: 'dependencias', label: 'Dependencias' },
+  { id: 'coverage', slug: 'cobertura', label: 'Qué se evaluó' },
+] as const satisfies readonly { id: string; slug: ReportTabSlug | undefined; label: string }[];
+export type ReportTab = (typeof reportTabs)[number]['id'];
+
+export function reportTabFromSlug(slug: string | null | undefined): ReportTab {
+  return reportTabs.find(tab => tab.slug !== undefined && tab.slug === slug)?.id ?? 'findings';
+}
+
+export function reportTabSlug(tab: ReportTab): ReportTabSlug | undefined {
+  return reportTabs.find(item => item.id === tab)?.slug;
+}
+
+const severityOrder = ['critical', 'high', 'medium', 'low', 'informational', 'unknown'] as const satisfies readonly AssessmentAnalysis['findings'][number]['severity'][];
+
+/** Lower is more severe; used to put the worst observations first. */
+export function severityRank(severity: AssessmentAnalysis['findings'][number]['severity']) {
+  return severityOrder.indexOf(severity);
+}
+
+/** A report's checks split by whether they were actually inspected; not-requested checks are left out. */
+export function coverageTally(report: Pick<CustomerAssessmentReport, 'internal' | 'external'>) {
+  const items = [report.internal, report.external].flatMap(analysis => analysis?.coverage ?? []).filter(item => item.state !== 'not_requested');
+  const inspected = items.filter(item => item.state === 'inspected').length;
+  const stopped = [report.internal, report.external].some(analysis => analysis !== null && analysis.status !== 'completed');
+  return { inspected, total: items.length, complete: !stopped && inspected === items.length };
 }
