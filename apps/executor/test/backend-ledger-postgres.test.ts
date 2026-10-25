@@ -192,7 +192,15 @@ live('real Postgres → backend ledger adapter → executor; fake provider/eligi
     await expect(adapter.finish({ ...forged, outcome: 'failed' })).rejects.toMatchObject({ code: 'approval_rejected' });
     await expect(adapter.resolveUncertain({ ...forged, outcome: 'failed' })).rejects.toMatchObject({ code: 'approval_rejected' });
     expect(await state(request)).toMatchObject({ state: 'claimed' });
-    const second = await approve(proposal);
+    const stored = await api.proposals.create({ organizationId: f.a.organizationId, proposal });
+    await expect(api.proposals.approve({ userId: f.a.userId }, { organizationId: f.a.organizationId,
+      proposalId: stored.proposalId, actionHash: stored.actionHash })).rejects.toMatchObject({ code: 'approval_used' });
+    // A legacy duplicate approval row must still never alias onto the claimed execution.
+    const duplicate = randomUUID();
+    await f.admin.query(`INSERT INTO gotchu.approvals(organization_id,id,proposal_id,action_hash,user_id,recovery_epoch,expires_at,proof_id,authorization_method)
+      SELECT organization_id,$2,proposal_id,action_hash,user_id,recovery_epoch,expires_at,proof_id,authorization_method
+      FROM gotchu.approvals WHERE organization_id=$1 AND id=$3`, [request.organizationId, duplicate, request.approvalId]);
+    const second = { request: { ...request, approvalId: duplicate } };
     await expect(adapter.claim({ organizationId: second.request.organizationId, approvalId: second.request.approvalId })).rejects.toMatchObject({ code: 'already_claimed' });
     expect(await adapter.findByApproval({ organizationId: second.request.organizationId, approvalId: second.request.approvalId })).toBeUndefined();
     const fake = fakeProvider();
