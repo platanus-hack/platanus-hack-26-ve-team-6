@@ -6,10 +6,11 @@ import { DotPlate } from '../components/dot-field/dot-plate';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { buttonVariants } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
-import { FolderPlate } from './ascii-plates';
+import { FolderPlate, LensPlate, ReportPlate } from './ascii-plates';
 import { HOW_STEPS, QUESTIONS, REPORT_JSON } from './copy';
 import { Display, Mark } from './editorial';
 import { Header } from './header';
+import { FixTrack, IntervalDay, ReviewMatrix } from './walkthrough';
 
 /** True when motion is welcome; resolved after mount so server and first client render agree. */
 function useMotionAllowed() {
@@ -33,9 +34,9 @@ function Action({ href, children, size = 'default' }: { href: string; children: 
   </a>;
 }
 
-function Section({ id, titleId, title, children, className = '', titleClass = '' }: { id?: string; titleId: string; title: ReactNode[]; children: ReactNode; className?: string; titleClass?: string }) {
+function Section({ id, titleId, title, children, className = '' }: { id?: string; titleId: string; title: ReactNode[]; children: ReactNode; className?: string }) {
   return <section id={id} className={`gl-section ${className}`} aria-labelledby={titleId}>
-    <Display id={titleId} className={`gl-section-title ${titleClass}`} lines={title} />
+    <Display id={titleId} className="gl-section-title" lines={title} />
     {children}
   </section>;
 }
@@ -64,15 +65,33 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
   </section>;
 }
 
+const STEP_PLATES = [FolderPlate, LensPlate, ReportPlate];
+
 function HowItWorks() {
   return <Section id="gl-funciona" titleId="gl-funciona-titulo" title={['Cómo funciona.']}>
     <ol className="gl-steps">
-      {HOW_STEPS.map(([title, detail], index) => <li key={title}>
-        <span className="gl-step-number" aria-hidden="true">0{index + 1}</span>
-        <div><h3>{title}</h3><p>{detail}</p></div>
-      </li>)}
+      {HOW_STEPS.map(([title, detail], index) => {
+        const Plate = STEP_PLATES[index] ?? FolderPlate;
+        return <li key={title}>
+          <span className="gl-step-number" aria-hidden="true">0{index + 1}</span>
+          <div><h3>{title}</h3><p>{detail}</p></div>
+          <div className="gl-step-plate"><Plate /></div>
+        </li>;
+      })}
     </ol>
-    <div className="gl-process-plate"><FolderPlate /></div>
+  </Section>;
+}
+
+function Reviews() {
+  return <Section id="gl-revisiones" titleId="gl-revisiones-titulo" title={['Seis revisiones.', <Mark key="m" size="big">Un informe.</Mark>]}>
+    <ReviewMatrix />
+  </Section>;
+}
+
+function Fixes() {
+  return <Section id="gl-correccion" titleId="gl-correccion-titulo" title={['Corrige con', <Mark key="m" size="big">tu aprobación.</Mark>]}>
+    <p className="gl-section-lead">Para algunos hallazgos, Gotchu prepara la corrección y la vuelve a analizar antes de pedirte permiso.</p>
+    <FixTrack />
   </Section>;
 }
 
@@ -84,7 +103,10 @@ function Evidence() {
 
 function Vigilance() {
   return <Section id="gl-vigilancia" titleId="gl-vigilancia-titulo" className="gl-vigilance-section" title={['Programa evaluaciones', <Mark key="m" size="big">cada 1–24 h.</Mark>]}>
-    <p className="gl-vigilance-copy">No son evaluaciones en tiempo real.</p>
+    <div className="gl-vigilance-body">
+      <p className="gl-vigilance-copy">No son evaluaciones en tiempo real.</p>
+      <IntervalDay />
+    </div>
   </Section>;
 }
 
@@ -108,9 +130,9 @@ function Questions() {
 }
 
 function Closing({ paused }: { paused: boolean }) {
-  return <Section id="gl-cierre" titleId="gl-paso-titulo" className="gl-closing" titleClass="gl-display--closing" title={['Revisa código', <Mark key="m" size="big">o un origen HTTPS.</Mark>]}>
+  return <Section id="gl-cierre" titleId="gl-paso-titulo" className="gl-closing" title={['¿Qué tan seguros', 'están tus proyectos?', 'No te preocupes,', <Mark key="m" size="big">we Gotchu.</Mark>]}>
     <div className="gl-wordmark"><DotPlate formation="wordmark" paused={paused} /></div>
-    <div className="gl-closing-actions"><Action href="/dashboard" size="lg">Revisar una app</Action></div>
+    <div className="gl-closing-actions"><Action href="/dashboard" size="lg">Revisa tu primer proyecto</Action></div>
   </Section>;
 }
 
@@ -135,7 +157,9 @@ export function Landing() {
     <main id="contenido" tabIndex={-1} className="gl-main">
       <Hero paused={paused} onPause={setPaused} motion={motionAllowed} />
       <HowItWorks />
+      <Reviews />
       <Evidence />
+      <Fixes />
       <Vigilance />
       <Questions />
       <Closing paused={paused} />

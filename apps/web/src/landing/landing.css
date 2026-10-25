@@ -83,7 +83,6 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
   .gl .gl-main:focus-visible { border-top-color: var(--brand-ink); }
   .gl .gl-display { margin: 0; font-family: var(--display); font-weight: 700; font-size: clamp(36px, 5.6vw, 88px); line-height: .94; letter-spacing: -.015em; text-transform: uppercase; overflow-wrap: break-word; }
   .gl .gl-display--hero { font-size: clamp(46px, 7.4vw, 124px); line-height: .9; }
-  .gl .gl-display--closing { font-size: clamp(44px, 9.4vw, 148px); line-height: .9; }
   .gl .gl-line { display: block; }
   .gl .gl-line-in { display: block; clip-path: inset(-.3em -.1em); transition: clip-path 800ms var(--ease) calc(var(--gl-i, 0) * 90ms), transform 800ms var(--ease) calc(var(--gl-i, 0) * 90ms); }
   .gl[data-motion='on'] .gl-display:not(.gl-display--load):not([data-on]) .gl-line-in { clip-path: inset(0 0 100% 0); transform: translateY(.3em); }
@@ -140,7 +139,16 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
   .gl .gl-step-number { padding-top: 4px; color: var(--brand-ink); font: 700 13px/1 var(--mono); }
   .gl .gl-steps h3 { margin: 0 0 8px; font: 700 clamp(22px, 2.3vw, 30px)/1.05 var(--display); text-transform: uppercase; }
   .gl .gl-steps p { margin: 0; max-width: 42ch; font-size: 17px; line-height: 1.45; }
-  .gl .gl-process-plate { margin-top: clamp(40px, 6vw, 72px); overflow: hidden; }
+  /* Unrevealed states drop their transitions: motion switches on after mount, and a delayed exit would flash the final frame. */
+  /* Each step's plate sizes its glyphs to the column, so the art never crops (columns set `--gl-cols`). */
+  .gl .gl-step-plate { grid-column: 1 / -1; margin-top: clamp(20px, 3vw, 36px); container-type: inline-size; }
+  .gl .gl-step-plate .gl-plate { font-size: min(12.5px, calc(100cqi / (var(--gl-cols, 56) * .62))); }
+  .gl .gl-lens { position: relative; width: max-content; }
+  .gl .gl-lens-glass { position: absolute; inset: 0; transition: transform 1400ms var(--ease) 150ms; }
+  .gl .gl-lens-glass span { background: var(--background); }
+  .gl .gl-lens .gl-find { transition: opacity 300ms var(--ease) 1350ms; }
+  .gl[data-motion='on'] .gl-lens:not([data-on]) .gl-lens-glass { transform: translate(-12ch, -5.9em); transition: none; }
+  .gl[data-motion='on'] .gl-lens:not([data-on]) .gl-find { opacity: 0; transition: none; }
   @media (min-width: 900px) { .gl .gl-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; } }
 
   .gl .gl-report-copy { display: grid; gap: 24px; align-items: center; }
@@ -154,6 +162,65 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
   .gl .gl-jk { color: var(--brand-ink); }
   .gl .gl-vigilance-copy { margin: 0; max-width: 32ch; font-size: clamp(19px, 2vw, 24px); line-height: 1.4; }
   .gl .gl-vigilance-section .gl-section-title { max-width: none; }
+  .gl .gl-vigilance-body { display: grid; gap: 40px; }
+  @media (min-width: 900px) { .gl .gl-vigilance-body { grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); gap: clamp(40px, 7vw, 96px); } }
+  .gl .gl-section-lead { margin: 0 0 clamp(36px, 5vw, 64px); max-width: 40ch; font-size: clamp(19px, 2vw, 24px); line-height: 1.4; }
+
+  /* ── Reviews: a pixel matrix of review × source ───────────────────────────── */
+  .gl .gl-matrix { width: 100%; border-collapse: collapse; }
+  .gl .gl-matrix thead th { padding: 0 0 12px; color: var(--muted-foreground); font: 500 12.5px/1.2 var(--mono); letter-spacing: .14em; text-transform: uppercase; text-align: center; }
+  .gl .gl-matrix tbody th { padding: 14px 32px 14px 0; font-weight: inherit; text-align: left; }
+  .gl .gl-matrix-name { display: block; font: 700 clamp(20px, 2.3vw, 30px)/1.05 var(--display); text-transform: uppercase; }
+  .gl .gl-matrix-detail { display: block; margin-top: 6px; color: var(--muted-foreground); font-size: 16px; line-height: 1.45; }
+  .gl .gl-matrix td { width: clamp(72px, 10vw, 140px); padding: 8px 0; text-align: center; }
+  .gl .gl-pixel { display: inline-block; width: clamp(24px, 2.8vw, 36px); aspect-ratio: 1; border-radius: 2px; background: var(--dot-6); vertical-align: middle; transition: background-color 420ms var(--ease) calc(var(--gl-i, 0) * 28ms), transform 420ms var(--ease) calc(var(--gl-i, 0) * 28ms); }
+  .gl .gl-matrix td[data-reads] .gl-pixel { background: var(--foreground); }
+  .gl .gl-matrix tbody tr:hover td[data-reads] .gl-pixel { background: var(--brand); transition-delay: 0ms; }
+  .gl[data-motion='on'] .gl-matrix:not([data-on]) td[data-reads] .gl-pixel { background: var(--dot-6); transform: scale(.55); transition: none; }
+  /* Phones: the source labels stay as one header row and each review's pixels sit under them. */
+  @media (max-width: 699px) {
+    .gl .gl-matrix, .gl .gl-matrix thead, .gl .gl-matrix tbody { display: block; }
+    .gl .gl-matrix tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .gl .gl-matrix thead th { letter-spacing: .06em; }
+    .gl .gl-matrix thead th:first-child { display: none; }
+    .gl .gl-matrix tbody th { grid-column: 1 / -1; padding: 24px 0 10px; }
+    .gl .gl-matrix td { width: auto; padding: 0; }
+  }
+
+  /* ── Fixes: the finding travels the track and lights each step ────────────── */
+  .gl .gl-track { --gl-run: 2400ms; position: relative; }
+  .gl .gl-track ol { display: grid; gap: 28px; margin: 0; padding: 0; list-style: none; }
+  .gl .gl-track li { position: relative; display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 16px; align-items: start; }
+  .gl .gl-track-node { position: relative; z-index: 1; display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid; border-radius: 6px; background: var(--background); transition: color 360ms var(--ease), border-color 360ms var(--ease); transition-delay: calc(200ms + var(--gl-run) * var(--gl-i) / (var(--gl-steps) - 1)); }
+  .gl .gl-track-node svg { width: 20px; height: 20px; }
+  .gl .gl-track-node { border-color: var(--foreground); color: var(--brand-ink); }
+  .gl[data-motion='on'] .gl-track:not([data-on]) .gl-track-node { border-color: var(--border); color: var(--muted-foreground); transition: none; }
+  /* Connector from this node to the next, filled with the highlighter as the finding passes. */
+  .gl .gl-track li:not(:last-child)::before { content: ''; position: absolute; left: 23px; top: 48px; width: 2px; height: calc(100% - 20px); background: linear-gradient(var(--brand), var(--brand)) no-repeat 0 0 / 100% 100%, var(--dot-6); transition: background-size 500ms linear calc(200ms + var(--gl-run) * var(--gl-i) / (var(--gl-steps) - 1)); }
+  .gl[data-motion='on'] .gl-track:not([data-on]) li::before { background-size: 100% 0, auto; transition: none; }
+  .gl .gl-track h3 { margin: 2px 0 6px; font: 700 clamp(18px, 1.9vw, 24px)/1.1 var(--display); text-transform: uppercase; }
+  .gl .gl-track p { margin: 0; color: var(--muted-foreground); font-size: 16px; line-height: 1.45; }
+  .gl .gl-track-rail { display: none; }
+  @media (min-width: 900px) {
+    .gl .gl-track ol { grid-template-columns: repeat(var(--gl-steps), minmax(0, 1fr)); gap: 0; }
+    .gl .gl-track li { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 20px; padding-right: 24px; }
+    .gl .gl-track li:not(:last-child)::before { left: 48px; top: 23px; width: calc(100% - 48px); height: 2px; background-size: 100% 100%, auto; }
+    .gl[data-motion='on'] .gl-track:not([data-on]) li::before { background-size: 0 100%, auto; }
+    /* The rail spans first to last node centre; only the travelling diamond is visible on it. */
+    .gl .gl-track-rail { display: block; position: absolute; z-index: 2; top: 24px; left: 24px; width: calc(100% * (var(--gl-steps) - 1) / var(--gl-steps)); height: 0; pointer-events: none; }
+    .gl .gl-track-diamond { position: absolute; left: 100%; top: 0; width: 12px; height: 12px; background: var(--brand); transform: translate(-50%, -50%) rotate(45deg); transition: left var(--gl-run) linear 200ms, opacity 300ms var(--ease) calc(var(--gl-run) + 300ms); opacity: 0; }
+    .gl[data-motion='on'] .gl-track:not([data-on]) .gl-track-diamond { left: 0; opacity: 1; transition: none; }
+  }
+
+  /* ── Vigilance: one day of re-checks at the chosen interval ───────────────── */
+  .gl .gl-day { display: grid; gap: 18px; margin: 0; }
+  .gl .gl-day-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+  .gl .gl-day-strip { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: clamp(2px, .5vw, 6px); align-items: end; height: clamp(72px, 9vw, 112px); margin: 0; padding: 0; list-style: none; }
+  .gl .gl-day-strip li { height: 100%; border-radius: 2px; background: var(--dot-6); transform: scaleY(.28); transform-origin: bottom; transition: transform 360ms var(--ease) calc(var(--gl-i, 0) * 14ms), background-color 360ms var(--ease) calc(var(--gl-i, 0) * 14ms); }
+  .gl .gl-day-strip li[data-run] { background: var(--brand); transform: none; }
+  .gl .gl-day-axis { display: flex; justify-content: space-between; color: var(--muted-foreground); font: 500 12.5px/1 var(--mono); }
+  .gl .gl-day figcaption { font-size: 17px; }
+  .gl .gl-day figcaption strong { margin-right: .2em; font: 700 clamp(28px, 3vw, 40px)/1 var(--display); }
 
   /* ── Questions ────────────────────────────────────────────────────────────── */
   .gl .gl-qa { border-bottom: 1px solid var(--border); }
@@ -163,6 +230,7 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
 
   /* ── Closing ──────────────────────────────────────────────────────────────── */
   .gl .gl-closing .gl-section-title { max-width: none; margin-bottom: 0; }
+  .gl .gl-closing .gl-section-title .gl-line:nth-of-type(3) { margin-top: .45em; }
   .gl .gl-wordmark { height: clamp(140px, 24vw, 340px); margin: clamp(24px, 4vw, 56px) calc(-1 * var(--gutter)); }
   .gl .gl-closing-actions { margin-top: 8px; }
 

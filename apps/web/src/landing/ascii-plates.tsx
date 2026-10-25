@@ -62,6 +62,47 @@ function folderArt() {
   return grid.lines();
 }
 
+// ─── Lens over a sheet of code ────────────────────────────────────────────────
+
+const LENS = { cols: 48, rows: 18, finding: [22, 10] as const, radius: 4.6 };
+
+function lensArt() {
+  const sheet = createGrid(LENS.cols, LENS.rows);
+  sheet.box(0, 0, 40, 17);
+  const code = ['=====  =======', '  ====  ===  ========', '  ======  ====', '', '====  ======  ===', '  ===  =========', '  =======  ==  ====', '  ====  ======', `====  ======  ===  ${FINDING} =====`, '', '=====  ====  ======', '  ======  =='];
+  code.forEach((line, row) => sheet.text(3, 2 + row, line));
+  const [fx, fy] = LENS.finding;
+
+  // The lens is drawn on its own layer around the finding, so it can slide across the sheet.
+  const lens = createGrid(LENS.cols, LENS.rows);
+  for (let y = 0; y < LENS.rows; y++) for (let x = 0; x < LENS.cols; x++) {
+    const dx = (x - fx) / 2, dy = y - fy;
+    if (Math.abs(Math.hypot(dx, dy) - LENS.radius) < 0.5) lens.put(x, y, ringGlyph(dx, dy));
+  }
+  for (let step = 1; step <= 3; step++) {
+    const y = fy + Math.round(LENS.radius * 0.72) + step;
+    const x = fx + Math.round(LENS.radius * 1.44) + step * 2;
+    lens.text(x - 1, y, '\\\\');
+  }
+  return { sheet: sheet.lines().join('\n'), lens: lens.lines() };
+}
+
+// ─── A finding as the report records it ──────────────────────────────────────
+
+function reportArt() {
+  const grid = createGrid(46, 18);
+  grid.box(4, 0, 42, 16);
+  grid.box(2, 1, 42, 16);
+  grid.box(0, 2, 42, 16);
+  grid.text(3, 4, `${FINDING} ==========  ======`);
+  grid.text(3, 7, 'SEVERIDAD   [####..]');
+  grid.text(3, 9, 'CONFIANZA   [###...]');
+  grid.text(3, 11, 'EVIDENCIA   > ====  ========');
+  grid.text(15, 12, '> ======  ===');
+  grid.text(3, 14, 'COBERTURA   [#######...]');
+  return grid.lines();
+}
+
 // ─── 04 · Two overlapping circles ────────────────────────────────────────────
 
 const VENN = { cols: 66, rows: 25, radius: 11.5, centres: [25, 41] as const };
@@ -142,7 +183,31 @@ const folder = folderArt().join('\n');
 export function FolderPlate() {
   const ref = useRef<HTMLPreElement>(null);
   const text = useDevelop(folder, ref);
-  return <pre ref={ref} className="gl-plate" aria-hidden="true"><Art text={text} /></pre>;
+  return <pre ref={ref} className="gl-plate" style={{ '--gl-cols': 56 }} aria-hidden="true"><Art text={text} /></pre>;
+}
+
+const lens = lensArt();
+
+/** A lens slides across a sheet of code and comes to rest on the finding. */
+export function LensPlate() {
+  const ref = useReveal<HTMLDivElement>('0px 0px -25% 0px');
+  return <div ref={ref} className="gl-lens" style={{ '--gl-cols': LENS.cols }} aria-hidden="true">
+    <pre className="gl-plate"><Art text={lens.sheet} /></pre>
+    {/* Each glyph of the lens carries the ground colour, so it covers the code it passes over. */}
+    <pre className="gl-plate gl-lens-glass">{lens.lens.map((row, y) => <Fragment key={y}>
+      {y > 0 && '\n'}
+      {row.split(/(\S+)/).map((run, at) => at % 2 ? <span key={at}>{run}</span> : run)}
+    </Fragment>)}</pre>
+  </div>;
+}
+
+const report = reportArt().join('\n');
+
+/** The fields every finding carries; develops from noise when scrolled into view. */
+export function ReportPlate() {
+  const ref = useRef<HTMLPreElement>(null);
+  const text = useDevelop(report, ref);
+  return <pre ref={ref} className="gl-plate" style={{ '--gl-cols': 46 }} aria-hidden="true"><Art text={text} /></pre>;
 }
 
 const venn = vennArt();
