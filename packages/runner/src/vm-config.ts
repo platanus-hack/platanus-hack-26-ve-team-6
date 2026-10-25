@@ -44,7 +44,9 @@ async function createNpmCacheDisk(stage: string, dependencies: FetchedNpmDepende
   await Promise.all(tarballs.map((tarball) => writeFile(join(cacheStage, 'tarballs', `${tarball.sha256}.tgz`), tarball.bytes, { mode: 0o444, flag: 'wx' })));
   await writeFile(join(cacheStage, 'manifest.json'), JSON.stringify({ lockfileSha256: dependencies.lockfileSha256, tarballSetSha256: dependencies.tarballSetSha256, entries }), { mode: 0o444 });
   const image = join(stage, 'npm-cache.ext4');
-  const size = Math.max(16, Math.ceil((tarballs.reduce((total, item) => total + item.bytes.length, 0) + 4096) / (1024 * 1024)) + 8);
+  // ext4 journals, allocation metadata and reserved blocks grow with the disk.
+  const payloadMiB = Math.ceil((tarballs.reduce((total, item) => total + item.bytes.length, 0) + 4096) / (1024 * 1024));
+  const size = Math.max(16, Math.ceil(payloadMiB * 1.15) + 32);
   await runBuildCommand('truncate', ['-s', `${size}M`, image]);
   await runBuildCommand('mkfs.ext4', ['-q', '-F', '-d', cacheStage, image]);
   return image;
