@@ -31,7 +31,7 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
   const refresh = () => client.invalidateQueries({ queryKey: key });
   const approve = useMutation({
     mutationFn: (proposal: NonNullable<typeof proposals.data>[number]) => customerApi.approveAction({ organizationId, applicationId, proposalId: proposal.id, actionHash: proposal.actionHash }),
-    onSuccess: refresh,
+    onSettled: refresh,
   });
   const grantWriteAccess = useMutation({
     mutationFn: async (input: { proposalId: string; repositoryLinkId: string }) => {
@@ -75,7 +75,7 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
       {canGrant && <div><p>Permite publicar ramas y PR en este repositorio. Cada cambio seguirá necesitando tu aprobación; este permiso no autoriza fusionar ni desplegar.</p><button className="customer-button" type="button" disabled={grantWriteAccess.isPending} onClick={() => grantWriteAccess.mutate({ proposalId: proposal.id, repositoryLinkId: repository.id })}>{grantWriteAccess.isPending ? 'Confirmando permiso…' : 'Permitir publicación de PR'}</button></div>}
       {context.error && isOwner && <p className="customer-form-error" role="alert">No se pudo consultar el permiso del repositorio. <button className="customer-link-button" type="button" onClick={() => { void context.refetch(); }}>Reintentar</button></p>}
       <div className="customer-approval-actions">
-        {canManage && isOwner && ['proposed','ineligible'].includes(proposal.state) && isPullRequestAction && <button className="customer-link-button" type="button" disabled={checkEligibility.isPending} onClick={() => checkEligibility.mutate(proposal.id)}>{checkEligibility.isPending ? 'Comprobando requisitos…' : 'Comprobar requisitos'}</button>}
+        {canManage && isOwner && ['proposed','ineligible','expired'].includes(proposal.state) && isPullRequestAction && <button className="customer-link-button" type="button" disabled={checkEligibility.isPending} onClick={() => checkEligibility.mutate(proposal.id)}>{checkEligibility.isPending ? 'Comprobando requisitos…' : proposal.state === 'expired' ? 'Revisar para aprobar de nuevo' : 'Comprobar requisitos'}</button>}
         {canManage && proposal.state !== 'approved' && !['executing','succeeded','failed','uncertain','reconciliation_required','invalidated','expired'].includes(proposal.state) && <button className="customer-button" type="button" disabled={!canApprovePr || approve.isPending} title={!isOwner ? 'Solo una persona propietaria puede aprobar.' : eligibility[index]?.isPending ? 'Comprobando los requisitos actuales.' : eligibilityReasons[0] ?? (!isPullRequestAction ? 'Esta acción no está disponible en esta fase.' : 'La propuesta todavía no es elegible.')} onClick={() => approve.mutate(proposal)}>{approve.isPending ? 'Guardando aprobación…' : buttonLabels[proposal.kind] ?? 'Acción no disponible'}</button>}
         {canManage && ['proposed','eligible','ineligible'].includes(proposal.state) && <button className="customer-link-button" type="button" disabled={cancel.isPending} onClick={() => cancel.mutate(proposal.id)}>Cancelar propuesta</button>}
         {eligibility[index]?.error && <p className="customer-form-error" role="alert">{errorMessage(eligibility[index].error)}</p>}
