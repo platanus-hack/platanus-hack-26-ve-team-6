@@ -29,12 +29,14 @@
 
 > **¿Qué riesgos tiene mi aplicación, qué prueba cada uno y qué hago después?**
 
-Gotchu responde a esa pregunta. Revisa el código fuente, el origen HTTPS o los dos. Después, te da un reporte con evidencia y te ayuda a preparar correcciones.
+Gotchu revisa el código fuente, el origen HTTPS o los dos. Guarda un informe con evidencia, permite vigilar cambios y enviar notificaciones, y prepara correcciones que pueden llegar a un PR en borrador tras la aprobación exacta del Owner.
+
+El alcance vigente es el de `main` con el [PR 25](https://github.com/0bkevin/gotchu/pull/25) integrado. Las propuestas adicionales están en [Roadmap](docs/roadmap.md).
 
 - **Tú eliges.** Revisa solo el código, solo la web o ambos. La revisión externa no necesita tu código.
 - **Muestra la evidencia.** Cada hallazgo enlaza su evidencia, su severidad y su confianza.
 - **No oculta lo que no revisó.** Una cobertura parcial queda como desconocida, no como limpia.
-- **No ejecuta tu código.** Gotchu no instala paquetes, no ejecuta scripts y no intenta explotar nada.
+- **Escaneo estático.** La auditoría no ejecuta tu código ni instala paquetes. La validación de correcciones usa una ruta aislada y configurada por separado.
 
 ## En vivo
 
@@ -43,7 +45,7 @@ Gotchu responde a esa pregunta. Revisa el código fuente, el origen HTTPS o los 
 | Aplicación | https://gotchu.kevinbravo.com |
 | Infraestructura | AWS Lightsail en `us-east-1`, con TLS en Caddy y backups cifrados en S3 |
 
-Abre `/dashboard` y elige **Crear una cuenta**. Cada cuenta nueva crea su propio espacio de trabajo aislado. El runbook de producción está en [infra/aws](infra/aws/README.md).
+Abre `/dashboard` y elige **Crear una cuenta**. Cada cuenta nueva empieza sin acceso a espacios existentes y puede crear su propio espacio de trabajo. El runbook de producción está en [infra/aws](infra/aws/README.md).
 
 <p align="center">
   <img src="docs/diagrams/arquitectura-produccion.svg" alt="Producción en AWS Lightsail: Caddy, web, coordinator, PostgreSQL, Redis y scanner en un servidor, con backups cifrados en S3" width="900">
@@ -58,11 +60,11 @@ Abre `/dashboard` y elige **Crear una cuenta**. Cada cuenta nueva crea su propio
 | Paso | Qué hace Gotchu |
 |---|---|
 | 1. Espacio de trabajo | Crea un espacio privado. El creador es su Owner. Los roles controlan el acceso. |
-| 2. Código fuente | Sube una instantánea o conecta un repositorio Git o GitHub autorizado. Gotchu guarda el commit exacto. |
+| 2. Código fuente | Sube una carpeta o conecta GitHub. Cada instantánea tiene digest; las capturas de repositorio conservan el commit exacto. Git local también admite catálogo del operador. |
 | 3. Origen HTTPS | Indica un origen HTTPS público y elige un perfil acotado. Al pedir el análisis, ese alcance queda autorizado durante 7 días. Gotchu no comprueba quién controla el dominio. |
-| 4. Evaluación | Ejecuta una evaluación `internal`, `external` o de los dos tipos. |
+| 4. Evaluación | Ejecuta una evaluación `internal`, `external` o `both`. Sigue las fases internas/externas y los avisos de falta de progreso. |
 | 5. Reporte | Muestra la evidencia, la cobertura, la severidad, la confianza y las limitaciones. |
-| 6. Corrección | Prepara correcciones compatibles en una instantánea privada y pide una nueva evaluación. |
+| 6. Corrección | Prepara una copia privada, revisa el reanálisis y la suite configurada, y aprueba el cambio exacto si quieres publicar un PR draft. |
 
 ## Qué puedes hacer
 
@@ -70,11 +72,16 @@ Abre `/dashboard` y elige **Crear una cuenta**. Cada cuenta nueva crea su propio
 |---|---|
 | Espacios de trabajo | Roles Owner, Operator y Viewer. Los Viewer solo pueden leer. |
 | Revisión del código | Inventario de versiones exactas de npm, pnpm y Yarn. Política de licencias declaradas. SBOM CycloneDX 1.5 para descargar. |
-| Revisión externa | Con el perfil raíz, una sola petición GET a `/`. Con el consentimiento `public_surface`, hasta diez peticiones GET al mismo origen. |
+| Revisión externa | Perfiles raíz, `public_surface` y `api_checks`: TLS, cabeceras, security.txt y escenarios HTTP/API acotados, sin acceso al código. |
+| Dashboard e informes | Observaciones, cobertura e historial por proyecto. JSON y prompt por hallazgo para copiar a un asistente de código. |
 | Vigilancia | Revisiones programadas del código y del origen. Alertas por cambios del repositorio y por nuevos avisos de npm. |
+| Notificaciones | Email SMTP y webhooks HTTPS firmados, con canales por workspace, reintentos y estado de entrega. Requieren configurar sus adaptadores. |
 | Eventos firmados | Agrupa errores, presión del servicio y actividad sospechosa compatible en alertas. |
 | Historial de decisiones | Muestra quién hizo cada acción, cuándo y con qué resultado. No muestra credenciales ni direcciones IP. |
-| Correcciones | Recetas versionadas para hallazgos de Semgrep (TLS desactivado) y de Trivy (KSV001, KSV012, KSV014, KSV017). Los otros hallazgos solo reciben guía. |
+| IA opcional | Investigación y corrección privada con el modelo configurado, consentimiento y límites de consumo. El escaneo determinista funciona sin IA. |
+| Correcciones | Recetas TLS/Kubernetes, cambios de código compatibles y actualizaciones npm directas patch/minor con package-lock raíz v2/v3; candidato privado, reanálisis y validación configurada. |
+| PR aprobados | Un executor independiente publica y verifica el PR en borrador tras validar el candidato, el permiso de escritura y la aprobación exacta del Owner. Optativo por instalación. |
+| Retención y respaldo | Políticas por workspace, purga en background y backup/restore cifrado. |
 
 ## Qué no afirma Gotchu
 
@@ -100,8 +107,8 @@ cd gotchu
 
 1. Abre el enlace de configuración. El comando lo imprime y solo funciona una vez.
 2. Crea el Owner y el primer espacio de trabajo.
-3. Sube una carpeta de código desde el dashboard.
-4. Inicia una evaluación `internal`.
+3. Empieza con un origen HTTPS autorizado, una carpeta o GitHub opcional.
+4. Inicia la auditoría y abre el informe; usa `external`, `internal` o `both` según las entradas.
 
 El runtime escucha solo en loopback. No expongas el puerto sin `GOTCHU_PUBLIC_URL` con HTTPS y un proxy TLS. Los requisitos y los componentes opcionales están en [self-hosting](docs/self-hosting.md).
 
@@ -123,22 +130,7 @@ Abre http://localhost:3000/dashboard. En desarrollo, el registro local está act
 
 Postgres y Redis usan volúmenes locales persistentes. El launcher guarda los PID, los puertos, los logs y las credenciales locales del scanner en `.local/dev`. `pnpm dev:stop` detiene las apps y deja Postgres, Redis y sus datos activos. Más detalles en [desarrollo local](docs/development.md).
 
-<details>
-<summary><strong>Conectar una GitHub App en desarrollo</strong></summary>
-
-1. Crea una GitHub App con estos permisos de repositorio: **Contents: read-only**, **Checks: read-only** y **Pull requests: read-only**.
-2. Deja los webhooks desactivados, salvo que los configures aparte.
-3. Usa esta Callback URL: `http://localhost:3000/api/customer/github/callback`.
-4. Activa **Request user authorization (OAuth) during installation**.
-5. Guarda las credenciales en un archivo JSON con `id`, `clientId`, `clientSecret`, `privateKeyPem` y `webhookSecret`. Agrega `slug` o define `GOTCHU_GITHUB_APP_SLUG`.
-6. Define `GOTCHU_GITHUB_READER_APP_FILE` con la ruta de ese archivo.
-7. Instala la App solo en repositorios que tienes autorización para evaluar.
-
-No envíes ese archivo al navegador y no lo agregues a Git. Gotchu crea los tokens de instalación en el servidor y los guarda solo en memoria.
-
-Para mover una instalación a otro espacio de trabajo, desconéctala primero del espacio actual. Después, un Owner del espacio de destino autoriza la conexión. Solo un espacio puede tener la instalación activa.
-
-</details>
+GitHub es opcional. La configuración de una sola App, la integración Reader/Writer anterior y el executor de PR están en [self-hosting](docs/self-hosting.md#conectar-github-con-una-sola-app). Los permisos de conexión, publicación y aprobación del cambio son independientes.
 
 ## Estado y límites
 
@@ -149,8 +141,8 @@ Para mover una instalación a otro espacio de trabajo, desconéctala primero del
 | Backups | Cada diez minutos, cifrados y enviados a S3. Una restauración en una base de datos desechable funcionó. |
 | Scanner | Semgrep, Gitleaks y Trivy fijados. Probado en vivo con casos sintéticos. |
 | Abierto | Un solo servidor sin failover. Falta medir la capacidad con usuarios reales y la recuperación completa en un servidor limpio. |
-| Desactivado | Ejecución del código del cliente, escrituras en proveedores y acciones de respuesta automáticas. |
-| Identidad | Correo y contraseña con Auth.js, WebAuthn step-up e invitaciones por espacio. El correo no está verificado. No hay inicio de sesión externo configurado. |
+| Componentes opcionales | IA, notificaciones y PR aprobados necesitan sus servicios, credenciales y permisos. Su presencia en `main` no implica que estén activos en todo host. |
+| Identidad | Correo y contraseña con Auth.js, proveedores opcionales e invitaciones por espacio. Aprobación de PR desde sesión Owner, sin segundo factor. El correo de las cuentas locales no está verificado. La configuración alojada se registra en el runbook AWS. |
 
 Las pruebas de integración del flujo del cliente están en `test/integration/customer-applications.test.ts`. La ruta TLS de producción del scanner está en `test/integration/production-scanner.test.ts`.
 
@@ -161,8 +153,8 @@ Las aplicaciones ficticias vulnerables y corregidas son fixtures de regresión. 
 | Documento | Contenido |
 |---|---|
 | [Arquitectura](docs/architecture.md) · [Vista general](docs/architecture-overview.html) | Componentes y contratos |
-| [Plan de implementación](docs/implementation-plan.md) | Estado y release gates |
+| [Estado de implementación](docs/implementation-plan.md) | Funciones actuales, condiciones y evidencia |
 | [Operaciones](docs/operations.md) | Monitoreo, alertas y correcciones |
 | [Self-hosting](docs/self-hosting.md) | Instalación en tu propia máquina |
-| [Entrevista de definición](docs/definition-interview.md#current-user-correction-actual-customer-application-in-development) | Decisiones de producto |
-| [Plan de defensa autónoma](docs/plan-defensa-autonoma.md) | Hoja de ruta. No es una lista de funciones disponibles. |
+| [Definición](docs/definition-interview.md) | Alcance acordado y decisiones de producto |
+| [Roadmap](docs/roadmap.md) | Propuestas futuras y verificaciones pendientes |

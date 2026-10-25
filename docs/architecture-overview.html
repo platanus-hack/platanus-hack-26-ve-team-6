@@ -66,9 +66,9 @@
 <body>
   <main>
     <header>
-      <h1>Gotchu assessments, monitoring and correction preparation</h1>
-      <p class="lead">Authenticated customers manage workspaces and applications, authorize source and public HTTPS assessments, and review persisted evidence. The supported runtime is local development. The fictional vulnerable/corrected app is a regression fixture only.</p>
-      <span class="status">Customer workflows implemented · local development only</span>
+      <h1>Gotchu assessments, notifications and approved draft PRs</h1>
+      <p class="lead">Authenticated customers manage workspaces and applications, authorize source and public HTTPS assessments, and review persisted evidence. Optional services are configured per installation; the baseline is main with PR 25. The fictional vulnerable/corrected app is a regression fixture only.</p>
+      <span class="status">Implemented workflows · main + PR 25</span>
     </header>
 
     <section aria-labelledby="flow-title">
@@ -78,7 +78,7 @@
           <article class="node ready">
             <span class="eyebrow">1 · Customer</span>
             <h3>Gotchu dashboard</h3>
-            <p>Creates workspaces and apps, uploads source, verifies a target, and reads reports.</p>
+            <p>Creates workspaces and apps, uploads source or connects GitHub, requests HTTPS scope, and reads reports.</p>
           </article>
           <div class="arrow" aria-hidden="true">→</div>
           <article class="node ready">
@@ -110,8 +110,8 @@
           <div class="arrow" aria-hidden="true">↘</div>
           <article class="node ready">
             <span class="eyebrow">External · source not required</span>
-            <h3>DNS-verified public HTTPS origin</h3>
-            <p>Customer proves domain control with a TXT challenge. The transport validates public DNS and TLS, then uses root-only consent or explicit bounded same-origin public discovery.</p>
+            <h3>Requested public HTTPS origin</h3>
+            <p>The Owner/Operator requests one origin and profile; no TXT challenge or ownership proof is collected. Public DNS and TLS checks constrain root, public-surface and HTTP/API profiles.</p>
           </article>
         </div>
         <p class="small-title">Choose internal, external, or both; each evidence stream keeps its own provenance and coverage.</p>
@@ -143,7 +143,7 @@
           </article>
           <article class="node gate">
             <span class="eyebrow">Target lifecycle</span>
-            <h3>Verified for seven days</h3>
+            <h3>Requested scope for seven days</h3>
             <p>Authorization expires after seven days. Renewal or revocation waits for outstanding assessments; uncertain scanner outcomes require operator reconciliation. Each application has one target.</p>
           </article>
         </div>
@@ -169,42 +169,42 @@
       </div>
       <div class="callout">
         <strong>Assessment is observation-only.</strong>
-        <p>Severity never grants action permission. Exact approval, provider writes, automatic response, and recovery are separate capabilities and are not enabled in this flow.</p>
+        <p>Severity never grants action permission. Private correction, independent validation and exact Owner approval are separate steps before an optional executor-created draft PR.</p>
       </div>
     </section>
 
     <section aria-labelledby="monitoring-title">
-      <h2 id="monitoring-title">Monitoring and dashboard actions</h2>
+      <h2 id="monitoring-title">Monitoring, notifications and corrections</h2>
       <div class="records">
         <article class="node ready"><h3>Selected inputs</h3><p>Scoped Git/GitHub snapshots, repeat npm advisory metadata, consented HTTPS checks and optional provider status feeds. Leased runs materialize canonical audits.</p></article>
-        <article class="node ready"><h3>Private alerts</h3><p>Signed runtime errors and supported suspicious behavior produce evidence-backed alerts. Healthy volume is not an attack; provider impact remains unverified.</p></article>
-        <article class="node ready"><h3>Exact candidates</h3><p>Versioned recipes and literal project context prepare a separate source snapshot and independent rescan. The original repository and production are unchanged.</p></article>
+        <article class="node ready"><h3>Alerts and notifications</h3><p>Signed events produce evidence-backed alerts and triage. Configured SMTP and signed HTTPS webhooks deliver notifications through a durable outbox with retries and visible status.</p></article>
+        <article class="node ready"><h3>Private candidates</h3><p>Versioned recipes and optional consented model workflows prepare private corrections and independent rescans. Each finding also offers a prompt to copy into a coding assistant.</p></article>
       </div>
-      <div class="callout"><strong>Preparation has a concrete boundary</strong><p>Capacity and migration checklists bind exact revisions. Self-reported steps do not enable production execution. Production action approval, provider adapters, behavioral validation and recovery remain separate gates; WebAuthn step-up code exists but is not a general approval path. Quotas and unknown coverage stay visible.</p></div>
+      <div class="callout"><strong>Exactly approved draft PRs</strong><p>The configured validator records signed base/candidate suite and rescan facts. After repository publication consent, the authenticated Owner approves the exact action without a second factor. The independent executor rechecks authority and repository freshness, publishes the draft and verifies remote state. Unknown outcomes require reconciliation.</p></div>
       <p class="links"><a href="operations.md">Monitoring setup, limits and actual button effects</a></p>
     </section>
 
     <section aria-labelledby="runtime-title">
-      <h2 id="runtime-title">Runtime and remaining gates</h2>
+      <h2 id="runtime-title">Runtime and installation prerequisites</h2>
       <div class="infra">
         <article class="node ready">
           <h3>Local development</h3>
           <p>Web at 127.0.0.1:3000, coordinator at 127.0.0.1:3003, scanner at 127.0.0.1:4400. Postgres, Redis, and data volumes are local; no customer seed is applied.</p>
         </article>
         <article class="node gate">
-          <h3>AWS is the planned host</h3>
-          <p>Core contracts and adapters are portable. No AWS deployment, live AWS validation, hosted web ingress, or restore drill has occurred. The scanner's production-mode TLS path passed local Linux/amd64 checks after CA certificate canonicalization.</p>
+          <h3>Existing AWS installation</h3>
+          <p>Core contracts and adapters are portable. The existing Lightsail host and its enabled services, TLS and encrypted backups are documented in the AWS runbook; optional services are not presumed enabled there.</p>
         </article>
-        <article class="node blocked">
-          <h3>Customer-code execution gate</h3>
-          <p>The maintained Semgrep 1.182.0 profile passed local checks through the production-mode scanner. Broader accuracy and capacity validation remain open. Customer code stays disabled until disposable VM-class isolation is demonstrated.</p>
+        <article class="node gate">
+          <h3>Separate validation runner</h3>
+          <p>Static scans execute no customer code. Supported base/candidate suites require the independently configured runner and its isolation gate. A selected-suite pass is not a full-suite or exploitability guarantee.</p>
         </article>
       </div>
       <div class="callout">
-        <strong>Production controls remain open.</strong>
-        <p>Production identity configuration and lifecycle, hosted web TLS ingress, recovery, provider-write authorization, broader scanner accuracy, and capacity evidence remain unproven or unavailable. WebAuthn step-up and tenant-scoped workspace invitation/member operations exist, but hosted validation and invitation email delivery do not.</p>
+        <strong>Implementation and availability are distinct.</strong>
+        <p>Model credentials and consent, SMTP/webhook adapters, validation services and executor permissions determine which optional workflows are available. Future capabilities and outstanding operational verification are consolidated in the roadmap.</p>
       </div>
-      <p class="links"><a href="architecture.md">Read architecture details</a> · <a href="implementation-plan.md">Review implementation status and gates</a> · <a href="development.md">Run the local customer application</a> · <a href="definition-interview.md#current-user-correction-actual-customer-application-in-development">Read historical decisions and the product correction</a></p>
+      <p class="links"><a href="architecture.md">Read architecture details</a> · <a href="implementation-plan.md">Review current implementation status</a> · <a href="development.md">Run the local customer application</a> · <a href="definition-interview.md">Read the retained product scope</a> · <a href="roadmap.md">Roadmap</a> · <a href="../infra/aws/README.md">AWS runbook</a></p>
     </section>
   </main>
 </body>

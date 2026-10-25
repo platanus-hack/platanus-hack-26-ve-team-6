@@ -1,6 +1,6 @@
 # `@gotchu/runner`
 
-Per-job Firecracker microVM runner for future isolated validation. Firecracker starts inside a user systemd scope and a bwrap namespace with no host network or home mount. The execution gate opens only after the host sandbox canary passes.
+Per-job Firecracker microVM runner for independently configured candidate validation. Firecracker starts inside a user systemd scope and a bwrap namespace with no host network or home mount. The execution gate opens only after the host sandbox canary passes.
 
 ## Threat model
 
@@ -12,7 +12,7 @@ The host validates the archive before boot: input size, gzip expansion, compress
 
 ## Gate status and limits
 
-`selfTest()` boots a canary through the real systemd scope and bwrap launch, checks guest and VMM network isolation, confirms the VMM cannot see the host home, verifies scope limits and cleanup, then records a 15-minute result bound to the sandbox and image digests. `checkRunnerGate()` opens only while that record is valid. Network `allowlist` is always rejected because host tap creation and egress filtering are not implemented. There is no Docker or host-process fallback.
+`selfTest()` boots a canary through the real systemd scope and bwrap launch, checks guest and VMM network isolation, confirms the VMM cannot see the host home, verifies scope limits and cleanup, then records a 15-minute result bound to the sandbox and image digests. `checkRunnerGate()` opens only while that record is valid. Network `allowlist` is always rejected because host tap creation and egress filtering are not implemented. The VM adapter never falls back to host execution. The separately selected `createDockerRunner` adapter supports only offline `node24-tsx-selected-v1` jobs with an exact image digest and its own readiness gate; it is not VM-class isolation.
 
 The checked-in sandbox policy allows execution only when a recent self-test record matches the current sandbox and image pins. The customer-facing `runJob` refuses to execute while the gate is closed. The bwrap namespace and user systemd scope are a development-host alternative; the jailer remains the preferred production launch path where its root-managed identity and cgroup controls are available.
 

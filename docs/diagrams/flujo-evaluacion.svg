@@ -19,7 +19,7 @@
 <circle cx="712" cy="142" r="15" fill="#e7147d"/><text x="712" y="147" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#fffefa" text-anchor="middle" letter-spacing="0">3</text>
 <text x="738" y="148" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="700" fill="#191923" text-anchor="start" letter-spacing="0">Origen HTTPS</text>
 <text x="702" y="184" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#191923" text-anchor="start" letter-spacing="0">¿Tengo autorización?</text>
-<text x="702" y="210" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#5b5a66" text-anchor="start" letter-spacing="0">TXT en _gotchu.&lt;hostname></text>
+<text x="702" y="210" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#5b5a66" text-anchor="start" letter-spacing="0">Origen y perfil solicitados · 7 días</text>
 <rect x="32" y="280" width="290" height="120" rx="10" fill="#fde7f1" stroke="#e7147d" stroke-width="1.5"/>
 <circle cx="62" cy="312" r="15" fill="#e7147d"/><text x="62" y="317" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#fffefa" text-anchor="middle" letter-spacing="0">4</text>
 <text x="88" y="318" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="700" fill="#191923" text-anchor="start" letter-spacing="0">Evaluación</text>
