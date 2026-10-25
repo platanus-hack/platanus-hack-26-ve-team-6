@@ -12,7 +12,7 @@ import {
   telemetryIntegrationSchema, telemetryConnectionSchema,
   monitorConfigInputSchema, monitorConfigSchema, operationCoverageSchema, operationAlertSchema,
   operationPlanSchema, operationPlanKindSchema, operationPlanBindingSchema, operationPlanStepSchema, operationReadinessSchema,
-  validationPublicProjectionSchema, validationSuiteConfigSchema, validationSuiteDefinitionSchema,
+  validationPublicProjectionSchema, validationSuiteConfigSchema, validationSuiteDefinitionSchema, validationRetryResponseSchema,
   decisionRecordPageSchema, decisionRecordQuerySchema,
   dependencyFixPreparationRequestSchema, dependencyFixPreparationResponseSchema,
   type DependencyFixPreparationRequest, type DependencyFixPreparationResponse,
@@ -48,6 +48,7 @@ export interface CustomerServices {
     prepare(identity: Identity, input: PrepareCorrectionRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<PrepareCorrectionResponse>;
     prepareDependencyFix(identity: Identity, input: DependencyFixPreparationRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<DependencyFixPreparationResponse>;
     validationStatus?(identity: Identity, input: { organizationId: string; applicationId: string; candidateSourceId: string }): Promise<unknown>;
+    retryDependencyValidation?(identity: Identity, input: { organizationId: string; applicationId: string; candidateSourceId: string }): Promise<unknown>;
   };
   validations?: Backend['validations'];
   telemetry?: Backend['telemetry'];
@@ -248,6 +249,12 @@ export function createCustomerApi(options: {
         if (request.method === 'POST') return send(customerWorkspaceSchema.parse(await services.createWorkspace(identity, parse(customerCreateWorkspaceSchema, await body(request)))), 201);
       }
       const parts = url.pathname.split('/').filter(Boolean);
+      if (parts.length === 9 && parts[0] === 'api' && parts[1] === 'customer' && parts[2] === 'workspaces' && parts[4] === 'applications' && parts[6] === 'corrections' && parts[8] === 'retry-validation' && request.method === 'POST') {
+        if (!services.corrections?.retryDependencyValidation) throw new HttpError(503, 'validation_retry_not_configured', 'El reintento de validación no está disponible.');
+        parse(z.object({}).strict(), await body(request));
+        const validationScope = parse(scopeSchema, { organizationId: parts[3], applicationId: parts[5] });
+        return send(validationRetryResponseSchema.parse(await services.corrections.retryDependencyValidation(identity, { ...validationScope, candidateSourceId: parse(uuid, parts[7]) })), 201);
+      }
       if (parts.length === 7 && parts[0] === 'api' && parts[1] === 'customer' && parts[2] === 'workspaces' && parts[4] === 'applications' && parts[6] === 'validation-suites' && request.method === 'POST') {
         if (!services.validations) throw new HttpError(503, 'validations_not_configured', 'La validación independiente no está configurada.');
         const value = parse(validationSuiteConfigSchema.omit({ organizationId: true, applicationId: true }), await body(request));
