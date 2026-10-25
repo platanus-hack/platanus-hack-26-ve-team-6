@@ -4,16 +4,7 @@ import { dependencyArtifactAnalysisSchema, dependencyInventorySchema } from './s
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const uuid = z.uuid().transform(value => value.toLowerCase());
-export const validationTestSelectionSchema = z.object({
-  files: z.array(z.string().min(1).max(512).regex(
-    /^(?:[A-Za-z0-9_@][A-Za-z0-9_@.-]*\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.(?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/,
-  ).refine(path => !path.split('/').includes('node_modules'))).min(1).max(20)
-    .refine(files => new Set(files).size === files.length),
-  namePattern: z.string().min(1).max(256).refine(pattern => {
-    if (/[\x00-\x1f\x7f]/.test(pattern)) return false;
-    try { new RegExp(pattern); return true; } catch { return false; }
-  }).optional(),
-}).strict();
+import { validationTestSelectionSchema } from './validation-selection.js';
 
 /** Digest computation and comparison belong to the independent server verifier. */
 export const suiteBindingSchema = z.object({
