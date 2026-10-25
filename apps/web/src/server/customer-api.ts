@@ -19,6 +19,7 @@ import {
   licensePolicySchema, workspaceLicensePolicySchema,
   configureInvestigationModelSchema, investigationModelProbeResultSchema, investigationModelSettingsSchema,
   providerConnectionSchema, investigationActionSchema, investigationRunSchema, investigationSubjectSchema,
+  aiCorrectionSchema, aiCorrectionRequestSchema,
   workspaceRetentionPolicyInputSchema, workspaceRetentionPolicySchema,
 } from '@gotchu/contracts';
 import { type Identity, type Backend } from '@gotchu/backend';
@@ -58,6 +59,7 @@ export interface CustomerServices {
   triage?: Backend['triage'];
   investigationModels?: Backend['investigationModels'];
   investigations?: Backend['investigations'];
+  aiCorrections?: Backend['aiCorrections'];
   getLicensePolicy?: Backend['customers']['getLicensePolicy'];
   updateLicensePolicy?: Backend['customers']['updateLicensePolicy'];
   exportSbom?: Backend['customers']['exportSbom'];
@@ -455,6 +457,16 @@ export function createCustomerApi(options: {
         await services.recordReportDownload(identity, { ...scope, reportId: parse(uuid, parts[7]) });
         headers.set('Cache-Control', 'private, no-store');
         return new Response(null, { status: 204, headers });
+      }
+      if (parts[6] === 'reports' && parts[8] === 'ai-corrections') {
+        if (!services.aiCorrections) throw new HttpError(503, 'corrections_not_configured', 'La preparación con IA no está configurada.');
+        const reportScope = { ...scope, reportId: parse(uuid, parts[7]) };
+        if (parts.length === 9 && request.method === 'GET') return send(z.array(aiCorrectionSchema).max(50).parse(await services.aiCorrections.list(identity, reportScope)));
+        if (parts.length === 9 && request.method === 'POST') {
+          const selection = parse(aiCorrectionRequestSchema, await body(request));
+          return send(aiCorrectionSchema.parse(await services.aiCorrections.request(identity, { ...reportScope, ...selection })), 201);
+        }
+        if (parts.length === 10 && request.method === 'DELETE') return send(aiCorrectionSchema.parse(await services.aiCorrections.cancel(identity, { ...reportScope, correctionId: parse(uuid, parts[9]) })));
       }
       if (parts.length === 9 && parts[6] === 'reports' && ['recommendations', 'corrections', 'dependency-fixes'].includes(parts[8] ?? '')) {
         if (!services.corrections) throw new HttpError(503, 'corrections_not_configured', 'La preparación de correcciones no está configurada.');

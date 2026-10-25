@@ -255,7 +255,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
   const openRouterLogins = web ? createOpenRouterLogins(origin, web.investigationModels) : undefined;
-  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, protection: web.protection, operations: web.operations, decisionRecords: web.decisionRecords, corrections: web.corrections, context: web.context, triage: web.triage, investigationModels: web.investigationModels, investigations: web.investigations,
+  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, protection: web.protection, operations: web.operations, decisionRecords: web.decisionRecords, corrections: web.corrections, aiCorrections: web.aiCorrections, context: web.context, triage: web.triage, investigationModels: web.investigationModels, investigations: web.investigations,
     members: web.members,
     github: web.github,
     notifications: web.notifications,
