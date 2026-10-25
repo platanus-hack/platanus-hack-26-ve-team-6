@@ -210,8 +210,14 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
       }
       const candidateRegression = await runVm(candidateArchive.bytes); results.push(candidateRegression);
       if (await quarantineAndWait(candidateRegression)) return;
-      const candidateSuite = await runVm(candidateArchive.bytes); results.push(candidateSuite);
-      if (await quarantineAndWait(candidateSuite)) return;
+      // With no separate regression marker, the selected dependency suite is
+      // the same execution. Keep its two evidence roles bound to that result.
+      const sharedCandidateExecution = selection !== null && validationMode === 'dependency' && suite.regressionTestPath === null;
+      const candidateSuite = sharedCandidateExecution ? candidateRegression : await runVm(candidateArchive.bytes);
+      if (!sharedCandidateExecution) {
+        results.push(candidateSuite);
+        if (await quarantineAndWait(candidateSuite)) return;
+      }
       const reportInput = customerRunInputSchema.parse({ version: 2, organizationId: run.organizationId, applicationId: run.applicationId, jobId: randomUUID(), applicationName: 'Validation candidate', mode: 'internal', source: { ...candidate, id: run.candidateSourceId, digest: run.candidateTreeDigest }, target: null });
       const baseInput = customerRunInputSchema.parse({ ...reportInput, jobId: randomUUID(), source: { ...base, id: run.baseSourceId, digest: run.baseSnapshotDigest } });
       const [beforeReport, afterReport] = await Promise.all([(options.scanner ?? scanner).run(baseInput), (options.scanner ?? scanner).run(reportInput)]);
