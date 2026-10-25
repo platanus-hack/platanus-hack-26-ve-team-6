@@ -56,7 +56,7 @@ function translateFence(error: unknown): never {
 }
 const executionRequirements = [
   'Trusted provider capability and independent executor adapters are not configured.',
-  'A separately verified exact proposal and fresh MFA approval are required for production writes.',
+  'A separately verified exact proposal and explicit Owner approval are required for production writes.',
   'Independent destination, cost, health, rollback and cutover preflight evidence is required.',
   'Caller attestations are self-reported and do not satisfy verification gates.',
 ];
