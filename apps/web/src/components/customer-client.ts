@@ -1,4 +1,5 @@
 import {
+  providerConnectionSchema,
   customerApplicationSchema,
   customerAssessmentReportSchema,
   customerCreateApplicationSchema,
@@ -264,6 +265,9 @@ export const customerApi = {
   licensePolicy: (organizationId: string) => request(`${organizationPath(organizationId)}/license-policy`, workspaceLicensePolicySchema),
   updateLicensePolicy: (organizationId: string, policy: unknown) => request(`${organizationPath(organizationId)}/license-policy`, workspaceLicensePolicySchema, { method: 'PUT', ...jsonBody(licensePolicySchema.parse(policy)) }),
   investigationModel: (organizationId: string) => request(`${organizationPath(organizationId)}/investigation-model`, investigationModelSettingsSchema),
+  startProviderConnection: (organizationId: string, provider: 'codex' | 'claude_code' | 'openrouter') => request(`${organizationPath(organizationId)}/investigation-model/${provider}/connections`, providerConnectionSchema, { method: 'POST', ...jsonBody({}) }, 201, 40_000),
+  providerConnection: (organizationId: string, provider: 'codex' | 'claude_code' | 'openrouter', id: string, authorizationCode?: string) => request(`${organizationPath(organizationId)}/investigation-model/${provider}/connections/${encodeURIComponent(z.uuid().parse(id))}`, providerConnectionSchema, { method: 'POST', ...jsonBody({ ...(authorizationCode ? { authorizationCode } : {}) }) }),
+  cancelProviderConnection: (organizationId: string, provider: 'codex' | 'claude_code' | 'openrouter', id: string) => request(`${organizationPath(organizationId)}/investigation-model/${provider}/connections/${encodeURIComponent(z.uuid().parse(id))}`, providerConnectionSchema, { method: 'DELETE', ...jsonBody({}) }),
   configureInvestigationModel: (organizationId: string, config: unknown) => {
     const input = configureInvestigationModelSchema.extend({ clearApiKey: z.boolean().optional() }).strict().parse(config);
     return request(`${organizationPath(organizationId)}/investigation-model`, investigationModelSettingsSchema, { method: 'PUT', ...jsonBody(input) });
