@@ -3,6 +3,8 @@ set -eu
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+# Local HTTP stays inside this NIC-less VM; setup failure stops the boot.
+/sbin/gotchu-loopback-up
 mkdir -p /input /scratch /npm-cache-source
 mount -o ro /dev/vdb /input
 mount /dev/vdc /scratch
