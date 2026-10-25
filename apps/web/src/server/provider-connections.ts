@@ -1,30 +1,30 @@
 import { randomUUID } from 'node:crypto';
 import type { Backend, Identity } from '@gotchu/backend';
-import { subscriptionConnectionSchema, type SubscriptionConnection } from '@gotchu/contracts';
+import { providerConnectionSchema, type ProviderConnection } from '@gotchu/contracts';
 import { HttpError } from './http.js';
-import { startCodexDeviceLogin, type DeviceLogin } from './codex-device-login.js';
+import type { DeviceLogin } from './codex-device-login.js';
 
 type Models = Pick<Backend['investigationModels'], 'authorizeConnection' | 'connectCredential'>;
 interface Session {
-  organizationId: string; userId: string; providerPresetId: 'codex' | 'claude_code'; version: string; expiresAt: number;
-  status: SubscriptionConnection['status']; login?: DeviceLogin; credential?: string;
+  organizationId: string; userId: string; providerPresetId: 'codex' | 'claude_code' | 'openrouter'; version: string; expiresAt: number;
+  status: ProviderConnection['status']; login?: DeviceLogin; credential?: string;
   importing?: Promise<void>;
 }
 
 /** Transient authorization ceremonies, bounded to this self-host process and ten minutes. */
-export function createSubscriptionConnections(models: Models, start: (provider: 'codex' | 'claude_code') => Promise<DeviceLogin> = () => startCodexDeviceLogin()) {
+export function createProviderConnections(models: Models, start: (provider: 'codex' | 'claude_code' | 'openrouter', scope: { identity: Identity; organizationId: string }) => Promise<DeviceLogin>) {
   const sessions = new Map<string, Session>();
-  const project = (id: string, session: Session): SubscriptionConnection => {
-    if (session.status === 'pending' && session.login) return subscriptionConnectionSchema.parse({ id, status: 'pending',
+  const project = (id: string, session: Session): ProviderConnection => {
+    if (session.status === 'pending' && session.login) return providerConnectionSchema.parse({ id, status: 'pending',
       verificationUrl: session.login.verificationUrl, userCode: session.login.userCode, acceptsCode: Boolean(session.login.submitCode), expiresAt: new Date(session.expiresAt).toISOString() });
-    return subscriptionConnectionSchema.parse({ id, status: session.status });
+    return providerConnectionSchema.parse({ id, status: session.status });
   };
   const dispose = async (session: Session, status: 'cancelled' | 'expired' | 'failed') => {
     session.status = status; delete session.credential;
     await session.login?.cancel();
   };
   return {
-    async start(identity: Identity, organizationId: string, providerPresetId: 'codex' | 'claude_code' = 'codex') {
+    async start(identity: Identity, organizationId: string, providerPresetId: 'codex' | 'claude_code' | 'openrouter' = 'codex') {
       const version = await models.authorizeConnection(identity, { organizationId, providerPresetId });
       for (const [id, session] of sessions) {
         if (session.expiresAt <= Date.now()) { await dispose(session, 'expired'); sessions.delete(id); }
@@ -35,7 +35,7 @@ export function createSubscriptionConnections(models: Models, start: (provider: 
       const session: Session = { organizationId, userId: identity.userId, providerPresetId, version, expiresAt: Date.now() + 10 * 60_000, status: 'pending' };
       sessions.set(id, session);
       try {
-        session.login = await start(providerPresetId);
+        session.login = await start(providerPresetId, { identity, organizationId });
         if (session.status !== 'pending') { await session.login.cancel(); throw new HttpError(409, 'codex_login_cancelled', 'La conexión se canceló.'); }
         session.login.credential.then(credential => {
           if (session.status !== 'pending') return;
@@ -48,7 +48,7 @@ export function createSubscriptionConnections(models: Models, start: (provider: 
         return project(id, session);
       } catch (error) { sessions.delete(id); throw error; }
     },
-    async get(identity: Identity, organizationId: string, id: string, cancel = false, providerPresetId: 'codex' | 'claude_code' = 'codex', authorizationCode?: string) {
+    async get(identity: Identity, organizationId: string, id: string, cancel = false, providerPresetId: 'codex' | 'claude_code' | 'openrouter' = 'codex', authorizationCode?: string) {
       // Recheck membership even when polling an existing ceremony or cancelling it.
       await models.authorizeConnection(identity, { organizationId, providerPresetId });
       const session = sessions.get(id);

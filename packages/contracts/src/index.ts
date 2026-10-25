@@ -119,4 +119,4 @@ export * from './notifications.js';
 export * from './investigation.js';
 export * from './retention.js';
 export * from './investigation-providers.js';
-export * from './subscription-connection.js';
+export * from './provider-connection.js';

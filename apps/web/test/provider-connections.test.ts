@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSubscriptionConnections } from '../src/server/subscription-connections.js';
+import { createProviderConnections } from '../src/server/provider-connections.js';
 
 const identity = { userId: 'owner' };
 const organizationId = randomUUID();
@@ -11,7 +11,7 @@ function fixture() {
   const start = vi.fn(async () => ({ verificationUrl: 'https://auth.openai.com/codex/device' as const, userCode: 'ABCD-1234', credential, cancel }));
   const authorizeConnection = vi.fn(async () => 'configuration-v1');
   const connectCredential = vi.fn(async () => undefined);
-  const service = createSubscriptionConnections({ authorizeConnection, connectCredential }, start);
+  const service = createProviderConnections({ authorizeConnection, connectCredential }, start);
   return { service, start, cancel, complete, authorizeConnection, connectCredential };
 }
 afterEach(() => vi.useRealTimers());
@@ -65,7 +65,7 @@ describe('workspace Codex connection ceremonies (injected auth transport)', () =
 
   it('binds authorization and credential import to the selected provider', async () => {
     const f = fixture(); const connection = await f.service.start(identity, organizationId, 'claude_code');
-    expect(f.start).toHaveBeenCalledExactlyOnceWith('claude_code');
+    expect(f.start).toHaveBeenCalledExactlyOnceWith('claude_code', { identity, organizationId });
     await expect(f.service.get(identity, organizationId, connection.id, false, 'codex')).rejects.toMatchObject({ status: 404 });
     f.complete('synthetic-claude-token'); await Promise.resolve();
     expect(await f.service.get(identity, organizationId, connection.id, false, 'claude_code')).toEqual({ id: connection.id, status: 'connected' });
