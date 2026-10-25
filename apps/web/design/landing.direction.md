@@ -15,8 +15,8 @@
 
 ## Content
 
-- The sequence is Mirada (hero), Auditoría (“Te auditamos por los dos lados.”: the `both` dot field with Por dentro / Por fuera beneath), Evidencia (report field and four highlighted terms), Preguntas (shadcn accordion) and Cierre (question, “we Gotchu.”, the dot GOTCHU wordmark, “Crea tu cuenta” and “Ya tengo cuenta”).
-- This is a marketing page: sell the most important promises, not the user's whole flow or every feature. Each side ends in an action to `/registro`.
+- The sequence is Mirada (hero), Por dentro (code field beside four benefits), Por fuera (globe field beside four benefits), Evidencia (report field and four highlighted terms), Preguntas (shadcn accordion) and Cierre (question, “we Gotchu.”, the dot GOTCHU wordmark, “Crea tu cuenta” and “Ya tengo cuenta”).
+- This is a marketing page: sell what each side gives the customer, not the user's whole flow or every feature. Each side ends in an action to `/registro`. Never promise complete protection; the FAQ says no findings is not proof of safety.
 - Show the real report JSON keys: `id`, `organizationId`, `applicationId`, `jobId`, `applicationName`, `mode`, `startedAt`, `finishedAt`, `internal`, `external`, `comparison`, `limitations`, `responseMode`, `actionsPerformed`, `version` and `revision`.
 - Re-checks run every 1–24 hours only when the customer enables them. They are not real time; alerts stay inside Gotchu, and an alert never confirms an attack. Signed runtime telemetry feeds triage, not proof of compromise.
 - Source analysis is bounded to JS/TS, JSON, YAML and TOML, with Semgrep, Gitleaks, Trivy and OSV where configured. Source is not executed.

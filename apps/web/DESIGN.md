@@ -321,7 +321,7 @@ A fixed, solid header in the ground colour with a 1px bottom border; brand locku
 
 ### Highlighter
 - **Body:** pink-ink band (action in dark) at 0.82em height behind running text, which takes the band's foreground colour; sweeps in left to right over 700ms `cubic-bezier(.65, 0, .35, 1)` when it scrolls into view, staggered within a block.
-- **Big:** a magenta band at 0.78em behind display type, which flips to porcelain exactly where the band has passed. Sweeps on load in the hero (650ms delay), on reveal in sections, and only on hover or focus in scope columns. Forced colours drop it to plain text.
+- **Big:** a magenta band at 0.78em behind display type, which flips to porcelain exactly where the band has passed; accents and descenders outside the band keep the ink colour. Sweeps on load in the hero (650ms delay), on reveal in sections, and only on hover or focus in scope columns. Forced colours drop it to plain text.
 
 ### Margin notes
 Mono 12.5px muted notes, led by a superscript number in action/pink ink that matches a superscript reference in the paragraph. From 1100px they sit in the right column under a 1px hairline and slide in 12px over 500ms; below, they follow the paragraph with a 2px magenta left rule.
@@ -332,10 +332,10 @@ Each line unmasks upward from a clip (800ms `cubic-bezier(.23, 1, .32, 1)`, 90ms
 ### Plates
 - **Dot fields:** canvas plates of square pixels and mono glyphs in six theme tones (`--dot-1` to `--dot-6`). Particles fly in on first view, ripple from a fine pointer within 120px, gather on `data-catch`, and sleep off screen, in hidden tabs, when paused and under reduced motion (which paints the settled frame). No React state per frame.
 
-### Both sides and evidence
-The landing is marketing, not a manual: it sells the core promise, not every step. "Te auditamos por los dos lados." shows one full-bleed `both` dot field (code inside, the spinning globe outside, their shared zone in magenta) with "Por dentro." under the code half and "Por fuera." under the globe half (58fr / 42fr from 900px): a display name, one sentence, a mono tag row and a primary action to `/registro`. "Cada hallazgo. Con su prueba." pairs the `report` dot field with four terms (Evidencia, Severidad, Confianza, Cobertura) whose big highlighter sweeps in turn.
+### Por dentro, Por fuera and evidence
+The landing is marketing, not a manual: it sells what you get, not every step. The hero lead states the promise ("Todo tu proyecto bajo la lupa: tu código por dentro y tu web por fuera."); never promise complete protection. Two sections follow, "Por dentro. Tu código." and "Por fuera. Tu web.", each a split of a dot field (`code`, then `globe`, mirrored to the other side from 900px) beside a one-sentence lead, four benefits (magenta diamond, display title, one muted line) and a primary action to `/registro`. "Cada hallazgo. Con su prueba." pairs the `report` field with four terms (Evidencia, Severidad, Confianza, Cobertura) whose big highlighter sweeps in turn.
 
-Parallax moves the elements themselves, in the normal page flow (nothing pins). Each section with motion carries `--gl-q`, its distance from the viewport centre (-1 → 1), written by `useParallax` without React renders. Headline lines slide in from the right at two speeds and settle at the centre, leads trail, `data-depth` dot fields rise faster than the text, and the two side columns arrive from their own edges. Without motion everything sits still in place.
+Parallax moves the elements themselves, in the normal page flow (nothing pins). Each section with motion carries `--gl-q`, its distance from the viewport centre (-1 → 1), written by `useParallax` without React renders. Headline lines slide in from the right at two speeds and settle at the centre, `data-depth` dot fields rise faster than the text, a magenta scan line with a faint wake sweeps each side's field top to bottom, and the benefits cascade in from the field's side, each from further out, while their diamonds turn into place. Without motion everything sits still in place.
 
 ### Ruled lists and exhibits
 - **Ruled list:** rows between 1px hairlines; display uppercase items led by a mono letter, or text-face facts led by the 8px magenta diamond.

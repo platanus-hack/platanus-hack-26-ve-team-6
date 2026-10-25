@@ -26,7 +26,7 @@ TanStack Start, React, Auth.js, pnpm, Node 24 and strict TypeScript are establis
 
 ## Brand Commitments
 
-Jenn's supplied cybersecurity prototype informs the palette: magenta #E7147D, graphite #191923, off-white #FFFEFA and silver #C7BFBD; futuristic, digital, professional typography and precise controls. Its composition and assets are not a template to reproduce. The public landing uses living dot fields, a both-sides field for the code and web audits, and an editorial dossier layout with no photo-real or 3D artwork. The user supplied a brand board, firecrawl.dev and exa.ai as references for type, elements and feel; colours stay as above. The cream/coral Zcash editorial identity is a different project and is not applicable.
+Jenn's supplied cybersecurity prototype informs the palette: magenta #E7147D, graphite #191923, off-white #FFFEFA and silver #C7BFBD; futuristic, digital, professional typography and precise controls. Its composition and assets are not a template to reproduce. The public landing uses living dot fields, code and web audit sections with their benefits, and an editorial dossier layout with no photo-real or 3D artwork. The user supplied a brand board, firecrawl.dev and exa.ai as references for type, elements and feel; colours stay as above. The cream/coral Zcash editorial identity is a different project and is not applicable.
 
 Gotchu is the repository/application name; the reference's earlier “Prototipo” label is not retained. AIRNT is a visual reference, not a licensed commercial web asset. Saira (OFL, variable width) is the self-hosted landing family: an expanded cut for display and the normal cut for text. AIRNT stays a visual reference only; do not distribute it without license evidence.
 
