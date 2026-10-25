@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fixture, liveUrl } from './support.js';
+import { grantGitHubWriteFixture } from './github-fixtures.js';
 
 const live = liveUrl ? describe : describe.skip;
 live('GitHub installation authorization on real Postgres', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
-  beforeAll(async () => { f = await fixture(); }, 30_000);
+  beforeAll(async () => { f = await fixture({ max: 5 }); }, 30_000);
   afterAll(async () => { await f?.close(); });
 
   it('stores only hashed OAuth state, binds it to one session and expiry, and consumes it once', async () => {
@@ -19,6 +20,9 @@ live('GitHub installation authorization on real Postgres', () => {
     expect(consumed.rows).toEqual([{ organization_id: f.a.organizationId, user_id: f.a.userId, pkce_verifier: verifier, installation_id: '174788349', purpose: 'authorize' }]);
     const replay = await f.databases.gotchu_api.tenant('00000000-0000-0000-0000-000000000000', tx => tx.query('SELECT * FROM gotchu.github_consume_state($1,$2)', [hash, f.a.userId]));
     expect(replay.rows).toEqual([]);
+    await createState('d'.repeat(64));
+    const race = await Promise.all(Array.from({ length: 5 }, () => f.databases.gotchu_api.tenant('00000000-0000-0000-0000-000000000000', tx => tx.query('SELECT * FROM gotchu.github_consume_state($1,$2)', ['d'.repeat(64), f.a.userId]))));
+    expect(race.filter(result => result.rows.length === 1)).toHaveLength(1);
     const expiredHash = 'b'.repeat(64);
     await createState(expiredHash);
     await f.admin.query("UPDATE gotchu.github_oauth_states SET expires_at=now()-interval '1 second' WHERE state_hash=$1", [expiredHash]);
@@ -47,9 +51,17 @@ live('GitHub installation authorization on real Postgres', () => {
       return tx.query('SELECT installation_id,revoked FROM gotchu.application_repository_links WHERE organization_id=$1 AND repository_key=$2', [f.a.organizationId, 'gh-991']);
     });
     expect(linked.rows).toEqual([{ installation_id: installationId, revoked: false }]);
+    const link = await f.admin.query<{ id: string }>('SELECT id FROM gotchu.application_repository_links WHERE organization_id=$1 AND repository_key=$2', [f.a.organizationId, 'gh-991']);
+    const linkId = link.rows[0]?.id;
+    if (!linkId) throw new Error('Missing linked repository');
+    const proposalId = await grantGitHubWriteFixture(f.admin, f.a, linkId);
     await f.databases.gotchu_api.tenant(f.a.organizationId, tx => tx.query('SELECT gotchu.github_revoke_installation($1,$2,$3)', [f.a.organizationId, f.a.userId, installationId]));
-    const revoked = await f.databases.gotchu_api.tenant(f.a.organizationId, tx => tx.query('SELECT revoked,read_access,state FROM gotchu.application_repository_links WHERE organization_id=$1 AND repository_key=$2', [f.a.organizationId, 'gh-991']));
-    expect(revoked.rows).toEqual([{ revoked: true, read_access: 'revoked', state: 'unknown' }]);
+    const revoked = await f.databases.gotchu_api.tenant(f.a.organizationId, tx => tx.query('SELECT revoked,read_access,state,write_access,writer_installation_id,writer_verified_at,writer_verified_commit FROM gotchu.application_repository_links WHERE organization_id=$1 AND repository_key=$2', [f.a.organizationId, 'gh-991']));
+    expect(revoked.rows).toEqual([{ revoked: true, read_access: 'revoked', state: 'unknown', write_access: 'not_granted', writer_installation_id: null, writer_verified_at: null, writer_verified_commit: null }]);
+    expect((await f.admin.query('SELECT state FROM gotchu.proposals WHERE organization_id=$1 AND id=$2', [f.a.organizationId, proposalId])).rows).toEqual([{ state: 'invalidated' }]);
+    expect((await f.admin.query('SELECT consumed_at IS NOT NULL AS consumed FROM gotchu.approvals WHERE organization_id=$1 AND proposal_id=$2', [f.a.organizationId, proposalId])).rows).toEqual([{ consumed: true }]);
+    // Simulate a disconnected link created by the legacy function, which retained writer evidence.
+    const legacyProposalId = await grantGitHubWriteFixture(f.admin, f.a, linkId);
     await f.databases.gotchu_api.tenant(f.a.organizationId, async tx => {
       await tx.query('SELECT gotchu.github_bind_installation($1,$2,$3,$4)', [f.a.organizationId, f.a.userId, installationId, 'acme']);
       const relinked = await tx.query('SELECT gotchu.github_create_repository_link($1,$2,$3,$4,$5,$6,$7) AS id', [f.a.organizationId, f.a.applicationId, f.a.userId, installationId, randomUUID(), 'gh-991', 'main']);
@@ -58,6 +70,8 @@ live('GitHub installation authorization on real Postgres', () => {
       expect(restored.rows).toEqual([{ installation_id: installationId, revoked: false, read_access: 'granted', write_access: 'not_granted' }]);
       await tx.query('SELECT gotchu.github_revoke_installation($1,$2,$3)', [f.a.organizationId, f.a.userId, installationId]);
     });
+    expect((await f.admin.query('SELECT state FROM gotchu.proposals WHERE id=$1', [legacyProposalId])).rows).toEqual([{ state: 'invalidated' }]);
+    expect((await f.admin.query('SELECT consumed_at IS NOT NULL AS consumed FROM gotchu.approvals WHERE proposal_id=$1', [legacyProposalId])).rows).toEqual([{ consumed: true }]);
     const operatorId = `github-operator:${randomUUID()}`;
     await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'operator')", [f.b.organizationId, operatorId]);
     const operatorMove = await f.databases.gotchu_api.tenant(f.b.organizationId, tx => tx.query('SELECT gotchu.github_bind_installation($1,$2,$3,$4) AS result', [f.b.organizationId, operatorId, installationId, 'acme']));
