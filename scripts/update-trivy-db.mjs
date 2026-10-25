@@ -2,12 +2,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const cacheDirectory = join(root, '.local/dev/trivy-db');
+const cacheDirectory = process.env.GOTCHU_TRIVY_DB_DIRECTORY ?? join(root, '.local/dev/trivy-db');
+if (!isAbsolute(cacheDirectory)) throw new Error('The Trivy database path must be absolute.');
 const dbDirectory = join(cacheDirectory, 'db');
 const lockPath = join(cacheDirectory, 'gotchu-trivy-db.json');
 const lockSchema = { version: 1, trivyVersion: '0.67.2' };

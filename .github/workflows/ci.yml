@@ -6,6 +6,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -34,14 +35,17 @@ jobs:
       integration: ${{ steps.affected.outputs.integration }}
       infra: ${{ steps.affected.outputs.infra }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - id: affected
         # A manual run or a branch's first push has no base, which selects everything.
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: node scripts/ci-affected.mjs "$BASE_SHA" "$GITHUB_SHA"
+          FORCE_FULL: ${{ github.ref == 'refs/heads/prod' }}
+        run: |
+          if test "$FORCE_FULL" = true; then BASE_SHA=''; fi
+          node scripts/ci-affected.mjs "$BASE_SHA" "$GITHUB_SHA"
 
   verify:
     needs: changes
@@ -49,7 +53,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup
       - if: needs.changes.outputs.unit == 'true'
         run: pnpm ${{ needs.changes.outputs.packages }} --sort --if-present run typecheck
@@ -68,7 +72,7 @@ jobs:
     env:
       GOTCHU_TEST_SKIP_BUILD: '1'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup
       - name: Run real Postgres database and backend integration tests
         if: needs.changes.outputs.postgres_database == 'true'
@@ -86,7 +90,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup
       - name: Verify assessment delivery fencing and reserved monitoring capacity
         if: needs.changes.outputs.coordinator_live == 'true'
@@ -101,7 +105,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # The live check builds its own images and only the dependency-free database package.
       - uses: ./.github/actions/setup
         with:
@@ -110,3 +114,44 @@ jobs:
       - run: scripts/infra-compose-validate.sh
       - name: Boot Postgres, Redis, web and coordinator in an isolated Compose project
         run: scripts/infra-live-check.sh
+
+  release-safety:
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: python3 -B infra/aws/test-release-archive.py
+      - run: python3 -B infra/aws/test-release-state.py
+      - run: python3 -B infra/aws/test-maintenance.py
+
+  required-checks:
+    if: always()
+    needs: [changes, verify, postgres, live-stack, infrastructure, release-safety]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every selected check to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          jobs = json.loads(os.environ['RESULTS'])
+          if jobs['changes']['result'] != 'success' or any(job['result'] not in ['success', 'skipped'] for job in jobs.values()):
+              sys.exit('A required CI job did not succeed.')
+          PY
+
+  prod-source:
+    if: github.event_name == 'pull_request' && github.base_ref == 'prod'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require promotion from this repository's main branch
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          test "$HEAD_BRANCH" = main
+          test "$HEAD_REPOSITORY" = "$GITHUB_REPOSITORY"

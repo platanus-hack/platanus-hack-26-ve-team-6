@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
+import imageFixture from './container-image-fixture.json' with { type: 'json' };
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 // PostgreSQL 17.11 and Redis 7.4.11 are pinned to OCI manifest digests for repeatable live tests.
@@ -17,13 +18,15 @@ const pgPassword = randomBytes(32).toString('hex');
 const redisPassword = randomBytes(32).toString('hex');
 const started = [];
 function command(binary, args, env = process.env) {
-  const result = spawnSync(binary, args, { cwd: root, encoding: 'utf8', env });
+  const result = spawnSync(binary, args, { cwd: root, encoding: 'utf8', env, timeout: 120_000 });
   if (result.status !== 0) throw new Error(`${binary} failed: ${result.stderr ?? result.error?.message ?? 'unknown error'}`);
   return result.stdout.trim();
 }
 function cleanup() { for (const name of started.splice(0)) spawnSync('docker', ['rm', '--force', name], { stdio: 'ignore' }); }
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { cleanup(); process.exit(130); });
 try {
+  command('docker', ['pull', '--platform', 'linux/amd64', imageFixture.reference]);
+  console.log('Pinned public image fixture prepared before the bounded scanner job.');
   command('docker', ['run', '--detach', '--rm', '--name', postgres, '--memory', '512m', '--cpus', '1', '--tmpfs', '/var/lib/postgresql/data:rw', '-p', '127.0.0.1::5432', '-e', 'POSTGRES_PASSWORD', '-e', 'POSTGRES_DB=gotchu_test_assessments', postgresImage], { ...process.env, POSTGRES_PASSWORD: pgPassword });
   started.push(postgres);
   command('docker', ['run', '--detach', '--rm', '--name', redis, '--memory', '256m', '--cpus', '0.5', '-p', '127.0.0.1::6379', '-e', 'REDIS_PASSWORD', redisImage, 'sh', '-ec', 'exec redis-server --appendonly no --requirepass "$REDIS_PASSWORD"'], { ...process.env, REDIS_PASSWORD: redisPassword });
