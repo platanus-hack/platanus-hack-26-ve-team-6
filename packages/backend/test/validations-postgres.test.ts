@@ -110,6 +110,8 @@ live('validation persistence and leases on real PostgreSQL', () => {
   });
 
   it('claims once, quarantines expired leases, and blocks new capacity until reconciliation', async () => {
+    // The claim queue is global; settle runs earlier test files left queued or quarantined.
+    await f.admin.query("UPDATE gotchu.validation_runs SET state='inconclusive',reason='test_isolation',lease_token=NULL,lease_until=NULL,finished_at=clock_timestamp() WHERE state IN ('queued','quarantined')");
     const first = await createRun(f.a.organizationId, f.a.applicationId);
     const claimToken = randomUUID();
     const claimed = await f.databases.gotchu_validator.tenant('00000000-0000-0000-0000-000000000000', tx => tx.query('SELECT * FROM gotchu.validation_claim($1,300000)', [claimToken]));

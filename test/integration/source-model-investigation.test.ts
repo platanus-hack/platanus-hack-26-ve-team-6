@@ -45,7 +45,8 @@ assert(args.includes('--ignore-user-config'));
 assert.deepEqual(fs.readdirSync(process.cwd()), []);
 assert.equal(fs.statSync(process.env.CODEX_HOME + '/auth.json').mode & 511, 384);
 const tools = context.evidence.map(item => item.tool);
-const evidenceId = context.subject.evidenceIds[0];
+// Cite only evidence the gateway actually supplied in this context.
+const evidenceId = context.evidence[0].record.evidenceId;
 const loaded = tools.includes('finding.details.read') && tools.includes('source.excerpt.read');
 if (loaded) {
   const source = context.evidence.find(item => item.tool === 'source.excerpt.read').record.excerpt;
@@ -137,7 +138,9 @@ console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:120,output
     expect(ledger).toMatchObject({ model_calls: 2, tool_calls: 2, delivered: true, result: { independentVerification: 'not_verified' } });
     expect(ledger.checkpoint).not.toBeNull();
     const calls = z.array(z.object({ tools: z.array(z.string()), loaded: z.boolean() })).parse((await readFile(record, 'utf8')).trim().split('\n').map(line => JSON.parse(line)));
-    expect(calls).toHaveLength(2); expect(calls[1]?.tools).toEqual(['evidence.read', 'finding.details.read', 'source.excerpt.read']);
+    expect(calls).toHaveLength(2);
+    // The bounded context lists the latest reads first; only the loaded set matters here.
+    expect([...(calls[1]?.tools ?? [])].sort()).toEqual(['evidence.read', 'finding.details.read', 'source.excerpt.read']);
     // Re-delivery must not run LangGraph or spend the model budget again.
     await processDurableJob(dependencies, { ...scope, version: 1, kind: 'investigation', id: result.jobId });
     expect((await readFile(record, 'utf8')).trim().split('\n')).toHaveLength(2);

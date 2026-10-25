@@ -44,10 +44,21 @@ class ServiceEnvironment(unittest.TestCase):
         for key, value in integrations.items():
             if key == 'GOTCHU_GITHUB_WRITER_SECRET':
                 self.assertNotIn(value, environments['web'])
+                self.assertNotIn(value, environments['coordinator'])
                 continue
             self.assertIn(f'{key}="{value}"', environments['web'])
-            self.assertNotIn(key, environments['coordinator'])
             self.assertNotIn(key, environments['scanner'])
+            # Monitoring reads connected repositories with the same read-only App.
+            if key == 'GOTCHU_GITHUB_READER_APP_FILE':
+                self.assertIn(f'{key}="{value}"', environments['coordinator'])
+            else:
+                self.assertNotIn(key, environments['coordinator'])
+
+    def test_coordinator_runs_monitoring_and_advisories(self):
+        coordinator = self.write_environments({})['coordinator']
+        self.assertIn('GOTCHU_MONITORING_ENABLED="true"', coordinator)
+        self.assertIn('GOTCHU_MONITORING_OSV="true"', coordinator)
+        self.assertNotIn('GOTCHU_GITHUB_READER_APP_FILE', coordinator)
 
     def test_integrations_remain_optional(self):
         environments = self.write_environments({})

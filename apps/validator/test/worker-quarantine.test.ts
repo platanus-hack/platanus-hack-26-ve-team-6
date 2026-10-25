@@ -1,6 +1,7 @@
 import { createHash, generateKeyPairSync, randomUUID } from 'node:crypto';
 import type { QueryResult, QueryResultRow } from 'pg';
 import { describe, expect, it, vi } from 'vitest';
+import { canonicalJson } from '@gotchu/backend';
 import { createCustomerAssessmentRunner } from '@gotchu/customer-assessment';
 import type { Database, Transaction } from '@gotchu/database';
 import type { RunnerResult } from '@gotchu/runner';
@@ -15,7 +16,7 @@ function makeWorkerRunRow(organizationId: string, applicationId: string) {
       { path: 'test/run.js', content: 'process.exit(0)' },
     ],
   };
-  const digest = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
+  const digest = createHash('sha256').update(canonicalJson(snapshot)).digest('hex');
   const baseSourceId = randomUUID();
   const candidateSourceId = randomUUID();
   const repositoryLinkId = randomUUID();

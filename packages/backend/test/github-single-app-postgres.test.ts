@@ -62,9 +62,14 @@ live('single-App GitHub authority on real PostgreSQL', () => {
 
   it('rejects expired state and membership revoked after state creation', async () => {
     const started = await api.createState(actor(), { organizationId: f.a.organizationId, appId });
+    // A workspace keeps at least one owner, so a temporary owner allows revoking this one.
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'owner')", [f.a.organizationId, f.b.userId]);
     await f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
     try { await expect(executor.consumeSingleAppState(f.a.userId, started.state, appId)).rejects.toMatchObject({ code: 'github_state_invalid' }); }
-    finally { await f.admin.query("UPDATE gotchu.memberships SET role='owner' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]); }
+    finally {
+      await f.admin.query("UPDATE gotchu.memberships SET role='owner' WHERE organization_id=$1 AND user_id=$2", [f.a.organizationId, f.a.userId]);
+      await f.admin.query('DELETE FROM gotchu.memberships WHERE organization_id=$1 AND user_id=$2', [f.a.organizationId, f.b.userId]);
+    }
     await f.admin.query("UPDATE gotchu.github_oauth_states SET expires_at=now()-interval '1 second' WHERE state_hash=$1", [sha256(started.state)]);
     await expect(executor.consumeSingleAppState(f.a.userId, started.state, appId)).rejects.toMatchObject({ code: 'github_state_invalid' });
   });
