@@ -2,10 +2,10 @@ import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 
-// Gotchu buttons (DESIGN.md): 8px corners, 34px tall on mobile and 48px from md up, a 2px focus
-// outline at a 4px offset, and the brutalist hover: up-left 2px over a hard 4px magenta offset.
+// Gotchu buttons: 8px corners, 34px tall on mobile and 48px from md up. Focus changes the border;
+// hover shifts filled buttons up-left over a hard 4px magenta offset.
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent font-sans font-semibold whitespace-nowrap no-underline outline-none select-none transition-[translate,scale,box-shadow,background-color,border-color,color,text-decoration-color] duration-160 ease-[cubic-bezier(.23,1,.32,1)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring active:not-aria-[haspopup]:scale-[.97] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:transition-transform [&_svg]:duration-160 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent font-sans font-semibold whitespace-nowrap no-underline select-none transition-[translate,scale,box-shadow,background-color,border-color,color,text-decoration-color] duration-160 ease-[cubic-bezier(.23,1,.32,1)] focus-visible:border-brand-ink active:not-aria-[haspopup]:scale-[.97] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:transition-transform [&_svg]:duration-160 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {

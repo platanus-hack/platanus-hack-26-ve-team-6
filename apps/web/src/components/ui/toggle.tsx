@@ -6,7 +6,7 @@ import { cn } from "cn"
 
 // 34px controls with 8px corners; the pressed state reads as an ink fill, not a soft tint.
 const toggleVariants = cva(
-  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-semibold whitespace-nowrap text-muted-foreground outline-none transition-[background-color,color] duration-160 ease-[cubic-bezier(.23,1,.32,1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 data-pressed:bg-foreground data-pressed:text-background [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg border border-transparent text-sm font-semibold whitespace-nowrap text-muted-foreground transition-[background-color,border-color,color] duration-160 ease-[cubic-bezier(.23,1,.32,1)] hover:text-foreground focus-visible:border-brand-ink disabled:pointer-events-none disabled:opacity-50 data-pressed:bg-foreground data-pressed:text-background [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {

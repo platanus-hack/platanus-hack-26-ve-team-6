@@ -42,6 +42,8 @@ live('runtime protection through a real Node app, signed HTTP intake, Postgres, 
   let webServer: Server | undefined;
   let targetServer: Server | undefined;
   let guard: ReturnType<typeof createGotchuGuard> | undefined;
+  // Read before the SDK starts: the guard sends a heartbeat as soon as it is created.
+  let initial: Awaited<ReturnType<ReturnType<typeof createBackend>['protection']['get']>> | undefined;
   let apiOrigin = '';
   let currentUser = '';
   let sinks = { sql: 0, filesystem: 0, child_process: 0, ssrf: 0 };
@@ -95,6 +97,7 @@ live('runtime protection through a real Node app, signed HTTP intake, Postgres, 
 
     sinks = { sql: 0, filesystem: 0, child_process: 0, ssrf: 0 };
     const outbound: typeof fetch = async () => new Response('ok');
+    initial = await apiBackend.protection.get({ userId: f.a.userId }, { organizationId: f.a.organizationId, applicationId: f.a.applicationId });
     guard = createGotchuGuard({ integrationId: f.a.integrationId, applicationId: f.a.applicationId, secret, baseUrl: apiOrigin, outboundFetch: outbound });
     const target: RequestListener = (request, response) => {
       void (async () => {
@@ -150,7 +153,6 @@ live('runtime protection through a real Node app, signed HTTP intake, Postgres, 
       return fetch(url);
     };
 
-    const initial = await apiBackend.protection.get({ userId: f.a.userId }, scope);
     expect(initial).toMatchObject({ mode: 'monitor', version: 0, receiving: false, enabledDetectors: detectors });
     await guard?.refreshPolicy();
     const attacks = [

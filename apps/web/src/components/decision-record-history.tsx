@@ -8,7 +8,7 @@ type Filter = { subjectType: SubjectType; subjectId: string };
 
 const actionLabels: Record<DecisionRecord['action'], string> = {
   'workspace.created': 'Creó el espacio de trabajo',
-  'application.created': 'Añadió una aplicación', 'application.updated': 'Actualizó una aplicación',
+  'application.created': 'Añadió un proyecto', 'application.updated': 'Actualizó un proyecto',
   'target.enrolled': 'Solicitó evaluar un origen HTTPS', 'target.verified': 'Comprobó el TXT de un origen HTTPS', 'target.revoked': 'Quitó un origen del alcance',
   'source.uploaded': 'Subió una instantánea de código', 'source.deleted': 'Eliminó una instantánea de código',
   'assessment.queued': 'Solicitó una evaluación', 'assessment.recorded': 'Se generó un informe',
@@ -22,7 +22,7 @@ const actionLabels: Record<DecisionRecord['action'], string> = {
   'execution.uncertain': 'La ejecución quedó sin confirmar', 'execution.reconciled': 'Se reconcilió el resultado de una ejecución',
   'correction.prepared': 'Solicitó preparar una corrección privada', 'validation.suite_configured': 'Configuró una suite de validación',
   'step_up.factor_enrolled': 'Añadió un método de verificación', 'step_up.factor_revoked': 'Revocó un método de verificación',
-  'events.connected': 'Conectó eventos de la aplicación', 'events.disabled': 'Desactivó eventos de la aplicación', 'events.accepted': 'Se recibieron eventos firmados',
+  'events.connected': 'Conectó eventos de el proyecto', 'events.disabled': 'Desactivó eventos de el proyecto', 'events.accepted': 'Se recibieron eventos firmados',
   'triage.status_changed': 'Actualizó el estado de un incidente', 'triage.evidence_requested': 'Solicitó actualizar evidencia de vigilancia', 'triage.probe_route_declared': 'Declaró una ruta de interés',
   'context.environment_created': 'Añadió un entorno', 'context.environment_updated': 'Actualizó un entorno', 'context.environment_archived': 'Archivó un entorno',
   'context.service_created': 'Añadió un servicio', 'context.service_updated': 'Actualizó un servicio',
@@ -39,11 +39,11 @@ const outcomeLabels: Record<DecisionRecord['outcome'], string> = {
   cancelled: 'Cancelado', completed: 'Completado', failed: 'Fallido', uncertain: 'Sin confirmar', changed: 'Actualizado', unknown: 'Sin resultado',
 };
 const subjectLabels: Record<SubjectType, string> = {
-  workspace: 'Espacio de trabajo', application: 'Aplicación', alert: 'Alerta', plan: 'Guía de operación', action: 'Propuesta o acción',
+  workspace: 'Espacio de trabajo', application: 'Proyecto', alert: 'Alerta', plan: 'Guía de operación', action: 'Propuesta o acción',
   execution: 'Ejecución', report: 'Informe', assessment: 'Evaluación', target: 'Origen HTTPS', source: 'Instantánea de código', correction: 'Corrección',
   member: 'Miembro', invitation: 'Invitación', integration: 'Integración', event_batch: 'Lote de eventos', incident: 'Incidente', operation: 'Vigilancia',
   validation: 'Validación', credential: 'Verificación', model: 'Modelo', environment: 'Entorno', service: 'Servicio', repository: 'Repositorio',
-  deployment: 'Despliegue', dependency: 'Dependencia', origin: 'Origen declarado', other: 'Actividad del espacio',
+  deployment: 'Despliegue', dependency: 'Dependencia', origin: 'Origen declarado', other: 'Otro asunto',
 };
 
 function actionLabel(action: DecisionRecord['action']) {
@@ -85,5 +85,5 @@ export function DecisionRecordHistory({ userId, organizationId, filter, compact 
   if (compact) return <details className="customer-decision-inline" onToggle={event => setExpanded(event.currentTarget.open)}>
     <summary>Historial de esta decisión</summary>{expanded && content}
   </details>;
-  return <section className="customer-card customer-decision-history"><div className="customer-card-heading"><div><h2>Historial del espacio</h2><span className="customer-eyebrow">DECISIONES Y CAMBIOS</span></div></div><p className="customer-card-copy">Quién solicitó evaluaciones, reconoció alertas, cambió miembros o preparó acciones. El historial muestra actividad registrada; no representa la ejecución completa de un incidente.</p>{content}</section>;
+  return <section className="customer-card customer-decision-history"><div className="customer-card-heading"><div><h2>Historial de decisiones</h2></div></div>{content}</section>;
 }

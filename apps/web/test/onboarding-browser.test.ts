@@ -136,16 +136,15 @@ globalThis.fetch = async (input, init) => {
 
   it('uploads a chosen folder and queues an internal assessment in two clicks', async () => {
     await signIn(page, origin, `onboarding-${randomUUID()}@example.test`);
-    await page.getByRole('heading', { name: 'Empieza en dos pasos' }).waitFor();
+    await page.getByRole('heading', { name: 'Tu primera revisión' }).waitFor();
     await startClickCounter(page);
-    await page.getByRole('textbox', { name: 'Espacio de trabajo' }).fill('Onboarding browser fixture');
-    await page.getByLabel('Nombre de la aplicación').fill('Upload-only application');
+    await page.getByLabel('Nombre del proyecto').fill('Upload-only project');
     uploadedFolder = await mkdtemp(join(tmpdir(), 'gotchu-onboarding-source-'));
     await mkdir(join(uploadedFolder, 'src'));
     await writeFile(join(uploadedFolder, 'src', 'index.ts'), 'export const ready = true;\n');
     await page.waitForFunction(() => document.querySelector('#onboarding-folder')?.hasAttribute('webkitdirectory'));
     const chooserPromise = page.waitForEvent('filechooser');
-    await page.getByLabel('Carpeta del proyecto').click();
+    await page.locator('label[for="onboarding-folder"]').click();
     await (await chooserPromise).setFiles(uploadedFolder);
     const queued = page.waitForResponse(response => response.url().endsWith('/assessments') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Analizar carpeta' }).click();
@@ -160,10 +159,10 @@ globalThis.fetch = async (input, init) => {
     expect(await page.evaluate(() => window.sessionStorage.getItem('onboarding-click-count'))).toBe('2');
     const workspaces = await page.evaluate(async () => await (await fetch('/api/customer/workspaces')).json());
     const workspace = customerWorkspaceSchema.parse(Array.isArray(workspaces) ? workspaces[0] : null);
-    expect(workspace.name).toBe('Onboarding browser fixture');
+    expect(workspace.name).toMatch(/^Espacio de Onboarding /);
     const applications = await page.evaluate(async (organizationId) => await (await fetch(`/api/customer/workspaces/${organizationId}/applications`)).json(), workspace.id);
     const application = customerApplicationSchema.parse(Array.isArray(applications) ? applications[0] : null);
-    expect(application.name).toBe('Upload-only application');
+    expect(application.name).toBe('Upload-only project');
     const counts = await db.admin.query<{ sources: number; jobs: number }>(`SELECT
       (SELECT count(*)::int FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2) AS sources,
       (SELECT count(*)::int FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2 AND kind='audit') AS jobs`, [workspace.id, application.applicationId]);
@@ -175,13 +174,12 @@ globalThis.fetch = async (input, init) => {
     await page.goto(origin);
     await page.evaluate(() => sessionStorage.clear());
     await signIn(page, origin, `onboarding-https-${randomUUID()}@example.test`);
-    await page.getByRole('heading', { name: 'Empieza en dos pasos' }).waitFor();
-    await page.getByRole('textbox', { name: 'Espacio de trabajo' }).fill('HTTPS onboarding fixture');
-    await page.getByLabel('Nombre de la aplicación').fill('HTTPS-only application');
-    await page.getByRole('button', { name: 'Evaluar un origen HTTPS' }).click();
-    await page.getByLabel('Origen HTTPS').fill('https://example.com');
+    await page.getByRole('heading', { name: 'Tu primera revisión' }).waitFor();
+    await page.getByLabel('Nombre del proyecto').fill('HTTPS-only application');
+    await page.locator('.customer-source-card').filter({ has: page.getByRole('radio', { name: 'Web por URL' }) }).click();
+    await page.getByLabel('URL de la web').fill('example.com');
     await page.getByLabel('Perfil de evaluación').selectOption('root');
-    expect(await page.locator('.customer-onboarding-source-body input[type="checkbox"]').count()).toBe(0);
+    expect(await page.locator('.customer-source-option-body input[type="checkbox"]').count()).toBe(0);
     expect(await page.locator('body').innerText()).not.toMatch(/TXT|confirma que controlas el dominio|confirmo que tengo autorización/i);
 
     const enrollmentResponse = page.waitForResponse(response => response.url().endsWith('/targets') && response.request().method() === 'POST');
@@ -244,7 +242,7 @@ globalThis.fetch = async (input, init) => {
     await page.getByRole('alert').filter({ hasText: /alcance HTTPS venció/i }).waitFor();
     await page.reload();
     await page.getByRole('heading', { name: 'Nueva evaluación' }).waitFor();
-    await page.getByRole('button', { name: 'Aplicaciones' }).click();
+    await page.getByRole('link', { name: 'Fuentes', exact: true }).click();
     await page.getByText('Alcance vencido').waitFor();
   }, 60_000);
 
@@ -263,7 +261,7 @@ globalThis.fetch = async (input, init) => {
       return { organizationId: workspace.id, applicationId: application.applicationId };
     });
     await page.reload();
-    await page.getByRole('button', { name: 'Aplicaciones' }).click();
+    await page.getByRole('link', { name: 'Fuentes', exact: true }).click();
     await page.getByLabel('Origen HTTPS').fill('https://example.com');
     await page.getByLabel('Perfil de evaluación').selectOption('public_surface');
     expect(await page.locator('.customer-enroll-form input[type="checkbox"]').count()).toBe(0);
@@ -280,7 +278,7 @@ globalThis.fetch = async (input, init) => {
     await db.admin.query("UPDATE gotchu.customer_targets SET expires_at=authorized_at+interval '1 second' WHERE organization_id=$1 AND application_id=$2 AND id=$3", [scope.organizationId, scope.applicationId, target.id]);
     await new Promise(resolve => setTimeout(resolve, 1_200));
     await page.reload();
-    await page.getByRole('button', { name: 'Aplicaciones' }).click();
+    await page.getByRole('link', { name: 'Fuentes', exact: true }).click();
     await page.getByText('Alcance vencido').waitFor();
     const renewal = page.waitForResponse(response => response.url().endsWith('/targets') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Renovar alcance' }).click();
@@ -297,8 +295,9 @@ globalThis.fetch = async (input, init) => {
     await page.goto(origin);
     await page.evaluate(() => sessionStorage.clear());
     await signIn(page, origin, `onboarding-github-${randomUUID()}@example.test`);
-    await page.getByRole('heading', { name: 'Empieza en dos pasos' }).waitFor();
+    await page.getByRole('heading', { name: 'Tu primera revisión' }).waitFor();
     await startClickCounter(page);
+    await page.locator('.customer-source-card').filter({ has: page.getByRole('radio', { name: 'GitHub' }) }).click();
     await page.route(`${origin}/api/customer/github/connect`, async route => {
       const response = await route.fetch();
       const payload: unknown = await response.json();
@@ -336,13 +335,13 @@ globalThis.fetch = async (input, init) => {
     await page.getByRole('button', { name: 'Analizar fixture-owner/vulnerable-app' }).click();
     expect((await scan).status()).toBe(201);
     await page.locator('.customer-job-banner').waitFor({ timeout: 10_000 });
-    expect(await page.evaluate(() => window.sessionStorage.getItem('onboarding-click-count'))).toBe('3');
+    expect(await page.evaluate(() => window.sessionStorage.getItem('onboarding-click-count'))).toBe('4');
     const workspaces = await page.evaluate(async () => await (await fetch('/api/customer/workspaces')).json());
     const workspace = customerWorkspaceSchema.parse(Array.isArray(workspaces) ? workspaces[0] : null);
     const applications = await page.evaluate(async (organizationId) => await (await fetch(`/api/customer/workspaces/${organizationId}/applications`)).json(), workspace.id);
     const application = customerApplicationSchema.parse(Array.isArray(applications) ? applications[0] : null);
     expect(application.name).toBe('fixture-owner/vulnerable-app');
-    expect(workspace.name).toMatch(/^Espacio de onboarding github /);
+    expect(workspace.name).toMatch(/^Espacio de Onboarding github /);
     const counts = await db.admin.query<{ sources: number; jobs: number }>(`SELECT
       (SELECT count(*)::int FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2) AS sources,
       (SELECT count(*)::int FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2 AND kind='audit') AS jobs`, [workspace.id, application.applicationId]);
@@ -355,14 +354,19 @@ globalThis.fetch = async (input, init) => {
     await page.goto(origin);
     await page.evaluate(() => sessionStorage.clear());
     await signIn(page, origin, `scope-owner-${randomUUID()}@example.test`);
+    await page.locator('.customer-source-card').filter({ has: page.getByRole('radio', { name: 'GitHub' }) }).click();
     await page.route(`${origin}/api/customer/github/connect`, route => route.fulfill({ json: { installUrl: `${origin}/dashboard` } }));
     await page.getByRole('button', { name: 'Conectar GitHub' }).click();
-    await page.getByRole('heading', { name: 'Empieza en dos pasos' }).waitFor();
-    await page.getByRole('button', { name: 'Cerrar sesión' }).click();
-    await page.getByRole('button', { name: 'Iniciar sesión', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Tu primera revisión' }).waitFor();
+    await page.evaluate(async () => {
+      const payload: unknown = await (await fetch('/api/auth/csrf')).json();
+      if (!payload || typeof payload !== 'object' || !('csrfToken' in payload) || typeof payload.csrfToken !== 'string') throw new Error('Missing sign-out CSRF token.');
+      const response = await fetch('/api/auth/signout', { method: 'POST', headers: { 'X-Auth-Return-Redirect': '1' }, body: new URLSearchParams({ csrfToken: payload.csrfToken, callbackUrl: '/entrar', json: 'true' }) });
+      expect(response.ok).toBe(true);
+    });
     const failuresBefore = customerApiFailures.length;
     await signIn(page, origin, `scope-new-user-${randomUUID()}@example.test`);
-    await page.getByRole('textbox', { name: 'Espacio de trabajo', exact: true }).waitFor({ timeout: 5_000 });
+    await page.getByRole('heading', { name: 'Tu primera revisión' }).waitFor({ timeout: 5_000 });
     expect(customerApiFailures.slice(failuresBefore)).toEqual([]);
     await page.unroute(`${origin}/api/customer/github/connect`);
   }, 45_000);

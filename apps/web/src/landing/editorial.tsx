@@ -67,14 +67,3 @@ export function Display({ as: Tag = 'h2', lines, id, className = '', eager = fal
     </Fragment>)}
   </Tag>;
 }
-
-/** Margin note: a fact that belongs to the paragraph it sits beside; slides in with it. */
-export function Note({ n, children }: { n: number; children: ReactNode }) {
-  const ref = useReveal<HTMLElement>('0px 0px -14% 0px');
-  return <aside ref={ref} className="gl-note"><sup className="gl-ref">{n}</sup> {children}</aside>;
-}
-
-/** Superscript pointer in running text to the note with the same number. */
-export function Ref({ n }: { n: number }) {
-  return <sup className="gl-ref" aria-hidden="true">{n}</sup>;
-}

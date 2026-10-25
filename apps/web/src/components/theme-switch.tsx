@@ -94,7 +94,7 @@ export function ThemeSwitch({ className }: { className?: string }) {
     </DropdownMenuTrigger>
     <DropdownMenuContent>
       <DropdownMenuRadioGroup value={preference} onValueChange={next => { if (isPreference(next)) choose(next); }}>
-        {OPTIONS.map(({ value, label, Icon }) => <DropdownMenuRadioItem key={value} value={value}>
+        {OPTIONS.map(({ value, label, Icon }) => <DropdownMenuRadioItem key={value} value={value} closeOnClick>
           <Icon aria-hidden="true" />{label}
           <DropdownMenuRadioItemIndicator><CheckIcon aria-hidden="true" /></DropdownMenuRadioItemIndicator>
         </DropdownMenuRadioItem>)}
