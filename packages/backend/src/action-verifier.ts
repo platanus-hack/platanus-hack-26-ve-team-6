@@ -54,7 +54,7 @@ function validationReason(raw: unknown, runner: {
   runnerProfile: string; suiteRepositoryLinkId: string | null; suiteDefinitionId: string | null;
   suiteVersion: number | null; configuredSuite: unknown;
   storedAttestations: Array<{ id: string; keyId: string; signature: string; expiresAt: Date }>;
-} | null, action: z.infer<typeof actionV2Schema>, rootfsDigest: string): string | null {
+} | null, action: z.infer<typeof actionV2Schema>, rootfsDigest: string, dockerImageDigest: string | null): string | null {
   if (raw === null) return 'validation_missing';
   if (!runner) return 'runner_isolation_unverified';
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'validation_tampered';
@@ -146,8 +146,13 @@ function validationReason(raw: unknown, runner: {
   }
   const isolation = facts.runnerIsolationEvidence;
   const parsedIsolation = z.object({ sandbox:z.object({ kind:z.string() }).passthrough(), cleanupVerified:z.boolean(), rootfsDigest:digest.nullable() }).passthrough().safeParse(isolation);
-  if (!parsedIsolation.success || parsedIsolation.data.cleanupVerified !== true || parsedIsolation.data.rootfsDigest !== rootfsDigest
-      || !['bwrap+systemd-scope', 'jailer'].includes(parsedIsolation.data.sandbox.kind)) return 'runner_isolation_unverified';
+  if (!parsedIsolation.success || parsedIsolation.data.cleanupVerified !== true) return 'runner_isolation_unverified';
+  if (parsedIsolation.data.sandbox.kind === 'docker') {
+    const dockerIsolation = z.object({ containerImageDigest: digest, firecrackerDigest: z.null(), kernelDigest: z.null(), rootfsDigest: z.null() }).passthrough().safeParse(isolation);
+    if (action.kind !== 'dependency_pull_request' || facts.validationMode !== 'dependency' || facts.runnerProfile !== 'node24-tsx-selected-v1'
+      || dockerImageDigest === null || !dockerIsolation.success || dockerIsolation.data.containerImageDigest !== dockerImageDigest) return 'runner_isolation_unverified';
+  } else if (parsedIsolation.data.rootfsDigest !== rootfsDigest
+    || !['bwrap+systemd-scope', 'jailer'].includes(parsedIsolation.data.sandbox.kind)) return 'runner_isolation_unverified';
   return null;
 }
 
@@ -157,8 +162,10 @@ export function createActionVerifier(input: {
   repository: ActionVerifierRepositoryPort;
   validationFacts: ValidationFactsPort;
   pinnedRootfsDigest: string;
+  pinnedDockerImageDigest?: string;
 }): ActionVerifier {
   const rootfsDigest = digest.parse(input.pinnedRootfsDigest);
+  const dockerImageDigest = input.pinnedDockerImageDigest === undefined ? null : digest.parse(input.pinnedDockerImageDigest);
   const repository = input.repository;
   return {
     async getValidationAttestationIds(action) {
@@ -348,9 +355,10 @@ export function createActionVerifier(input: {
           organization_id: string; application_id: string; id: string; action_ref: string; candidate_source_id: string;
           patch_digest: string; candidate_tree_digest: string; base_snapshot_digest: string; validation_mode: string; state: string;
           runner_profile: string; suite_repository_link_id: string | null; suite_definition_id: string | null; suite_version: number | null;
-          sandbox_kind: string; rootfs_digest: string | null; cleanup_verified: boolean; expires_at: Date;
+          sandbox_kind: string; rootfs_digest: string | null; firecracker_digest: string | null; kernel_digest: string | null;
+          container_image_digest: string | null; cleanup_verified: boolean; expires_at: Date;
         }>(`SELECT organization_id,application_id,id,action_ref,candidate_source_id,patch_digest,candidate_tree_digest,base_snapshot_digest,
-          validation_mode,state,runner_profile,suite_repository_link_id,suite_definition_id,suite_version,sandbox_kind,rootfs_digest,cleanup_verified,expires_at
+          validation_mode,state,runner_profile,suite_repository_link_id,suite_definition_id,suite_version,sandbox_kind,rootfs_digest,firecracker_digest,kernel_digest,container_image_digest,cleanup_verified,expires_at
           FROM gotchu.validation_runs WHERE organization_id=$1 AND application_id=$2 AND action_ref=$3
             AND ($4::uuid IS NULL OR id=$4)`, [action.organizationId, action.applicationId, actionRef, dependencyValidation?.runId ?? null]);
         const row = result.rows[0];
@@ -365,7 +373,8 @@ export function createActionVerifier(input: {
         const storedAttestations = await tx.query<{ id: string; key_id: string; signature: string; expires_at: Date }>(`SELECT id,key_id,signature,expires_at FROM gotchu.validation_attestations
           WHERE organization_id=$1 AND application_id=$2 AND run_id=$3 ORDER BY created_at,id`, [action.organizationId, action.applicationId, row.id]);
         return {
-          runnerIsolationEvidence: { sandbox: { kind: row.sandbox_kind }, cleanupVerified: row.cleanup_verified, rootfsDigest: row.rootfs_digest },
+          runnerIsolationEvidence: { sandbox: { kind: row.sandbox_kind }, cleanupVerified: row.cleanup_verified, rootfsDigest: row.rootfs_digest,
+            firecrackerDigest: row.firecracker_digest, kernelDigest: row.kernel_digest, containerImageDigest: row.container_image_digest },
           runExpiresAt: row.expires_at, runOrganizationId: row.organization_id, runApplicationId: row.application_id,
           runActionRef: row.action_ref, storedRunId: row.id, candidateSourceId: row.candidate_source_id,
           patchDigest: row.patch_digest, candidateTreeDigest: row.candidate_tree_digest,
@@ -382,7 +391,7 @@ export function createActionVerifier(input: {
           storedAttestations: storedAttestations.rows.map(item => ({ id: item.id, keyId: item.key_id, signature: item.signature, expiresAt: item.expires_at })),
         };
       });
-      const reason = factsUnavailable ? 'validation_inconclusive' : validationReason(facts, runner, action, rootfsDigest);
+      const reason = factsUnavailable ? 'validation_inconclusive' : validationReason(facts, runner, action, rootfsDigest, dockerImageDigest);
       const reasons: string[] = [];
       if (!linkValid) reasons.push('vínculo de repositorio no autorizado o cambiado');
       if (!writerGrantValid) reasons.push('repository_write_access_not_granted');
