@@ -109,21 +109,24 @@ export function createInvestigationModelService(options: {
 }) {
   const { database, secrets, endpointValidator, probeClient } = options;
   return {
-    async authorizeCodexConnection(identity: Identity, input: { organizationId: string }) {
+    async authorizeConnection(identity: Identity, input: { organizationId: string; providerPresetId: 'codex' | 'claude_code' | 'openrouter' }) {
       const organizationId = parse(z.uuid(), input.organizationId);
+      const presetId = parse(z.enum(['codex', 'claude_code', 'openrouter']), input.providerPresetId);
       return database.tenant(organizationId, async tx => {
         await authorize(tx, organizationId, identity, ['owner']);
         if (!secrets) throw new BackendError('model_secret_store_unavailable', 'Model credential storage is not configured', 503);
         const row = await tx.query<{ version: string }>(`SELECT updated_at::text AS version FROM gotchu.investigation_model_settings
-          WHERE organization_id=$1 AND provider_preset_id='codex'`, [organizationId]);
-        if (!row.rows[0]) throw new BackendError('codex_configuration_changed', 'Select and save Codex before connecting ChatGPT', 409);
+          WHERE organization_id=$1 AND provider_preset_id=$2`, [organizationId, presetId]);
+        if (!row.rows[0]) throw new BackendError('codex_configuration_changed', 'Select and save the provider before connecting', 409);
         return row.rows[0].version;
       });
     },
-    async connectCodex(identity: Identity, input: { organizationId: string; version: string; credential: string }) {
-      await this.authorizeCodexConnection(identity, input);
-      const credential = parseSubscriptionCredential('codex', input.credential);
-      if (!credential) throw new BackendError('model_credential_invalid', 'Codex did not return a ChatGPT login', 400);
+    async connectCredential(identity: Identity, input: { organizationId: string; providerPresetId: 'codex' | 'claude_code' | 'openrouter'; version: string; credential: string }) {
+      await this.authorizeConnection(identity, input);
+      const credential = input.providerPresetId === 'openrouter'
+        ? parse(z.string().trim().min(1).max(16_384), input.credential)
+        : parseSubscriptionCredential(input.providerPresetId, input.credential);
+      if (!credential) throw new BackendError('model_credential_invalid', 'Provider did not return a valid login', 400);
       if (!secrets) throw new BackendError('model_secret_store_unavailable', 'Model credential storage is not configured', 503);
       const reference = `local-model:${randomUUID()}`;
       await secrets.put(reference, Buffer.from(credential, 'utf8'));
@@ -132,11 +135,11 @@ export function createInvestigationModelService(options: {
         await database.tenant(input.organizationId, async tx => {
           await authorize(tx, input.organizationId, identity, ['owner']);
           const row = await tx.query<{ secret_ref: string | null }>(`SELECT secret_ref FROM gotchu.investigation_model_settings
-            WHERE organization_id=$1 AND provider_preset_id='codex' AND updated_at::text=$2 FOR UPDATE`, [input.organizationId, input.version]);
-          if (!row.rows[0]) throw new BackendError('codex_configuration_changed', 'Configuration changed; reconnect ChatGPT', 409);
+            WHERE organization_id=$1 AND provider_preset_id=$3 AND updated_at::text=$2 FOR UPDATE`, [input.organizationId, input.version, input.providerPresetId]);
+          if (!row.rows[0]) throw new BackendError('codex_configuration_changed', 'Configuration changed; reconnect the provider', 409);
           oldReference = row.rows[0].secret_ref;
           await tx.query('UPDATE gotchu.investigation_model_settings SET secret_ref=$2,updated_at=clock_timestamp() WHERE organization_id=$1', [input.organizationId, reference]);
-          await audit(tx, input.organizationId, identity.userId, 'investigation.codex_connected', null, {});
+          await audit(tx, input.organizationId, identity.userId, 'investigation.provider_connected', null, { providerPresetId: input.providerPresetId });
         });
       } catch (error) { await secrets.delete(reference); throw error; }
       if (oldReference) await secrets.delete(oldReference);

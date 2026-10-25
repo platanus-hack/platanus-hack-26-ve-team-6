@@ -26,37 +26,49 @@ live('dedicated Codex connection import on real PostgreSQL', () => {
   it('connects without expanding consent, budgets or data scopes, and never projects credentials', async () => {
     const identity = { userId: f.a.userId }; const organizationId = f.a.organizationId;
     await models.configure(identity, configuration(organizationId));
-    const version = await models.authorizeCodexConnection(identity, { organizationId });
-    await models.connectCodex(identity, { organizationId, version, credential });
+    const version = await models.authorizeConnection(identity, { organizationId, providerPresetId: 'codex' });
+    await models.connectCredential(identity, { organizationId, providerPresetId: 'codex', version, credential });
     const settings = await models.get(identity, { organizationId });
     expect(settings).toMatchObject({ apiKeyConfigured: true, consentToExternalProcessing: false, dataScopes: [], organizationTokenBudget: 100_000, status: 'disabled' });
     expect(JSON.stringify(settings)).not.toContain('synthetic-'); expect(stored.size).toBe(1);
-    const audit = await f.admin.query('SELECT detail FROM gotchu.audit_records WHERE organization_id=$1 AND action=$2', [organizationId, 'investigation.codex_connected']);
-    expect(audit.rows).toEqual([{ detail: {} }]);
+    const audit = await f.admin.query('SELECT detail FROM gotchu.audit_records WHERE organization_id=$1 AND action=$2', [organizationId, 'investigation.provider_connected']);
+    expect(audit.rows).toEqual([{ detail: { providerPresetId: 'codex' } }]);
   });
 
   it('rejects cross-tenant access and non-owners before touching secret storage', async () => {
     const organizationId = f.a.organizationId;
     const viewer = `viewer:${randomUUID()}`;
     await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'viewer')", [organizationId, viewer]);
-    const version = await models.authorizeCodexConnection({ userId: f.a.userId }, { organizationId });
+    const version = await models.authorizeConnection({ userId: f.a.userId }, { organizationId, providerPresetId: 'codex' });
     const before = stored.size;
     for (const userId of [viewer, f.b.userId]) {
-      await expect(models.authorizeCodexConnection({ userId }, { organizationId })).rejects.toMatchObject({ code: 'forbidden' });
-      await expect(models.connectCodex({ userId }, { organizationId, version, credential })).rejects.toMatchObject({ code: 'forbidden' });
+      await expect(models.authorizeConnection({ userId }, { organizationId, providerPresetId: 'codex' })).rejects.toMatchObject({ code: 'forbidden' });
+      await expect(models.connectCredential({ userId }, { organizationId, providerPresetId: 'codex', version, credential })).rejects.toMatchObject({ code: 'forbidden' });
     }
     expect(stored.size).toBe(before);
   });
 
   it('rejects a stale ceremony after a settings change and discards its new credential', async () => {
     const identity = { userId: f.a.userId }; const organizationId = f.a.organizationId;
-    const version = await models.authorizeCodexConnection(identity, { organizationId });
+    const version = await models.authorizeConnection(identity, { organizationId, providerPresetId: 'codex' });
     await models.configure(identity, { ...configuration(organizationId), modelId: 'gpt-6-sol' });
     const before = stored.size;
-    await expect(models.connectCodex(identity, { organizationId, version, credential })).rejects.toMatchObject({ code: 'codex_configuration_changed' });
+    await expect(models.connectCredential(identity, { organizationId, providerPresetId: 'codex', version, credential })).rejects.toMatchObject({ code: 'codex_configuration_changed' });
     expect(stored.size).toBe(before);
     await models.disable(identity, { organizationId });
-    await expect(models.connectCodex(identity, { organizationId, version, credential })).rejects.toMatchObject({ code: 'codex_configuration_changed' });
+    await expect(models.connectCredential(identity, { organizationId, providerPresetId: 'codex', version, credential })).rejects.toMatchObject({ code: 'codex_configuration_changed' });
+    expect(stored.size).toBe(0);
+  });
+
+  it.each(['claude_code', 'openrouter'] as const)('imports %s without reusing another provider session', async providerPresetId => {
+    const identity = { userId: f.b.userId }; const organizationId = f.b.organizationId;
+    await models.configure(identity, { ...configuration(organizationId), providerPresetId, modelId: 'synthetic-model' });
+    await expect(models.authorizeConnection(identity, { organizationId, providerPresetId: 'codex' })).rejects.toMatchObject({ status: 409 });
+    const version = await models.authorizeConnection(identity, { organizationId, providerPresetId });
+    const value = providerPresetId === 'claude_code' ? 'sk-ant-oat01-syntheticSubscriptionToken1234567890' : 'synthetic-openrouter-key';
+    await models.connectCredential(identity, { organizationId, providerPresetId, version, credential: value });
+    expect(await models.get(identity, { organizationId })).toMatchObject({ providerPresetId, apiKeyConfigured: true, consentToExternalProcessing: false });
+    await models.disable(identity, { organizationId });
     expect(stored.size).toBe(0);
   });
 });
