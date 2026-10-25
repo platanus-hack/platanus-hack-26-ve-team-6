@@ -115,6 +115,7 @@ export * from './actions.js';
 export * from './dependency-fix.js';
 export * from './validation.js';
 export * from './github.js';
+export * from './github-broker.js';
 export * from './decision-records.js';
 export * from './notifications.js';
 export * from './investigation.js';
