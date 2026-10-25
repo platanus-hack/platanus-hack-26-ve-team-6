@@ -2,14 +2,17 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { customerAssessmentReportSchema, customerRunInputSchema, customerSourceSnapshotSchema, scoreIndependentRescan, validationEvidenceSchema, validationLimitsSchema, validationSuiteDefinitionSchema, type ValidationEvidence, type ValidationRun } from '@gotchu/contracts';
+import { customerAssessmentReportSchema, customerRunInputSchema, customerSourceSnapshotSchema, scoreIndependentRescan, suiteBindingSchema, validationEvidenceSchema, validationLimitsSchema, validationSuiteDefinitionSchema, type ValidationEvidence, type ValidationRun } from '@gotchu/contracts';
 import { createCustomerAssessmentRunner, createDockerScanners, createNpmArtifactAdapter, createNpmArtifactScanner, createNpmLicenseAdapter, createOsvAdapter } from '@gotchu/customer-assessment';
-import { createFirecrackerRunner, checkRunnerGate, runnerJobSchema, runnerPackageRoot, runnerResultSchema, type RunnerResult } from '@gotchu/runner';
+import { createFirecrackerRunner, checkRunnerGate, runnerJobSchema, runnerPackageRoot, runnerProfileSchema, runnerResultSchema, runnerTestSelectionSchema, type RunnerResult } from '@gotchu/runner';
 import type { Database } from '@gotchu/database';
-import { scoreValidation } from '@gotchu/backend';
+import { canonicalJson, scoreValidation } from '@gotchu/backend';
 import { sourceArchive } from './archive.js';
 import { signAttestation, type ValidatorKey } from './keys.js';
 import { createValidationInputRegistry } from './input-registry.js';
+import { suiteCounts } from './suite-results.js';
+import { buildDependencyRescanScope } from './dependency-rescan.js';
+import { scanFrozenDependencyArtifacts } from './dependency-artifacts.js';
 import { rescanCoverage, suiteModifiedByCandidate, validationAdmissionReason } from './validation-rules.js';
 
 const leaseMs = 300_000;
@@ -20,30 +23,18 @@ const scanner = createCustomerAssessmentRunner({
   artifacts: createNpmArtifactAdapter(createNpmArtifactScanner(scanners)),
   licenses: createNpmLicenseAdapter(),
 });
-const suiteResultSchema = z.object({ passed: z.number().int().nonnegative(), failed: z.number().int().nonnegative(), skipped: z.number().int().nonnegative(), regression: z.enum(['failed_for_target', 'passed']).optional() }).strict();
+const artifactAdapter = createNpmArtifactAdapter(createNpmArtifactScanner(scanners));
 const dependencyAllowlistSchema = z.array(z.object({ name: z.string().min(1).max(214), section: z.enum(['dependencies', 'devDependencies', 'optionalDependencies']), version: z.string().max(100) }).strict()).max(20);
 const imageLockSchema = z.object({ firecracker: z.object({ binarySha256: z.string().regex(/^[a-f0-9]{64}$/) }).passthrough(), kernel: z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/) }).passthrough(), rootfs: z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/) }).passthrough() }).passthrough();
 
-function scanIdentities(report: unknown) {
+function scanIdentities(report: unknown, allowPartial = false) {
   const parsed = customerAssessmentReportSchema.parse(report);
   const analysis = parsed.internal;
-  if (!analysis || analysis.status !== 'completed') return { identities: [] as string[], coverage: 'unknown' as const };
+  if (!analysis || analysis.status !== 'completed' && !allowPartial) return { identities: [] as string[], coverage: 'unknown' as const };
   return {
     identities: [...new Set(analysis.findings.map(finding => finding.correlationKey))].sort(),
     coverage: rescanCoverage(analysis.coverage),
   };
-}
-
-function suiteCounts(result: RunnerResult) {
-  if (result.status !== 'completed') return null;
-  for (const artifact of result.artifacts) {
-    if (!artifact.path.startsWith('test-results/')) continue;
-    try {
-      const raw: unknown = JSON.parse(Buffer.from(artifact.contentBase64, 'base64').toString('utf8'));
-      const parsed = suiteResultSchema.safeParse(raw); if (parsed.success) return { counts: { passed: parsed.data.passed, failed: parsed.data.failed, skipped: parsed.data.skipped }, regression: parsed.data.regression ?? null };
-    } catch { /* Invalid guest output stays untrusted and does not become a pass. */ }
-  }
-  return null;
 }
 
 function testPassed(result: RunnerResult): boolean { return result.status === 'completed' && result.exitCode === 0 && result.isolation.cleanupVerified; }
@@ -94,7 +85,7 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
 
   async function loadRun(organizationId: string, applicationId: string, runId: string) {
     return options.database.tenant(organizationId, async tx => {
-      const runResult = await tx.query<Record<string, unknown>>(`SELECT v.*,s.body AS candidate_body,s.digest AS candidate_source_digest,b.body AS base_body,b.digest AS base_source_digest,d.repository_link_id,d.profile,d.script_name,d.suite_name,d.required_count,d.regression_test_path
+      const runResult = await tx.query<Record<string, unknown>>(`SELECT v.*,s.body AS candidate_body,s.digest AS candidate_source_digest,b.body AS base_body,b.digest AS base_source_digest,d.repository_link_id,d.profile,d.script_name,d.suite_name,d.required_count,d.regression_test_path,d.test_selection
         FROM gotchu.validation_runs v
         JOIN gotchu.customer_sources s ON s.organization_id=v.organization_id AND s.application_id=v.application_id AND s.id=v.candidate_source_id
         JOIN gotchu.customer_sources b ON b.organization_id=v.organization_id AND b.application_id=v.application_id AND b.id=v.base_source_id
@@ -132,7 +123,7 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     const run: ValidationRun = {
       id: String(row.id), organizationId: claim.organizationId, applicationId: claim.applicationId, actionRef: String(row.action_ref), targetFindingId: String(row.target_finding_id), candidateSourceId: String(row.candidate_source_id), baseSourceId: String(row.base_source_id),
       baseSnapshotDigest: String(row.base_snapshot_digest), candidateTreeDigest: String(row.candidate_tree_digest), patchDigest: String(row.patch_digest), suiteRepositoryLinkId: row.suite_repository_link_id ? String(row.suite_repository_link_id) : null, suiteDefinitionId: row.suite_definition_id ? String(row.suite_definition_id) : null, suiteVersion: row.suite_version ? Number(row.suite_version) : null,
-      runnerProfile: 'node24-npm-test', runnerDigest: null, firecrackerDigest: null, kernelDigest: null, rootfsDigest: null, sandboxKind: 'bwrap+systemd-scope', limits: validationLimitsSchema.parse(row.limits), state: 'running', reason: null,
+      runnerProfile: runnerProfileSchema.parse(row.runner_profile), runnerDigest: null, firecrackerDigest: null, kernelDigest: null, rootfsDigest: null, sandboxKind: 'bwrap+systemd-scope', limits: validationLimitsSchema.parse(row.limits), state: 'running', reason: null,
       queuedAt: new Date(String(row.queued_at)).toISOString(), startedAt: row.started_at ? new Date(String(row.started_at)).toISOString() : null, finishedAt: null, expiresAt: new Date(String(row.expires_at)).toISOString(),
     };
     const inconclusive = async (why: string) => finish(run, claim.leaseToken, [
@@ -149,14 +140,23 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     const gateReason = validationAdmissionReason({ ...admission, gateOpen: gate.status === 'open' });
     if (gateReason) return inconclusive(gateReason);
     const base = customerSourceSnapshotSchema.parse(row.base_body); const candidate = customerSourceSnapshotSchema.parse(row.candidate_body);
-    const suite = validationSuiteDefinitionSchema.parse({ id: run.suiteDefinitionId, organizationId: run.organizationId, applicationId: run.applicationId, repositoryLinkId: String(row.repository_link_id ?? '00000000-0000-0000-0000-000000000000'), version: run.suiteVersion, profile: row.profile, scriptName: row.script_name, suiteName: row.suite_name, requiredCount: Number(row.required_count), regressionTestPath: row.regression_test_path, createdAt: run.queuedAt });
+    if (createHash('sha256').update(canonicalJson(base)).digest('hex') !== run.baseSnapshotDigest
+      || createHash('sha256').update(canonicalJson(candidate)).digest('hex') !== run.candidateTreeDigest) return inconclusive('snapshot_content_digest_mismatch');
+    const suite = validationSuiteDefinitionSchema.parse({ id: run.suiteDefinitionId, organizationId: run.organizationId, applicationId: run.applicationId, repositoryLinkId: String(row.repository_link_id ?? '00000000-0000-0000-0000-000000000000'), version: run.suiteVersion, profile: row.profile, scriptName: row.script_name, suiteName: row.suite_name, requiredCount: Number(row.required_count), regressionTestPath: row.regression_test_path, testSelection: row.test_selection ?? null, createdAt: run.queuedAt });
+    if (suite.profile !== run.runnerProfile) return inconclusive('runner_profile_suite_mismatch');
+    const selection = suite.profile === 'node24-tsx-selected-v1' ? runnerTestSelectionSchema.parse(suite.testSelection) : null;
+    if (selection && validationMode !== 'dependency') return inconclusive('selected_profile_requires_dependency_mode');
+    const suiteBinding = selection ? suiteBindingSchema.parse({ repositoryLinkId: suite.repositoryLinkId,
+      suiteDefinitionId: suite.id, suiteVersion: suite.version, profile: suite.profile, testSelection: selection,
+      selectionDigest: createHash('sha256').update(canonicalJson({ profile: suite.profile, testSelection: selection })).digest('hex') }) : null;
+    if (selection?.files.some(path => !base.files.some(file => file.path === path))) return inconclusive('selected_test_missing');
     if (suite.regressionTestPath && !base.files.some(file => file.path === suite.regressionTestPath)) return inconclusive('regression_test_missing');
     if (suiteModifiedByCandidate(base, candidate, { scriptName: suite.scriptName, regressionTestPath: suite.regressionTestPath,
       ...(validationMode === 'dependency' ? { actionKind: 'dependency_pull_request' as const, dependencyAllowlist } : {}) })) return inconclusive('suite_modified_by_candidate');
     const beforeArchive = sourceArchive(base); const candidateArchive = sourceArchive(candidate);
     const runVm = async (bytes: Buffer) => {
       const objectId = randomUUID();
-      const job = runnerJobSchema.parse({ jobId: randomUUID(), organizationId: run.organizationId, profile: run.runnerProfile, input: { objectId, sha256: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length }, limits: run.limits, networkPolicy: { mode: 'deny' } });
+      const job = runnerJobSchema.parse({ jobId: randomUUID(), organizationId: run.organizationId, profile: run.runnerProfile, ...(selection ? { testSelection: selection } : {}), input: { objectId, sha256: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length }, limits: run.limits, networkPolicy: { mode: 'deny' } });
       const runnerOptions = options.shutdownSignal ? { signal: options.shutdownSignal } : {};
       const adapter = options.runnerJobAdapter;
       const runJob = adapter
@@ -195,7 +195,16 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
       const reportInput = customerRunInputSchema.parse({ version: 2, organizationId: run.organizationId, applicationId: run.applicationId, jobId: randomUUID(), applicationName: 'Validation candidate', mode: 'internal', source: { ...candidate, id: run.candidateSourceId, digest: run.candidateTreeDigest }, target: null });
       const baseInput = customerRunInputSchema.parse({ ...reportInput, jobId: randomUUID(), source: { ...base, id: run.baseSourceId, digest: run.baseSnapshotDigest } });
       const [beforeReport, afterReport] = await Promise.all([(options.scanner ?? scanner).run(baseInput), (options.scanner ?? scanner).run(reportInput)]);
-      const before = scanIdentities(beforeReport); const after = scanIdentities(afterReport);
+      const before = scanIdentities(beforeReport, selection !== null); const after = scanIdentities(afterReport, selection !== null);
+      const frozen = selection ? await scanFrozenDependencyArtifacts(beforeReport, afterReport, dependencyAllowlist, artifactAdapter,
+        options.shutdownSignal ?? AbortSignal.timeout(30_000)) : null;
+      const scoped = frozen ? buildDependencyRescanScope({ beforeReport, afterReport,
+        baseSnapshotDigest: run.baseSnapshotDigest, candidateSnapshotDigest: run.candidateTreeDigest,
+        artifactScope: frozen.artifactScope, artifactResults: frozen.artifactResults }) : null;
+      if (frozen) {
+        before.identities = [...new Set([...before.identities, ...frozen.beforeIdentities])].sort();
+        after.identities = [...new Set([...after.identities, ...frozen.afterIdentities])].sort();
+      }
       const selected = await options.database.tenant(run.organizationId, async tx => {
         const reports = await tx.query<{ body: unknown }>(`SELECT body FROM gotchu.customer_reports WHERE organization_id=$1 AND application_id=$2 AND body->'subject'->>'sourceSnapshotId'=$3 ORDER BY created_at DESC LIMIT 1`, [run.organizationId, run.applicationId, run.baseSourceId]);
         const body = reports.rows[0]?.body;
@@ -204,14 +213,16 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
         const selected = [...new Set((internal?.findings ?? []).filter(finding => selectedFindingIds.includes(finding.id ?? '')).map(finding => finding.correlationKey).filter((item): item is string => typeof item === 'string'))];
         return selected.length === selectedFindingIds.length ? selected : [];
       });
-      const baseEvidence = suiteCounts(baseResult); const regressionEvidence = suiteCounts(candidateRegression); const counts = suiteCounts(candidateSuite);
+      const baseEvidence = suiteCounts(baseResult, run.runnerProfile); const regressionEvidence = suiteCounts(candidateRegression, run.runnerProfile); const counts = suiteCounts(candidateSuite, run.runnerProfile);
+      const selectedBasePassed = selection === null || baseEvidence?.success === true && testPassed(baseResult);
       const suiteShrank = counts !== null && baseEvidence !== null && (counts.counts.passed + counts.counts.failed + counts.counts.skipped < baseEvidence.counts.passed + baseEvidence.counts.failed + baseEvidence.counts.skipped || counts.counts.skipped > baseEvidence.counts.skipped);
-      const rescan = scoreIndependentRescan({ before, after, targetedIdentities: selected });
+      const dependencyScope = scoped?.scope ?? undefined;
+      const rescan = scoreIndependentRescan({ before, after, targetedIdentities: selected, ...(dependencyScope ? { dependencyScope } : {}) }, validationMode);
       const evidence: ValidationEvidence[] = [
         { kind: 'base_reproduction', result: validationMode === 'dependency' ? 'not_required' : suite.regressionTestPath && baseEvidence?.regression === 'failed_for_target' ? 'failed_for_target' : suite.regressionTestPath && baseEvidence?.regression === 'passed' ? 'passed' : 'unavailable', exitCode: baseResult.status === 'completed' ? baseResult.exitCode : null, durationMs: baseResult.durationMs },
-        { kind: 'candidate_regression', result: testPassed(candidateRegression) && (!suite.regressionTestPath || regressionEvidence?.regression === 'passed') ? 'passed' : candidateRegression.status === 'completed' ? 'failed' : 'unavailable', exitCode: candidateRegression.status === 'completed' ? candidateRegression.exitCode : null, durationMs: candidateRegression.durationMs },
-        { kind: 'functional_suite', suiteName: suite.suiteName, result: counts ? (testPassed(candidateSuite) && !suiteShrank && counts.counts.passed >= suite.requiredCount && !(counts.counts.skipped > 0 && counts.counts.passed === 0) ? 'passed' : 'failed') : 'inconclusive', counts: counts?.counts ?? { passed: 0, failed: 0, skipped: 0 }, ...(baseEvidence ? { baseCounts: baseEvidence.counts } : {}), requiredCounts: suite.requiredCount },
-        { kind: 'independent_rescan', result: rescan.result, before, after, targetedIdentities: selected },
+        { kind: 'candidate_regression', result: testPassed(candidateRegression) && (selection === null || regressionEvidence?.success === true) && (!suite.regressionTestPath || regressionEvidence?.regression === 'passed') ? 'passed' : candidateRegression.status === 'completed' ? 'failed' : 'unavailable', exitCode: candidateRegression.status === 'completed' ? candidateRegression.exitCode : null, durationMs: candidateRegression.durationMs },
+        { kind: 'functional_suite', suiteName: suite.suiteName, result: !selectedBasePassed ? 'inconclusive' : counts ? (counts.success && testPassed(candidateSuite) && !suiteShrank && counts.counts.passed >= suite.requiredCount && !(counts.counts.skipped > 0 && counts.counts.passed === 0) ? 'passed' : 'failed') : 'inconclusive', counts: counts?.counts ?? { passed: 0, failed: 0, skipped: 0 }, ...(baseEvidence ? { baseCounts: baseEvidence.counts } : {}), requiredCounts: suite.requiredCount, ...(suiteBinding ? { suiteBinding } : {}) },
+        { kind: 'independent_rescan', result: selection && !dependencyScope ? 'inconclusive' : rescan.result, before, after, targetedIdentities: selected, ...(dependencyScope ? { dependencyScope } : {}) },
       ];
       const score = scoreValidation(evidence, validationMode);
       await finish(run, claim.leaseToken, evidence, score.state, score.reason, results);
