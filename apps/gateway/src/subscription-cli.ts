@@ -207,8 +207,9 @@ function codexAdapter(binary: string, path: string): ModelPort {
         for (const line of run.stdout.split('\n')) {
           if (!line.trim()) continue;
           let raw: unknown;
+          // Only JSONL events matter; ignore any stray diagnostic line instead of failing the call.
           try { raw = JSON.parse(line); }
-          catch { throw new ModelProviderError('invalid_response'); }
+          catch { continue; }
           const event = codexEventSchema.safeParse(raw);
           if (!event.success) continue;
           if (event.data.type === 'item.completed') {

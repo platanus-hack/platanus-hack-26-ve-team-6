@@ -88,6 +88,7 @@ describe('Codex subscription adapter', () => {
       auth.tokens.refresh_token = 'refresh-rotated';
       fs.writeFileSync(process.env.CODEX_HOME + '/auth.json', JSON.stringify(auth));
       const instructions = fs.readFileSync(process.env.CODEX_HOME + '/instructions.md', 'utf8');
+      console.log('WARN a stray diagnostic line that is not JSON');
       for (const event of [{ type: 'thread.started' }, { type: 'turn.started' },
         { type: 'item.completed', item: { type: 'agent_message', text: 'Working on it.' } },
         { type: 'item.completed', item: { type: 'agent_message', text: instructions === 'Return JSON only.' ? '{"ok":true}' : 'wrong' } },
