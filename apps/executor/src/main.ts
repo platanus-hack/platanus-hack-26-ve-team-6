@@ -102,8 +102,9 @@ async function main() {
     if (singleAppFiles && singleResolver) {
       if (!scope.repositoryLinkId) throw new Error('repository_link_required');
       const binding = await singleResolver.resolveRepository({ ...scope, repositoryLinkId: scope.repositoryLinkId });
-      const installationId = await writerInstallationIdFor(database, singleAppFiles.app.id, scope);
-      if (!installationId || !await singleResolver.isActiveInstallation(scope.organizationId, scope.applicationId, installationId)) throw new Error('writer_provider_unavailable');
+      // Verification establishes the first write grant; execution independently requires that grant.
+      const installationId = binding.installationId;
+      if (!await singleResolver.isActiveInstallation(scope.organizationId, scope.applicationId, installationId)) throw new Error('writer_provider_unavailable');
       const adapter = await singleResolver.withRepositoryMetadata(binding, repository => {
         const [owner, name] = repository.fullName.split('/');
         if (!owner || !name) throw new Error('github_repository_metadata_invalid');

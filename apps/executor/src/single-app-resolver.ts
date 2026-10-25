@@ -15,8 +15,9 @@ const gitRefSchema = z.string().min(1).max(200).refine(value => {
     || value.includes('..') || value.includes('@{') || /[~^:?*[\\\s\x00-\x1f\x7f]/.test(value)) return false;
   return value.split('/').every(part => part !== '' && !part.startsWith('.') && !part.endsWith('.lock'));
 });
-const accountSchema = z.object({ id: idSchema, login: z.string().min(1).max(100), type: z.enum(['User', 'Organization']) }).strict();
+const accountSchema = z.object({ id: idSchema, login: z.string().min(1).max(100), type: z.enum(['User', 'Organization']) });
 const installationSchema = z.object({ id: idSchema, account: accountSchema }).passthrough();
+const installationStatusSchema = z.object({ id: idSchema, suspended_at: z.iso.datetime().nullable() }).passthrough();
 const installationListSchema = z.object({ installations: z.array(installationSchema).max(100) }).passthrough();
 const userSchema = z.object({ id: idSchema }).passthrough();
 const membershipSchema = z.object({
@@ -51,7 +52,8 @@ const treeSchema = z.object({
 }).passthrough();
 const blobSchema = z.object({
   encoding: z.literal('base64'),
-  content: z.string().max(2_700_000).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+  content: z.string().max(2_700_000).transform(value => value.replace(/[\r\n\t ]/g, ''))
+    .pipe(z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/)),
 }).passthrough();
 const MAX_GITHUB_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_WORKFLOW_FILES = 100;
@@ -197,7 +199,9 @@ function createSingleAppResolver(options: {
   }
 
   async function requireRepository(scope: { organizationId: string; applicationId: string; repositoryLinkId: string }): Promise<SingleAppRepositoryBinding> {
-    const rawBinding = await options.database.tenant(scope.organizationId, tx => loadSingleAppRepository(tx, scope, options.app.id));
+    const rawBinding = await options.database.tenant(scope.organizationId, tx => loadSingleAppRepository(tx, {
+      organizationId: scope.organizationId, applicationId: scope.applicationId, repositoryLinkId: scope.repositoryLinkId,
+    }, options.app.id));
     const binding = repositoryBindingSchema.parse(rawBinding);
     const repositoryKeyId = /^gh-([1-9][0-9]*)$/.exec(binding.repositoryKey)?.[1];
     if (!repositoryKeyId || Number(repositoryKeyId) !== binding.repositoryId || binding.appId !== options.app.id
@@ -293,8 +297,8 @@ function createSingleAppResolver(options: {
     async installationStatus(organizationId: string, installationId: string) {
       await requireInstallation(organizationId, installationId);
       try {
-        const result = await appJson(`/app/installations/${encodeURIComponent(installationId)}`, z.object({ id: idSchema }).passthrough());
-        return { active: String(result.id) === installationId };
+        const result = await appJson(`/app/installations/${encodeURIComponent(installationId)}`, installationStatusSchema);
+        return { active: String(result.id) === installationId && result.suspended_at === null };
       } catch (error) {
         if (error instanceof SingleAppGitHubError && error.status === 404) return { active: false };
         throw error;
@@ -373,8 +377,8 @@ function createSingleAppResolver(options: {
     async isActiveInstallation(organizationId: string, applicationId: string, installationId: string) {
       await requireInstallation(organizationId, installationId, applicationId);
       try {
-        const result = await appJson(`/app/installations/${encodeURIComponent(installationId)}`, z.object({ id: idSchema }).passthrough());
-        return String(result.id) === installationId;
+        const result = await appJson(`/app/installations/${encodeURIComponent(installationId)}`, installationStatusSchema);
+        return String(result.id) === installationId && result.suspended_at === null;
       } catch (error) {
         if (error instanceof SingleAppGitHubError && error.status === 404) return false;
         throw error;
