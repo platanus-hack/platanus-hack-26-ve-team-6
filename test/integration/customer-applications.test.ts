@@ -599,13 +599,14 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
       const settings = { enabled: true, intervalSeconds: 21600, sourceSnapshotId: null, targetId: requested.id, repositoryKey: null, providers: [] };
       try {
         await json(await owner.api(`${app.path}/monitoring`, 'PUT', settings), 200, monitorConfigSchema);
-        let scheduledJobId: string | null = null;
         await eventually(async () => {
           const coverage = await json(await owner.api(`${app.path}/monitoring`), 200, operationCoverageSchema);
-          scheduledJobId = coverage.lastRun?.jobId ?? null;
-          return scheduledJobId !== null && coverage.lastRun?.finishedAt !== null;
+          return coverage.lastRun?.jobId != null && coverage.lastRun.finishedAt !== null;
         }, 'scheduled API profile assessment', 60_000);
-        const scheduled = present(await finished(app.base, app.path, present(scheduledJobId)));
+        const coverage = await json(await owner.api(`${app.path}/monitoring`), 200, operationCoverageSchema);
+        const scheduledJobId = coverage.lastRun?.jobId;
+        if (!scheduledJobId) throw new Error('scheduled_api_job_missing');
+        const scheduled = present(await finished(app.base, app.path, scheduledJobId));
         expect(scheduled.external?.snapshotRef).toBe(observed.snapshotRef);
         expect(scheduled.external?.evidence.map(item => apiCheckEvidenceSchema.parse(JSON.parse(item.excerpt)))).toHaveLength(8);
       } finally {

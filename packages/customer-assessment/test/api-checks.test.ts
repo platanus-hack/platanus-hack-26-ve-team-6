@@ -87,7 +87,8 @@ it.each([false, true])('executes real bounded API scenarios through LangGraph (c
     expect(JSON.stringify(report)).not.toMatch(/PRIVATE_(?:COOKIE|SCHEMA_TEXT|ERROR_TEXT|BANNER)/);
     expect(report.external?.snapshotRef.endsWith(':api_checks')).toBe(true);
     assertReportBinding(request, report);
-    expect(() => assertReportBinding({ ...request, target: { ...request.target, scanProfile: 'root' } }, report)).toThrow('report_subject_mismatch');
+    const target = request.target;
+    expect(() => assertReportBinding({ ...request, target: { ...target, scanProfile: 'root' } }, report)).toThrow('report_subject_mismatch');
   } finally { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 }, 15_000);
 
