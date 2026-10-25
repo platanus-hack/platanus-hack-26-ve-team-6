@@ -27,27 +27,38 @@ function summaryCounts(summary) {
   return counts;
 }
 
-export async function summarizeNodeEvents(source) {
+export async function summarizeNodeEvents(source, onIncomplete = () => {}) {
   let summary;
-  let invalid = false;
+  let invalidReason;
   const files = new Set();
   const actual = emptySelectedReport().counts;
   for await (const event of source) {
-    if (summary !== undefined || event.type === 'test:interrupted') invalid = true;
+    if (summary !== undefined) invalidReason ??= 'event_after_global_summary';
+    if (event.type === 'test:interrupted') invalidReason ??= 'interrupted';
     if (event.type !== 'test:summary') continue;
-    if (event.data?.file === undefined) { summary = event.data; continue; }
+    // Node's parent FileTest stamps entryFile on every forwarded child event.
+    // A child's source location may be absent; that does not make it global.
+    const file = event.data?.entryFile ?? event.data?.file;
+    if (file === undefined) { summary = event.data; continue; }
     const counts = summaryCounts(event.data);
-    if (!counts || typeof event.data.file !== 'string' || files.has(event.data.file) || files.size >= 20) {
-      invalid = true;
+    if (!counts || typeof file !== 'string' || files.has(file) || files.size >= 20) {
+      invalidReason ??= 'invalid_or_duplicate_file_summary';
       continue;
     }
-    files.add(event.data.file);
+    files.add(file);
     for (const key of countKeys) actual[key] += counts[key];
   }
   // File-only placeholder passes (including empty files) are not executed tests.
   // Reconcile completed child summaries with the one terminal global summary.
   const counts = summaryCounts(summary);
-  if (invalid || !counts || files.size === 0 || !countKeys.every((key) => actual[key] === counts[key])) return emptySelectedReport();
+  const reason = invalidReason ?? (!counts ? 'missing_or_invalid_global_summary'
+    : files.size === 0 ? 'missing_file_summary'
+    : !countKeys.every((key) => actual[key] === counts[key]) ? 'count_mismatch' : undefined);
+  if (reason !== undefined) {
+    // Fixed metadata only: no test names, paths, stdout or customer error text.
+    onIncomplete({ reason, fileSummaries: files.size, fileCounts: actual, globalCounts: counts ?? null });
+    return emptySelectedReport();
+  }
   // TODOs are unexecuted coverage; keep them in total but never accept them as success.
   return { schemaVersion: 1, profile: SELECTED_NODE_PROFILE, complete: true,
     success: summary.success && summary.counts.todo === 0 && counts.passed > 0 && counts.failed === 0 && counts.cancelled === 0, counts };
