@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRightIcon, XIcon } from 'lucide-react';
 import { z } from 'zod';
@@ -17,6 +17,8 @@ import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 import { operationsApi, type MonitorSettings, type OperationsScope, type PlanKind, type PlanStepKey } from './operations-client';
 
 type Props = OperationsScope & {
+  /** More rows for the integrations section (runtime protection, notifications). */
+  integrations?: ReactNode;
   userId: string;
   sources: CustomerSourceSummary[];
   targets: CustomerTarget[];
@@ -97,7 +99,7 @@ function coverageTone(coverage: OperationCoverage) {
   return 'customer-ops-status-muted';
 }
 
-export function OperationsPanel({ userId, organizationId, applicationId, sources, targets, canManage }: Props) {
+export function OperationsPanel({ userId, organizationId, applicationId, sources, targets, canManage, integrations }: Props) {
   const scope = { organizationId, applicationId };
   const keys = scopeKeys(userId, scope);
   const decisionRecordKey = ['customer-data', userId, 'decision-records', organizationId] as const;
@@ -346,7 +348,11 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
 
     </div>
 
-    <TelemetrySection userId={userId} scope={scope} canManage={canManage} />
+    <section className="customer-settings" aria-labelledby="watch-integrations-title">
+      <div className="customer-section-head"><div><h2 id="watch-integrations-title">Integraciones y avisos</h2><p>Ábrelos cuando los necesites.</p></div></div>
+      <details className="customer-settings-row"><summary><strong>Telemetría firmada</strong><small>Eventos firmados desde tu aplicación para medir tráfico y errores.</small></summary><TelemetrySection userId={userId} scope={scope} canManage={canManage} /></details>
+      {integrations}
+    </section>
   </div>;
 }
 
