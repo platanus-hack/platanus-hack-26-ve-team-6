@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { validationTestSelectionSchema } from './validation-selection.js';
-import { dependencyRescanScopeSchema, scoreDependencyRescanCoverage, suiteBindingSchema, type DependencyRescanScope } from './dependency-validation.js';
+import { dependencyArtifactIdentities, dependencyRescanScopeSchema, scoreDependencyRescanCoverage, suiteBindingSchema, type DependencyRescanScope } from './dependency-validation.js';
 
 const uuid = z.uuid().transform(value => value.toLowerCase());
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -62,6 +62,10 @@ export function scoreIndependentRescan(input: {
 }, mode: 'correction' | 'dependency' = 'correction'): { result: 'passed' | 'failed' | 'inconclusive'; reason: 'new_findings' | 'targeted_findings_remain' | 'rescan_coverage_unknown' | 'target_identity_missing' | null } {
   if (input.dependencyScope !== undefined) {
     if (mode !== 'dependency' || scoreDependencyRescanCoverage(input.dependencyScope).result !== 'passed') return { result: 'inconclusive', reason: 'rescan_coverage_unknown' };
+    if (dependencyArtifactIdentities(input.dependencyScope.artifactResults.before).some(identity => !input.before.identities.includes(identity))
+      || dependencyArtifactIdentities(input.dependencyScope.artifactResults.after).some(identity => !input.after.identities.includes(identity))) {
+      return { result: 'inconclusive', reason: 'rescan_coverage_unknown' };
+    }
   } else if (input.before.coverage !== 'complete' || input.after.coverage !== 'complete') return { result: 'inconclusive', reason: 'rescan_coverage_unknown' };
   if (input.targetedIdentities.length === 0 || input.targetedIdentities.some(identity => !input.before.identities.includes(identity))) return { result: 'inconclusive', reason: 'target_identity_missing' };
   if (input.after.identities.some(identity => !input.before.identities.includes(identity))) return { result: 'failed', reason: 'new_findings' };

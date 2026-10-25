@@ -48,6 +48,11 @@ export type DependencyRescanScope = z.infer<typeof dependencyRescanScopeSchema>;
 export type DependencyRescanArtifactResult = z.infer<typeof dependencyRescanArtifactResultSchema>;
 export type DependencyRescanPackage = z.infer<typeof dependencyRescanPackageSchema>;
 
+export function dependencyArtifactIdentities(results: readonly DependencyRescanArtifactResult[]): string[] {
+  return results.flatMap(pkg => pkg.analysis.findings.map(finding =>
+    `artifact:${pkg.name}:${finding.tool}:${finding.ruleId}:${finding.location}`));
+}
+
 const mandatory = ['semgrep', 'gitleaks', 'dependency_inventory', 'dependency_advisories', 'license_metadata'] as const;
 const trivyProfiles = ['trivy_kubernetes', 'trivy_terraform', 'trivy_dockerfile'] as const;
 const known = new Set<string>([...mandatory, ...trivyProfiles, 'trivy', 'dependency_reachability', 'dependency_artifact_analysis']);
