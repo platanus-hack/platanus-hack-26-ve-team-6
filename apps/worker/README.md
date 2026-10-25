@@ -44,7 +44,7 @@ The compact JWT uses `alg: EdDSA`, issuer `gotchu-run-capability-issuer`, and au
 
 ## Fixed gateway paths
 
-All gateway calls use the configured origin, the `Authorization: RunCapability ...` header, a JSON body where shown, bounded JSON responses, and the graph's abort signal. The worker follows redirects only as errors and never retries a provider/model mutation. Parent adapters may expose these paths over the coordinator's private HTTP API.
+All gateway calls use the configured origin, the `Authorization: RunCapability ...` header, a JSON body where shown, bounded JSON responses, and the graph's abort signal. The worker follows redirects only as errors and never retries a provider/model mutation. The configured private gateway exposes these paths.
 
 | Method and path | Request / response contract |
 | --- | --- |
@@ -91,13 +91,13 @@ The worker verifies each evidence record's ID, organization, application, and ru
 
 The investigator enforces at most four model calls, eight additional model-requested reads, 300,000 active milliseconds, 20,000 reported tokens, and USD 0.25 (`250000` micro-USD). Required evidence references are preflight inputs, not model-requested tool calls. The coordinator/gateway must independently enforce these budgets so a compromised worker cannot raise them. The model gateway reserves each call against the run before contacting a provider.
 
-Checkpoints are run scoped and use the backend's monotonically increasing checkpoint version. The checkpoint's `sequence` must equal `expectedVersion + 1`; the gateway returns the backend version and the checkpoint together. They contain only version, scope IDs, phase, counters, and an optional bounded final result. They contain no capability, evidence excerpts, raw logs, or provider credentials. The gateway replaces result summaries with a fixed safe message and overlays counters from backend run state; while models are disabled, token and spend counters are zero. The graph has no production `MemorySaver`; its checkpoint contract is the injected gateway port. A checkpoint conflict or unavailable gateway returns delayed rather than proceeding as if persistence succeeded.
+Checkpoints are run scoped and use the backend's monotonically increasing checkpoint version. The checkpoint's `sequence` must equal `expectedVersion + 1`; the gateway returns the backend version and the checkpoint together. They contain only version, scope IDs, phase, counters, and an optional bounded final result. They contain no capability, evidence excerpts, raw logs, or provider credentials. The gateway replaces result summaries with a fixed safe message and overlays counters from backend run state; runs without model calls retain zero token and spend counters. The graph has no production `MemorySaver`; its checkpoint contract is the injected gateway port. A checkpoint conflict or unavailable gateway returns delayed rather than proceeding as if persistence succeeded.
 
 The model output schema permits only `candidate_issue`, `no_issue_supported`, or `inconclusive`, bounded summaries, supplied evidence citations, and the two initially supported read tools. Provider-write requests, invented citations, malformed output, and unsupported evidence are rejected. Every result carries `independentVerification: "not_verified"`; the model cannot approve or independently verify a finding.
 
 ## Coordinator/backend integration notes
 
-The current backend run helper in `packages/backend/src/runs.ts` supplies `load` and optimistic `checkpoint`, plus `reserveModel`/`settleModel`. The parent-owned coordinator needs a private adapter that maps those methods to the paths above and issues capabilities only after claiming the durable investigation job. To preserve the graph's contracts:
+The backend run helper in `packages/backend/src/runs.ts` supplies `load`, optimistic `checkpoint` and model reservation/settlement. The coordinator issues scoped capabilities after claiming durable jobs; the private gateway enforces the run boundaries below:
 
 - expose the scoped required-check descriptor and allow-listed evidence IDs from the current run;
 - verify evidence existence and run ownership before returning records;

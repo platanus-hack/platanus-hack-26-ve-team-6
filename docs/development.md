@@ -44,3 +44,13 @@ Signed telemetry credentials are stored as private local files under `.local/dev
 Runtime metric windows are fixed at ten minutes and retain the first immutable metrics snapshot. Later event batches rerun detectors against the expanded window. This is not a continuously refreshed same-window metric or a recovery measurement.
 
 Separate local production-mode verification passed on Linux/amd64 after CA certificate canonicalization. A `NODE_ENV=production` scanner and coordinator exchanged an assessment over HTTPS using a scoped private CA, ran pinned Docker profiles, and persisted a tenant-bound report through PostgreSQL/Redis/BullMQ. The development launcher continues to use HTTP on loopback; these checks do not establish a cloud deployment.
+
+## Source-investigation pipeline regression
+
+After building the workspace, run:
+
+```sh
+node test/run-stack.mjs test/integration/pipeline.test.ts test/integration/source-model-investigation.test.ts
+```
+
+The runner creates disposable Postgres/Redis containers on random loopback ports and removes them afterward. These regressions exercise durable outbox delivery, the HTTP worker, LangGraph, capability gateway, saved investigation results, redacted source reads, budget settlement, tenant isolation and replay. Scanner observations and the Codex executable are fixtures; this is pipeline integration evidence, not a live model or customer-repository check. A real provider check requires an explicitly connected account, consent and an authorized investigation from **Modelos de IA**.

@@ -33,7 +33,9 @@ Las notificaciones y los PR aprobados son funcionalidades actuales. No deben rea
 
 ## Evidencia y disponibilidad por instalación
 
-Implementación en `main`, comprobación local y servicios habilitados en un host son hechos distintos. El registro de [self-hosting](self-hosting.md#current-source-and-correction-workflow-observed-locally--2026-10-25) documenta los recorridos observados y sus límites, incluido el PR draft de dependencia publicado con aprobación Owner. La instalación AWS tiene su propio [runbook de servicios y verificación](../infra/aws/README.md); no se presume que ejecute todos los componentes opcionales.
+Implementación en `main`, comprobación local y servicios habilitados en un host son hechos distintos. La instalación AWS tiene su propio [runbook de servicios y verificación](../infra/aws/README.md); no se presume que ejecute todos los componentes opcionales.
+
+El recorrido local del 25 de octubre de 2026 publicó el [PR draft de dependencia #66](https://github.com/0bkevin/arena-criolla/pull/66) mediante captura autorizada, candidato npm determinista, reanálisis, compatibilidad seleccionada base/candidato, aprobación exacta Owner y verificación remota del executor. Se observaron 18 pruebas de base y 18 de candidato aprobadas; no se ejecutó la suite completa ni se reprodujo una explotación, y quedaron otros hallazgos y alcance estático desconocido. La investigación y corrección real con Codex se comprobó por separado sobre fuente sintética; su reanálisis no demuestra validación funcional del repositorio. Estos hechos históricos no sustituyen las regresiones ni acreditan toda instalación alojada.
 
 Fuentes de regresión relevantes:
 
@@ -43,7 +45,7 @@ Fuentes de regresión relevantes:
 - `apps/executor/test/github-live.test.ts`: proveedor GitHub opt-in; separar hechos reales de attestations o adaptadores fixture.
 - `apps/validator/test/`: validación de candidatos y perfiles; las pruebas VM requieren su entorno real.
 
-La presencia de estas pruebas no afirma que se hayan ejecutado en esta revisión. Resultados históricos conservan el entorno y alcance indicados en cada registro.
+La presencia de estas pruebas no afirma que se hayan ejecutado en esta revisión. La evidencia histórica conserva los límites anteriores; la comprobación actual se registra con sus comandos y entorno.
 
 ## Ejecutar y comprobar
 
