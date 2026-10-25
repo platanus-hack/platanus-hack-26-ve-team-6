@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -15,6 +15,8 @@ const enabled = process.env.GOTCHU_TEST_BROWSER === '1' && Boolean(liveUrl);
 const browserSuite = enabled ? describe : describe.skip;
 const root = new URL('../../../', import.meta.url).pathname;
 const buildEntry = join(root, 'apps/web/.output/server/index.mjs');
+const githubFixtureSource = 'export const fixture = true;\n';
+const githubFixtureBlob = createHash('sha1').update(`blob ${Buffer.byteLength(githubFixtureSource)}\0`).update(githubFixtureSource).digest('hex');
 
 async function freePort() {
   const start = Math.floor(Math.random() * 100);
@@ -105,8 +107,8 @@ globalThis.fetch = async (input, init) => {
     if (url.pathname === '/installation/repositories') return Response.json({ total_count: 1, repositories: [{ id: 42, full_name: 'fixture-owner/vulnerable-app', default_branch: 'main', private: true, archived: false }] });
     if (url.pathname === '/repos/fixture-owner/vulnerable-app') return Response.json({ default_branch: 'main' });
     if (url.pathname === '/repos/fixture-owner/vulnerable-app/commits/main') return Response.json({ sha: '${'a'.repeat(40)}', commit: { committer: { date: '2026-01-01T00:00:00.000Z' }, tree: { sha: '${'b'.repeat(40)}' } } });
-    if (url.pathname === '/repos/fixture-owner/vulnerable-app/git/trees/${'b'.repeat(40)}') return Response.json({ sha: '${'b'.repeat(40)}', truncated: false, tree: [{ path: 'src/index.js', mode: '100644', type: 'blob', sha: '${'c'.repeat(40)}', size: 29 }] });
-    if (url.pathname === '/repos/fixture-owner/vulnerable-app/git/blobs/${'c'.repeat(40)}') return Response.json({ sha: '${'c'.repeat(40)}', size: 29, encoding: 'base64', content: Buffer.from('export const fixture = true;\\n').toString('base64') });
+    if (url.pathname === '/repos/fixture-owner/vulnerable-app/git/trees/${'b'.repeat(40)}') return Response.json({ sha: '${'b'.repeat(40)}', truncated: false, tree: [{ path: 'src/index.js', mode: '100644', type: 'blob', sha: '${githubFixtureBlob}', size: ${Buffer.byteLength(githubFixtureSource)} }] });
+    if (url.pathname === '/repos/fixture-owner/vulnerable-app/git/blobs/${githubFixtureBlob}') return Response.json({ sha: '${githubFixtureBlob}', size: ${Buffer.byteLength(githubFixtureSource)}, encoding: 'base64', content: '${Buffer.from(githubFixtureSource).toString('base64')}' });
     return Response.json({ message: 'unexpected fixture request' }, { status: 500 });
   }
   return originalFetch(input, init);
@@ -149,7 +151,7 @@ globalThis.fetch = async (input, init) => {
     const queued = page.waitForResponse(response => response.url().endsWith('/assessments') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Analizar carpeta' }).click();
     expect((await queued).status()).toBe(202);
-    try { await page.locator('.customer-job-banner').waitFor({ timeout: 10_000 }); }
+    try { await page.locator('.customer-progress').waitFor({ timeout: 10_000 }); }
     catch {
       const dashboard = await page.locator('.customer-main').innerText().catch(() => 'Customer dashboard is not visible.');
       const alerts = await page.locator('[role="alert"]').allTextContents();
@@ -269,7 +271,7 @@ globalThis.fetch = async (input, init) => {
     expect(queued.status()).toBe(202);
     const assessmentPayload: unknown = await queued.json();
     expect(assessmentPayload).toMatchObject({ jobId: expect.any(String) });
-    await page.locator('.customer-job-banner').waitFor({ timeout: 10_000 });
+    await page.getByRole('status').filter({ hasText: 'En cola' }).waitFor({ timeout: 10_000 });
 
     const workspacePayload: unknown = await page.evaluate(async () => await (await fetch('/api/customer/workspaces')).json());
     const workspace = customerWorkspaceSchema.parse(Array.isArray(workspacePayload) ? workspacePayload[0] : null);
@@ -283,6 +285,7 @@ globalThis.fetch = async (input, init) => {
     expect(persisted.rows[0]?.expires_at.getTime()).toBeGreaterThan(Date.now());
 
     await page.reload();
+    await page.getByRole('link', { name: 'Inicio', exact: true }).click();
     await page.getByRole('heading', { name: 'Nueva evaluación' }).waitFor();
     await page.getByLabel('Origen HTTPS disponible').selectOption(target.id);
 
@@ -329,7 +332,7 @@ globalThis.fetch = async (input, init) => {
       if (!applicationResponse.ok || !application || typeof application !== 'object' || !('applicationId' in application) || typeof application.applicationId !== 'string') throw new Error('Could not create the target panel application.');
       return { organizationId: workspace.id, applicationId: application.applicationId };
     });
-    await page.reload();
+    await page.goto(`${origin}/w/${scope.organizationId}/p/${scope.applicationId}`);
     await page.getByRole('link', { name: 'Fuentes', exact: true }).click();
     await page.getByLabel('Origen HTTPS').fill('https://example.com');
     await page.getByLabel('Perfil de evaluación').selectOption('public_surface');
@@ -359,6 +362,47 @@ globalThis.fetch = async (input, init) => {
     await page.getByRole('button', { name: 'Revocar alcance' }).click();
     expect((await revoke).status()).toBe(200);
     await page.getByText('Alcances revocados (1)').waitFor();
+  }, 60_000);
+
+  it('keeps the HTTPS audit page and its queued progress usable across navigation and refresh', async () => {
+    await page.context().clearCookies();
+    await page.goto(origin);
+    await page.evaluate(() => { sessionStorage.clear(); localStorage.clear(); });
+    await signIn(page, origin, `https-page-${randomUUID()}@example.test`);
+    const scope = await page.evaluate(async () => {
+      const workspaceResponse = await fetch('/api/customer/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'HTTPS page fixture' }) });
+      const workspace: unknown = await workspaceResponse.json();
+      if (!workspaceResponse.ok || !workspace || typeof workspace !== 'object' || !('id' in workspace) || typeof workspace.id !== 'string') throw new Error('Missing workspace.');
+      const response = await fetch(`/api/customer/workspaces/${workspace.id}/applications`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'HTTPS page project' }) });
+      const application: unknown = await response.json();
+      if (!response.ok || !application || typeof application !== 'object' || !('applicationId' in application) || typeof application.applicationId !== 'string') throw new Error('Missing project.');
+      return { organizationId: workspace.id, applicationId: application.applicationId };
+    });
+    const path = `/w/${scope.organizationId}/p/${scope.applicationId}/https`;
+    await page.goto(`${origin}${path}`);
+    await page.getByRole('heading', { name: 'Auditoría HTTPS', exact: true }).waitFor();
+    expect(await page.getByRole('combobox', { name: 'ESPACIO DE TRABAJO', exact: true }).getAttribute('data-slot')).toBe('select-trigger');
+    expect(await page.getByRole('combobox', { name: 'PROYECTO', exact: true }).getAttribute('data-slot')).toBe('select-trigger');
+    await page.getByLabel('Origen HTTPS', { exact: true }).fill('example.com');
+    await page.getByRole('combobox', { name: 'Perfil de evaluación' }).click();
+    await page.getByRole('option', { name: 'Raíz · 1 solicitud GET' }).click();
+    const [queued] = await Promise.all([
+      page.waitForResponse(response => response.url().endsWith('/assessments') && response.request().method() === 'POST'),
+      page.getByRole('button', { name: 'Analizar HTTPS' }).click(),
+    ]);
+    expect(queued.status()).toBe(202);
+    await page.getByRole('status').filter({ hasText: 'En cola' }).waitFor();
+    expect(await page.getByRole('list', { name: 'Estado de la evaluación' }).locator('[data-state="done"]').count()).toBe(1);
+    expect(await page.getByRole('button', { name: 'Analizar HTTPS' }).isDisabled()).toBe(true);
+    await page.getByRole('link', { name: 'Fuentes', exact: true }).click();
+    await page.getByLabel('Origen HTTPS', { exact: true }).waitFor();
+    await page.getByRole('link', { name: 'Auditoría HTTPS', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'En cola' }).waitFor();
+    await page.reload();
+    await page.getByRole('status').filter({ hasText: 'En cola' }).waitFor();
+    expect(new URL(page.url()).pathname).toBe(path);
+    const counts = await db.admin.query<{ jobs: number }>("SELECT count(*)::int AS jobs FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2 AND kind='audit'", [scope.organizationId, scope.applicationId]);
+    expect(counts.rows[0]?.jobs).toBe(1);
   }, 60_000);
 
   it('creates the first workspace and scans a selected repository after explicit GitHub owner consent', async () => {
@@ -405,7 +449,7 @@ globalThis.fetch = async (input, init) => {
     const scan = page.waitForResponse(response => response.url().includes('/github/installations/174788349/repositories/42/select') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Analizar fixture-owner/vulnerable-app' }).click();
     expect((await scan).status()).toBe(201);
-    await page.locator('.customer-job-banner').waitFor({ timeout: 10_000 });
+    await page.locator('.customer-progress').waitFor({ timeout: 10_000 });
     expect(await page.evaluate(() => window.sessionStorage.getItem('onboarding-click-count'))).toBe('4');
     const workspaces = await page.evaluate(async () => await (await fetch('/api/customer/workspaces')).json());
     const workspace = customerWorkspaceSchema.parse(Array.isArray(workspaces) ? workspaces[0] : null);
@@ -435,6 +479,8 @@ globalThis.fetch = async (input, init) => {
       const response = await fetch('/api/auth/signout', { method: 'POST', headers: { 'X-Auth-Return-Redirect': '1' }, body: new URLSearchParams({ csrfToken: payload.csrfToken, callbackUrl: '/entrar', json: 'true' }) });
       if (!response.ok) throw new Error('Local fixture sign-out failed.');
     });
+    // Unmount the signed-out page before measuring requests from the next identity.
+    await page.goto(`${origin}/entrar`);
     const failuresBefore = customerApiFailures.length;
     await signIn(page, origin, `scope-new-user-${randomUUID()}@example.test`);
     await page.getByRole('heading', { name: 'Tu primera revisión' }).waitFor({ timeout: 5_000 });

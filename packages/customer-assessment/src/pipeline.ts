@@ -10,6 +10,7 @@ import {
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { compare, isScannerCleanupError, sha256 } from './common.js';
 import { assessExternal } from './external.js';
+import { assessApiChecks } from './api-checks.js';
 import type { HttpsOptions } from './https.js';
 import { assessInternal } from './internal.js';
 import { assessContainerImage } from './container-image.js';
@@ -65,7 +66,7 @@ export function assertReportBinding(input: CustomerRunInput, report: CustomerAss
   const sameInternalSnapshot = report.internal === null || report.internal.snapshotRef === expectedInternalSnapshot;
   const target = input.target;
   const expectedExternalSnapshotRef = target
-    ? `target:${target.id}:${target.version}:${sha256(target.origin)}${target.scanProfile === 'public_surface' ? ':public_surface' : ''}`
+    ? `target:${target.id}:${target.version}:${sha256(target.origin)}${target.scanProfile && target.scanProfile !== 'root' ? `:${target.scanProfile}` : ''}`
     : null;
   const sameExternalSnapshot = report.external === null || report.external.snapshotRef === expectedExternalSnapshotRef;
   const evidenceMatchesAnalysis = [report.internal, report.external]
@@ -164,7 +165,9 @@ export async function runCustomerAssessmentPipeline(
         () => {
           const target = input.target;
           if (!target) throw new Error('missing_target');
-          return target.scanProfile === 'public_surface'
+          return target.scanProfile === 'api_checks'
+            ? assessApiChecks({ ...target, scanProfile: 'api_checks' }, signal, options.https)
+            : target.scanProfile === 'public_surface'
             ? assessPublicSurface(publicSurfaceTargetSchema.parse(target), signal, options.https)
             : assessExternal(input, signal, options.https);
         },
@@ -189,6 +192,8 @@ export async function runCustomerAssessmentPipeline(
       }
       const scopeLimitation = input.inputKind === 'container_image'
         ? 'The report scans an immutable image archive or digest-pinned public image. It does not prove the image is deployed or running; unsupported OS and language package coverage remains unknown.'
+        : input.target?.scanProfile === 'api_checks'
+          ? `Bounded real API protocol checks within the requested origin${input.mode === 'both' ? ' and independent static source observations' : ''}. This is not an exhaustive penetration test. Unknown coverage remains unknown.`
         : input.target?.scanProfile === 'public_surface'
           ? input.mode === 'both'
             ? 'Bounded static source and independent public-surface HTTPS observations within the explicitly consented origin, not a comprehensive audit or company asset inventory. Unknown coverage remains unknown.'

@@ -42,7 +42,7 @@ function httpsOrigin(value: string) {
 export function Onboarding({ userId, displayName, organizationId, initialSource = 'carpeta', canManage = true, onWorkspaceCreated, onDone, onSkip }: {
   userId: string; displayName?: string; organizationId?: string; initialSource?: 'github' | 'carpeta' | 'web'; canManage?: boolean;
   onWorkspaceCreated: (workspace: CustomerWorkspace) => void;
-  onDone: (result: { organizationId: string; applicationId: string; jobId: string | null }) => void;
+  onDone: (result: { organizationId: string; applicationId: string; jobId: string | null; mode?: 'external' }) => void;
   onSkip: () => void;
 }) {
   const name = suggestedName(displayName);
@@ -54,7 +54,7 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
   const [autoNameApplication, setAutoNameApplication] = useState(false);
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [domain, setDomain] = useState('');
-  const [domainScanProfile, setDomainScanProfile] = useState(customerScanProfileSchema.parse('public_surface'));
+  const [domainScanProfile, setDomainScanProfile] = useState(customerScanProfileSchema.parse('api_checks'));
   const [error, setError] = useState<{ source: Source; message: string } | null>(null);
   const [busy, setBusy] = useState<BusyAction | null>(null);
   const [installationId, setInstallationId] = useState('');
@@ -162,7 +162,7 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
     const enrollment = await customerApi.enrollTarget({ ...currentScope, origin, scanProfile: domainScanProfile });
     const result = await customerApi.queue({ ...currentScope, mode: 'external', sourceSnapshotId: null, targetId: enrollment.target.id });
     sessionStorage.removeItem(onboardingStorageKey);
-    onDone({ ...currentScope, jobId: result.jobId });
+    onDone({ ...currentScope, jobId: result.jobId, mode: 'external' });
   });
   const selectRepository = (repository: NonNullable<typeof repositories.data>[number]) => run(`repository:${repository.id}`, 'github', 'No se pudo analizar el repositorio.', async () => {
     if (!scope || !installation || repository.archived) return;
@@ -222,6 +222,7 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
           <select id="onboarding-scan-profile" value={domainScanProfile} onChange={event => setDomainScanProfile(customerScanProfileSchema.parse(event.target.value))} disabled={locked}>
             <option value="root">Raíz del sitio · una solicitud GET a /</option>
             <option value="public_surface">Superficie pública limitada · hasta 10 solicitudes GET</option>
+            <option value="api_checks">Web y API · hasta 16 GET/HEAD/OPTIONS</option>
           </select>
           <p>La evaluación se limita al origen y al perfil elegido.</p>
           {sourceError('web') && <p className="customer-form-error" role="alert">{sourceError('web')}</p>}

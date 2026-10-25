@@ -31,7 +31,7 @@ export const customerUpdateWorkspaceSchema = z.object({ organizationId: uuid, na
 export const customerCreateApplicationSchema = z.object({ organizationId: uuid, name }).strict();
 export const customerApplicationSchema = customerScopeSchema.extend({ name, archived: z.boolean(), createdAt: timestamp }).strict();
 export const customerUpdateApplicationSchema = customerScopeSchema.extend({ name: name.optional(), archived: z.boolean().optional() }).strict().refine(value => value.name !== undefined || value.archived !== undefined);
-export const customerScanProfileSchema = z.enum(['root', 'public_surface']);
+export const customerScanProfileSchema = z.enum(['root', 'public_surface', 'api_checks']);
 export const customerEnrollTargetSchema = customerScopeSchema.extend({ origin: customerOriginSchema, scanProfile: customerScanProfileSchema.optional() }).strict();
 export const customerTargetIdSchema = customerScopeSchema.extend({ targetId: uuid }).strict();
 export const customerTargetSchema = customerScopeSchema.extend({
@@ -139,6 +139,14 @@ export const customerAssessmentIntentSchema = z.object({
     context.addIssue({ code: 'custom', message: 'Container image assessments require only an image input and the internal mode' });
   }
 });
+/**
+ * Phases the coordinator records while it runs a customer assessment. The scanner call is one opaque
+ * phase; the report is recorded in the same transaction that completes the job.
+ */
+export const customerJobPhaseSchema = z.enum(['validating', 'analyzing']);
+export const customerJobProgressSchema = z.array(z.object({ phase: customerJobPhaseSchema, at: timestamp }).strict()).max(8);
+export type CustomerJobPhase = z.infer<typeof customerJobPhaseSchema>;
+export type CustomerJobProgress = z.infer<typeof customerJobProgressSchema>;
 export const customerReportSubjectSchema = z.object({
   sourceSnapshotId: uuid.nullable(), sourceDigest: digest.nullable(), targetId: uuid.nullable(), targetVersion: z.number().int().positive().nullable(), origin: customerOriginSchema.nullable(),
   containerImageId: uuid.nullable().optional(), containerImageDigest: digest.nullable().optional(), containerImageReference: customerPublicImageReferenceSchema.nullable().optional(),
@@ -164,6 +172,7 @@ export const customerReportSummarySchema = z.object({ id: uuid, jobId: uuid, app
 export type CustomerWorkspace = z.infer<typeof customerWorkspaceSchema>;
 export type CustomerApplication = z.infer<typeof customerApplicationSchema>;
 export type CustomerTarget = z.infer<typeof customerTargetSchema>;
+export type CustomerScanProfile = z.infer<typeof customerScanProfileSchema>;
 export type CustomerEnrollment = z.infer<typeof customerEnrollmentSchema>;
 export type CustomerSourceSnapshot = z.infer<typeof customerSourceSnapshotSchema>;
 export type CustomerSourceSummary = z.infer<typeof customerSourceSummarySchema>;

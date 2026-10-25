@@ -1,6 +1,14 @@
 import type { AssessmentAnalysis, AssessmentComparison, CustomerAssessmentReport } from '@gotchu/contracts';
 
 const coverageLabels: Record<string, string> = {
+  api_schema_discovery: 'Descubrimiento de API',
+  api_cors_preflight: 'Política CORS y preflight',
+  api_method_policy: 'Métodos HTTP',
+  api_error_handling: 'Manejo de rutas de control',
+  api_auth_boundary: 'Respuesta HEAD sin autenticación',
+  api_endpoint_mapping: 'Rutas declaradas y muestreo',
+  api_probe_budget: 'Límites de solicitudes API',
+  api_exploitation: 'Explotación de vulnerabilidades API',
   semgrep: 'Semgrep · SAST (JavaScript/TypeScript, Python, Go y Java)',
   gitleaks: 'Gitleaks · detección de secretos',
   trivy_kubernetes: 'Kubernetes',

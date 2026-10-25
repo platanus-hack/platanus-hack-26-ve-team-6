@@ -9,6 +9,7 @@ describe('customer assessment input boundaries', () => {
     const enrollment = { ...scope, origin: 'https://acme.com' };
     expect(customerEnrollTargetSchema.parse(enrollment)).not.toHaveProperty('scanProfile');
     expect(customerEnrollTargetSchema.parse({ ...enrollment, scanProfile: 'public_surface' }).scanProfile).toBe('public_surface');
+    expect(customerEnrollTargetSchema.parse({ ...enrollment, scanProfile: 'api_checks' }).scanProfile).toBe('api_checks');
     expect(customerEnrollTargetSchema.safeParse({ ...enrollment, scanProfile: 'all_internet' }).success).toBe(false);
     expect(customerEnrollTargetSchema.safeParse({ ...enrollment, authorized: true }).success).toBe(false);
   });

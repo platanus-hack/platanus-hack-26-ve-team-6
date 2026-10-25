@@ -277,6 +277,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
           <option value="">No incluir origen HTTPS</option>
           {availableTargets.map(target => <option key={target.id} value={target.id}>{target.origin} · perfil {target.scanProfile ?? 'root'} · vence {target.expiresAt ? formatDate(target.expiresAt) : 'sin fecha'}</option>)}
         </select>
+        {availableTargets.find(target => target.id === targetId)?.scanProfile === 'api_checks' && <p className="customer-field-note">Cada evaluación programada ejecutará el mismo perfil Web y API: hasta 16 solicitudes GET/HEAD/OPTIONS, sin credenciales ni modificación de datos.</p>}
         {currentConfig?.targetId && !availableTargets.some(target => target.id === currentConfig.targetId) && <p className="customer-form-error" role="status">El alcance HTTPS anterior ya no está vigente. Renueva el origen o quítalo de esta configuración.</p>}
         <fieldset className="customer-ops-providers" disabled={!canManage || configure.isPending}>
           <legend>Estado del proveedor (opcional)</legend>

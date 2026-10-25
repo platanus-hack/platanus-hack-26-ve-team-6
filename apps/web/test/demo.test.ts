@@ -11,7 +11,7 @@ function fixture() {
     reports: vi.fn(async () => []),
     queue: vi.fn(async () => ({ jobId })),
     report: vi.fn(async () => { throw new Error('No report fixture'); }),
-    job: vi.fn(async () => ({ id: jobId, applicationId: DEMO_ASSESSMENT_SCOPE.applicationId, kind: 'audit', state: 'running', attempts: 1, createdAt: new Date(), completedAt: null, outcome: null, reasonCode: null, reportId: null })),
+    job: vi.fn(async () => ({ id: jobId, applicationId: DEMO_ASSESSMENT_SCOPE.applicationId, kind: 'audit', state: 'running', attempts: 1, createdAt: new Date(), completedAt: null, outcome: null, reasonCode: null, reportId: null, mode: null, inputKind: null, progress: [] })),
   };
   return { services, api: createDemoAssessmentApi({ enabled: true, origin, services }) };
 }
@@ -51,7 +51,7 @@ describe('fixed-scope controlled demo HTTP boundary (service fixtures)', () => {
   });
   it('does not expose a different application job even when a service returns it', async () => {
     const { api, services } = fixture();
-    services.job = vi.fn(async () => ({ id: randomUUID(), applicationId: randomUUID(), kind: 'audit', state: 'running', attempts: 1, createdAt: new Date(), completedAt: null, outcome: null, reasonCode: null, reportId: null }));
+    services.job = vi.fn(async () => ({ id: randomUUID(), applicationId: randomUUID(), kind: 'audit', state: 'running', attempts: 1, createdAt: new Date(), completedAt: null, outcome: null, reasonCode: null, reportId: null, mode: null, inputKind: null, progress: [] }));
     expect((await api(new Request(`${origin}/api/demo/jobs/${randomUUID()}`))).status).toBe(404);
   });
   it('bounds JSON before attempting any queued work', async () => {

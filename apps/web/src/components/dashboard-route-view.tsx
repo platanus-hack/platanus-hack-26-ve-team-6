@@ -29,6 +29,7 @@ export function routePageFromPath(pathname: string): { page: DashboardPage; appl
   const match = pathname.match(/^\/w\/[^/]+(?:\/p\/([^/]+))?(.*)$/);
   const applicationId = match?.[1];
   const section = (match?.[2] ?? '').replace(/\/$/, '');
+  if (section === '/https') return { page: 'https-audit', ...(applicationId ? { applicationId } : {}) };
   if (section === '/fuentes') return { page: 'applications', ...(applicationId ? { applicationId } : {}) };
   if (section === '/vigilancia') return { page: 'operations', ...(applicationId ? { applicationId } : {}) };
   if (section === '/informes' || section.startsWith('/informes/')) {

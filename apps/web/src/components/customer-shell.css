@@ -214,10 +214,6 @@
 .customer-checkbox input { flex: 0 0 16px; margin: 3px 0 0; }
 .customer-recent-card { margin-top: 28px; }
 .customer-recent-card > .customer-card-heading, .customer-report-history > .customer-card-heading { align-items: center; padding-bottom: 14px; }
-.customer-job-banner { display: flex; align-items: center; gap: 14px; margin: 0 0 24px; }
-.customer-job-banner > div { flex: 1; }
-.customer-job-banner strong { font-size: 15px; }
-.customer-job-banner p { margin: 2px 0 0; color: var(--muted-foreground); font-size: 13.5px; }
 
 .customer-applications-card { padding-top: 20px; }
 .customer-applications-card > .customer-card-heading { align-items: center; padding-bottom: 16px; }
@@ -383,4 +379,4 @@
 
 /* Stacked panels under the page heading breathe on a common rhythm. */
 .customer-main > :where(section, div) + section { margin-top: 40px; }
-.customer-main > .customer-page-heading + section, .customer-main > .customer-job-banner + section { margin-top: 0; }
+.customer-main > .customer-page-heading + section, .customer-main > .customer-progress + section { margin-top: 0; }

@@ -12,7 +12,7 @@ import {
   type CustomerApplication, type CustomerAssessmentIntent, type CustomerAssessmentReport, type CustomerClaim, type CustomerEnrollment,
   type CustomerQueueInput, type CustomerRunInput, type CustomerSourceSummary, type CustomerTarget,
   type CustomerContainerImageSummary, type LicensePolicy,
-  type DependencyArtifactAnalysis,
+  type DependencyArtifactAnalysis, type CustomerScanProfile,
 } from '@gotchu/contracts';
 import { evaluateLicensePolicy, normalizeLicenseExpression, normalizeLicensePolicy } from '@gotchu/customer-assessment/supply-chain';
 import { buildCycloneDx } from '@gotchu/customer-assessment/sbom';
@@ -59,7 +59,7 @@ async function readApplication(tx: Transaction, scope: Scope): Promise<CustomerA
 type TargetRow = {
   id: string; origin: string; version: number; status: string; requested_by: string; requested_at: Date;
   authorized_at: Date | null; expires_at: Date | null; authorization_current: boolean;
-  scan_profile: 'root' | 'public_surface';
+  scan_profile: CustomerScanProfile;
 };
 async function targetRow(tx: Transaction, scope: Scope, targetId?: string): Promise<TargetRow | null> {
   const result = await tx.query<TargetRow>(`SELECT *,
