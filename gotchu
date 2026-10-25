@@ -216,12 +216,58 @@ executor_enabled() {
   [[ "$value" == true ]] || fail 'GOTCHU_EXECUTOR_ENABLED debe ser true o false.' 2
   return 0
 }
+github_single_app() {
+  local mode
+  mode="$(optional_env_value GOTCHU_GITHUB_CONNECTION_MODE)"
+  case "$mode" in
+    ''|legacy_two_app) return 1 ;;
+    single_app) return 0 ;;
+    *) fail 'GOTCHU_GITHUB_CONNECTION_MODE debe ser single_app o legacy_two_app.' 2 ;;
+  esac
+}
+executor_process_enabled() { github_single_app || executor_enabled; }
+single_app_file() {
+  local path
+  path="$(optional_env_value GOTCHU_GITHUB_SINGLE_APP_FILE)"
+  printf '%s' "${path:-$state_dir/github-single-app.json}"
+}
+prepare_single_app_public_config() {
+  node --input-type=module - "$(single_app_file)" "$state_dir/github-public-app.json" <<'NODE'
+import { constants, openSync, fstatSync, readFileSync, closeSync, lstatSync, writeFileSync, renameSync, chmodSync } from 'node:fs';
+const [privatePath, publicPath] = process.argv.slice(2);
+try {
+  const fd = openSync(privatePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let app;
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || (stat.mode & 0o077) || stat.size > 64_000) throw new Error();
+    app = JSON.parse(readFileSync(fd, 'utf8'));
+  } finally { closeSync(fd); }
+  if (!app || typeof app !== 'object' || Array.isArray(app)
+    || !/^[0-9]{1,20}$/.test(String(app.id))
+    || typeof app.clientId !== 'string' || !app.clientId || app.clientId.length > 200
+    || typeof app.slug !== 'string' || !/^[a-z0-9-]{1,100}$/i.test(app.slug)
+    || typeof app.clientSecret !== 'string' || !app.clientSecret
+    || typeof app.privateKeyPem !== 'string' || !app.privateKeyPem) throw new Error();
+  try { const old = lstatSync(publicPath); if (!old.isFile() || old.isSymbolicLink()) throw new Error(); }
+  catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  const temporary = publicPath + '.tmp-' + process.pid;
+  writeFileSync(temporary, JSON.stringify({ id: String(app.id), clientId: app.clientId, slug: app.slug }), { mode: 0o600, flag: 'wx' });
+  renameSync(temporary, publicPath);
+  chmodSync(publicPath, 0o600);
+} catch {
+  console.error('Configura un archivo privado válido para la App única de GitHub; web sólo recibe su identidad pública.');
+  process.exit(1);
+}
+NODE
+}
 require_executor_setup() {
   local installation_id mode internal_token
-  installation_id="$(optional_env_value GOTCHU_GITHUB_WRITER_INSTALLATION_ID)"
-  [[ "$installation_id" =~ ^[0-9]{1,20}$ ]] || fail 'Configura GOTCHU_GITHUB_WRITER_INSTALLATION_ID para activar el executor.' 2
   internal_token="$(optional_env_value GOTCHU_EXECUTOR_INTERNAL_TOKEN)"
   [[ "$internal_token" =~ ^[a-f0-9]{64}$ ]] || fail 'Configura GOTCHU_EXECUTOR_INTERNAL_TOKEN para activar el executor.' 2
+  if github_single_app; then prepare_single_app_public_config; return; fi
+  installation_id="$(optional_env_value GOTCHU_GITHUB_WRITER_INSTALLATION_ID)"
+  [[ "$installation_id" =~ ^[0-9]{1,20}$ ]] || fail 'Configura GOTCHU_GITHUB_WRITER_INSTALLATION_ID para activar el executor.' 2
   [[ -f "$state_dir/github-writer-app.json" && ! -L "$state_dir/github-writer-app.json" ]] || fail 'Falta el archivo privado github-writer-app.json.' 2
   mode="$(stat -c '%a' "$state_dir/github-writer-app.json")"
   (( (8#$mode & 077) == 0 )) || fail 'El archivo github-writer-app.json debe ser privado (modo 0600 o más restrictivo).' 2
@@ -311,10 +357,16 @@ start_app() {
       database_url="$(postgres_url "$(env_value GOTCHU_EXECUTOR_DB_USERNAME)" "$(env_value GOTCHU_EXECUTOR_DB_PASSWORD)" "$(env_value POSTGRES_HOST_PORT)" "$(env_value POSTGRES_DB)")"
       redis_connection_url="$(redis_url "$(env_value REDIS_PASSWORD)" "$(env_value REDIS_HOST_PORT)")"
       environment+=("PORT=$port" "PUBLIC_APP_URL=$(env_value PUBLIC_APP_URL)" "GOTCHU_EXECUTOR_DATABASE_URL=$database_url" "GOTCHU_REDIS_URL=$redis_connection_url" \
-        "GOTCHU_EXECUTOR_INTERNAL_TOKEN=$(env_value GOTCHU_EXECUTOR_INTERNAL_TOKEN)" \
-        "GOTCHU_GITHUB_WRITER_APP_FILE=$state_dir/github-writer-app.json" \
-        "GOTCHU_GITHUB_WRITER_INSTALLATION_ID=$(env_value GOTCHU_GITHUB_WRITER_INSTALLATION_ID)" \
-        "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json")
+        "GOTCHU_EXECUTOR_INTERNAL_TOKEN=$(env_value GOTCHU_EXECUTOR_INTERNAL_TOKEN)")
+      if github_single_app; then
+        local writes_enabled=false
+        if executor_enabled; then writes_enabled=true; fi
+        environment+=("GOTCHU_GITHUB_CONNECTION_MODE=single_app" "GOTCHU_GITHUB_SINGLE_APP_FILE=$(single_app_file)" "GOTCHU_EXECUTOR_WRITES_ENABLED=$writes_enabled")
+      else
+        environment+=("GOTCHU_GITHUB_WRITER_APP_FILE=$state_dir/github-writer-app.json" \
+          "GOTCHU_GITHUB_WRITER_INSTALLATION_ID=$(env_value GOTCHU_GITHUB_WRITER_INSTALLATION_ID)" \
+          "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json")
+      fi
       ;;
     web)
       local api_url ingest_url github_app_file github_credentials_file webauthn_rp_id executor_port executor_token
@@ -325,6 +377,10 @@ start_app() {
       if [[ "$github_app_file" == /run/secrets/github/* ]]; then github_app_file="$state_dir/github/${github_app_file##*/}"; fi
       github_credentials_file="$(optional_env_value GOTCHU_GITHUB_READER_APP_CREDENTIALS_FILE)"
       if [[ "$github_credentials_file" == /run/secrets/github/* ]]; then github_credentials_file="$state_dir/github/${github_credentials_file##*/}"; fi
+      if github_single_app; then
+        github_app_file=''; github_credentials_file=''
+        environment+=("GOTCHU_GITHUB_CONNECTION_MODE=single_app" "GOTCHU_GITHUB_PUBLIC_APP_FILE=$state_dir/github-public-app.json")
+      fi
       executor_port="$(optional_env_value EXECUTOR_HOST_PORT)"; executor_port="${executor_port:-3004}"
       executor_token="$(optional_env_value GOTCHU_EXECUTOR_INTERNAL_TOKEN)"
       if [[ -n "$executor_token" && ! "$executor_token" =~ ^[a-f0-9]{64}$ ]]; then fail 'GOTCHU_EXECUTOR_INTERNAL_TOKEN debe ser un secreto hexadecimal de 32 bytes.' 2; fi
@@ -439,7 +495,7 @@ up() {
   GOTCHU_MIGRATION_DATABASE_URL="$(postgres_url "$(env_value POSTGRES_USER)" "$(env_value POSTGRES_PASSWORD)" "$(env_value POSTGRES_HOST_PORT)" "$(env_value POSTGRES_DB)")" \
     node "$root/apps/gateway/dist/migrate-cli.js" >/dev/null || fail 'No se pudieron aplicar las migraciones del gateway. Revisa ./gotchu logs postgres.'
   ensure_local_tls scanner; ensure_local_tls internal; ensure_model_runtime
-  if executor_enabled; then require_executor_setup; fi
+  if executor_process_enabled; then require_executor_setup; fi
   ensure_gateway_worker_ports
   stop_all_apps
   check_gateway_worker_port gateway GATEWAY_HOST_PORT "$(gateway_port)"
@@ -456,14 +512,14 @@ up() {
   local probe_output
   if ! probe_output="$(scanner_probe 2>&1)"; then fail "El coordinator no puede alcanzar el scanner por HTTPS en loopback (${probe_output:-sin diagnóstico}). Revisa ./gotchu logs coordinator y ./gotchu logs scanner."; fi
   [[ "$probe_output" == scanner_ready ]] || fail 'El coordinator no confirmó la disponibilidad del scanner.'
-  start_app web "$web_port"
-  wait_http "$(env_value PUBLIC_APP_URL)/api/ready" web
-  if executor_enabled; then
+  if executor_process_enabled; then
     local executor_port
     executor_port="$(optional_env_value EXECUTOR_HOST_PORT)"; executor_port="${executor_port:-3004}"
     start_app executor "$executor_port"
     wait_http "http://127.0.0.1:${executor_port}/health/ready" executor
   fi
+  start_app web "$web_port"
+  wait_http "$(env_value PUBLIC_APP_URL)/api/ready" web
   printf 'Gotchu listo en %s (%ss desde ./gotchu up).\n' "$(env_value PUBLIC_APP_URL)" "$(($(date +%s)-started))"
   printf '%s\n' 'Semgrep 1.182.0 está fijado por digest; la cobertura es parcial y no demuestra que la aplicación sea segura.'
   setup_link
@@ -480,7 +536,7 @@ status() {
       printf 'coordinator → scanner: inaccesible (%s)\n' "$probe_code"
     fi
   fi
-  if executor_enabled; then
+  if executor_process_enabled; then
     if app_running executor && executor_ready; then printf '%s\n' 'executor: listo en loopback'; else printf '%s\n' 'executor: habilitado pero no listo'; fi
   else printf '%s\n' 'executor: desactivado; las escrituras externas siguen cerradas.'; fi
   printf '%s\n' 'validator: no disponible; requiere Linux, /dev/kvm, bwrap y sesión systemd de usuario.'
