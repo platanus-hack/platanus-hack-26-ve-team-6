@@ -43,6 +43,9 @@ import {
   investigationRunSchema,
   investigationSubjectSchema,
   investigationActionSchema,
+  aiCorrectionSchema,
+  aiCorrectionRequestSchema,
+  type AiCorrectionRequest,
   type DependencyFixPreparationRequest,
   type DependencyFixPreparationResponse,
   type InvestigationSubject,
@@ -360,6 +363,16 @@ export const customerApi = {
       { method: 'POST', ...jsonBody(body) },
       201,
     );
+  },
+  aiCorrections(organizationId: string, applicationId: string, reportId: string) {
+    return request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(z.uuid().parse(reportId))}/ai-corrections`, z.array(aiCorrectionSchema).max(50));
+  },
+  prepareAiCorrection(input: { organizationId: string; applicationId: string; reportId: string; request: AiCorrectionRequest }) {
+    const body = aiCorrectionRequestSchema.parse(input.request);
+    return request(`${applicationPath(input.organizationId, input.applicationId)}/reports/${encodeURIComponent(z.uuid().parse(input.reportId))}/ai-corrections`, aiCorrectionSchema, { method: 'POST', ...jsonBody(body) }, 201);
+  },
+  cancelAiCorrection(organizationId: string, applicationId: string, reportId: string, correctionId: string) {
+    return request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(z.uuid().parse(reportId))}/ai-corrections/${encodeURIComponent(z.uuid().parse(correctionId))}`, aiCorrectionSchema, { method: 'DELETE' });
   },
   prepareDependencyFix(input: { organizationId: string; applicationId: string; reportId: string; request: DependencyFixPreparationRequest }): Promise<DependencyFixPreparationResponse> {
     const params = reportRecommendationsParamsSchema.parse({ reportId: input.reportId });
