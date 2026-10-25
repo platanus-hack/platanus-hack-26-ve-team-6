@@ -30,12 +30,9 @@ chmod 644 /etc/gotchu/web.crt
 # Environment files are read by systemd as root; runtime users receive only their service's values.
 node --input-type=module <<'NODE'
 import { readFileSync, writeFileSync } from 'node:fs';
+import { parseEnv } from 'node:util';
 const state = '/var/lib/gotchu-admin/state';
-const config = Object.fromEntries(readFileSync(`${state}/.env`, 'utf8').split('\n').filter(line => line && !line.startsWith('#')).map(line => {
-  const separator = line.indexOf('=');
-  if (separator < 1) throw new Error('Invalid operator environment');
-  return [line.slice(0, separator), line.slice(separator + 1)];
-}));
+const config = parseEnv(readFileSync(`${state}/.env`, 'utf8'));
 function required(key) {
   const value = config[key];
   if (!value) throw new Error(`Missing ${key}`);
@@ -48,9 +45,15 @@ function database(prefix) {
   return url.href;
 }
 const common = { NODE_ENV: 'production', GOTCHU_DEMO_ENABLED: 'false', GOTCHU_MONITORING_CONFIG_FILE: '/etc/gotchu/repositories.json' };
+// Optional integrations belong only to web; keep operator settings across reinstalls.
+const webIntegrations = Object.fromEntries([
+  'AUTH_GITHUB_ID', 'AUTH_GITHUB_SECRET', 'AUTH_GOOGLE_ID', 'AUTH_GOOGLE_SECRET',
+  'AUTH_OIDC_ISSUER', 'AUTH_OIDC_CLIENT_ID', 'AUTH_OIDC_CLIENT_SECRET', 'AUTH_OIDC_NAME',
+  'GOTCHU_GITHUB_READER_APP_FILE', 'GOTCHU_GITHUB_APP_SLUG',
+].filter(key => config[key]).map(key => [key, config[key]]));
 const services = {
   web: {
-    ...common, GOTCHU_SERVICE_ENTRY: '/opt/gotchu/app/apps/web/.output/server/index.mjs',
+    ...common, ...webIntegrations, GOTCHU_SERVICE_ENTRY: '/opt/gotchu/app/apps/web/.output/server/index.mjs',
     PORT: '3000', NITRO_PORT: '3000', HOST: '127.0.0.1', NITRO_HOST: '127.0.0.1',
     NITRO_SSL_CERT: '/etc/gotchu/web.crt', NITRO_SSL_KEY: '/etc/gotchu/web.key',
     PUBLIC_APP_URL: 'https://gotchu.kevinbravo.com', GOTCHU_AUTH_MODE: 'public', AUTH_SECRET: required('AUTH_SECRET'),

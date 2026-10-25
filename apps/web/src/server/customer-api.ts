@@ -119,7 +119,7 @@ export function createCustomerApi(options: {
         return json({ user: identity ? { id: identity.userId, ...(identity.displayName ? { displayName: identity.displayName } : {}) } : null, providers: options.providers,
           localAuthEnabled: Boolean(options.localAccounts), registrationEnabled: options.registrationEnabled }, 200, headers);
       }
-      if (url.pathname === '/api/customer/github/callback' || url.pathname === '/api/customer/github/connect'
+      if (url.pathname === '/api/customer/github/callback' || url.pathname === '/api/customer/github/connect' || url.pathname === '/api/customer/github/choose'
         || /^\/api\/customer\/workspaces\/[^/]+\/(?:applications\/[^/]+\/)?github(?:\/|$)/.test(url.pathname)) {
         const githubSession = await options.auth.identity(request);
         const githubIdentity = githubSession ? { userId: githubSession.userId } : null;

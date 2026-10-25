@@ -20,6 +20,7 @@ import {
   type CustomerWorkspace,
 } from '@gotchu/contracts';
 import { CustomerApiError, customerApi, type CustomerJob, type CustomerScanProfile, type CustomerSession } from './customer-client';
+import { readSavedCustomerScope } from './customer-scope-storage';
 import { OperationsPanel } from './operations-panel';
 import { ProtectionPanel } from './protection-panel';
 import { NotificationsPanel } from './notifications-panel';
@@ -690,14 +691,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught)));
   }, [acceptedInvitationId, queryClient, userId]);
   useEffect(() => {
-    const saved = sessionStorage.getItem('gotchu-pending-github-scope');
-    if (!saved) return;
-    try {
-      const scope = customerScopeSchema.safeParse(JSON.parse(saved));
-      if (scope.success) { setSelectedWorkspaceId(scope.data.organizationId); setSelectedApplicationId(scope.data.applicationId); }
-    } catch { /* Invalid browser state is discarded below. */ }
+    const scope = readSavedCustomerScope(sessionStorage, 'gotchu-pending-github-scope', userId);
+    if (scope) { setSelectedWorkspaceId(scope.organizationId); setSelectedApplicationId(scope.applicationId); }
     sessionStorage.removeItem('gotchu-pending-github-scope');
-  }, []);
+  }, [userId]);
   useEffect(() => {
     const params=new URLSearchParams(window.location.search);
     const scope=customerScopeSchema.safeParse({organizationId:params.get('organizationId'),applicationId:params.get('applicationId')});

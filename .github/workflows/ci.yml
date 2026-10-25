@@ -110,6 +110,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           build: 'false'
+      - run: python3 -B infra/aws/test-service-environment.py
       - run: scripts/infra-local-setup.sh
       - run: scripts/infra-compose-validate.sh
       - name: Boot Postgres, Redis, web and coordinator in an isolated Compose project

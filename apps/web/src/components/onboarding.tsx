@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { z } from 'zod';
-import { CUSTOMER_MAX_SOURCE_BYTES, customerScopeSchema, customerSourceFileSchema, customerSourceSnapshotSchema, customerScanProfileSchema, type CustomerWorkspace } from '@gotchu/contracts';
+import { CUSTOMER_MAX_SOURCE_BYTES, customerSourceFileSchema, customerSourceSnapshotSchema, customerScanProfileSchema, type CustomerWorkspace } from '@gotchu/contracts';
 import { customerApi, CustomerApiError } from './customer-client';
+import { readSavedCustomerScope } from './customer-scope-storage';
 
 type SourceFile = { file: File; path: string; valid: boolean };
 type Scope = { organizationId: string; applicationId: string };
 const onboardingStorageKey = 'gotchu-onboarding-scope';
-const onboardingScopeStorageSchema = customerScopeSchema.extend({ autoNameApplication: z.boolean().optional() }).strict();
 
 async function readFiles(files: readonly SourceFile[]) {
   const contents = await Promise.all(files.filter(item => item.valid).map(async item => ({ path: item.path, content: new TextDecoder('utf-8', { fatal: true }).decode(await item.file.arrayBuffer()) })));
@@ -50,20 +49,14 @@ export function Onboarding({ userId, displayName, initialOrganizationId, initial
     let hasSavedScope = false;
     let savedScope: Scope | null = null;
     let savedAutoNameApplication = false;
-    const saved = sessionStorage.getItem(onboardingStorageKey);
-    if (saved) {
-      try {
-        const value: unknown = JSON.parse(saved);
-        const parsed = onboardingScopeStorageSchema.safeParse(value);
-        if (parsed.success) {
-          hasSavedScope = true;
-          savedScope = { organizationId: parsed.data.organizationId, applicationId: parsed.data.applicationId };
-          savedAutoNameApplication = parsed.data.autoNameApplication === true;
-          setScope(savedScope);
-          setAutoNameApplication(savedAutoNameApplication);
-          setStep(2);
-        } else sessionStorage.removeItem(onboardingStorageKey);
-      } catch { sessionStorage.removeItem(onboardingStorageKey); }
+    const saved = readSavedCustomerScope(sessionStorage, onboardingStorageKey, userId);
+    if (saved && (!initialOrganizationId || saved.organizationId === initialOrganizationId)) {
+      hasSavedScope = true;
+      savedScope = { organizationId: saved.organizationId, applicationId: saved.applicationId };
+      savedAutoNameApplication = saved.autoNameApplication === true;
+      setScope(savedScope);
+      setAutoNameApplication(savedAutoNameApplication);
+      setStep(2);
     }
     if (initialOrganizationId && initialApplicationId) {
       setScope({ organizationId: initialOrganizationId, applicationId: initialApplicationId });
@@ -99,7 +92,7 @@ export function Onboarding({ userId, displayName, initialOrganizationId, initial
 
   async function ensureScope() {
     if (scope) {
-      sessionStorage.setItem(onboardingStorageKey, JSON.stringify({ ...scope, autoNameApplication }));
+      sessionStorage.setItem(onboardingStorageKey, JSON.stringify({ ...scope, userId, autoNameApplication }));
       return scope;
     }
     const organizationId = initialOrganizationId ?? createdOrganizationId;
@@ -119,7 +112,7 @@ export function Onboarding({ userId, displayName, initialOrganizationId, initial
     const autoName = !existingApplication && !applicationNameEdited;
     setScope(next);
     setAutoNameApplication(autoName);
-    sessionStorage.setItem(onboardingStorageKey, JSON.stringify({ ...next, autoNameApplication: autoName }));
+    sessionStorage.setItem(onboardingStorageKey, JSON.stringify({ ...next, userId, autoNameApplication: autoName }));
     return next;
   }
 
@@ -235,7 +228,7 @@ export function GitHubRepositoryPanel({ userId, organizationId, applicationId, c
     if (!canManage) return;
     setBusy(true); setError(null);
     try {
-      sessionStorage.setItem('gotchu-pending-github-scope', JSON.stringify({ organizationId, applicationId }));
+      sessionStorage.setItem('gotchu-pending-github-scope', JSON.stringify({ organizationId, applicationId, userId }));
       window.location.assign(await customerApi.githubConnect(organizationId));
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'No se pudo conectar GitHub.'); setBusy(false); }
   }
