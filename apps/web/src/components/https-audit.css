@@ -27,4 +27,7 @@
     .https-audit-results li > div { flex-basis: 100%; }
     .https-audit-form > button { width: 100%; }
   }
+  /* Field, profile and action share one height. */
+  .https-audit-form input, .https-audit-form [data-slot='select-trigger'], .https-audit-form > button { height: 40px; min-height: 40px; }
+  .https-audit-results li button { min-height: 34px; font-size: 14px; }
 }

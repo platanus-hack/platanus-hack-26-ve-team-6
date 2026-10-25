@@ -1,3 +1,5 @@
+/* Declare the cascade order here too: route stylesheets can load before the root one. */
+@layer theme, base, components, utilities;
 /* Shell: base and reset, app shell, sidebar, auth page, shared primitives (buttons, forms, cards, chips, states) and enrollment. */
 .customer-app-shell, .customer-auth-page {
   background: var(--background);
