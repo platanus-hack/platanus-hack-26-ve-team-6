@@ -61,7 +61,15 @@ export async function completeAiCorrectionForJob(tx: Transaction, raw: Correctio
   if (candidate.digest !== prepared.candidateDigest) correctionBoundary('correction_candidate_mismatch');
   const rescan = await customers.queue(actor, { ...app, mode: 'internal', sourceSnapshotId: candidate.id, targetId: null,
     idempotencyKey: `ai-correction:${row.id}:${prepared.patchHash}` });
-  const validationRunId = await enqueueValidation(tx, { ...app, candidateSourceId: candidate.id, baseSourceId: row.base_source_id,
+  const previousValidation = await tx.query<{ id: string; base_source_id: string; target_finding_id: string; base_snapshot_digest: string;
+    candidate_tree_digest: string; patch_digest: string; validation_mode: string }>(`SELECT id,base_source_id,target_finding_id,base_snapshot_digest,
+      candidate_tree_digest,patch_digest,validation_mode FROM gotchu.validation_runs
+      WHERE organization_id=$1 AND application_id=$2 AND action_ref=$3`, [scope.organizationId, scope.applicationId, candidate.id]);
+  const previous = previousValidation.rows[0];
+  if (previous && (previous.base_source_id !== row.base_source_id || previous.target_finding_id !== row.finding_id
+    || previous.base_snapshot_digest !== row.source_digest || previous.candidate_tree_digest !== candidate.digest
+    || previous.patch_digest !== prepared.patchHash || previous.validation_mode !== 'correction')) correctionBoundary('correction_candidate_already_bound');
+  const validationRunId = previous?.id ?? await enqueueValidation(tx, { ...app, candidateSourceId: candidate.id, baseSourceId: row.base_source_id,
     targetFindingId: row.finding_id, baseDigest: row.source_digest, candidateDigest: candidate.digest, patchDigest: prepared.patchHash });
   const paths = prepared.diff.map(file => file.path);
   await audit(tx, scope.organizationId, actor.userId, 'correction.prepared', candidate.id, {

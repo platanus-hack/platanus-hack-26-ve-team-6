@@ -23,12 +23,13 @@ export function createAiCorrectionService(deps: BaseDependencies) {
         await lockCorrectionApplication(tx, scope);
         await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`gotchu:ai-correction:${scope.organizationId}:${scope.applicationId}`]);
         const assessment = await correctionAssessment(tx, scope);
+        const fingerprint = await correctionModelFingerprint(tx, scope.organizationId);
         const prior = await tx.query<AiCorrectionRow>(`SELECT ${correctionProjectionColumns} FROM gotchu.ai_correction_requests
           WHERE organization_id=$1 AND application_id=$2 AND report_id=$3 AND finding_id=$4 AND source_digest=$5
             AND state IN ('queued','running','prepared','reconciliation_required')`,
         [scope.organizationId, scope.applicationId, scope.reportId, scope.findingId, scope.expectedSourceDigest]);
         if (prior.rows[0]) return projectAiCorrection(prior.rows[0]);
-        const fingerprint = await correctionModelFingerprint(tx, scope.organizationId, true);
+        await correctionModelFingerprint(tx, scope.organizationId, true);
         const active = await tx.query<{ count: number }>(`SELECT count(*)::int AS count FROM gotchu.ai_correction_requests
           WHERE organization_id=$1 AND application_id=$2 AND state IN ('queued','running','reconciliation_required')`, [scope.organizationId, scope.applicationId]);
         if ((active.rows[0]?.count ?? 3) >= 3) throw new BackendError('correction_capacity_exceeded', 'Three corrections are already active for this application', 429);

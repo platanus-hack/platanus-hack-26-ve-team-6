@@ -58,7 +58,9 @@ export async function correctionAssessment(tx: Transaction, scope: CorrectionRep
     || report.applicationId !== scope.applicationId || report.subject.sourceSnapshotId !== source.id
     || report.subject.sourceDigest !== source.digest) correctionBoundary('correction_source_mismatch');
   const finding = report.internal?.findings.find(item => item.id === scope.findingId);
-  if (!finding || finding.origin !== 'internal' || finding.evidenceIds.some(id => !report.internal?.evidence.some(item => item.id === id))) {
+  const snapshotRef = `source:${source.id}:sha256:${source.digest}`;
+  if (report.internal?.snapshotRef !== snapshotRef || !finding || finding.origin !== 'internal'
+    || finding.evidenceIds.some(id => !report.internal?.evidence.some(item => item.id === id && item.snapshotRef === snapshotRef && item.origin === 'internal'))) {
     correctionBoundary('correction_finding_unavailable');
   }
   const path = finding.location.replace(/:\d+(?::\d+)?$/, '');
@@ -134,6 +136,6 @@ export function applyCorrectionPatch(input: AiCorrectionInput, original: Custome
   const snapshot = parse(customerSourceSnapshotSchema, { revision: original.revision,
     files: original.files.map(file => ({ path: file.path, content: changed.get(file.path) ?? file.content })) });
   const candidateDigest = sha256(canonicalJson(snapshot));
-  const patchHash = sha256(canonicalJson({ correctionId: input.correctionId, sourceDigest: input.sourceDigest, candidateDigest, changes: patch.changes }));
+  const patchHash = sha256(canonicalJson({ sourceDigest: input.sourceDigest, candidateDigest, changes: patch.changes }));
   return { patch, diff, snapshot, candidateDigest, patchHash };
 }
