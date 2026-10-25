@@ -24,7 +24,7 @@ describe('customer report presentation', () => {
     });
     const markup = renderToStaticMarkup(createElement(ExternalHttpsEvidence, { analysis: external }));
     expect(markup).toContain('Pruebas de web y API');
-    expect(markup).toContain('Respuesta sin autenticación (HEAD) · 0/1 respuestas completas');
+    expect(markup).toContain('Respuesta sin autenticación (HEAD) · 0/1 observaciones completas');
     expect(markup).toContain('data-slot="accordion-trigger"');
     expect(markup).toContain('Cobertura parcial o desconocida');
     expect(markup).not.toContain('bypass demostrado');

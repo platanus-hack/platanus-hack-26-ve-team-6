@@ -11,6 +11,7 @@ const httpResponseExcerptSchema = z.object({
   path: z.string().min(1).optional(),
   profile: z.enum(['public_surface', 'api_checks']).optional(),
   method: z.enum(['GET', 'HEAD', 'OPTIONS']).optional(),
+  bodyPolicy: z.enum(['headers_only', 'bounded_body']).optional(),
 });
 
 function parseHttpResponseExcerpt(excerpt: string) {
@@ -39,7 +40,9 @@ function HttpEvidence({ item }: { item: AssessmentEvidence }) {
     {response ? <>
       <p>{response.method ?? 'GET'} · HTTP {response.status} · {response.tlsVerified ? 'TLS verificado' : 'TLS no verificado'}{response.profile === 'public_surface' ? ' · Superficie pública limitada' : response.profile === 'api_checks' ? ' · Web y API' : ''}</p>
       {response.path && <p>Ruta: <code>{response.path}</code></p>}
-      {response.incomplete === undefined
+      {response.bodyPolicy === 'headers_only' && response.incomplete === null
+        ? <p>Cabeceras observadas. Cuerpo no leído.</p>
+        : response.incomplete === undefined
         ? <p>Integridad de respuesta no indicada.</p>
         : response.incomplete === null
           ? <p>Respuesta completa.</p>

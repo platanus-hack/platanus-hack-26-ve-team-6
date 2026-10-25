@@ -21,10 +21,11 @@ export function ApiScenarioEvidence({ analysis }: { analysis: AssessmentAnalysis
       const complete = items.filter(item => item.status !== null && item.incomplete === null).length;
       const coverage = analysis.coverage.find(item => item.capability === `api_${id}`);
       return <AccordionItem key={id} value={id}>
-        <AccordionTrigger><span>{apiScenarioLabels[id]} · {complete}/{items.length} respuestas completas <Badge variant="outline">{coverage?.state === 'inspected' ? 'Observado' : 'Cobertura parcial o desconocida'}</Badge></span></AccordionTrigger>
+        <AccordionTrigger><span>{apiScenarioLabels[id]} · {complete}/{items.length} observaciones completas <Badge variant="outline">{coverage?.state === 'inspected' ? 'Observado' : 'Cobertura parcial o desconocida'}</Badge></span></AccordionTrigger>
         <AccordionContent>
         <ul>{items.map((item, i) => <li key={`${item.method}:${item.path}:${i}`}>
           <code>{item.method} {item.path}</code> · {item.status === null ? 'Sin respuesta' : `HTTP ${item.status}`}{item.incomplete && ` · ${item.incomplete}`}
+          {item.bodyPolicy === 'headers_only' && <span> · sólo cabeceras</span>}
           {item.signals.originAllowed && <p>CORS: {item.signals.originAllowed === 'probe_origin' ? 'acepta el origen de prueba' : item.signals.originAllowed === 'wildcard' ? 'permite cualquier origen (*)' : item.signals.originAllowed === 'absent' ? 'sin origen permitido en esta respuesta' : 'otro valor o valor ambiguo'} · credenciales: {item.signals.credentialsAllowed ? 'permitidas por la cabecera' : 'sin permiso declarado'}.</p>}
           {item.signals.allowedMethods && <p>Métodos anunciados: {item.signals.allowedMethods.join(', ') || 'sin métodos reconocidos'}.</p>}
           {item.signals.errorSignature && <p>Firma de error: {item.signals.errorSignature}. El texto de la respuesta no se conserva.</p>}
