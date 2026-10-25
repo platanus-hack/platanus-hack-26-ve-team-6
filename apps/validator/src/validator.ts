@@ -64,6 +64,7 @@ async function waitForReconciliationOrShutdown(signal?: AbortSignal): Promise<vo
 export interface ValidationWorkerOptions {
   readonly database: Database;
   readonly key: ValidatorKey;
+  readonly runnerCacheDir?: string;
   readonly runnerGate?: typeof checkRunnerGate;
   readonly scanner?: typeof scanner;
   readonly runnerJobAdapter?: (
@@ -83,7 +84,7 @@ export async function runValidatedRunnerJob(adapter: (job: z.infer<typeof runner
 
 export function createValidationWorker(options: ValidationWorkerOptions) {
   const inputRegistry = createValidationInputRegistry();
-  const vmRunner = createFirecrackerRunner({ maxConcurrent: options.concurrency ?? 1, resolveInput: inputRegistry.resolveInput });
+  const vmRunner = createFirecrackerRunner({ maxConcurrent: options.concurrency ?? 1, resolveInput: inputRegistry.resolveInput, cacheDir: options.runnerCacheDir });
   const runnerDigests = readFile(join(runnerPackageRoot, 'images.lock.json'), 'utf8').then(async raw => {
     const lockValue: unknown = JSON.parse(raw);
     const lock = imageLockSchema.parse(lockValue);
@@ -144,7 +145,7 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     const admission = { suiteConfigured: Boolean(run.suiteDefinitionId && row.suite_name && row.script_name && row.required_count), baseDigestMatches: row.base_source_digest === run.baseSnapshotDigest, candidateDigestMatches: row.candidate_source_digest === run.candidateTreeDigest, scriptName: typeof row.script_name === 'string' ? row.script_name : null, gateOpen: true };
     const preflightReason = validationAdmissionReason(admission);
     if (preflightReason) return inconclusive(preflightReason);
-    const gate = await (options.runnerGate ?? checkRunnerGate)();
+    const gate = await (options.runnerGate ?? checkRunnerGate)({ cacheDir: options.runnerCacheDir });
     const gateReason = validationAdmissionReason({ ...admission, gateOpen: gate.status === 'open' });
     if (gateReason) return inconclusive(gateReason);
     const base = customerSourceSnapshotSchema.parse(row.base_body); const candidate = customerSourceSnapshotSchema.parse(row.candidate_body);

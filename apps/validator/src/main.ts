@@ -11,6 +11,7 @@ const portSchema = z.coerce.number().int().min(1024).max(65535).default(4410);
 export async function main() {
   const connectionString = z.string().url().parse(process.env.GOTCHU_VALIDATOR_DATABASE_URL);
   const port = portSchema.parse(process.env.GOTCHU_VALIDATOR_PORT ?? 4410);
+  const runnerCacheDir = z.string().min(1).optional().parse(process.env.GOTCHU_VALIDATOR_RUNNER_CACHE_DIR);
   const database = createDatabase({ connectionString, role: 'gotchu_validator', max: 2 });
   const key = await loadValidatorKey();
   await database.tenant('00000000-0000-0000-0000-000000000000', async tx => {
@@ -19,10 +20,11 @@ export async function main() {
     if (stored.rows[0]?.public_key !== key.publicKey) throw new Error('validator_public_key_conflict');
   });
   const shutdown = new AbortController();
-  const worker = createValidationWorker({ database, key, concurrency: 1, shutdownSignal: shutdown.signal, runnerGate: async () => {
+  const runnerGate = async (gateOptions: Parameters<typeof checkRunnerGate>[0] = {}) => {
     if (process.env.GOTCHU_VALIDATOR_FORCE_GATE_CLOSED === '1') return { status: 'closed', reason: 'Runner gate closed by validator configuration.' };
-    return checkRunnerGate();
-  } });
+    return checkRunnerGate(gateOptions);
+  };
+  const worker = createValidationWorker({ database, key, concurrency: 1, shutdownSignal: shutdown.signal, runnerCacheDir, runnerGate });
   let stopping = false;
   const server = createServer(async (request, response) => {
     if (request.method !== 'GET' || (request.url !== '/healthz' && request.url !== '/readyz')) {
@@ -30,7 +32,7 @@ export async function main() {
     }
     const databaseReady = !stopping && await database.checkHealth().then(() => true, () => false);
     const gate = request.url === '/readyz' && databaseReady
-      ? process.env.GOTCHU_VALIDATOR_FORCE_GATE_CLOSED === '1' ? { status: 'closed', reason: 'Runner gate closed by validator configuration.' } : await checkRunnerGate()
+      ? await runnerGate({ cacheDir: runnerCacheDir })
       : null;
     const ready = databaseReady && (gate === null || gate.status === 'open');
     response.writeHead(ready ? 200 : 503, { 'content-type': 'application/json', 'cache-control': 'no-store', connection: 'close' }).end(JSON.stringify({ ready, ...(gate?.status === 'closed' ? { reason: 'runner_gate_closed' } : {}) }));
