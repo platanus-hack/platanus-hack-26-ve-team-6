@@ -1,20 +1,22 @@
 /* Signed-out pages (privacy, terms, setup): the landing's dossier language on a pure ground. */
-.pub-page { box-sizing: border-box; min-height: 100vh; background: var(--background); color: var(--foreground); padding: 0 clamp(20px, 4vw, 48px) clamp(48px, 6vw, 88px); font: 400 17px/1.65 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.pub-page { box-sizing: border-box; width: 100%; min-height: 100vh; min-width: 0; background: var(--background); color: var(--foreground); padding: 0 clamp(20px, 4vw, 48px) clamp(48px, 6vw, 88px); font: 400 17px/1.65 'Gotchu Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 .pub-page *, .pub-page *::before, .pub-page *::after { box-sizing: border-box; }
 .pub-page ::selection { background: var(--band); color: var(--band-foreground); }
-.pub-page :where(a, button, input, summary):focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }
+.pub-page :where(button, input, summary):focus-visible { outline: none !important; box-shadow: none !important; border-color: var(--brand-ink) !important; }
+.pub-page :where(a):focus-visible { outline: none !important; box-shadow: none !important; color: var(--brand-ink); text-decoration: underline; text-decoration-color: var(--brand-ink); }
 .pub-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1400px; min-height: 52px; margin: 0 auto clamp(28px, 5vw, 64px); }
 .pub-brand { display: inline-flex; align-items: center; gap: 10px; min-height: 34px; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: .08em; text-decoration: none; text-transform: uppercase; }
 .pub-link { color: var(--foreground); font-weight: 500; text-decoration: underline; text-decoration-color: var(--brand); text-decoration-thickness: 2px; text-underline-offset: .28em; transition: color 160ms var(--ease); }
 .pub-link:hover { color: var(--brand-ink); }
 
-.pub-doc { max-width: 62ch; margin: 0 auto 0 max(0px, calc((100% - 1400px) / 2)); }
+.pub-doc { width: 100%; max-width: 62ch; min-width: 0; margin: 0 auto 0 max(0px, calc((100% - 1400px) / 2)); overflow-wrap: anywhere; }
 .pub-doc h1 { margin: 0 0 clamp(20px, 3vw, 32px); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(28px, 4.4vw, 64px); font-weight: 700; line-height: 1.02; letter-spacing: -.015em; text-transform: uppercase; text-wrap: balance; }
-.pub-doc h2 { margin: clamp(32px, 4vw, 48px) 0 14px; padding-top: 14px; border-top: 2px solid var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(18px, 1.9vw, 24px); font-weight: 700; line-height: 1.1; letter-spacing: -.005em; text-transform: uppercase; }
+.pub-doc h2 { margin: clamp(40px, 5vw, 64px) 0 14px; font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(18px, 1.9vw, 24px); font-weight: 700; line-height: 1.1; letter-spacing: -.005em; text-transform: uppercase; }
 .pub-doc p, .pub-doc ul { margin: 0 0 1em; }
-.pub-note { margin: 0 0 clamp(24px, 3vw, 40px) !important; padding-left: 14px; border-left: 2px solid var(--brand); color: var(--muted-foreground); font: 400 12.5px/1.55 var(--mono); }
+.pub-note { margin: 0 0 clamp(24px, 3vw, 40px) !important; color: var(--muted-foreground); font: 400 12.5px/1.55 var(--mono); }
 .pub-note strong { color: var(--foreground); font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
 .pub-doc ul { display: grid; gap: 10px; padding: 0; list-style: none; }
 .pub-doc li { position: relative; padding-left: 26px; }
 .pub-doc li::before { content: ''; position: absolute; left: 0; top: .6em; width: 8px; height: 8px; background: var(--brand); transform: rotate(45deg); }
-.pub-doc .pub-link { display: inline-block; margin-top: 12px; font-size: 15px; }
+.pub-doc summary { min-height: 34px; align-content: center; cursor: pointer; }
+.pub-doc .pub-link { display: inline-flex; min-height: 34px; align-items: center; margin-top: 12px; font-size: 15px; }

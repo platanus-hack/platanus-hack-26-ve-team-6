@@ -11,7 +11,7 @@ import {
 import { customerApi, CustomerApiError } from './customer-client';
 
 const scopeNames: Record<InvestigationDataScope, string> = {
-  application_context: 'Contexto declarado de la aplicación',
+  application_context: 'Contexto declarado de el proyecto',
   finding_details: 'Detalles de hallazgos e incidentes',
   source_excerpts: 'Fragmentos de código alrededor del hallazgo',
   assessment_diffs: 'Comparación entre evaluaciones',
@@ -110,7 +110,7 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
   const ready = settings.data?.status === 'ready';
   return <section className="customer-card customer-panel customer-investigation-settings">
     <div className="customer-card-heading"><div><h2>Modelo y consentimiento</h2></div><span className={`customer-status ${ready ? 'customer-ops-status-ready' : 'customer-ops-status-warning'}`}>{ready ? 'Disponible' : 'Investigación deshabilitada'}</span></div>
-    <p>La revisión determinista sigue disponible sin modelo. Al habilitarlo, Gotchu enviará sólo las categorías marcadas y los fragmentos redactados. La clave se guarda en el servidor y sólo se muestra si ya está configurada.</p>
+    <p>Al habilitar el modelo, se envían al proveedor las categorías elegidas y fragmentos de código redactados.</p>
     {settings.error && <p className="customer-form-error" role="alert">{errorText(settings.error)}</p>}
     <label htmlFor="investigation-provider">Proveedor</label>
     <select id="investigation-provider" value={providerPresetId} onChange={event => {
@@ -127,7 +127,6 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
     {providerPresetId === 'custom_openai_compatible' && <>
       <label htmlFor="investigation-endpoint">Endpoint HTTPS personalizado</label>
       <input id="investigation-endpoint" type="url" value={customEndpoint} onChange={event => setCustomEndpoint(event.target.value)} maxLength={2048} disabled={!isOwner || save.isPending || testConnection.isPending} placeholder="https://api.example.com/v1" />
-      <p className="customer-field-note">Debe resolver a direcciones públicas. El modo de autohospedaje requiere habilitación del operador.</p>
     </>}
     <label htmlFor="investigation-model-id">Modelo</label>
     <input id="investigation-model-id" list="investigation-model-suggestions" value={modelId} onChange={event => setModelId(event.target.value)} maxLength={200} disabled={!isOwner || save.isPending || testConnection.isPending} placeholder="Escribe un ID de modelo" />
@@ -155,10 +154,10 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
     {notice && <p role="status">{notice}</p>}
     <div className="customer-ops-alert-actions">
       <button className="customer-button customer-button-primary" type="button" disabled={!isOwner || save.isPending || testConnection.isPending} onClick={() => { setNotice(null); save.mutate(); }}>{save.isPending ? 'Guardando…' : 'Guardar configuración'}</button>
-      <button className="customer-button" type="button" disabled={!isOwner || save.isPending || testConnection.isPending} onClick={() => { setNotice(null); testConnection.mutate(); }}>{testConnection.isPending ? 'Probando conexión…' : 'Probar conexión'}</button>
+      <button className="customer-button" type="button" disabled={!isOwner || save.isPending || testConnection.isPending} onClick={() => { setNotice(null); testConnection.mutate(); }}>{testConnection.isPending ? 'Guardando y probando…' : 'Guardar y probar conexión'}</button>
       {isOwner && ready && <button className="customer-button" type="button" disabled={disable.isPending || save.isPending || testConnection.isPending} onClick={() => disable.mutate()}>{disable.isPending ? 'Deshabilitando…' : 'Deshabilitar y eliminar clave'}</button>}
     </div>
-    {!isOwner && <p className="customer-field-note">Sólo la persona propietaria puede cambiar el proveedor, los permisos y los presupuestos.</p>}
+    {!isOwner && <p className="customer-field-note">Sólo Owner puede cambiar el proveedor, los permisos y el presupuesto.</p>}
   </section>;
 }
 
@@ -174,8 +173,8 @@ export function InvestigationActionButton({ organizationId, applicationId, subje
   const requiredScope: InvestigationDataScope = subject.kind === 'finding' ? 'finding_details' : 'runtime_summaries';
   const enabled = settings.data?.status === 'ready' && settings.data.dataScopes.includes(requiredScope);
   return <div className="customer-investigation-action">
-    <button className="customer-button customer-button-secondary" type="button" disabled={!canManage || !enabled || request.isPending} title={!enabled ? 'Investigación deshabilitada: revisa modelo, consentimiento y categorías autorizadas.' : undefined} onClick={() => request.mutate()}>{request.isPending ? 'Solicitando…' : 'Investigar'}</button>
-    {!enabled && <small>Investigación deshabilitada</small>}
+    <button className="customer-button customer-button-secondary" type="button" disabled={!canManage || !enabled || request.isPending} title={!enabled ? 'Investigación deshabilitada: revisa modelo, consentimiento y categorías autorizadas.' : undefined} onClick={() => request.mutate()}>{request.isPending ? 'Solicitando…' : subject.kind === 'finding' ? 'Analizar hallazgo' : subject.kind === 'alert' ? 'Analizar alerta' : 'Analizar eventos'}</button>
+    {!enabled && <small>Configura el modelo y autoriza las categorías antes de investigar.</small>}
     {request.error && <small role="alert">{errorText(request.error)}</small>}
   </div>;
 }
@@ -191,16 +190,17 @@ export function InvestigationsTimeline({ organizationId, applicationId, canManag
   const runs = useQuery({ queryKey: key, queryFn: () => customerApi.investigations(organizationId, applicationId), retry: false, refetchInterval: 5_000 });
   const cancel = useMutation({ mutationFn: (jobId: string) => customerApi.cancelInvestigation(organizationId, applicationId, jobId), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: key }); } });
   const resume = useMutation({ mutationFn: (jobId: string) => customerApi.resumeInvestigation(organizationId, applicationId, jobId), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: key }); } });
+  if (!runs.isPending && !runs.error && runs.data?.length === 0) return null;
   return <section className="customer-card customer-panel customer-investigation-timeline">
-    <div className="customer-card-heading"><div><h2>Explicaciones y evidencias</h2></div></div>
-    {runs.isPending ? <p>Cargando investigaciones…</p> : runs.error ? <p className="customer-form-error" role="alert">{errorText(runs.error)}</p> : runs.data?.length === 0 ? <p className="customer-empty-inline">Todavía no hay investigaciones para esta aplicación.</p> : <ol>
+    <div className="customer-card-heading"><div><h2>Resultados de investigación</h2></div></div>
+    {runs.isPending ? <p>Cargando investigaciones…</p> : runs.error ? <p className="customer-form-error" role="alert">{errorText(runs.error)}</p> : <ol>
       {runs.data?.map(run => <li key={run.jobId}>
         <div className="customer-investigation-run-heading"><strong>{statusNames[run.status]}</strong><span>{new Date(run.createdAt).toLocaleString('es')}</span></div>
         <p>{run.summary ?? (run.status === 'reconciliation_required' ? 'El coste de una llamada quedó reservado porque el proveedor no confirmó su uso.' : 'La investigación está en curso o no produjo una explicación.')}</p>
-        {run.assessment && <span className="customer-status customer-status-muted">Evaluación del modelo: {run.assessment === 'candidate_issue' ? 'indicio candidato' : run.assessment === 'no_issue_supported' ? 'sin indicio respaldado' : 'inconclusa'} · nunca equivale a un hallazgo verificado</span>}
+        {run.assessment && <span className="customer-status customer-status-muted">Evaluación del modelo: {run.assessment === 'candidate_issue' ? 'indicio candidato' : run.assessment === 'no_issue_supported' ? 'sin indicio respaldado' : 'inconclusa'}</span>}
         {run.citedEvidenceIds.length > 0 && <details><summary>Evidencia citada ({run.citedEvidenceIds.length})</summary><ul>{run.citedEvidenceIds.map(id => <li key={id}><code>{id}</code></li>)}</ul></details>}
         {run.hypotheses.length > 0 && <details><summary>Hipótesis</summary><ul>{run.hypotheses.map((item, index) => <li key={`${run.jobId}:${index}`}>{item.statement}<br /><small>Evidencias: {item.evidenceIds.join(', ')}</small></li>)}</ul></details>}
-        {run.candidateSuggestion && <div className="customer-investigation-suggestion"><strong>Sugerencia privada · requiere D05 y aprobación humana</strong><p>{run.candidateSuggestion.summary}</p>{run.candidateSuggestion.path && <code>{run.candidateSuggestion.path}</code>}<p className="customer-field-note">Evidencias: {run.candidateSuggestion.evidenceIds.join(', ')}</p></div>}
+        {run.candidateSuggestion && <div className="customer-investigation-suggestion"><strong>Sugerencia de cambio · requiere aprobación</strong><p>{run.candidateSuggestion.summary}</p>{run.candidateSuggestion.path && <code>{run.candidateSuggestion.path}</code>}<p className="customer-field-note">Evidencias: {run.candidateSuggestion.evidenceIds.join(', ')}</p></div>}
         <p className="customer-field-note">{run.tokensSpent.toLocaleString('es')} tokens · ${(run.costMicroUsd / 1_000_000).toFixed(6)} USD gastados · ${(run.reservedCostMicroUsd / 1_000_000).toFixed(6)} USD y {run.reservedTokens.toLocaleString('es')} tokens reservados.</p>
         {canManage && (run.state === 'queued' || run.state === 'running') && <button className="customer-button" type="button" disabled={cancel.isPending} onClick={() => cancel.mutate(run.jobId)}>Cancelar</button>}
         {canManage && (['delayed', 'inconclusive'].includes(run.status) || run.state === 'failed') && run.reservedCostMicroUsd === 0 && run.reservedTokens === 0 && <button className="customer-button" type="button" disabled={resume.isPending} onClick={() => resume.mutate(run.jobId)}>Reanudar</button>}

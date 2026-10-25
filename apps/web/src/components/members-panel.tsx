@@ -29,7 +29,7 @@ export function MembersPanel({ organizationId, userId, role }: { organizationId:
   const invitations = useQuery({ queryKey: ['workspace-invitations', organizationId], queryFn: () => membersApi.invitations(organizationId), enabled: role === 'owner', retry: false });
   const invite = useMutation({
     mutationFn: () => membersApi.invite(organizationId, email, inviteRole),
-    onSuccess: async result => { setEmail(''); setInviteLink(result.invitationUrl); setCopied(false); setMessage('Enlace creado. La entrega por correo no está configurada; compártelo con la persona invitada.'); await invalidate(); },
+    onSuccess: async result => { setEmail(''); setInviteLink(result.invitationUrl); setCopied(false); setMessage('Enlace creado. Compártelo con la persona invitada.'); await invalidate(); },
   });
   const revoke = useMutation({ mutationFn: (id: string) => membersApi.revokeInvitation(organizationId, id), onSuccess: invalidate });
   const changeRole = useMutation({ mutationFn: ({ userId: target, role: next }: { userId: string; role: WorkspaceRole }) => membersApi.changeRole(organizationId, target, next), onSuccess: invalidate });
@@ -51,14 +51,13 @@ export function MembersPanel({ organizationId, userId, role }: { organizationId:
   }
 
   return <section className="customer-card customer-panel" aria-labelledby="workspace-members-title">
-    <div className="customer-card-heading"><div><h2 id="workspace-members-title">Personas y acceso</h2></div><span className="customer-status customer-status-muted">{roleLabels[role]}</span></div>
-    <p className="customer-field-note">Los cambios de acceso invalidan las verificaciones y aprobaciones pendientes de la persona afectada.</p>
+    <div className="customer-card-heading"><div><h2 id="workspace-members-title">Miembros y roles</h2></div><span className="customer-status customer-status-muted">{roleLabels[role]}</span></div>
     {message && <p role="status" className="customer-success">{message}</p>}
     {members.isPending ? <div role="status" className="customer-loading">Cargando miembros…</div>
       : members.error ? <div role="alert" className="customer-form-error">{errorMessage(members.error)} <button type="button" className="customer-link-button" onClick={() => { members.refetch().catch(() => undefined); }}>Reintentar</button></div>
       : members.data?.length === 0 ? <p className="customer-empty-inline">Todavía no hay miembros en este espacio.</p>
       : <ul className="customer-ruled-list">{members.data?.map(member => <li key={member.userId}>
-        <div className="customer-member-row"><span className="customer-ruled-title"><strong>{member.email ?? member.userId}</strong><small>{member.email ? member.userId : `Se unió ${friendlyDate(member.joinedAt)}`}</small></span>
+        <div className="customer-member-row"><span className="customer-ruled-title"><strong>{member.email ?? member.userId}</strong><small>{member.userId === userId ? 'Tú · ' : ''}Se unió {friendlyDate(member.joinedAt)}</small></span>
           <span className="customer-status customer-status-muted">{roleLabels[member.role]}</span>
           {role === 'owner' && member.userId !== userId && <label className="customer-member-role"> <span className="sr-only">Rol de {member.email ?? member.userId}</span><select value={member.role} disabled={busy} onChange={event => { const nextRole = workspaceRoleSchema.safeParse(event.target.value); if (nextRole.success) changeRole.mutate({ userId: member.userId, role: nextRole.data }); }}><option value="owner">Owner</option><option value="operator">Operador</option><option value="viewer">Lector</option></select></label>}
           {role === 'owner' && member.userId !== userId && <button type="button" className="customer-link-button" disabled={busy} onClick={() => setAction({ kind: 'remove', userId: member.userId })}>Quitar</button>}
@@ -68,7 +67,7 @@ export function MembersPanel({ organizationId, userId, role }: { organizationId:
       <form className="customer-form" onSubmit={submitInvite}>
         <h3>Invitar a una persona</h3><label htmlFor="workspace-invite-email">Correo electrónico</label><input id="workspace-invite-email" type="email" autoComplete="email" maxLength={254} required value={email} onChange={event => setEmail(event.target.value)} />
         <label htmlFor="workspace-invite-role">Rol inicial</label><select id="workspace-invite-role" value={inviteRole} onChange={event => { const nextRole = inviteRoleSchema.safeParse(event.target.value); if (nextRole.success) setInviteRole(nextRole.data); }}><option value="viewer">Lector</option><option value="operator">Operador</option></select>
-        <p className="customer-field-note">El enlace vence en 7 días y sólo puede utilizarse una vez. El correo no se enviará automáticamente.</p>
+        <p className="customer-field-note">El enlace sirve una sola vez y vence en 7 días. Gotchu no lo envía por correo: compártelo tú.</p>
         {invite.error && <p role="alert" className="customer-form-error">{errorMessage(invite.error)}</p>}
         <button className="customer-button customer-button-primary" disabled={busy || !email.trim()}>Crear enlace de invitación</button>
       </form>
@@ -85,7 +84,7 @@ export function MembersPanel({ organizationId, userId, role }: { organizationId:
     {(remove.error || leave.error || changeRole.error) && <p role="alert" className="customer-form-error">{errorMessage(remove.error ?? leave.error ?? changeRole.error)}</p>}
     {action && <div role="alertdialog" aria-modal="true" aria-labelledby="member-confirm-title" aria-describedby="member-confirm-copy" className="customer-confirm-dialog" tabIndex={-1}>
       <h3 id="member-confirm-title">{action.kind === 'leave' ? '¿Salir de este espacio?' : '¿Quitar a esta persona?'}</h3>
-      <p id="member-confirm-copy">Perderá acceso al espacio. Sus verificaciones de segundo factor y aprobaciones pendientes se invalidarán. Las operaciones que ya estén en curso completarán su comprobación de permiso antes de continuar.</p>
+      <p id="member-confirm-copy">Perderá acceso al espacio. Se invalidarán sus verificaciones en dos pasos y aprobaciones pendientes.</p>
       <div className="customer-dialog-actions"><button type="button" className="customer-button customer-button-secondary" disabled={busy} onClick={() => setAction(null)}>Cancelar</button><button type="button" className="customer-button customer-button-danger" disabled={busy} onClick={confirmAction}>{busy ? 'Actualizando…' : action.kind === 'leave' ? 'Salir del espacio' : 'Quitar miembro'}</button></div>
     </div>}
   </section>;

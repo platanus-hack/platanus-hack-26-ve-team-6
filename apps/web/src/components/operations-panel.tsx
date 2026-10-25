@@ -29,7 +29,7 @@ const statusNames: Record<OperationCoverage['status'], string> = {
 };
 const observationNames: Record<OperationAlert['observation']['kind'], string> = {
   repository_change: 'Cambio en el repositorio', dependency_advisory: 'Aviso de dependencia', public_surface: 'Superficie pública',
-  upstream_outage: 'Estado de proveedor', traffic_pressure: 'Presión de tráfico', application_error: 'Error de aplicación',
+  upstream_outage: 'Estado de proveedor', traffic_pressure: 'Presión de tráfico', application_error: 'Error de proyecto',
   security_finding: 'Hallazgo de seguridad', coverage_gap: 'Brecha de cobertura', coverage_check: 'Comprobación de cobertura',
 };
 const severityNames = { info: 'Información', low: 'Baja', medium: 'Media', high: 'Alta', critical: 'Crítica' } as const;
@@ -190,7 +190,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     onSuccess: async (plan, variables) => {
       updatePlanCache(plan);
       setStepDrafts(current => { const next = { ...current }; delete next[`${plan.id}:${variables.key}`]; return next; });
-      setNotice('La declaración se guardó como autoinformada; no es una verificación independiente.');
+      setNotice('La declaración se guardó como autoinformada.');
       await queryClient.invalidateQueries({ queryKey: decisionRecordKey });
     },
     onError: caught => { setOperationError(errorText(caught)); queryClient.invalidateQueries({ queryKey: keys.plans }).catch(() => undefined); },
@@ -233,12 +233,6 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     ...(repositories.data ?? []).map(repository => `repository:${repository.key}`),
   ];
   const currentConfig = coverage.data?.config;
-  const quotaMeters = coverage.data ? [
-    { key: 'runs', label: 'Ejecuciones de vigilancia', used: coverage.data.quotas.runs.used, limit: coverage.data.quotas.runs.limit },
-    { key: 'observations', label: 'Observaciones conservadas', used: coverage.data.quotas.observations.used, limit: coverage.data.quotas.observations.limit },
-    { key: 'daily', label: 'Nuevas observaciones · últimas 24 h', used: coverage.data.quotas.observations.lastDayUsed, limit: coverage.data.quotas.observations.lastDayLimit },
-    { key: 'plans', label: 'Planes operativos', used: coverage.data.quotas.plans.used, limit: coverage.data.quotas.plans.limit },
-  ] : [];
   const selectedBasisIsMissing = basis !== '' && !availableBasis.includes(basis);
   const targetIsCurrent = verifiedTargets.some(target => target.id === targetId);
   const basisSelected = (basis !== '' && !selectedBasisIsMissing) || targetIsCurrent || providers.length > 0;
@@ -248,38 +242,28 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}><XIcon size={14} aria-hidden="true" /></button></div>}
 
     <section className="customer-card customer-panel customer-ops-card" aria-labelledby="monitoring-title">
-      <div className="customer-card-heading"><div><h2 id="monitoring-title">Supervisar esta aplicación</h2></div>
+      <div className="customer-card-heading"><div><h2 id="monitoring-title">Revisiones periódicas</h2></div>
         {coverage.data && <span className={`customer-status ${coverageTone(coverage.data)}`}>{coverage.data.status === 'active' && coverage.data.observations.stale > 0 ? 'Hay evidencia atrasada' : statusNames[coverage.data.status]}</span>}
       </div>
-      <p className="customer-card-copy">Programa revisiones con fuentes fijas, el origen HTTPS verificado y estados de proveedor disponibles. Una revisión incompleta o atrasada se muestra como tal; una señal no confirma por sí sola un ataque ni una corrección.</p>
-      <div className="customer-ops-facts">
-        <p>El intervalo permitido es de 1 a 24 horas; el valor inicial es cada 6 horas. El límite compartido es de hasta 20 evaluaciones por espacio de trabajo al día.</p>
-        <p>La cobertura se limita a las fuentes que selecciones. No equivale a un inventario completo de la empresa. La retención puede eliminar historial antes del plazo configurado para respetar estas cuotas.</p>
-      </div>
+      <p className="customer-card-copy">Las revisiones son periódicas, no en tiempo real.</p>
       {coverage.isPending ? <div className="customer-loading" role="status"><span className="customer-spinner" />Cargando el estado de vigilancia…</div>
         : coverage.error ? <div className="customer-inline-error" role="alert">{errorText(coverage.error)} <button className="customer-link-button" type="button" onClick={() => { coverage.refetch().catch(() => undefined); }}>Reintentar</button></div>
           : coverage.data && <>
             <div className="customer-ops-summary" aria-live="polite">
               <div><span>Observaciones vigentes</span><strong>{coverage.data.observations.fresh}</strong></div>
               <div><span>Observaciones atrasadas</span><strong>{coverage.data.observations.stale}</strong></div>
-              <div><span>Alcance actual</span><strong>{coverage.data.scopeCurrent ? 'Vigente' : 'Revisar'}</strong></div>
-            </div>
-            <div className="customer-ops-quotas" role="group" aria-label="Consumo de cuotas de vigilancia">
-              {quotaMeters.map(quota => <div className="customer-ops-quota" key={quota.key}>
-                <div><span>{quota.label}</span><strong>{quota.used.toLocaleString('es')} / {quota.limit.toLocaleString('es')}</strong></div>
-                <progress max={quota.limit} value={Math.min(quota.used, quota.limit)} aria-label={`${quota.label}: ${quota.used} de ${quota.limit}`} />
-              </div>)}
+              <div><span>Fuentes configuradas</span><strong className="customer-ops-summary-text">{coverage.data.scopeCurrent ? 'Vigentes' : 'Por actualizar'}</strong></div>
             </div>
             {coverage.data.lastRun && <div className="customer-ops-last-run"><strong>Última ejecución</strong><span>{coverage.data.lastRun.status === 'completed' ? 'Completada' : coverage.data.lastRun.status === 'running' ? 'En curso' : coverage.data.lastRun.status === 'degraded' ? 'Incompleta' : 'Cancelada'} · {formatDate(coverage.data.lastRun.startedAt)}</span>{coverage.data.lastRun.reason && <p>{coverage.data.lastRun.reason}</p>}</div>}
             {coverage.data.limitations.length > 0 && <details className="customer-ops-limitations"><summary>Límites de esta cobertura</summary><ul>{coverage.data.limitations.map(item => <li key={item}>{item}</li>)}</ul></details>}
           </>}
       <form className="customer-form customer-ops-form" onSubmit={saveMonitoring}>
-        <label className="customer-checkbox customer-ops-toggle"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} disabled={!canManage || configure.isPending || coverage.isPending || Boolean(coverage.error)} /><span>Activar revisiones periódicas para esta aplicación</span></label>
+        <label className="customer-checkbox customer-ops-toggle"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} disabled={!canManage || configure.isPending || coverage.isPending || Boolean(coverage.error)} /><span>Activar revisiones periódicas para este proyecto</span></label>
         <label htmlFor="monitor-interval">Frecuencia</label>
         <select id="monitor-interval" value={intervalSeconds} onChange={event => setIntervalSeconds(Number(event.target.value))} disabled={!canManage || configure.isPending}>
           {intervals.map(hours => <option key={hours} value={hours * 3600}>{hours === 1 ? 'Cada hora' : `Cada ${hours} horas`}</option>)}
         </select>
-        <label htmlFor="monitor-basis">Fuente principal <span>(elige una)</span></label>
+        <label htmlFor="monitor-basis">Instantánea o repositorio <span>(elige una)</span></label>
         <select id="monitor-basis" value={basis} onChange={event => setBasis(event.target.value)} disabled={!canManage || configure.isPending}>
           <option value="">Sin fuente de código o repositorio</option>
           {selectedBasisIsMissing && <option value={basis} disabled>{currentConfig?.repositoryKey ? 'Repositorio configurado, ya no disponible' : 'Instantánea configurada, ya no disponible'}</option>}
@@ -297,7 +281,6 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
         <fieldset className="customer-ops-providers" disabled={!canManage || configure.isPending}>
           <legend>Estado del proveedor (opcional)</legend>
           {(['cloudflare', 'railway'] as const).map(provider => <label className="customer-checkbox" key={provider}><input type="checkbox" checked={providers.includes(provider)} onChange={event => changeProvider(provider, event.target.checked)} /><span>{providerNames[provider]}</span></label>)}
-          <p className="customer-field-note">Se consulta sólo el estado que el adaptador del servicio pueda obtener. Un aviso del proveedor no prueba impacto en tu aplicación.</p>
         </fieldset>
         {enabled && !basisSelected && <p className="customer-form-error" role="status">Elige una instantánea, repositorio, origen verificado o estado de proveedor antes de activar.</p>}
         {!canManage && <p className="customer-field-note">Sólo una persona propietaria u operadora puede cambiar la vigilancia.</p>}
@@ -308,11 +291,10 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     </section>
 
     <section className="customer-card customer-panel customer-ops-card" aria-labelledby="alerts-title">
-      <div className="customer-card-heading"><div><h2 id="alerts-title">Alertas y señales</h2></div>{alerts.data && <span className="customer-status customer-status-muted">{alerts.data.length} registros</span>}</div>
-      <p className="customer-card-copy">Cada alerta conserva su origen y evidencia. Reconocer o resolver sólo registra el seguimiento del equipo; no confirma que el cambio técnico se haya aplicado.</p>
+      <div className="customer-card-heading"><div><h2 id="alerts-title">Alertas de evaluación</h2></div>{alerts.data && <span className="customer-status customer-status-muted">{alerts.data.length} registros</span>}</div>
       {alerts.isPending ? <div className="customer-loading" role="status"><span className="customer-spinner" />Cargando alertas…</div>
         : alerts.error ? <div className="customer-inline-error" role="alert">{errorText(alerts.error)} <button className="customer-link-button" type="button" onClick={() => { alerts.refetch().catch(() => undefined); }}>Reintentar</button></div>
-          : alerts.data?.length === 0 ? <div className="customer-empty-inline">Todavía no hay alertas para esta aplicación. La cobertura seleccionada aparecerá aquí cuando genere observaciones.</div>
+          : alerts.data?.length === 0 ? <div className="customer-empty-inline">Todavía no hay alertas para este proyecto. La cobertura seleccionada aparecerá aquí cuando genere observaciones.</div>
             : <div className="customer-ops-alert-list">{alerts.data?.map(alert => <AlertCard key={alert.id} userId={userId} organizationId={organizationId} alert={alert} canManage={canManage} busy={updateAlert.isPending || createPlan.isPending} resolution={resolutionDrafts[alert.id] ?? ''}
               onResolutionChange={value => setResolutionDrafts(current => ({ ...current, [alert.id]: value }))}
               onAcknowledge={() => updateAlert.mutate({ alert, state: 'acknowledged' })}
@@ -320,18 +302,17 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
               onCreatePlan={kind => createPlan.mutate({ alert, kind })} />)}</div>}
     </section>
 
-    <section className="customer-card customer-panel customer-ops-card" aria-labelledby="plans-title">
-      <div className="customer-card-heading"><div><h2 id="plans-title">Revisiones y preparación</h2></div>{plans.data && <span className="customer-status customer-status-muted">{plans.data.length} guías</span>}</div>
-      <p className="customer-card-copy">Estas guías ayudan al equipo a revisar capacidad, posibles migraciones o correcciones. Los pasos se guardan como declaraciones propias y no autorizan cambios en proveedores ni despliegues.</p>
+    {plans.data?.length === 0 && !plans.isPending && !plans.error ? null : <section className="customer-card customer-panel customer-ops-card" aria-labelledby="plans-title">
+      <div className="customer-card-heading"><div><h2 id="plans-title">Guías de revisión</h2></div>{plans.data && <span className="customer-status customer-status-muted">{plans.data.length} guías</span>}</div>
       {plans.isPending ? <div className="customer-loading" role="status"><span className="customer-spinner" />Cargando guías…</div>
         : plans.error ? <div className="customer-inline-error" role="alert">{errorText(plans.error)} <button className="customer-link-button" type="button" onClick={() => { plans.refetch().catch(() => undefined); }}>Reintentar</button></div>
-          : plans.data?.length === 0 ? <div className="customer-empty-inline">Las guías aparecerán a partir de observaciones. El tipo sugerido depende de evidencia real; volumen de tráfico por sí solo no recomienda balanceo.</div>
+          : plans.data?.length === 0 ? <div className="customer-empty-inline">Las guías aparecerán a partir de observaciones.</div>
             : <div className="customer-ops-plan-list">{plans.data?.map(plan => <PlanCard key={plan.id} userId={userId} organizationId={organizationId} plan={plan} readiness={readiness[plan.id] ?? null} canManage={canManage} busy={preparePlan.isPending || attestStep.isPending || checkReadiness.isPending}
               stepDrafts={stepDrafts} onStepDraft={(key, value) => setStepDrafts(current => ({ ...current, [`${plan.id}:${key}`]: value }))}
               onPrepare={() => preparePlan.mutate(plan)}
               onAttest={(key, attestation) => attestStep.mutate({ plan, key, attestation })}
               onReadiness={() => checkReadiness.mutate(plan)} />)}</div>}
-    </section>
+    </section>}
 
     <TelemetrySection userId={userId} scope={scope} canManage={canManage} />
   </div>;
@@ -355,22 +336,21 @@ function AlertCard({ userId, organizationId, alert, canManage, busy, resolution,
   const statusText = alert.state === 'open' ? 'Nueva' : alert.state === 'acknowledged' ? 'En revisión' : 'Resuelta por el equipo';
   const planLabel = planKind === 'investigate_capacity' && observation.metrics
     ? 'Preparar investigación de capacidad'
-    : planKind === 'migration_readiness' ? 'Preparar revisión de migración' : 'Crear guía de revisión';
+    : planKind === 'migration_readiness' ? 'Preparar revisión de migración' : 'Preparar guía basada en la alerta';
 
   return <article className="customer-ops-alert">
     <div className="customer-ops-alert-heading"><div><h3>{observation.summary}</h3><span className="customer-eyebrow">{observationNames[observation.kind]}</span></div><div className="customer-ops-badges"><span className={`customer-severity customer-severity-${observation.severity === 'info' ? 'informational' : observation.severity}`}>{severityNames[observation.severity]}</span><span className={`customer-status ${observation.fresh ? 'customer-ops-status-ready' : 'customer-ops-status-warning'}`}>{observation.fresh ? 'Evidencia vigente' : 'Evidencia atrasada'}</span><span className="customer-status customer-status-muted">{statusText}</span></div></div>
     <div className="customer-ops-meta"><span>Confianza: {confidenceNames[observation.confidence]}</span><span>Observada: {formatDate(observation.observedAt)}</span><span>Vence: {formatDate(observation.expiresAt)}</span>{observation.incidentId && <span>Incidente: {observation.incidentId}</span>}</div>
     {observation.metrics && <div className="customer-ops-metrics"><span>{observation.metrics.requestCount} solicitudes</span><span>{observation.metrics.errorCount} errores</span><span>Latencia p95 {observation.metrics.latencyP95Ms === null ? 'sin medir' : `${observation.metrics.latencyP95Ms} ms`}</span><span>Uso de capacidad {observation.metrics.capacityUtilization === null ? 'sin medir' : `${Math.round(observation.metrics.capacityUtilization * 100)}%`}</span></div>}
-    {observation.upstreamImpact !== 'not_applicable' && <p className="customer-field-note">Impacto de proveedor: {observation.upstreamImpact === 'observed' ? 'observado' : 'no verificado'}; no se asume impacto en la aplicación.</p>}
+    {observation.upstreamImpact !== 'not_applicable' && <p className="customer-field-note">Impacto de proveedor: {observation.upstreamImpact === 'observed' ? 'observado' : 'no verificado'}.</p>}
     <details className="customer-ops-evidence"><summary>Evidencia y procedencia ({observation.evidence.length})</summary>
       <ul>{observation.evidence.map((item, index) => <li key={`${item.source}:${item.reference}:${index}`}><strong>{evidenceSourceNames[item.source]}</strong><span>Referencia: {item.reference}</span><span>{item.adapter} · versión {item.adapterVersion}</span><span>Recopilada: {formatDate(item.collectedAt)}</span><code>SHA-256: {item.checksum}</code></li>)}</ul>
-      <p>Verificación: observación confiable. Esta etiqueta valida la procedencia registrada, no una corrección ni un impacto explotado.</p>
     </details>
     {alert.resolution && <p className="customer-ops-resolution"><strong>Nota del equipo:</strong> {alert.resolution}</p>}
     {alert.state !== 'resolved' && <InvestigationActionButton organizationId={organizationId} applicationId={observation.applicationId} subject={{ kind: 'alert', subjectId: alert.id }} canManage={canManage && observation.fresh && ['medium', 'high', 'critical'].includes(observation.severity)} />}
     {alert.state !== 'resolved' && <div className="customer-ops-alert-actions">
-      {alert.state === 'open' && <button className="customer-button" type="button" disabled={!canManage || busy} onClick={onAcknowledge}>Marcar revisada</button>}
-      <label htmlFor={`resolution-${alert.id}`}>Nota para resolver <span>(seguimiento del equipo, no corrección verificada)</span></label>
+      {alert.state === 'open' && <button className="customer-button" type="button" disabled={!canManage || busy} onClick={onAcknowledge}>Reconocer alerta</button>}
+      <label htmlFor={`resolution-${alert.id}`}>Nota para resolver</label>
       <input id={`resolution-${alert.id}`} value={resolution} maxLength={2000} onChange={event => onResolutionChange(event.target.value)} disabled={!canManage || busy} placeholder="Describe la decisión o seguimiento" />
       <button className="customer-button" type="button" disabled={!canManage || busy || !resolution.trim()} onClick={onResolve}>Resolver alerta</button>
       <button className="customer-button customer-button-primary" type="button" disabled={!canManage || busy || !canCreatePlan} title={!canCreatePlan ? 'Actualiza la evidencia antes de crear una guía.' : undefined} onClick={() => onCreatePlan(planKind)}>{planLabel}</button>
@@ -394,7 +374,7 @@ function PlanCard({ userId, organizationId, plan, readiness, canManage, busy, st
 }) {
   const currentReadiness = readiness !== null && readiness.revision === plan.revision && readiness.actionHash === plan.actionHash ? readiness : null;
   return <article className="customer-ops-plan">
-    <div className="customer-ops-plan-heading"><div><h3>{plan.state === 'draft' ? 'Borrador consultivo' : 'Preparación solicitada'}</h3><span className="customer-eyebrow">{planNames[plan.kind]}</span><p>Revisión {plan.revision} · actualizada {formatDate(plan.updatedAt)}</p></div><span className="customer-status customer-status-muted">Ejecución desactivada</span></div>
+    <div className="customer-ops-plan-heading"><div><h3>{plan.state === 'draft' ? 'Borrador consultivo' : 'Preparación solicitada'}</h3><span className="customer-eyebrow">{planNames[plan.kind]}</span><p>Revisión {plan.revision} · actualizada {formatDate(plan.updatedAt)}</p></div></div>
     <p className="customer-ops-meta">Observaciones de origen: {plan.observationIds.join(', ')}</p>
     <ol className="customer-ops-steps">{plan.steps.map(step => {
       const key = step.key;
@@ -413,10 +393,8 @@ function PlanCard({ userId, organizationId, plan, readiness, canManage, busy, st
     <div className="customer-ops-plan-actions">
       {plan.state === 'draft' && <button className="customer-button" type="button" disabled={!canManage || busy} onClick={onPrepare}>Solicitar preparación consultiva</button>}
       <button className="customer-button" type="button" disabled={busy} onClick={onReadiness}>Revisar requisitos de preparación</button>
-      <button className="customer-button customer-ops-disabled-action" type="button" disabled aria-describedby={`execute-reason-${plan.id}`}>Aplicar cambios</button>
-      <p id={`execute-reason-${plan.id}`}>La ejecución está desactivada: no se desplegarán servicios ni se modificarán proveedores desde aquí.</p>
     </div>
-    {currentReadiness && <div className="customer-ops-readiness" role="status"><strong>Lista para ejecutar: no</strong><p>La ejecución permanece desactivada. Aún se requieren:</p><ul>{currentReadiness.requirements.map(item => <li key={item}>{item}</li>)}</ul></div>}
+    {currentReadiness && <div className="customer-ops-readiness" role="status"><strong>Requisitos pendientes</strong><ul>{currentReadiness.requirements.map(item => <li key={item}>{item}</li>)}</ul></div>}
     <DecisionRecordHistory userId={userId} organizationId={organizationId} filter={{ subjectType: 'plan', subjectId: plan.id }} compact />
   </article>;
 }
@@ -484,12 +462,12 @@ function TelemetrySection({ userId, scope, canManage }: { userId: string; scope:
     <div className="customer-card-heading"><div><h2 id="telemetry-title">Telemetría firmada</h2></div>
       {activeIntegrations.length > 0 && <span className="customer-status customer-ops-status-muted">{activeIntegrations.length} integración(es)</span>}
     </div>
-    <p className="customer-card-copy">Conecta eventos emitidos por el servidor de tu aplicación. El estado sólo aparece vigente si hubo un evento en los últimos cinco minutos; una clave activa sin eventos no cuenta como cobertura reciente.</p>
+    <p className="customer-card-copy">La vigencia requiere un evento recibido en los últimos cinco minutos.</p>
     {error && <div className="customer-inline-error" role="alert">{error}</div>}
     {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}><XIcon size={14} aria-hidden="true" /></button></div>}
     {integrations.isPending ? <div className="customer-loading" role="status"><span className="customer-spinner" />Cargando integraciones…</div>
       : integrations.error ? <div className="customer-inline-error" role="alert">{errorText(integrations.error)} <button className="customer-link-button" type="button" onClick={() => { integrations.refetch().catch(() => undefined); }}>Reintentar</button></div>
-        : integrations.data?.length === 0 ? <div className="customer-empty-inline">No hay una integración configurada para esta aplicación.</div>
+        : integrations.data?.length === 0 ? <div className="customer-empty-inline">No hay una integración configurada para este proyecto.</div>
           : <div className="customer-ops-integrations">{integrations.data?.map(integration => {
             const lastEventTime = integration.lastEventAt ? Date.parse(integration.lastEventAt) : null;
             const fresh = now !== null && integration.status === 'active' && lastEventTime !== null && lastEventTime <= now && now - lastEventTime < 5 * 60_000;
@@ -499,10 +477,9 @@ function TelemetrySection({ userId, scope, canManage }: { userId: string; scope:
               {canManage && integration.status === 'active' && <button className="customer-link-button customer-danger-link" type="button" disabled={disconnect.isPending} onClick={() => { if (window.confirm('¿Desactivar esta integración? Dejará de aceptar eventos con su clave actual.')) disconnect.mutate(integration.id); }}>Desactivar integración</button>}
             </article>;
           })}</div>}
-    {signingKey && <div className="customer-ops-secret" role="status"><div><strong>Clave nueva · sólo visible ahora</strong><p>Guárdala en un secreto o variable de entorno privada del servidor de tu aplicación. No la incluyas en código de navegador, registros ni repositorios.</p></div><code>{signingKey}</code><p>Identificador de integración: {createdIntegrationId}</p><div className="customer-ops-secret-actions"><button className="customer-button" type="button" onClick={copySigningKey}>{copyState === 'copied' ? 'Copiada' : 'Copiar clave'}</button><button className="customer-link-button" type="button" onClick={() => { setSigningKey(null); setCreatedIntegrationId(null); setCopyState('idle'); }}>Ocultar clave</button></div>{copyState === 'error' && <p className="customer-form-error" role="alert">No se pudo copiar. Selecciona la clave para copiarla manualmente.</p>}</div>}
+    {signingKey && <div className="customer-ops-secret" role="status"><div><strong>Clave nueva · sólo visible ahora</strong><p>Guárdala en un secreto o variable de entorno privada del servidor de tu proyecto. No la incluyas en código de navegador, registros ni repositorios.</p></div><code>{signingKey}</code><p>Identificador de integración: {createdIntegrationId}</p><div className="customer-ops-secret-actions"><button className="customer-button" type="button" onClick={copySigningKey}>{copyState === 'copied' ? 'Copiada' : 'Copiar clave'}</button><button className="customer-link-button" type="button" onClick={() => { setSigningKey(null); setCreatedIntegrationId(null); setCopyState('idle'); }}>Ocultar clave</button></div>{copyState === 'error' && <p className="customer-form-error" role="alert">No se pudo copiar. Selecciona la clave para copiarla manualmente.</p>}</div>}
     {canManage && <button className="customer-button customer-button-primary customer-ops-connect" type="button" disabled={connecting || integrations.isPending || Boolean(integrations.error)} onClick={connectIntegration}>{connecting ? 'Creando clave…' : activeIntegrations.length > 0 ? 'Rotar clave de firma' : 'Crear clave de firma'}</button>}
-    {!canManage && <p className="customer-field-note">Sólo una persona propietaria u operadora puede administrar la clave.</p>}
-    <details className="customer-ops-sdk"><summary>Integración manual con el SDK de Node</summary><p>La conexión no instala el SDK ni cambia tu aplicación. Genera eventos en el servidor y envía lotes firmados con la clave guardada como secreto privado.</p><pre>{`import { httpRequestEvent, applicationErrorEvent, sendEventBatch } from '@gotchu/sdk';
+    <details className="customer-ops-sdk"><summary>Integrar eventos en Node.js</summary><p>Genera eventos en el servidor y envíalos con la clave privada de esta integración.</p><pre>{`import { httpRequestEvent, applicationErrorEvent, sendEventBatch } from '@gotchu/sdk';
 
 const batch = { applicationId, events: [
   httpRequestEvent({ route: '/orders/:id', statusCode: 200, durationMs: 34 }),

@@ -48,7 +48,7 @@ export function DependencyInventoryPanel({ inventory, findings, busy, error, onD
     return priority[leftState] - priority[rightState] || left.name.localeCompare(right.name) || left.version.localeCompare(right.version);
   });
   return <section className="customer-report-section customer-dependency-inventory">
-    <div className="customer-section-heading"><div><span className="customer-eyebrow">INVENTARIO DE DEPENDENCIAS</span><h3>{inventory.components.length} paquetes exactos</h3></div><button className="customer-button customer-button-primary" disabled={busy} onClick={onDownload}>{busy ? 'Preparando SBOM…' : 'Descargar SBOM (CycloneDX)'}</button></div>
+    <div className="customer-section-heading"><div><h3>{inventory.components.length} paquetes exactos</h3></div><button className="customer-button customer-button-primary" disabled={busy} onClick={onDownload}>{busy ? 'Preparando SBOM…' : 'Descargar SBOM (CycloneDX)'}</button></div>
     {error && <p className="customer-form-error" role="alert">{error}</p>}
     <div className="customer-dependency-coverage" role="status">
       <strong>{inventory.complete ? 'Lockfiles compatibles inspeccionados' : 'Cobertura parcial o desconocida'}</strong>
@@ -62,9 +62,9 @@ export function DependencyInventoryPanel({ inventory, findings, busy, error, onD
           <label>Buscar paquete o archivo<input value={search} onChange={event => setSearch(event.target.value)} placeholder="Nombre, versión o lockfile" /></label>
           <label>Política<select value={policyStatus} onChange={event => setPolicyStatus(event.target.value as typeof policyStatus)}><option value="all">Todos los estados</option><option value="allowed">Permitida</option><option value="review">Revisión</option><option value="denied">No permitida</option></select></label>
           <label>Relación<select value={relationship} onChange={event => setRelationship(event.target.value as typeof relationship)}><option value="all">Todas</option><option value="direct">Directa</option><option value="transitive">Transitiva</option><option value="unknown">Desconocida</option></select></label>
-          <label>Alcance estático<select value={reachability} onChange={event => setReachability(event.target.value as typeof reachability)}><option value="all">Todas</option><option value="reachable">Símbolo referenciado</option><option value="imported">Paquete importado</option><option value="not_found_static">Sin importación estática</option><option value="unknown">Desconocida</option></select></label>
+          <label>Alcance estático (uso en el código)<select value={reachability} onChange={event => setReachability(event.target.value as typeof reachability)}><option value="all">Todos</option><option value="reachable">Símbolo referenciado</option><option value="imported">Paquete importado</option><option value="not_found_static">Sin importación estática</option><option value="unknown">Desconocido</option></select></label>
         </div>
-        {components.length === 0 ? <div className="customer-empty-inline">Ningún paquete coincide con estos filtros.</div> : <div className="customer-dependency-table-wrap"><table className="customer-dependency-table"><thead><tr><th>Paquete</th><th>Relación</th><th>Reachability</th><th>Aviso / gravedad</th><th>Confianza</th><th>Explotabilidad</th><th>Artefacto</th><th>Licencia</th><th>Política</th><th>Origen</th></tr></thead><tbody>
+        {components.length === 0 ? <div className="customer-empty-inline">Ningún paquete coincide con estos filtros.</div> : <div className="customer-dependency-table-wrap"><table className="customer-dependency-table"><thead><tr><th>Paquete</th><th>Relación</th><th>Uso en el código</th><th>Aviso / gravedad</th><th>Confianza</th><th>Explotabilidad</th><th>Artefacto</th><th>Licencia</th><th>Política</th><th>Origen</th></tr></thead><tbody>
           {components.map(component => {
             const packageFindings = findingsByPackage.get(component.purl) ?? [];
             const packageReachability = component.reachability ?? packageFindings[0]?.dependencyAssessment?.reachability;
@@ -75,7 +75,7 @@ export function DependencyInventoryPanel({ inventory, findings, busy, error, onD
             <td>{packageFindings.map(finding => <div key={finding.id}><strong>{finding.title}</strong><small>Gravedad: {severityLabels[finding.severity]}</small></div>)}{packageFindings.length === 0 && <span>Sin aviso asociado</span>}</td>
             <td>{packageFindings.map(finding => <div key={finding.id}>{confidenceLabels[finding.confidence]}</div>)}</td>
             <td>{packageFindings.map(finding => <div key={finding.id}>{exploitabilityLabels[finding.exploitability]}</div>)}</td>
-            <td><strong>{artifactLabels[component.artifactAnalysis?.status ?? 'not_requested']}</strong>{component.artifactAnalysis?.integrity && <small>Integridad lockfile: {component.artifactAnalysis.integrity}</small>}{component.artifactAnalysis?.findings.map((artifactFinding, index) => <details key={`${artifactFinding.ruleId}:${index}`}><summary>{artifactFinding.tool}: {artifactFinding.title} · {severityLabels[artifactFinding.severity]}</summary><p>{artifactFinding.description}</p><code>{artifactFinding.location}</code><small>Confianza: {confidenceLabels[artifactFinding.confidence]} · Explotabilidad: {exploitabilityLabels[artifactFinding.exploitability]}</small></details>)}{component.artifactAnalysis?.limitation.map((item, index) => <small key={`${index}:${item}`}>{item}</small>)}</td>
+            <td><strong>{artifactLabels[component.artifactAnalysis?.status ?? 'not_requested']}</strong>{component.artifactAnalysis?.integrity && <small>Integridad del archivo de dependencias: {component.artifactAnalysis.integrity}</small>}{component.artifactAnalysis?.findings.map((artifactFinding, index) => <details key={`${artifactFinding.ruleId}:${index}`}><summary>{artifactFinding.tool}: {artifactFinding.title} · {severityLabels[artifactFinding.severity]}</summary><p>{artifactFinding.description}</p><code>{artifactFinding.location}</code><small>Confianza: {confidenceLabels[artifactFinding.confidence]} · Explotabilidad: {exploitabilityLabels[artifactFinding.exploitability]}</small></details>)}{component.artifactAnalysis?.limitation.map((item, index) => <small key={`${index}:${item}`}>{item}</small>)}</td>
             <td>{component.licenseExpression ?? component.declaredLicense ?? 'Sin declarar'}<small>{component.licenseConfidence === 'declared' ? 'Declarada; no verificada' : 'No disponible'}</small></td>
             <td><span className={`customer-license-status customer-license-${component.policyStatus}`}>{policyLabels[component.policyStatus]}</span></td>
             <td><code>{component.location}</code><small>{component.licenseSource === 'registry' ? 'Metadatos npm por versión exacta' : component.licenseSource === 'lockfile' ? 'Metadatos del lockfile' : 'Origen de licencia desconocido'}</small></td>
@@ -115,11 +115,12 @@ export function LicensePolicyPanel({ userId, organizationId, canManage }: { user
   if (query.error) return <section className="customer-card"><div className="customer-error" role="alert"><strong>No se pudo cargar la política</strong><p>{query.error instanceof CustomerApiError ? query.error.message : 'Inténtalo de nuevo.'}</p><button className="customer-link-button" onClick={() => { query.refetch().catch(() => undefined); }}>Reintentar</button></div></section>;
   if (!draft) return <section className="customer-card"><div className="customer-empty-inline">La política de licencias está vacía o no disponible.</div></section>;
   return <section className="customer-card customer-license-policy-panel">
-    <div className="customer-card-heading"><div><h2>Licencias de dependencias</h2><span className="customer-eyebrow">POLÍTICA DEL ESPACIO DE TRABAJO</span></div><span className="customer-status customer-status-muted">{query.data?.configured ? 'Configurada' : 'Valores predeterminados'}</span></div>
-    <p className="customer-card-copy">Las licencias no permitidas generan una observación. Las licencias en revisión y las no declaradas requieren atención. El origen es metadato declarado, no verificación del texto de licencia.</p>
-    {!query.data?.configured && <p className="customer-license-default-note">Se aplica la política predeterminada: algunas licencias permisivas comunes se permiten; GPL, AGPL, SSPL, licencias desconocidas y licencias que no figuran como permitidas requieren revisión.</p>}
+    <div className="customer-card-heading"><div><h2>Política de licencias</h2></div><span className="customer-status customer-status-muted">{query.data?.configured ? 'Configurada' : 'Valores predeterminados'}</span></div>
+    <p className="customer-card-copy">Las no permitidas generan observaciones; las de revisión o sin declarar requieren atención.</p>
+    {!query.data?.configured && <p className="customer-license-default-note">Por defecto, se permiten algunas licencias permisivas; GPL, AGPL, SSPL, las desconocidas y las que no están en la lista de permitidas requieren revisión.</p>}
+    <p className="customer-field-note">Escribe un identificador o expresión SPDX por línea.</p>
     <div className="customer-license-policy-grid">
-      {(['allow', 'deny', 'review'] as const).map(field => <label key={field}>{field === 'allow' ? 'Permitir' : field === 'deny' ? 'Denegar' : 'Revisar'}<textarea rows={8} value={draft[field]} disabled={!canManage || update.isPending} onChange={event => { setSaved(false); setDraft(current => current ? { ...current, [field]: event.target.value } : current); }} placeholder="Un identificador SPDX por línea" /><small>Un identificador o expresión SPDX por línea</small></label>)}
+      {(['allow', 'deny', 'review'] as const).map(field => <label key={field}>{field === 'allow' ? 'Permitir' : field === 'deny' ? 'Denegar' : 'Requieren revisión'}<textarea rows={8} value={draft[field]} disabled={!canManage || update.isPending} onChange={event => { setSaved(false); setDraft(current => current ? { ...current, [field]: event.target.value } : current); }} /></label>)}
     </div>
     {update.error && <p className="customer-form-error" role="alert">{update.error instanceof CustomerApiError ? update.error.message : 'No se pudo guardar la política.'}</p>}
     {saved && <p className="customer-license-saved" role="status">La política del espacio de trabajo se guardó.</p>}
@@ -128,13 +129,13 @@ export function LicensePolicyPanel({ userId, organizationId, canManage }: { user
 }
 
 const retentionFields = [
-  ['sourceSnapshotDays', 'Instantáneas de código', 'Controla durante cuántos días se conserva el contenido fuente subido.'],
-  ['containerImageDays', 'Imágenes de contenedor', 'Controla cuánto tiempo se conserva el archivo de imagen subido.'],
-  ['reportDays', 'Informes', 'Elimina informes de evaluación vencidos y sus hallazgos.'],
-  ['observationDays', 'Observaciones', 'Elimina observaciones y alertas operativas vencidas.'],
-  ['runDays', 'Ejecuciones de vigilancia', 'Elimina el historial de ejecuciones completadas o degradadas.'],
-  ['notificationDeliveryDays', 'Entregas de notificaciones', 'Elimina el historial de entregas; los canales siguen configurados.'],
-  ['protectionEventDays', 'Eventos de protección', 'Elimina eventos runtime normalizados; los eventos aceptados se conservan según su contrato propio.'],
+  ['sourceSnapshotDays', 'Instantáneas de código', 'Contenido del código subido.'],
+  ['containerImageDays', 'Imágenes de contenedor', 'Archivos de imagen subidos.'],
+  ['reportDays', 'Informes', 'Informes y hallazgos.'],
+  ['observationDays', 'Observaciones', 'Observaciones y alertas.'],
+  ['runDays', 'Ejecuciones de vigilancia', 'Ejecuciones finalizadas.'],
+  ['notificationDeliveryDays', 'Entregas de notificaciones', 'Historial de entregas; los canales siguen activos.'],
+  ['protectionEventDays', 'Eventos de protección', 'Eventos procesados; los firmados tienen su propio plazo.'],
 ] as const;
 
 export function RetentionPolicyPanel({ userId, organizationId, isOwner }: { userId: string; organizationId: string; isOwner: boolean }) {
@@ -166,10 +167,10 @@ export function RetentionPolicyPanel({ userId, organizationId, isOwner }: { user
   if (query.error) return <section className="customer-card"><div className="customer-error" role="alert"><strong>No se pudo cargar la política</strong><p>{query.error instanceof CustomerApiError ? query.error.message : 'Inténtalo de nuevo.'}</p><button className="customer-link-button" onClick={() => { query.refetch().catch(() => undefined); }}>Reintentar</button></div></section>;
   if (!draft) return <section className="customer-card"><div className="customer-empty-inline">La política de retención no está disponible.</div></section>;
   return <section className="customer-card customer-license-policy-panel">
-    <div className="customer-card-heading"><div><h2>Retención y eliminación</h2><span className="customer-eyebrow">POLÍTICA DEL ESPACIO DE TRABAJO</span></div><span className="customer-status customer-status-muted">Última actualización: {new Date(query.data.updatedAt).toLocaleDateString('es')}</span></div>
-    <p className="customer-card-copy">El coordinator elimina los elementos vencidos en segundo plano. Las propuestas pendientes se invalidan antes de borrar su fuente. Informes y observaciones usan plazos separados; los eventos autenticados de origen tienen su propia retención.</p>
+    <div className="customer-card-heading"><div><h2>Plazos de conservación</h2></div><span className="customer-status customer-status-muted">Actualizada: {new Date(query.data.updatedAt).toLocaleDateString('es')}</span></div>
+    <p className="customer-card-copy">Gotchu elimina los datos vencidos. Las propuestas pendientes se invalidan antes de borrar su fuente; los eventos recibidos tienen su propio plazo.</p>
     <div className="customer-license-policy-grid">
-      {retentionFields.map(([key, label, help]) => <label key={key}>{label}<input type="number" min={1} max={3650} step={1} value={draft[key]} disabled={!isOwner || update.isPending} onChange={event => { setSaved(false); const value = Number(event.target.value); setDraft(current => current ? { ...current, [key]: value } : current); }} /><small>{help} De 1 a 3650 días.</small></label>)}
+      {retentionFields.map(([key, label, help]) => <label key={key}>{label}<input type="number" min={1} max={3650} step={1} value={draft[key]} disabled={!isOwner || update.isPending} onChange={event => { setSaved(false); const value = Number(event.target.value); setDraft(current => current ? { ...current, [key]: value } : current); }} /><small>{help}</small></label>)}
     </div>
     {update.error && <p className="customer-form-error" role="alert">{update.error instanceof CustomerApiError ? update.error.message : 'No se pudo guardar la política.'}</p>}
     {saved && <p className="customer-license-saved" role="status">La política de retención se guardó.</p>}

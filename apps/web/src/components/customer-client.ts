@@ -98,6 +98,30 @@ export class CustomerApiError extends Error {
   }
 }
 
+/** Spanish text for backend errors people meet in everyday flows; other codes keep the server message. */
+const errorMessages: Record<string, string> = {
+  dns_verification_failed: 'Todavía no encontramos el registro TXT. Espera a que el DNS se propague e inténtalo de nuevo.',
+  dns_verification_unavailable: 'La verificación DNS no está disponible en este momento. Inténtalo más tarde.',
+  challenge_expired: 'La verificación caducó. Renueva la verificación y publica el nuevo valor.',
+  challenge_changed: 'La verificación cambió mientras se comprobaba. Renueva la verificación e inténtalo de nuevo.',
+  target_not_verified: 'Verifica el dominio antes de analizarlo.',
+  application_name_conflict: 'Ya existe una aplicación con ese nombre.',
+  application_limit: 'Este espacio alcanzó su límite de aplicaciones.',
+  application_archived: 'Reactiva la aplicación para continuar.',
+  assessment_capacity_exceeded: 'Hay demasiadas evaluaciones en curso. Inténtalo de nuevo en unos minutos.',
+  assessment_target_changed: 'La autorización del dominio caducó o se revocó. Verifícalo de nuevo.',
+  source_limit: 'Esta aplicación alcanzó su límite de instantáneas. Elimina una para subir otra.',
+  source_daily_limit: 'Este espacio alcanzó el límite diario de instantáneas.',
+  source_in_use: 'Espera a que terminen las evaluaciones en curso para eliminar esta instantánea.',
+  source_unavailable: 'La instantánea ya no está disponible.',
+  container_image_limit: 'Esta aplicación alcanzó su límite de imágenes. Elimina una para subir otra.',
+  container_image_daily_limit: 'Este espacio alcanzó el límite diario de imágenes.',
+  container_image_in_use: 'Espera a que terminen las evaluaciones en curso para eliminar esta imagen.',
+  container_image_unavailable: 'El archivo de imagen ya no está disponible.',
+  payload_too_large: 'El archivo supera el tamaño permitido.',
+  not_found: 'No encontramos este elemento. Puede que se haya eliminado.',
+};
+
 async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit = {}, expectedStatus?: number, timeoutMs = 20_000): Promise<T> {
   let response: Response;
   try {
@@ -127,7 +151,7 @@ async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit 
     throw new CustomerApiError(
       response.status,
       error.success ? error.data.error.code : 'request_failed',
-      error.success ? error.data.error.message : 'No se pudo completar la solicitud.',
+      error.success ? errorMessages[error.data.error.code] ?? error.data.error.message : 'No se pudo completar la solicitud.',
     );
   }
 
