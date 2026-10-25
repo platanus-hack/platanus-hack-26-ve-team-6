@@ -16,13 +16,13 @@ Assess explicitly authorized source snapshots and HTTPS origins. Retain evidence
 
 ## Operating Context
 
-The existing dashboard supports authentication, workspaces, applications, DNS-based authorization, source snapshots, queued assessments, history, report evidence, scheduled re-checks and signed runtime-event triage. A gated controlled-demo dashboard compares known fixture revisions. Both operate in observation mode. Repository documentation remains authoritative for authorization and backend capabilities.
+The existing dashboard supports authentication, workspaces, applications, bounded HTTPS scope requests, source snapshots, queued assessments, history, report evidence, scheduled re-checks and signed runtime-event triage. A gated controlled-demo dashboard compares known fixture revisions. Both operate in observation mode. Repository documentation remains authoritative for authorization and backend capabilities.
 
 ## Capabilities and Constraints
 
 TanStack Start, React, Auth.js, pnpm, Node 24 and strict TypeScript are established repository choices. Preserve HTTP/worker/provider boundaries, tenant isolation and authorization. Source is not executed. Severity does not grant permissions. Scheduled re-checks can run every 1–24 hours when enabled; they are not real time and do not send external notifications. Reports do not confirm exploitation. Some findings can produce a private corrected snapshot and a queued independent re-analysis without changing the original source or production. Automatic response and recovery are not delivered. No mandatory paid identity, model or repository service.
 
-**Current iteration: public landing at `/` plus Impeccable product/design context, guidelines and verification.** `/dashboard`, `/demo`, customer workflows and their styles remain unchanged. No public deployment, waitlist, contact database or invented purchase flow.
+**Current iteration: bounded HTTPS scope requests in customer onboarding and the existing application panel, plus matching public landing and report language.** `/demo` and its controlled fixture remain unchanged. No public deployment, waitlist, contact database or invented purchase flow.
 
 ## Brand Commitments
 
@@ -32,7 +32,7 @@ Gotchu is the repository/application name; the reference's earlier “Prototipo�
 
 ## Evidence on Hand
 
-Jenn's supplied `prototipo.html` and its reviewed second iteration establish visual direction, not product capabilities. Existing contracts and workflows establish actual scope. No fabricated customers, testimonials, certifications, performance figures or security guarantees. Do not fabricate assessment results. Use authored assets and product-structure panels instead of invented records or pseudo-results, and omit meta/helper captions that explain the artwork or the page. The landing covers snapshot revisions/digests, DNS authorization, evidence fields, coverage, workspace/application organization, queued-job history, JSON export, periodic re-checks, signed runtime events and private corrected snapshots.
+Jenn's supplied `prototipo.html` and its reviewed second iteration establish visual direction, not product capabilities. Existing contracts and workflows establish actual scope. No fabricated customers, testimonials, certifications, performance figures or security guarantees. Do not fabricate assessment results. Use authored assets and product-structure panels instead of invented records or pseudo-results, and omit meta/helper captions that explain the artwork or the page. The landing covers snapshot revisions/digests, requested HTTPS scope, evidence fields, coverage, workspace/application organization, queued-job history, JSON export, periodic re-checks, signed runtime events and private corrected snapshots.
 
 ## Product Principles
 

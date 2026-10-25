@@ -8,7 +8,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Toggle } from '@/components/ui/toggle';
 import { FolderPlate, VennPlate } from './ascii-plates';
-import { CODE_LOOKS, DOMAIN_FACTS, DOMAIN_RECORD, GLOSSARY, QUESTIONS, REPORT_JSON, SCOPES, TEAM, VENN_LABELS, VIGILANCE_FACTS } from './copy';
+import { CODE_LOOKS, DOMAIN_FACTS, GLOSSARY, QUESTIONS, REPORT_JSON, SCOPES, TEAM, VENN_LABELS, VIGILANCE_FACTS } from './copy';
 import { Display, Mark, Note, Ref } from './editorial';
 import { Header } from './header';
 
@@ -97,13 +97,12 @@ function Code() {
 }
 
 function Domain({ paused }: { paused: boolean }) {
-  return <Section titleId="gl-dominio-titulo" title={['Demuestra que', <>controlas el <Mark size="big">dominio.</Mark></>]}>
-    <Block notes={<Note n={4}><strong>El TXT prueba control DNS, no titularidad legal.</strong> Autoriza solo orígenes que puedes controlar.</Note>}>
-      <p>Para autorizar la revisión, publica un TXT en <code className="gl-code">{DOMAIN_RECORD}</code>. Gotchu comprueba el control DNS antes de consultar el origen.<Ref n={4} /></p>
+  return <Section titleId="gl-dominio-titulo" title={['Elige un origen.', <>Define su <Mark size="big">alcance.</Mark></>] }>
+    <Block notes={<Note n={4}><strong>El perfil limita cada evaluación.</strong> Solo consulta el origen HTTPS que elegiste.</Note>}>
+      <p>Escribe el origen público y elige un perfil: una solicitud a la raíz del sitio o hasta diez rutas del mismo origen.<Ref n={4} /></p>
     </Block>
-    <p className="gl-record"><span className="gl-sr">Registro DNS: </span>{DOMAIN_RECORD}<span aria-hidden="true">{'  '}</span><span className="gl-record-type">TXT</span></p>
     <Block notes={<Note n={5}><strong>Sin cookies, credenciales ni redirecciones.</strong> Gotchu valida el certificado y el nombre TLS.</Note>}>
-      <p>Con el perfil raíz, Gotchu hace una sola petición GET a la página principal (/). Si autorizas la superficie pública, puede hacer hasta diez peticiones GET al mismo origen. No necesitas compartir tu código fuente.<Ref n={5} /></p>
+      <p>Con el perfil raíz, Gotchu hace una sola petición GET a la página principal (/). Con la superficie pública, puede hacer hasta diez peticiones GET al mismo origen. No necesitas compartir tu código fuente.<Ref n={5} /></p>
     </Block>
     <div className="gl-split gl-split--globe">
       <div className="gl-globe"><DotPlate formation="globe" paused={paused} /></div>

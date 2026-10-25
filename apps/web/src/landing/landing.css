@@ -155,8 +155,6 @@
   .gl .gl-bullet { flex: none; width: 8px; height: 8px; background: var(--brand); transform: rotate(45deg); }
 
   /* ── Domain ───────────────────────────────────────────────────────────────── */
-  .gl .gl-record { margin: clamp(40px, 6vw, 72px) 0; padding-bottom: 18px; border-bottom: 2px solid var(--foreground); font: 600 clamp(17px, 5.4vw, 52px)/1.1 var(--mono); letter-spacing: -.02em; white-space: pre; }
-  .gl .gl-record-type { color: var(--brand-ink); }
 
   /* ── Two looks ────────────────────────────────────────────────────────────── */
   .gl .gl-venn { position: relative; width: max-content; max-width: 100%; margin: clamp(48px, 7vw, 96px) auto 0; font-size: clamp(7.6px, 2vw, 16px); }

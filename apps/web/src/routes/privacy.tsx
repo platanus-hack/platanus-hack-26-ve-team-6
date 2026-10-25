@@ -16,7 +16,7 @@ function PrivacyPage() {
     <ul>
       <li>Identificadores de cuenta, correo electrónico y nombre de perfil usados para iniciar sesión. Al usar Google, Gotchu exige un correo marcado como verificado.</li>
       <li>Espacios de trabajo, membresías y permisos, además de los registros necesarios para administrar la cuenta.</li>
-      <li>El alcance HTTPS autorizado, las instantáneas de código que envía el equipo, sus evaluaciones, evidencias e informes.</li>
+      <li>El alcance HTTPS solicitado, las instantáneas de código que envía el equipo, sus evaluaciones, evidencias e informes.</li>
       <li>Configuración e identificadores de integraciones que el operador haya habilitado.</li>
     </ul>
     <p>Gotchu no guarda contraseñas en texto claro. Los tokens de acceso y renovación de Google no se incluyen en la sesión de Gotchu. La opción para recordar el acceso en este dispositivo guarda únicamente el correo y el último método en el almacenamiento local del navegador; no guarda contraseñas ni tokens.</p>
