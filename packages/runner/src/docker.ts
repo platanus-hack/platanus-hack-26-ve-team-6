@@ -62,7 +62,7 @@ function createArgs(job: RunnerJob, directory: string, name: string, imageDigest
     '--network', 'none', '--read-only', '--user', '1000:1000', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
     '--memory', `${job.limits.memMiB}m`, '--memory-swap', `${job.limits.memMiB}m`, '--cpus', String(job.limits.vcpu),
     '--pids-limit', String(job.limits.pids), '--no-healthcheck', '--log-driver', 'none', '--ipc', 'none',
-    '--tmpfs', `/scratch:rw,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${job.limits.diskMiB * 1024 * 1024}`,
+    '--tmpfs', `/scratch:rw,exec,nosuid,nodev,uid=1000,gid=1000,mode=0700,size=${job.limits.diskMiB * 1024 * 1024}`,
     '--mount', `type=bind,src=${join(directory, 'input')},dst=/input,readonly`,
     '--mount', `type=bind,src=${join(directory, 'npm-cache')},dst=/npm-cache-source,readonly`,
     `sha256:${imageDigest}`];
