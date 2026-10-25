@@ -6,7 +6,7 @@ Compose provides persistent local Postgres and Redis. `./gotchu up` runs web, co
 
 Self-host uses a private `.gotchu/.env`, its own Compose project name, and the one-time Owner bootstrap described in [self-hosting](../docs/self-hosting.md). The legacy `infra-local-*` scripts continue using `infra/.env` by default.
 
-The customer application is the product: authenticated workspaces, authorized source and HTTPS assessment, evidence-backed reports, and a usable interface. The fictional vulnerable/corrected application remains a regression fixture. Core assessment uses deterministic local checks and attributed advisory data, without a model or paid API. See the [AWS deployment and release gates](deployment.md).
+The customer application is the product: authenticated workspaces, authorized source and HTTPS assessment, evidence-backed reports, and a usable interface. The fictional vulnerable/corrected application remains a regression fixture. Core assessment uses deterministic local checks and attributed advisory data, without a model or paid API. The active hosted topology and operational procedures are in the [AWS runbook](aws/README.md).
 
 ## Start locally
 
@@ -65,4 +65,8 @@ The live check uses a unique Compose project, random loopback ports, mode-0600 t
 
 Pulumi provisions a configurable AWS region with a public control EC2 host, a private scanner EC2 host, scoped VPC security groups, IMDSv2 enforcement, encrypted EBS root volumes, instance roles, and a private encrypted/versioned S3 bucket. It does not install the application, Postgres, Redis, or a runner service. The scanner receives S3-only egress through a gateway endpoint and has no public IP. Its EC2 host is not a per-job disposable VM boundary and does not enable customer-code execution.
 
-The application remains portable: Postgres and Redis are open-source runtime choices, and object storage and identity are replaceable adapters. This Pulumi package contains the AWS-specific resources only. The first demo service binds to loopback/private port `4100`; that port is not open in the AWS security groups, and the seeded vulnerable demo target must never be exposed publicly. AWS hosting, storage, and egress can incur charges; the infrastructure has not been deployed or priced. See [deployment notes](deployment.md) for credentials, TLS, image delivery, and recovery gaps.
+The application remains portable: Postgres and Redis are open-source runtime choices, and object storage and identity are replaceable adapters. This Pulumi package contains the AWS-specific resources only. The first demo service binds to loopback/private port `4100`; that port is not open in the AWS security groups, and the seeded vulnerable demo target must never be exposed publicly. AWS hosting, storage, and egress can incur charges; the infrastructure has not been deployed or priced. This model is separate from the deployed Lightsail topology documented in the [AWS runbook](aws/README.md).
+
+The unapplied Pulumi package reads configuration from [its example](pulumi/Pulumi.example.yaml): region, private bucket name, SSH public key/CIDRs, instance types and a disabled customer-execution flag. Replace the example values before any separately authorized infrastructure operation. Use the normal AWS SDK credential chain and a protected Pulumi state backend; never store AWS keys in stack YAML or application environment files. The two-EC2 model does not install services, provide TLS ingress, or implement database backup/restore. It rejects customer execution without reviewed isolation evidence.
+
+Local `pnpm --filter @gotchu/infra typecheck` and `pnpm --filter @gotchu/infra test` check configuration/resource policy with Pulumi mocks; they make no cloud deployment or availability claim.

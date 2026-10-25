@@ -6,7 +6,7 @@ La base acordada es `main` en `26162b7`, que integra el [PR 25](https://github.c
 
 ## Consolidación de los planes anteriores
 
-Sustituye los backlogs de `pendientes.md`, `plan-defensa-autonoma.md` y `paridad-snyk-aikido.md`, y las propuestas de expansión de la entrevista original. Se conserva aquí el trabajo que excede el producto actual, sin reutilizar estados antiguos que quedaron obsoletos al integrar el PR 25.
+Reúne los antiguos backlogs de pendientes, defensa autónoma y paridad comercial, y las propuestas de expansión de la entrevista original. Se conserva aquí el trabajo que excede el producto actual, sin reutilizar estados antiguos que quedaron obsoletos al integrar el PR 25.
 
 Los identificadores D01–D16 se conservan para relacionar decisiones históricas. No representan dieciséis entregas pendientes: contexto, triage, runner, validación, candidatos npm, aprobación, executor e investigación ya tienen implementación.
 

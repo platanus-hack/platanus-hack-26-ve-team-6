@@ -6,9 +6,31 @@ Per-job Firecracker microVM runner for independently configured candidate valida
 
 The input archive and everything inside it are hostile. A profile can run project tests and package scripts as guest UID 1000. The runner must assume that package installation, test code, and their output are malicious. Each job gets a fresh rootfs copy, a separate writable scratch block device, and a read-only input block device. The VM is configured without a network device. Trusted PID 1 raises only guest loopback before customer code so local HTTP tests can communicate within their own VM. The guest has no host directory, Docker socket, database, Redis, cloud metadata route, integration credential, or secret mount.
 
-The API exposes fixed `node24-npm-test` and `node24-tsx-selected-v1` profiles; callers cannot choose an argv or shell command. The selected profile runs bounded explicit repository tests using a pinned tsx loader and runner-owned structured reporter; see [selected Node integration and build handoff](SELECTED-NODE.md). The host fetch phase accepts only HTTPS tarballs under the configured npm registry and verifies lockfile sha512 integrity without extracting packages. Tarballs are supplied on a read-only cache disk; both profiles seed npm's cache and run `npm ci --offline --ignore-scripts`. The legacy profile then runs `npm test`; the selected profile uses fixed Node argv. Package lifecycle scripts are suppressed during installation; selected tests and legacy test scripts still execute as untrusted guest code. The VM has no network device. The profile returns regular files beneath `test-results/` and `coverage/`, up to 10 files and 256 KiB total; the host checks each path, size, and SHA-256 before returning base64 content.
+The API exposes fixed `node24-npm-test` and `node24-tsx-selected-v1` profiles; callers cannot choose an argv or shell command. The selected profile runs bounded explicit repository tests using a pinned tsx loader and runner-owned structured reporter; see the [selected compatibility contract](#selected-node-compatibility-profile). The host fetch phase accepts only HTTPS tarballs under the configured npm registry and verifies lockfile sha512 integrity without extracting packages. Tarballs are supplied on a read-only cache disk; both profiles seed npm's cache and run `npm ci --offline --ignore-scripts`. The legacy profile then runs `npm test`; the selected profile uses fixed Node argv. Package lifecycle scripts are suppressed during installation; selected tests and legacy test scripts still execute as untrusted guest code. The VM has no network device. The profile returns regular files beneath `test-results/` and `coverage/`, up to 10 files and 256 KiB total; the host checks each path, size, and SHA-256 before returning base64 content.
 
 The host validates the archive before boot: input size, gzip expansion, compression ratio, file count, tar checksums, duplicate names, traversal, absolute paths, links and special files are bounded or rejected. Results are length-prefixed serial frames, parsed as unknown data and validated against a runtime schema. Firecracker stderr is retained to a 16 KiB tail and returned separately on infrastructure failures. The guest can forge its own claims, so results are untrusted evidence for D05; successful exit alone is not independent validation.
+
+## Selected Node compatibility profile
+
+`node24-tsx-selected-v1` requires `testSelection` with 1–20 unique existing `*.test.*` or `*.spec.*` JS/TS files and an optional regular-expression `namePattern` of 1–256 characters. Paths are repository-relative and validated before dependency fetching; traversal, shell punctuation, leading options and `node_modules` segments are rejected. The legacy profile forbids `testSelection`. Suite versioning and base/candidate test equality are enforced by the validator, not by a runner receiving one snapshot.
+
+The guest uses the pinned runner-owned tsx loader and Node reporter rather than the customer's npm test script. Its root is read-only and temporary files stay on the bounded scratch disk. The reporter consumes Node events, requires complete reconciled file/global summaries and writes structured output through a dedicated pipe. Missing, contradictory, interrupted or oversized output cannot pass; `GOTCHU_SELECTED_REPORT_INCOMPLETE` supplies bounded diagnostic counts without source, test paths or names.
+
+The reserved artifact `test-results/gotchu-node-selected-v1.json` is UTF-8 JSON capped at 4096 bytes:
+
+```ts
+{
+  schemaVersion: 1;
+  profile: 'node24-tsx-selected-v1';
+  complete: boolean;
+  success: boolean;
+  counts: { passed: number; failed: number; skipped: number; cancelled: number; total: number };
+}
+```
+
+Counts exclude suites, are integers from 0 to 1,000,000, and sum to `total`; TODOs count as skipped and prevent success. The agent inserts this artifact into the result envelope, ignoring customer entries at the reserved path. It counts against the ten-file/256-KiB artifact bounds. A nonzero exit, signal, output truncation, resource failure or uncertain cleanup prevents successful execution.
+
+Validation requires this exact artifact for both base and candidate, completed execution, exit code zero, verified cleanup/isolation, `complete` and `success` true, positive passed count, and no failed/cancelled tests. Selected compatibility coverage is separate from full-suite coverage, exploit reproduction and independent security rescans. Image preparation does not open the gate: rebuild/pin intentionally changed guest sources and run a fresh canary in the same private cache used for jobs, as described below.
 
 ## Gate status and limits
 
