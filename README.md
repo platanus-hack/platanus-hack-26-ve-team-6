@@ -12,6 +12,7 @@
 <p align="center">
   <a href="https://gotchu.kevinbravo.com">Aplicación</a> ·
   <a href="#cómo-funciona">Cómo funciona</a> ·
+  <a href="#conectar-tu-asistente-por-mcp">MCP</a> ·
   <a href="#arquitectura">Arquitectura</a> ·
   <a href="#ejecutar-en-tu-máquina">Instalación local</a> ·
   <a href="#documentación">Documentación</a>
@@ -57,6 +58,12 @@ Un informe por evaluación, con los hallazgos, sus ubicaciones y la evidencia qu
 Para corregir desde Gotchu, el flujo es: candidato privado → revisión del diff y reanálisis → validación configurada → aprobación exacta del Owner → PR en borrador. También puedes usar el informe y el prompt para hacer el cambio en tu propio flujo de desarrollo.
 
 El análisis estático no instala dependencias ni ejecuta tu aplicación. La validación de correcciones usa un entorno separado que debe estar configurado. Cada resultado se limita a lo comprobado: una dependencia vulnerable es un indicio de riesgo y una evaluación sin hallazgos no garantiza seguridad.
+
+## Conectar tu asistente por MCP
+
+Conecta Claude Code, Codex o un IDE compatible para consultar aplicaciones, informes, hallazgos con evidencia, alertas y el estado de vigilancia. También puedes obtener un prompt de corrección por hallazgo. El acceso es de solo lectura.
+
+En la pestaña **MCP** de tu espacio de trabajo, crea un token personal y sigue la [guía de conexión](https://gotchu.kevinbravo.com/install). Cada token está limitado a un espacio y a tus permisos vigentes.
 
 ## Arquitectura
 
