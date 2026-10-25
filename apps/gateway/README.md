@@ -24,6 +24,8 @@ Configuration:
 - `GOTCHU_MODEL_SECRET_DIRECTORY`: private directory for the development file-backed provider-key store; Web and Gateway need the same protected store. Hosted deployments should supply an encrypted secret-store adapter.
 - `GOTCHU_GATEWAY_MODEL_PROBE_SECRET`: optional shared secret, unpadded base64url encoded and at least 32 bytes, used only for the Owner connection-probe capability. Configure the same value in Web.
 - `GOTCHU_CLAUDE_CODE_BIN`, `GOTCHU_CODEX_BIN`: optional paths to the official CLIs used by the Claude Code and Codex subscription presets; otherwise `claude` and `codex` are resolved on `PATH`. Each call runs in a fresh private home and empty working directory with all built-in tools disabled; only `PATH` and the credential reach the child. Codex logins are serialized per stored secret and rotated tokens are written back with the store's atomic `replace`.
+
+Multiple gateway replicas sharing one Codex login need a cross-process lock or compare-and-swap secret writes; the current lock coordinates calls only within one process.
 - `GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT=true`: operator-only opt-in to private custom model endpoints; without it, custom endpoints must use HTTPS and resolve only to public addresses.
 - `PORT`: 3002 by default.
 - `NODE_ENV`: production by default. Only `development` or `test` plus `GOTCHU_GATEWAY_ALLOW_LOOPBACK_HTTP=true` permits HTTP, bound to literal `127.0.0.1` or `::1`. Containers that need a non-loopback bind must use TLS. Proxy headers cannot relax this boundary.
