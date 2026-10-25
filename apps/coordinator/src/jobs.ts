@@ -132,7 +132,7 @@ export async function finalizeInvestigation(dependencies: CoordinatorDependencie
           const usage = await tx.query<{ model_calls: number; tool_calls: number; tokens: string; spend: string }>(`SELECT r.model_calls,r.tool_calls,
             COALESCE(sum(m.charged_tokens),0)::text AS tokens,COALESCE(sum(m.charged_micros),0)::text AS spend
             FROM gotchu.agent_runs r LEFT JOIN gotchu.model_reservations m ON m.organization_id=r.organization_id AND m.run_id=r.id
-            WHERE r.organization_id=$1 AND r.application_id=$2 AND r.id=$3 GROUP BY r.id`, [organizationId, applicationId, runId]);
+            WHERE r.organization_id=$1 AND r.application_id=$2 AND r.id=$3 GROUP BY r.organization_id,r.id`, [organizationId, applicationId, runId]);
           const totals = usage.rows[0];
           if (!totals) throw new BackendError('correction_run_unavailable', 'Correction usage is unavailable', 409);
           completion = { status: 'result', result: investigationResultSchema.parse({
