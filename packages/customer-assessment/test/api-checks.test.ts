@@ -102,3 +102,29 @@ it('expires before any socket/DNS work and records checks as unavailable', async
   expect(report.external?.coverage.some(item => item.state === 'inspected')).toBe(false);
   expect(report.external?.findings).toEqual([]);
 });
+
+it('reserves protocol attempts, bounds hostile responses and refuses incomplete CORS/schema conclusions', async () => {
+  let requests = 0;
+  const server = createServer({ cert, key }, (_req, res) => {
+    requests++;
+    res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': API_PROBE_ORIGIN,
+      'access-control-allow-credentials': 'true', 'access-control-allow-methods': 'GET', 'access-control-allow-headers': 'authorization' }).end('PRIVATE_RESPONSE_BODY'.repeat(2000));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('fixture_address');
+    const request = input(); request.mode = 'external'; request.source = null;
+    request.target = { id: request.jobId, origin: 'https://customer.org', version: 1, authorizedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 30_000).toISOString(), scanProfile: 'api_checks' };
+    const report = await createCustomerAssessmentRunner({ scanners: absentScanners, https: {
+      lookup: async () => [{ address: '127.0.0.1', family: 4 }], testFixture: { hostname: 'customer.org', port: address.port, ca: cert },
+    } }).run(request);
+    const observations = report.external?.evidence.map(item => apiCheckEvidenceSchema.parse(JSON.parse(item.excerpt))) ?? [];
+    expect(requests).toBe(8);
+    expect(observations.reduce((total, item) => total + item.bodyBytes, 0)).toBe(98_304);
+    expect(observations.slice(0, 4).map(item => item.scenarioId)).toEqual(['cors_preflight', 'cors_preflight', 'method_policy', 'error_handling']);
+    expect(observations.some(item => item.incomplete === 'response_byte_cap')).toBe(true);
+    expect(report.external?.coverage.find(item => item.capability === 'api_schema_discovery')?.state).toBe('unavailable');
+    expect(report.external?.findings).toEqual([]);
+    expect(JSON.stringify(report)).not.toContain('PRIVATE_RESPONSE_BODY');
+  } finally { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
+}, 15_000);
