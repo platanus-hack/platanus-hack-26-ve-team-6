@@ -133,7 +133,7 @@ it('expires before any socket/DNS work and records checks as unavailable', async
   expect(report.external?.findings).toEqual([]);
 });
 
-it('reserves protocol attempts, bounds hostile responses and refuses incomplete CORS/schema conclusions', async () => {
+it('bounds hostile schema bodies while preserving every API protocol scenario', async () => {
   let requests = 0;
   const server = createServer({ cert, key }, (_req, res) => {
     requests++;
@@ -149,12 +149,13 @@ it('reserves protocol attempts, bounds hostile responses and refuses incomplete 
       lookup: async () => [{ address: '127.0.0.1', family: 4 }], testFixture: { hostname: 'customer.org', port: address.port, ca: cert },
     } }).run(request);
     const observations = report.external?.evidence.map(item => apiCheckEvidenceSchema.parse(JSON.parse(item.excerpt))) ?? [];
-    expect(requests).toBe(8);
-    expect(observations.reduce((total, item) => total + item.bodyBytes, 0)).toBe(98_304);
+    expect(requests).toBe(15);
+    expect(observations.reduce((total, item) => total + item.bodyBytes, 0)).toBe(86_016);
+    expect(observations.filter(item => item.method !== 'GET').every(item => item.bodyBytes === 0 && item.bodyPolicy === 'headers_only')).toBe(true);
     expect(observations.slice(0, 4).map(item => item.scenarioId)).toEqual(['cors_preflight', 'cors_preflight', 'method_policy', 'error_handling']);
-    expect(observations.some(item => item.incomplete === 'response_byte_cap')).toBe(true);
+    expect(observations.filter(item => item.scenarioId === 'auth_boundary').every(item => item.status === 200)).toBe(true);
     expect(report.external?.coverage.find(item => item.capability === 'api_schema_discovery')?.state).toBe('unavailable');
-    expect(report.external?.findings).toEqual([]);
+    expect(report.external?.findings.map(item => item.ruleId)).toEqual(Array(3).fill('api.credentialed-probe-origin'));
     expect(JSON.stringify(report)).not.toContain('PRIVATE_RESPONSE_BODY');
   } finally { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 }, 15_000);
