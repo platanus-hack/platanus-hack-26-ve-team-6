@@ -122,9 +122,15 @@ function validationReason(raw: unknown, runner: {
       || binding.suiteVersion !== definition.version || canonicalJson(binding.testSelection) !== canonicalJson(definition.testSelection)
       || binding.selectionDigest !== sha256(canonicalJson({ profile: definition.profile, testSelection: definition.testSelection }))
       || suite.requiredCounts !== definition.requiredCount) return 'validation_tampered';
-    if (suite.counts.failed !== 0 || suite.baseCounts.failed !== 0) return 'validation_failed';
+    if (suite.counts.failed !== 0 || suite.baseCounts.failed !== 0 || suite.baseCounts.passed === 0) return 'validation_failed';
     if (rescan.dependencyScope.baseSnapshotDigest !== facts.baseSnapshotDigest
       || rescan.dependencyScope.candidateSnapshotDigest !== facts.candidateTreeDigest) return 'validation_tampered';
+    const { before, after } = rescan.dependencyScope.artifactScope;
+    if (action.changes.some(change => !before.some(pkg => pkg.name === change.name && pkg.version === change.from)
+      || !after.some(pkg => pkg.name === change.name && pkg.version === change.to))) return 'validation_tampered';
+    const packageKeys = (packages: readonly { name: string; version: string }[]) => packages.map(pkg => `${pkg.name}\0${pkg.version}`).sort();
+    const expectedAfter = before.map(pkg => ({ name: pkg.name, version: action.changes.find(change => change.name === pkg.name)?.to ?? pkg.version }));
+    if (canonicalJson(packageKeys(expectedAfter)) !== canonicalJson(packageKeys(after))) return 'validation_tampered';
   } else if (suite?.suiteBinding || rescan?.dependencyScope) return 'validation_tampered';
   if (facts.state === 'failed') return 'validation_failed';
   if (facts.state === 'expired' || facts.runExpiresAt.getTime() <= Date.now()) return 'validation_expired';

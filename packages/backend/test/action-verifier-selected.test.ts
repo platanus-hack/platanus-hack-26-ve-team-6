@@ -185,6 +185,30 @@ describe('selected action validation (mocked database; real signatures, no infra
     expect((await f.verify()).blockingReasons).toContain('validation_inconclusive');
   });
 
+  it('requires real passing base tests for the selected profile', async () => {
+    const f = fixture();
+    f.suite.baseCounts = { passed: 0, failed: 0, skipped: 0 };
+    expect((await f.verify()).blockingReasons).toContain('validation_failed');
+  });
+
+  it('binds frozen artifact packages to the approved dependency upgrade', async () => {
+    const f = fixture(); const scope = f.rescan.dependencyScope;
+    if (!scope) throw new Error('missing scope');
+    for (const side of ['before', 'after'] as const) {
+      scope.artifactScope[side] = scope.artifactScope[side].map(pkg => ({ ...pkg, name: 'unrelated' }));
+      scope.artifactResults[side] = scope.artifactResults[side].map(pkg => ({ ...pkg, name: 'unrelated' }));
+    }
+    expect((await f.verify()).blockingReasons).toContain('validation_tampered');
+  });
+
+  it('rejects a new signed artifact finding omitted from the projected identities', async () => {
+    const f = fixture(); const artifact = f.rescan.dependencyScope?.artifactResults.after[0];
+    if (!artifact) throw new Error('missing artifact');
+    artifact.analysis.findings.push({ tool: 'semgrep', ruleId: 'new-rule', title: 'Synthetic new observation', location: 'index.js:1',
+      severity: 'medium', confidence: 'inferred', exploitability: 'unknown', description: 'Synthetic regression for independent identity validation.', evidenceIds: [randomUUID()] });
+    expect((await f.verify()).blockingReasons).toContain('validation_inconclusive');
+  });
+
   it('rejects selected scope under a persisted legacy profile', async () => {
     const f = fixture(); f.run.runner_profile = 'node24-npm-test';
     expect((await f.verify()).blockingReasons).toContain('validation_tampered');
