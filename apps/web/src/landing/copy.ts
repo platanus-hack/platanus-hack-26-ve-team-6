@@ -1,23 +1,16 @@
-/** One step of an audit diagram: what happens, in a few words. */
-export type FlowStep = { title: string; text: string };
-
-/** GitHub repository audit, in the order it runs. */
-export const REPO_STEPS: readonly FlowStep[] = [
-  { title: 'Conecta GitHub', text: 'Con permiso de solo lectura.' },
-  { title: 'Copia con huella', text: 'Una copia de la rama y su SHA-256.' },
-  { title: 'Cuatro revisiones', text: 'Aisladas, sin red y sin ejecutar tu código.' },
-  { title: 'Informe', text: 'Cada hallazgo con su evidencia.' },
+/** The two sides of an audit. Every line describes shipped behaviour. */
+export const SIDES: readonly { id: string; name: string; text: string; tags: readonly string[]; action: string }[] = [
+  { id: 'gl-dentro', name: 'Por dentro.', text: 'Conecta GitHub o sube una carpeta. Revisamos tu código sin ejecutarlo.', tags: ['Código', 'Secretos', 'Dependencias', 'Infraestructura'], action: 'Audita tu repositorio' },
+  { id: 'gl-fuera', name: 'Por fuera.', text: 'Sin acceso a tu código. Verificas tu dominio con un TXT y revisamos tu web por HTTPS.', tags: ['Certificado TLS', 'Cabeceras de seguridad', 'security.txt'], action: 'Audita tu web' },
 ];
 
-export const REPO_SCANS = ['Código', 'Secretos', 'Dependencias', 'Infraestructura'] as const;
-
-/** External audit of an HTTPS origin, without source access. */
-export const WEB_STEPS: readonly FlowStep[] = [
-  { title: 'Publica un TXT', text: 'En _gotchu.tudominio.com.' },
-  { title: 'Verificamos el DNS', text: 'Así sabemos que controlas el dominio.' },
-  { title: 'Revisamos por HTTPS', text: 'Solo peticiones GET, con TLS verificado.' },
-  { title: 'Informe', text: 'Lo observado y lo que quedó fuera.' },
-];
+/** What every finding in the report carries. */
+export const EVIDENCE = [
+  ['Evidencia', 'El fragmento, la respuesta o el dato que lo sostiene.'],
+  ['Severidad', 'De informativa a crítica, o sin evaluar.'],
+  ['Confianza', 'Observada, inferida o incierta.'],
+  ['Cobertura', 'Qué se revisó y qué quedó fuera.'],
+] as const;
 
 export const QUESTIONS = [
   ['¿Puedo revisar cualquier sitio?', 'Solo orígenes que tengas autorización para evaluar.'],

@@ -6,10 +6,9 @@ import { DotPlate } from '../components/dot-field/dot-plate';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { buttonVariants } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
-import { QUESTIONS } from './copy';
-import { Display, Mark } from './editorial';
+import { EVIDENCE, QUESTIONS, SIDES } from './copy';
+import { Display, Mark, useParallax } from './editorial';
 import { Header } from './header';
-import { RepoFlow, WebFlow } from './flows';
 
 /** True when motion is welcome; resolved after mount so server and first client render agree. */
 function useMotionAllowed() {
@@ -33,8 +32,10 @@ function Action({ href, children, size = 'default' }: { href: string; children: 
   </a>;
 }
 
-function Section({ id, titleId, title, children, className = '' }: { id?: string; titleId: string; title: ReactNode[]; children: ReactNode; className?: string }) {
-  return <section id={id} className={`gl-section ${className}`} aria-labelledby={titleId}>
+/** A page section; with motion its headline lines and `data-depth` children move with scroll (parallax). */
+function Section({ id, titleId, title, children, className = '', motion }: { id?: string; titleId: string; title: ReactNode[]; children: ReactNode; className?: string; motion: boolean }) {
+  const ref = useParallax<HTMLElement>(motion);
+  return <section ref={ref} id={id} className={`gl-section ${className}`} aria-labelledby={titleId}>
     <Display id={titleId} className="gl-section-title" lines={title} />
     {children}
   </section>;
@@ -64,22 +65,40 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
   </section>;
 }
 
-function RepoAudit({ motion }: { motion: boolean }) {
-  return <Section id="gl-repo" titleId="gl-repo-titulo" title={['Audita tu', <Mark key="m" size="big">repositorio.</Mark>]}>
-    <p className="gl-section-lead">Conecta GitHub y Gotchu revisa una copia de tu código sin ejecutarla.</p>
-    <RepoFlow motion={motion} action={<Action href="/registro">Audita tu repositorio</Action>} />
+type Motion = { motion: boolean; paused: boolean };
+
+/** The core promise: one field shows code (inside) and the web (outside); each side's column sits under its half. */
+function BothSides({ motion, paused }: Motion) {
+  return <Section motion={motion} id="gl-auditoria" titleId="gl-auditoria-titulo" title={['Te auditamos', <Mark key="m" size="big">por los dos lados.</Mark>]}>
+    <p className="gl-section-lead">Revisamos tu código por dentro y tu web por fuera, y comparamos lo que ve cada lado.</p>
+    <div className="gl-both-field" data-depth=""><DotPlate formation="both" paused={paused} /></div>
+    <div className="gl-sides">
+      {SIDES.map(side => <article key={side.id} id={side.id} className="gl-side" aria-labelledby={`${side.id}-titulo`}>
+        <h3 id={`${side.id}-titulo`} className="gl-side-name">{side.name}</h3>
+        <p>{side.text}</p>
+        <ul className="gl-side-tags">{side.tags.map(tag => <li key={tag}>{tag}</li>)}</ul>
+        <Action href="/registro">{side.action}</Action>
+      </article>)}
+    </div>
   </Section>;
 }
 
-function WebAudit({ motion }: { motion: boolean }) {
-  return <Section id="gl-web" titleId="gl-web-titulo" title={['Audita tu web', <Mark key="m" size="big">desde fuera.</Mark>]}>
-    <p className="gl-section-lead">Sin acceso a tu código: solo demuestras que controlas el dominio.</p>
-    <WebFlow motion={motion} action={<Action href="/registro">Audita tu web</Action>} />
+function Evidence({ motion, paused }: Motion) {
+  return <Section motion={motion} id="gl-evidencia" titleId="gl-evidencia-titulo" title={['Cada hallazgo.', <Mark key="m" size="big">Con su prueba.</Mark>]}>
+    <div className="gl-evidence">
+      <div className="gl-evidence-field" data-depth=""><DotPlate formation="report" paused={paused} /></div>
+      <dl className="gl-terms">
+        {EVIDENCE.map(([term, definition], index) => <div key={term}>
+          <dt><Mark size="big" delay={index * 120}>{term}</Mark></dt>
+          <dd>{definition}</dd>
+        </div>)}
+      </dl>
+    </div>
   </Section>;
 }
 
-function Questions() {
-  return <Section id="gl-preguntas" titleId="gl-preguntas-titulo" title={['Preguntas.']}>
+function Questions({ motion }: { motion: boolean }) {
+  return <Section motion={motion} id="gl-preguntas" titleId="gl-preguntas-titulo" title={['Preguntas.']}>
     <Accordion className="gl-qa">
       {QUESTIONS.map(([question, answer]) => <AccordionItem key={question} value={question} className="gl-qa-item">
         <AccordionTrigger className="gl-qa-trigger py-[22px]">{question}</AccordionTrigger>
@@ -89,8 +108,8 @@ function Questions() {
   </Section>;
 }
 
-function Closing({ paused }: { paused: boolean }) {
-  return <Section id="gl-cierre" titleId="gl-paso-titulo" className="gl-closing" title={['¿Qué tan seguros', 'están tus proyectos?', 'No te preocupes,', <Mark key="m" size="big">we Gotchu.</Mark>]}>
+function Closing({ motion, paused }: Motion) {
+  return <Section motion={motion} id="gl-cierre" titleId="gl-paso-titulo" className="gl-closing" title={['¿Qué tan seguros', 'están tus proyectos?', 'No te preocupes,', <Mark key="m" size="big">we Gotchu.</Mark>]}>
     <div className="gl-wordmark"><DotPlate formation="wordmark" paused={paused} /></div>
     <div className="gl-closing-actions">
       <Action href="/registro" size="lg">Crea tu cuenta</Action>
@@ -109,7 +128,7 @@ function Footer() {
 }
 
 /**
- * The landing: a hero, the two audits as animated diagrams, questions and the invitation to start.
+ * The landing: a hero, the audit from both sides, evidence, questions and the invitation to start.
  */
 export function Landing() {
   const motionAllowed = useMotionAllowed();
@@ -119,10 +138,10 @@ export function Landing() {
     <Header />
     <main id="contenido" tabIndex={-1} className="gl-main">
       <Hero paused={paused} onPause={setPaused} motion={motionAllowed} />
-      <RepoAudit motion={motionAllowed} />
-      <WebAudit motion={motionAllowed} />
-      <Questions />
-      <Closing paused={paused} />
+      <BothSides motion={motionAllowed} paused={paused} />
+      <Evidence motion={motionAllowed} paused={paused} />
+      <Questions motion={motionAllowed} />
+      <Closing motion={motionAllowed} paused={paused} />
     </main>
     <Footer />
   </div>;
