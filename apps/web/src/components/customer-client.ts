@@ -427,8 +427,8 @@ export const customerApi = {
   getActionEligibility(organizationId: string, applicationId: string, proposalId: string) {
     return request(`${applicationPath(organizationId, applicationId)}/actions/${encodeURIComponent(proposalId)}/eligibility`, actionEligibilitySchema, { method: 'POST', ...jsonBody({}) });
   },
-  approveAction(input: { organizationId: string; applicationId: string; proposalId: string; actionHash: string; stepUpProof: string }) {
-    return request(`${applicationPath(input.organizationId, input.applicationId)}/actions/${encodeURIComponent(input.proposalId)}/approve`, z.object({ approvalId: z.uuid(), expiresAt: z.iso.datetime() }).strict(), { method: 'POST', ...jsonBody({ proposalId: input.proposalId, actionHash: input.actionHash, stepUpProof: input.stepUpProof }) });
+  approveAction(input: { organizationId: string; applicationId: string; proposalId: string; actionHash: string }) {
+    return request(`${applicationPath(input.organizationId, input.applicationId)}/actions/${encodeURIComponent(input.proposalId)}/approve`, z.object({ approvalId: z.uuid(), expiresAt: z.iso.datetime() }).strict(), { method: 'POST', ...jsonBody({ proposalId: input.proposalId, actionHash: input.actionHash }) });
   },
   cancelAction(input: { organizationId: string; applicationId: string; proposalId: string; reject?: boolean }) {
     const suffix = input.reject ? 'reject' : 'cancel';
