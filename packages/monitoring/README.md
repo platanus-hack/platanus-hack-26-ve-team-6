@@ -18,9 +18,15 @@ GitHub entries accept an owner, repository, optional configured ref, and an opti
 
 Both repository readers return a validated CustomerSourceSnapshot, the exact commit SHA, a canonical source digest compatible with customer snapshot storage, a bounded changed-path diff against the supplied previous SHA, and coverage limitations for excluded file types, symlinks, submodules, or capped history. The shared customer snapshot contract remains the boundary: up to 1,000 source files and 4 MiB serialized, with its JS/TS, JSON, YAML, and TOML path restrictions. Content is metadata for later server-side assessment and is never submitted to a model here.
 
+## GitHub App repositories
+
+createGitHubAppInstallationClient(appFile) reads the App credential file, mints and caches short-lived installation tokens, and resolves a numeric repository id to its current owner/name. It does not decide which installation a tenant may use: the coordinator resolves `gh-<repository id>` monitor keys through the tenant-scoped gotchu.monitor_github_repository function, which only answers for the tenant's enabled monitor while the link and installation are active.
+
 ## Dependency metadata
 
 createOsvDependencyAdapter reads npm package-lock.json metadata from the exact snapshot and queries only package names and exact versions at the public OSV API. It follows bounded per-package next_page_token pagination, hydrates a bounded number of advisory records for summary, dates, aliases, references, and database severity, and returns separate repository-lockfile and advisory-database evidence. The output never claims that a package is installed, used at runtime, reachable, deployed, or exploited. Unsupported lockfiles, malformed metadata, package caps, and incomplete OSV pagination remain explicit coverage limitations.
+
+createCisaKevAdapter correlates OSV advisories (by id and CVE aliases) with the CISA Known Exploited Vulnerabilities JSON feed, cached for six hours. A match becomes a critical dependency_advisory candidate carrying the OSV and KEV evidence; it states exploitation elsewhere, never that the application was attacked. An unavailable feed throws rather than reporting no matches.
 
 dependency_advisory evidence needs the operation contract's advisory_database evidence source in addition to repository; adapters deliberately do not relabel OSV data as a provider status feed.
 
