@@ -62,6 +62,8 @@ export const investigationInputSchema = z.object({
   scope: scopeSchema,
   requiredChecks: requiredChecksSchema,
   modelEnabled: z.boolean().default(true),
+  /** Selected by the trusted gateway; null removes token caps without removing usage accounting. */
+  modelTokenLimit: z.number().int().min(1).max(MAX_TOKENS).nullable().optional(),
 }).strict();
 export type InvestigationInput = z.infer<typeof investigationInputSchema>;
 
@@ -164,7 +166,7 @@ export const investigationLimitsSchema = z.object({
   maxModelCalls: z.number().int().min(1).max(MAX_MODEL_CALLS),
   maxAdditionalReadToolCalls: z.number().int().min(0).max(MAX_ADDITIONAL_READ_TOOL_CALLS),
   maxActiveMs: z.number().int().min(1).max(MAX_ACTIVE_INVESTIGATION_MS),
-  maxTokens: z.number().int().min(1).max(MAX_TOKENS),
+  maxTokens: z.number().int().min(1).max(MAX_TOKENS).nullable().default(MAX_TOKENS),
   maxSpendMicroUsd: z.number().int().min(1).max(MAX_SPEND_MICRO_USD),
 }).strict();
 export type InvestigationLimits = z.infer<typeof investigationLimitsSchema>;
@@ -209,8 +211,8 @@ export interface ModelCallRequest {
   readonly callId: string;
   readonly systemInstruction: string;
   readonly userContext: string;
-  readonly maxOutputTokens: number;
-  readonly remainingTokens: number;
+  readonly maxOutputTokens?: number;
+  readonly remainingTokens?: number;
   readonly remainingSpendMicroUsd: number;
   readonly signal: AbortSignal;
 }
@@ -444,6 +446,7 @@ export async function runBoundedInvestigation(
   } catch {
     return result('inconclusive', 'invalid_required_checks', { modelCalls: 0, readCalls: 0, tokens: 0, spend: 0, activeMs: Math.max(0, Math.floor(currentTime() - startedAt)) });
   }
+  if (input.modelTokenLimit !== undefined) limits.maxTokens = input.modelTokenLimit;
   try {
     assertCapabilityScope(dependencies.capability, input.scope);
     const refs = getEvidenceReferences(input.requiredChecks);
@@ -619,9 +622,9 @@ export async function runBoundedInvestigation(
       return { terminalStatus: 'delayed' as const, terminalReason: 'model_budget_exhausted' as const };
     }
     if (remainingMs() <= 0) return { terminalStatus: 'delayed' as const, terminalReason: 'time_budget_exhausted' as const };
-    const remainingTokens = limits.maxTokens - state.tokensUsed;
+    const remainingTokens = limits.maxTokens === null ? null : limits.maxTokens - state.tokensUsed;
     const remainingSpendMicroUsd = limits.maxSpendMicroUsd - state.spendMicroUsd;
-    if (remainingTokens <= 0 || remainingSpendMicroUsd <= 0) {
+    if ((remainingTokens !== null && remainingTokens <= 0) || remainingSpendMicroUsd <= 0) {
       return { terminalStatus: 'delayed' as const, terminalReason: 'model_budget_exhausted' as const };
     }
 
@@ -662,8 +665,7 @@ export async function runBoundedInvestigation(
         callId: stableCallId(state.scope.runId, 'model', String(nextCall)),
         systemInstruction,
         userContext,
-        maxOutputTokens: Math.min(2_048, remainingTokens),
-        remainingTokens,
+        ...(remainingTokens === null ? {} : { maxOutputTokens: Math.min(2_048, remainingTokens), remainingTokens }),
         remainingSpendMicroUsd,
         signal,
       }),
@@ -683,7 +685,8 @@ export async function runBoundedInvestigation(
     observedCounters.spend = spendMicroUsd;
     try { modelOutput = modelOutputSchema.parse(reply.output); }
     catch { throw new InvalidModelOutputError(); }
-    if (tokensUsed > limits.maxTokens || spendMicroUsd > limits.maxSpendMicroUsd) {
+    if ((limits.maxTokens !== null && (tokensUsed > limits.maxTokens || reply.usage.outputTokens > 2_048))
+      || spendMicroUsd > limits.maxSpendMicroUsd) {
       return {
         modelCalls: nextCall,
         tokensUsed,

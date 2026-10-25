@@ -18,7 +18,7 @@ export const CODING_SYSTEM_INSTRUCTION = [
   'Return only JSON: {summary,implications,risks,validationPlan,changes:[{path,originalSha256,replacements:[{before,after}]}]}. No extra fields or markdown.',
   'Use at most four supplied paths, each once, with the exact original SHA256. Never add or change another file.',
   'Each file has 1-8 replacements. Each before is nonempty, at most 4000 characters, and matches exactly once in the original file and when applied in order.',
-  'Replacements must not overlap; after is at most 4000 characters and must meaningfully change before. Keep the complete JSON under 24000 UTF-8 bytes and the output token budget.',
+  'Replacements must not overlap; after is at most 4000 characters and must meaningfully change before. Keep the complete JSON under 24000 UTF-8 bytes and any supplied output token budget.',
   'Write summary (at most 800 characters), implications, risks and validationPlan in Spanish. Each array has at most five strings of at most 500 characters.',
   'Explain changed behavior and uncertainty. Do not introduce secrets, commands, tool execution, shell/git operations, dependency installation or permission changes.',
   'You have no tools. Do not execute code, install dependencies, retrieve credentials, write providers or request further access.',
@@ -109,6 +109,7 @@ export async function runBoundedCorrection(rawInput: unknown, dependencies: Inve
       const parsed = aiCorrectionInputSchema.safeParse(rawInput);
       if (!parsed.success) throw new CorrectionFailure('invalid_required_checks');
       input = parsed.data;
+      if (input.modelTokenLimit !== undefined) limits.maxTokens = input.modelTokenLimit;
       assertCapabilityScope(dependencies.capability, input.scope);
       for (const id of [...input.finding.evidenceIds, ...(input.suggestion?.evidenceIds ?? [])]) {
         assertCapabilityAllowsRead(dependencies.capability, 'evidence.read', id);
@@ -140,7 +141,8 @@ export async function runBoundedCorrection(rawInput: unknown, dependencies: Inve
     })
     .addNode('generate', async () => {
       if (!input || final) return { stage: 'generated' };
-      if (counters.modelCalls >= 1 || counters.tokensUsed >= limits.maxTokens || counters.spendMicroUsd >= limits.maxSpendMicroUsd) {
+      if (counters.modelCalls >= 1 || (limits.maxTokens !== null && counters.tokensUsed >= limits.maxTokens)
+        || counters.spendMicroUsd >= limits.maxSpendMicroUsd) {
         throw new CorrectionFailure('model_budget_exhausted');
       }
       if (remainingMs() <= 0) throw new CorrectionFailure('time_budget_exhausted');
@@ -151,9 +153,11 @@ export async function runBoundedCorrection(rawInput: unknown, dependencies: Inve
       const callId = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
       const scope = input.scope;
       const userContext = JSON.stringify(input);
+      const remainingTokens = limits.maxTokens === null ? null : limits.maxTokens - counters.tokensUsed;
       const reply = await bounded(signal => dependencies.model.invoke({ scope, capability: dependencies.capability.token, callId,
-        systemInstruction: CODING_SYSTEM_INSTRUCTION, userContext, maxOutputTokens: Math.min(2_048, limits.maxTokens - counters.tokensUsed),
-        remainingTokens: limits.maxTokens - counters.tokensUsed, remainingSpendMicroUsd: limits.maxSpendMicroUsd - counters.spendMicroUsd, signal }));
+        systemInstruction: CODING_SYSTEM_INSTRUCTION, userContext,
+        ...(remainingTokens === null ? {} : { maxOutputTokens: Math.min(2_048, remainingTokens), remainingTokens }),
+        remainingSpendMicroUsd: limits.maxSpendMicroUsd - counters.spendMicroUsd, signal }));
       // Account for valid usage even if the output envelope or patch is malformed.
       const usage = z.object({ usage: modelUsageSchema }).safeParse(reply);
       if (usage.success) {
@@ -162,8 +166,8 @@ export async function runBoundedCorrection(rawInput: unknown, dependencies: Inve
       }
       const envelope = z.object({ output: z.unknown(), usage: modelUsageSchema }).strict().safeParse(reply);
       if (!envelope.success) throw new CorrectionFailure('invalid_model_output');
-      if (counters.tokensUsed > limits.maxTokens || counters.spendMicroUsd > limits.maxSpendMicroUsd
-        || envelope.data.usage.outputTokens > 2_048) throw new CorrectionFailure('model_budget_exhausted');
+      if ((limits.maxTokens !== null && (counters.tokensUsed > limits.maxTokens || envelope.data.usage.outputTokens > 2_048))
+        || counters.spendMicroUsd > limits.maxSpendMicroUsd) throw new CorrectionFailure('model_budget_exhausted');
       rawPatch = envelope.data.output;
       return { stage: 'generated' };
     })
