@@ -27,10 +27,10 @@ import { Route as ApiCustomerSplatRouteImport } from './routes/api.customer.$'
 import { Route as ApiDemoSplatRouteImport } from './routes/api.demo.$'
 import { Route as ApiV1SplatRouteImport } from './routes/api.v1.$'
 import { Route as WWorkspaceIdIndexRouteImport } from './routes/w.$workspaceId.index'
-import { Route as WWorkspaceIdAsistentesRouteImport } from './routes/w.$workspaceId.asistentes'
 import { Route as WWorkspaceIdDecisionesRouteImport } from './routes/w.$workspaceId.decisiones'
 import { Route as WWorkspaceIdEquipoRouteImport } from './routes/w.$workspaceId.equipo'
 import { Route as WWorkspaceIdLicenciasRouteImport } from './routes/w.$workspaceId.licencias'
+import { Route as WWorkspaceIdMcpRouteImport } from './routes/w.$workspaceId.mcp'
 import { Route as WWorkspaceIdModelosRouteImport } from './routes/w.$workspaceId.modelos'
 import { Route as WWorkspaceIdRetencionRouteImport } from './routes/w.$workspaceId.retencion'
 import { Route as WWorkspaceIdPProjectIdRouteImport } from './routes/w.$workspaceId.p.$projectId'
@@ -131,11 +131,6 @@ const WWorkspaceIdIndexRoute = WWorkspaceIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WWorkspaceIdRoute,
 } as any)
-const WWorkspaceIdAsistentesRoute = WWorkspaceIdAsistentesRouteImport.update({
-  id: '/asistentes',
-  path: '/asistentes',
-  getParentRoute: () => WWorkspaceIdRoute,
-} as any)
 const WWorkspaceIdDecisionesRoute = WWorkspaceIdDecisionesRouteImport.update({
   id: '/decisiones',
   path: '/decisiones',
@@ -149,6 +144,11 @@ const WWorkspaceIdEquipoRoute = WWorkspaceIdEquipoRouteImport.update({
 const WWorkspaceIdLicenciasRoute = WWorkspaceIdLicenciasRouteImport.update({
   id: '/licencias',
   path: '/licencias',
+  getParentRoute: () => WWorkspaceIdRoute,
+} as any)
+const WWorkspaceIdMcpRoute = WWorkspaceIdMcpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
   getParentRoute: () => WWorkspaceIdRoute,
 } as any)
 const WWorkspaceIdModelosRoute = WWorkspaceIdModelosRouteImport.update({
@@ -221,10 +221,10 @@ export interface FileRoutesByFullPath {
   '/api/customer/$': typeof ApiCustomerSplatRoute
   '/api/demo/$': typeof ApiDemoSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
-  '/w/$workspaceId/asistentes': typeof WWorkspaceIdAsistentesRoute
   '/w/$workspaceId/decisiones': typeof WWorkspaceIdDecisionesRoute
   '/w/$workspaceId/equipo': typeof WWorkspaceIdEquipoRoute
   '/w/$workspaceId/licencias': typeof WWorkspaceIdLicenciasRoute
+  '/w/$workspaceId/mcp': typeof WWorkspaceIdMcpRoute
   '/w/$workspaceId/modelos': typeof WWorkspaceIdModelosRoute
   '/w/$workspaceId/retencion': typeof WWorkspaceIdRetencionRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
@@ -253,10 +253,10 @@ export interface FileRoutesByTo {
   '/api/customer/$': typeof ApiCustomerSplatRoute
   '/api/demo/$': typeof ApiDemoSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
-  '/w/$workspaceId/asistentes': typeof WWorkspaceIdAsistentesRoute
   '/w/$workspaceId/decisiones': typeof WWorkspaceIdDecisionesRoute
   '/w/$workspaceId/equipo': typeof WWorkspaceIdEquipoRoute
   '/w/$workspaceId/licencias': typeof WWorkspaceIdLicenciasRoute
+  '/w/$workspaceId/mcp': typeof WWorkspaceIdMcpRoute
   '/w/$workspaceId/modelos': typeof WWorkspaceIdModelosRoute
   '/w/$workspaceId/retencion': typeof WWorkspaceIdRetencionRoute
   '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
@@ -286,10 +286,10 @@ export interface FileRoutesById {
   '/api/customer/$': typeof ApiCustomerSplatRoute
   '/api/demo/$': typeof ApiDemoSplatRoute
   '/api/v1/$': typeof ApiV1SplatRoute
-  '/w/$workspaceId/asistentes': typeof WWorkspaceIdAsistentesRoute
   '/w/$workspaceId/decisiones': typeof WWorkspaceIdDecisionesRoute
   '/w/$workspaceId/equipo': typeof WWorkspaceIdEquipoRoute
   '/w/$workspaceId/licencias': typeof WWorkspaceIdLicenciasRoute
+  '/w/$workspaceId/mcp': typeof WWorkspaceIdMcpRoute
   '/w/$workspaceId/modelos': typeof WWorkspaceIdModelosRoute
   '/w/$workspaceId/retencion': typeof WWorkspaceIdRetencionRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
@@ -321,10 +321,10 @@ export interface FileRouteTypes {
     | '/api/customer/$'
     | '/api/demo/$'
     | '/api/v1/$'
-    | '/w/$workspaceId/asistentes'
     | '/w/$workspaceId/decisiones'
     | '/w/$workspaceId/equipo'
     | '/w/$workspaceId/licencias'
+    | '/w/$workspaceId/mcp'
     | '/w/$workspaceId/modelos'
     | '/w/$workspaceId/retencion'
     | '/w/$workspaceId/'
@@ -353,10 +353,10 @@ export interface FileRouteTypes {
     | '/api/customer/$'
     | '/api/demo/$'
     | '/api/v1/$'
-    | '/w/$workspaceId/asistentes'
     | '/w/$workspaceId/decisiones'
     | '/w/$workspaceId/equipo'
     | '/w/$workspaceId/licencias'
+    | '/w/$workspaceId/mcp'
     | '/w/$workspaceId/modelos'
     | '/w/$workspaceId/retencion'
     | '/w/$workspaceId'
@@ -385,10 +385,10 @@ export interface FileRouteTypes {
     | '/api/customer/$'
     | '/api/demo/$'
     | '/api/v1/$'
-    | '/w/$workspaceId/asistentes'
     | '/w/$workspaceId/decisiones'
     | '/w/$workspaceId/equipo'
     | '/w/$workspaceId/licencias'
+    | '/w/$workspaceId/mcp'
     | '/w/$workspaceId/modelos'
     | '/w/$workspaceId/retencion'
     | '/w/$workspaceId/'
@@ -549,13 +549,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceIdIndexRouteImport
       parentRoute: typeof WWorkspaceIdRoute
     }
-    '/w/$workspaceId/asistentes': {
-      id: '/w/$workspaceId/asistentes'
-      path: '/asistentes'
-      fullPath: '/w/$workspaceId/asistentes'
-      preLoaderRoute: typeof WWorkspaceIdAsistentesRouteImport
-      parentRoute: typeof WWorkspaceIdRoute
-    }
     '/w/$workspaceId/decisiones': {
       id: '/w/$workspaceId/decisiones'
       path: '/decisiones'
@@ -575,6 +568,13 @@ declare module '@tanstack/react-router' {
       path: '/licencias'
       fullPath: '/w/$workspaceId/licencias'
       preLoaderRoute: typeof WWorkspaceIdLicenciasRouteImport
+      parentRoute: typeof WWorkspaceIdRoute
+    }
+    '/w/$workspaceId/mcp': {
+      id: '/w/$workspaceId/mcp'
+      path: '/mcp'
+      fullPath: '/w/$workspaceId/mcp'
+      preLoaderRoute: typeof WWorkspaceIdMcpRouteImport
       parentRoute: typeof WWorkspaceIdRoute
     }
     '/w/$workspaceId/modelos': {
@@ -683,10 +683,10 @@ const WWorkspaceIdPProjectIdRouteWithChildren =
   )
 
 interface WWorkspaceIdRouteChildren {
-  WWorkspaceIdAsistentesRoute: typeof WWorkspaceIdAsistentesRoute
   WWorkspaceIdDecisionesRoute: typeof WWorkspaceIdDecisionesRoute
   WWorkspaceIdEquipoRoute: typeof WWorkspaceIdEquipoRoute
   WWorkspaceIdLicenciasRoute: typeof WWorkspaceIdLicenciasRoute
+  WWorkspaceIdMcpRoute: typeof WWorkspaceIdMcpRoute
   WWorkspaceIdModelosRoute: typeof WWorkspaceIdModelosRoute
   WWorkspaceIdRetencionRoute: typeof WWorkspaceIdRetencionRoute
   WWorkspaceIdIndexRoute: typeof WWorkspaceIdIndexRoute
@@ -694,10 +694,10 @@ interface WWorkspaceIdRouteChildren {
 }
 
 const WWorkspaceIdRouteChildren: WWorkspaceIdRouteChildren = {
-  WWorkspaceIdAsistentesRoute: WWorkspaceIdAsistentesRoute,
   WWorkspaceIdDecisionesRoute: WWorkspaceIdDecisionesRoute,
   WWorkspaceIdEquipoRoute: WWorkspaceIdEquipoRoute,
   WWorkspaceIdLicenciasRoute: WWorkspaceIdLicenciasRoute,
+  WWorkspaceIdMcpRoute: WWorkspaceIdMcpRoute,
   WWorkspaceIdModelosRoute: WWorkspaceIdModelosRoute,
   WWorkspaceIdRetencionRoute: WWorkspaceIdRetencionRoute,
   WWorkspaceIdIndexRoute: WWorkspaceIdIndexRoute,

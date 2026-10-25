@@ -190,9 +190,14 @@
 .customer-notification-channel > div:first-child, .customer-notification-delivery > div { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
 .customer-notification-actions { display: flex; flex-wrap: wrap; align-items: start; justify-content: end; gap: 8px; }
 .customer-notification-secret { display: grid; gap: 8px; padding: 0; }
+.customer-mcp-page { display: grid; gap: 16px; min-width: 0; }
+.customer-mcp-page h2 { margin: 0 0 8px; }
+.customer-mcp-manual { margin-top: 12px; }
+.customer-mcp-manual summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.customer-mcp-examples { display: grid; gap: 6px; margin: 0 0 12px; padding-left: 20px; }
 .customer-mcp-snippet { display: grid; gap: 4px; margin-top: 12px; min-width: 0; }
 .customer-mcp-snippet span { font-size: 13px; font-weight: 600; }
-.customer-mcp-snippet pre { margin: 0; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--border); font-family: var(--mono); font-size: 12px; white-space: pre; }
+.customer-mcp-snippet pre { margin: 0; padding: 10px 12px; border: 1px solid var(--border); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .customer-mcp-snippet .customer-link-button { justify-self: start; }
 .customer-notification-secret code { display: block; overflow-wrap: anywhere; padding: 4px 0; user-select: all; }
 

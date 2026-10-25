@@ -19,7 +19,7 @@ export function WorkspacePages({ page, userId, organizationId, role, canManage }
     <InvestigationModelSettings key={`${userId}:${organizationId}`} organizationId={organizationId} isOwner={role === 'owner'} />
   </>;
   if (page === 'assistants') return <>
-    <PageHeader title="Asistentes IA" description="Conecta Claude, Codex o tu IDE para consultar este espacio de trabajo en modo lectura." />
+    <PageHeader title="MCP" description="Consulta los hallazgos y alertas de este espacio desde Claude, Codex o tu IDE." />
     <McpTokensPanel key={`${userId}:${organizationId}`} userId={userId} organizationId={organizationId} />
   </>;
   if (page === 'members') return <>

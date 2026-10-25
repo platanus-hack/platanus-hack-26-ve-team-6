@@ -22,7 +22,7 @@ Authentication: Authorization: Bearer <personal token>
    supported format and user-level configuration location.
 
 2. Get a token. Gotchu has no anonymous access. Ask the user to open
-   ${origin}/dashboard, choose their workspace, open "Asistentes IA" and create a
+   ${origin}/dashboard, choose their workspace, open "MCP" in the sidebar and create a
    token. Each token belongs to one person and one workspace and expires in 7, 30
    or 90 days. Ask the user to put it in the environment variable
    GOTCHU_MCP_TOKEN rather than pasting it into the conversation. Never print the

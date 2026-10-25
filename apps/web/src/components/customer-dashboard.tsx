@@ -78,7 +78,7 @@ const pages: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'members', label: 'Equipo', icon: UsersIcon },
   { id: 'decision-records', label: 'Decisiones', icon: GavelIcon },
   { id: 'investigation-model', label: 'Modelos de IA', icon: SparklesIcon },
-  { id: 'assistants', label: 'Asistentes IA', icon: BotIcon },
+  { id: 'assistants', label: 'MCP', icon: BotIcon },
   { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
   { id: 'retention-policy', label: 'Retención', icon: ArchiveIcon },
 ];
@@ -96,7 +96,7 @@ function DashboardNavLink({ page, organizationId, applicationId, count, onNaviga
     case 'operations': return <Link {...common} to="/w/$workspaceId/p/$projectId/vigilancia" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'reports': return <Link {...common} to="/w/$workspaceId/p/$projectId/informes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'investigation-model': return <Link {...common} to="/w/$workspaceId/modelos" params={{ workspaceId: organizationId }}>{content}</Link>;
-    case 'assistants': return <Link {...common} to="/w/$workspaceId/asistentes" params={{ workspaceId: organizationId }}>{content}</Link>;
+    case 'assistants': return <Link {...common} to="/w/$workspaceId/mcp" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'license-policy': return <Link {...common} to="/w/$workspaceId/licencias" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'retention-policy': return <Link {...common} to="/w/$workspaceId/retencion" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'members': return <Link {...common} to="/w/$workspaceId/equipo" params={{ workspaceId: organizationId }}>{content}</Link>;
