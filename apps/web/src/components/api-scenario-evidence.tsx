@@ -21,7 +21,12 @@ export function ApiScenarioEvidence({ analysis }: { analysis: AssessmentAnalysis
       const coverage = analysis.coverage.find(item => item.capability === `api_${id}`);
       return <details className="customer-evidence" key={id}>
         <summary>{apiScenarioLabels[id]} · {complete}/{items.length} respuestas completas <Badge variant="outline">{coverage?.state === 'inspected' ? 'Observado' : 'Cobertura parcial o desconocida'}</Badge></summary>
-        <ul>{items.map((item, i) => <li key={`${item.method}:${item.path}:${i}`}><code>{item.method} {item.path}</code> · {item.status === null ? 'Sin respuesta' : `HTTP ${item.status}`}{item.incomplete && ` · ${item.incomplete}`}</li>)}</ul>
+        <ul>{items.map((item, i) => <li key={`${item.method}:${item.path}:${i}`}>
+          <code>{item.method} {item.path}</code> · {item.status === null ? 'Sin respuesta' : `HTTP ${item.status}`}{item.incomplete && ` · ${item.incomplete}`}
+          {item.signals.originAllowed && <p>CORS: {item.signals.originAllowed === 'probe_origin' ? 'acepta el origen de prueba' : item.signals.originAllowed === 'wildcard' ? 'permite cualquier origen (*)' : item.signals.originAllowed === 'absent' ? 'sin origen permitido en esta respuesta' : 'otro valor o valor ambiguo'} · credenciales: {item.signals.credentialsAllowed ? 'permitidas por la cabecera' : 'sin permiso declarado'}.</p>}
+          {item.signals.allowedMethods && <p>Métodos anunciados: {item.signals.allowedMethods.join(', ') || 'sin métodos reconocidos'}.</p>}
+          {item.signals.errorSignature && <p>Firma de error: {item.signals.errorSignature}. El texto de la respuesta no se conserva.</p>}
+        </li>)}</ul>
         {id === 'auth_boundary' && <p>HEAD sin credenciales describe sólo esta respuesta; no demuestra acceso mediante GET ni un bypass.</p>}
         {id === 'cors_preflight' && <p>Origen de prueba fijo: https://gotchu.invalid. No se comprobó lectura autenticada desde un navegador.</p>}
       </details>;
