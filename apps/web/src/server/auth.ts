@@ -133,10 +133,8 @@ export function createAuthConfig(settings: AuthSettings): AuthConfig {
         if (!parsedProfile.success || parsedProfile.data.email_verified !== true || !parsedProfile.data.email) {
           return new URL('/dashboard?authError=GoogleEmailUnverified', settings.origin).href;
         }
-        const email = parsedProfile.data.email.toLowerCase();
-        if (settings.localAccounts && await settings.localAccounts.emailExists(email)) {
-          return new URL('/dashboard?authError=GoogleAccountRequiresPassword', settings.origin).href;
-        }
+        // Local emails are unverified identifiers. They cannot veto a verified
+        // provider identity, which keeps its own namespace and memberships.
         return true;
       },
       jwt: async ({ token, account, user }) => {

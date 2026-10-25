@@ -89,7 +89,7 @@ describe('Auth.js Request/Response integration', () => {
     expect(() => authSettings({ AUTH_SECRET: settings.secret, AUTH_GITHUB_ID: 'id', AUTH_GITHUB_SECRET: 'secret', PUBLIC_APP_URL: 'http://public.example' })).toThrow('HTTPS');
   });
 
-  it('requires verified Google email and blocks linking to an existing local account', async () => {
+  it('requires verified Google email without letting an unverified local registration block Google', async () => {
     const emailExists = vi.fn(async () => true);
     const configured: AuthSettings = { ...settings, googleClientId: 'google-client', googleClientSecret: 'google-secret', localAccounts: localAccounts({ emailExists }) };
     const signIn = createAuthConfig(configured).callbacks?.signIn;
@@ -97,8 +97,12 @@ describe('Auth.js Request/Response integration', () => {
     await expect(signIn({ ...googleSignInInput, profile: { ...googleSignInInput.profile, email_verified: false } }))
       .resolves.toBe(`${settings.origin}/dashboard?authError=GoogleEmailUnverified`);
     expect(emailExists).not.toHaveBeenCalled();
-    await expect(signIn(googleSignInInput)).resolves.toBe(`${settings.origin}/dashboard?authError=GoogleAccountRequiresPassword`);
-    expect(emailExists).toHaveBeenCalledExactlyOnceWith('person@example.test');
+    await expect(signIn(googleSignInInput)).resolves.toBe(true);
+    expect(emailExists).not.toHaveBeenCalled();
+    const jwt = createAuthConfig(configured).callbacks?.jwt;
+    if (!jwt) throw new Error('JWT callback missing');
+    const claims = await jwt({ token: {}, user: googleSignInInput.user, account: googleSignInInput.account, trigger: 'signIn' });
+    expect(claims?.sub).toBe('google:42');
   });
 
   it('keeps self-host first-owner creation on the single-use setup flow', async () => {

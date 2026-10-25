@@ -40,7 +40,7 @@ try {
     cwd: root, stdio: 'inherit', env: { ...process.env, GOTCHU_TEST_DATABASE_URL: `postgres://postgres:${password}@127.0.0.1:${port}/gotchu_test_backend` },
   });
   process.exitCode = result.status ?? 1;
-  const webResult = spawnSync('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/web', 'exec', 'vitest', 'run', '--config', 'vitest.config.ts', 'test/self-host-setup-postgres.test.ts'], {
+  const webResult = spawnSync('pnpm', ['--config.verify-deps-before-run=false', '--filter', '@gotchu/web', 'exec', 'vitest', 'run', '--config', 'vitest.config.ts', 'test/self-host-setup-postgres.test.ts', 'test/github-consent-postgres.test.ts', '--no-file-parallelism'], {
     cwd: root, stdio: 'inherit', env: { ...process.env, GOTCHU_TEST_DATABASE_URL: `postgres://postgres:${password}@127.0.0.1:${port}/gotchu_test_backend` },
   });
   if (webResult.status !== 0) process.exitCode = webResult.status ?? 1;

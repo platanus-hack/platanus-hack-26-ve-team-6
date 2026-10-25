@@ -90,7 +90,8 @@ globalThis.fetch = async (input, init) => {
     return Response.json({ access_token: 'fixture-user-token', token_type: 'bearer', scope: 'read:user' });
   }
   if (url.origin === 'https://api.github.com') {
-    if (url.pathname === '/user/installations') return Response.json({ installations: [{ id: 174788349, account: { login: 'fixture-owner' } }] });
+    if (url.pathname === '/user') return Response.json({ id: 101 });
+    if (url.pathname === '/user/installations') return Response.json({ installations: [{ id: 174788349, account: { id: 101, login: 'fixture-owner', type: 'User' } }] });
     if (url.pathname === '/app/installations/174788349/access_tokens') return Response.json({ token: 'fixture-installation-token', expires_at: '2099-01-01T00:00:00.000Z' });
     if (url.pathname === '/installation/repositories') return Response.json({ total_count: 1, repositories: [{ id: 42, full_name: 'fixture-owner/vulnerable-app', default_branch: 'main', private: true, archived: false }] });
     if (url.pathname === '/repos/fixture-owner/vulnerable-app') return Response.json({ default_branch: 'main' });
@@ -160,7 +161,7 @@ globalThis.fetch = async (input, init) => {
     expect(counts.rows[0]).toEqual({ sources: 1, jobs: 1 });
   }, 60_000);
 
-  it('creates the first workspace and scans a selected GitHub repository in two clicks', async () => {
+  it('creates the first workspace and scans a selected repository after explicit GitHub owner consent', async () => {
     await page.context().clearCookies();
     await page.goto(origin);
     await page.evaluate(() => sessionStorage.clear());
@@ -177,18 +178,34 @@ globalThis.fetch = async (input, init) => {
       callback.search = new URLSearchParams({ code: 'fixture-code', installation_id: '174788349', setup_action: 'install', state }).toString();
       await route.fulfill({ json: { installUrl: callback.href } });
     });
+    // Browser routing cannot intercept a later hop of a server redirect chain.
+    // Exercise the real form POST, then replace only its external provider redirect.
+    await page.route(`${origin}/api/customer/github/choose`, async route => {
+      const response = await route.fetch({ maxRedirects: 0 });
+      expect(response.status()).toBe(303);
+      const authorization = new URL(response.headers()['location'] ?? '');
+      expect(authorization.origin).toBe('https://github.com');
+      expect(authorization.pathname).toBe('/login/oauth/authorize');
+      expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
+      const state = authorization.searchParams.get('state');
+      if (!state) throw new Error('Missing selected-installation OAuth state');
+      const callback = new URL('/api/customer/github/callback', origin);
+      callback.search = new URLSearchParams({ code: 'fixture-code', state }).toString();
+      await route.fulfill({ status: 303, headers: { location: callback.href } });
+    });
     await page.getByRole('button', { name: 'Conectar GitHub' }).click();
+    await page.getByRole('button', { name: 'Compartir fixture-owner con este espacio' }).click();
     try { await page.getByText('Conectado a fixture-owner').waitFor({ timeout: 15_000 }); }
     catch {
       const onboarding = await page.locator('.customer-onboarding').innerText().catch(() => 'Onboarding is not visible.');
       const hasSavedScope = await page.evaluate(() => window.sessionStorage.getItem('gotchu-onboarding-scope') !== null);
-      throw new Error(JSON.stringify({ onboarding, hasSavedScope, customerApiFailures }));
+      throw new Error(JSON.stringify({ onboarding, hasSavedScope, customerApiFailures, location: new URL(page.url()).origin + new URL(page.url()).pathname, visibleText: (await page.locator('body').innerText()).slice(0, 2000) }));
     }
     const scan = page.waitForResponse(response => response.url().includes('/github/installations/174788349/repositories/42/select') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Analizar fixture-owner/vulnerable-app' }).click();
     expect((await scan).status()).toBe(201);
     await page.locator('.customer-job-banner').waitFor({ timeout: 10_000 });
-    expect(await page.evaluate(() => window.sessionStorage.getItem('onboarding-click-count'))).toBe('2');
+    expect(await page.evaluate(() => window.sessionStorage.getItem('onboarding-click-count'))).toBe('3');
     const workspaces = await page.evaluate(async () => await (await fetch('/api/customer/workspaces')).json());
     const workspace = customerWorkspaceSchema.parse(Array.isArray(workspaces) ? workspaces[0] : null);
     const applications = await page.evaluate(async (organizationId) => await (await fetch(`/api/customer/workspaces/${organizationId}/applications`)).json(), workspace.id);
@@ -199,5 +216,23 @@ globalThis.fetch = async (input, init) => {
       (SELECT count(*)::int FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2) AS sources,
       (SELECT count(*)::int FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2 AND kind='audit') AS jobs`, [workspace.id, application.applicationId]);
     expect(counts.rows[0]).toEqual({ sources: 1, jobs: 1 });
+    await page.unroute(`${origin}/api/customer/github/choose`);
   }, 60_000);
+
+  it('does not reuse a previous identity\'s onboarding scope after signing out', async () => {
+    await page.context().clearCookies();
+    await page.goto(origin);
+    await page.evaluate(() => sessionStorage.clear());
+    await signIn(page, origin, `scope-owner-${randomUUID()}@example.test`);
+    await page.route(`${origin}/api/customer/github/connect`, route => route.fulfill({ json: { installUrl: `${origin}/dashboard` } }));
+    await page.getByRole('button', { name: 'Conectar GitHub' }).click();
+    await page.getByRole('heading', { name: 'Elige cómo empezar' }).waitFor();
+    await page.getByRole('button', { name: 'Cerrar sesión' }).click();
+    await page.getByRole('button', { name: 'Iniciar sesión', exact: true }).waitFor();
+    const failuresBefore = customerApiFailures.length;
+    await signIn(page, origin, `scope-new-user-${randomUUID()}@example.test`);
+    await page.getByRole('textbox', { name: 'Espacio de trabajo', exact: true }).waitFor({ timeout: 5_000 });
+    expect(customerApiFailures.slice(failuresBefore)).toEqual([]);
+    await page.unroute(`${origin}/api/customer/github/connect`);
+  }, 45_000);
 });
