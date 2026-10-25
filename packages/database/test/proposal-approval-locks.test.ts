@@ -10,20 +10,22 @@ live('scoped proposal approval locks on real PostgreSQL', () => {
   const otherApplicationId = randomUUID();
   const approvalIds = [randomUUID(), randomUUID()].sort();
   const otherApprovalId = randomUUID();
+  // Each proposal's exact action is unique per organization.
+  const actionHash = (id: string) => (id === proposalId ? 'a' : 'b').repeat(64);
   const lock = 'SELECT id FROM gotchu.lock_proposal_approvals($1,$2,$3) AS id';
   beforeAll(async () => {
     f = await fixture();
     await f.admin.query("INSERT INTO gotchu.applications(organization_id,id,name) VALUES($1,$2,'Other app')", [f.a.organizationId,otherApplicationId]);
     for (const id of [proposalId, otherProposalId]) {
       await f.admin.query(`INSERT INTO gotchu.proposals(organization_id,application_id,id,action_hash,body,recovery_epoch,version,kind)
-        VALUES($1,$2,$3,$4,'{}',1,2,'dependency_pull_request')`, [f.a.organizationId,f.a.applicationId,id,'a'.repeat(64)]);
+        VALUES($1,$2,$3,$4,'{}',1,2,'dependency_pull_request')`, [f.a.organizationId,f.a.applicationId,id,actionHash(id)]);
     }
     // Reverse insertion order so result ordering cannot rely on heap order.
     for (const id of [...approvalIds].reverse().concat(otherApprovalId)) {
       await f.admin.query(`INSERT INTO gotchu.approvals
         (organization_id,id,proposal_id,action_hash,user_id,recovery_epoch,expires_at,proof_id,authorization_method)
         VALUES($1,$2,$3,$4,$5,1,clock_timestamp()-interval '1 minute',NULL,'owner_session')`,
-      [f.a.organizationId,id,id === otherApprovalId ? otherProposalId : proposalId,'a'.repeat(64),f.a.userId]);
+      [f.a.organizationId,id,id === otherApprovalId ? otherProposalId : proposalId,actionHash(id === otherApprovalId ? otherProposalId : proposalId),f.a.userId]);
     }
   });
   afterAll(async () => { await f?.close(); });
