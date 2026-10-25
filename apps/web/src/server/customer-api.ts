@@ -111,7 +111,7 @@ export function createCustomerApi(options: {
   githubAppFile?: string; githubAppSlug?: string;
 }) {
   const handleGitHub = createGitHubApi({ origin: options.origin, ...(options.githubAppFile ? { appFile: options.githubAppFile } : {}), ...(options.githubAppSlug ? { appSlug: options.githubAppSlug } : {}),
-    services: options.services?.github ? { github: options.services.github, uploadSource: options.services.uploadSource, queue: options.services.queue } : null });
+    services: options.services?.github && options.services.operations ? { github: options.services.github, enableDefaultMonitoring: options.services.operations.enableDefault, uploadSource: options.services.uploadSource, queue: options.services.queue } : null });
   return async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url);

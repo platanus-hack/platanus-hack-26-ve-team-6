@@ -92,7 +92,7 @@ const workflowExceptionsSchema = z.object({
   exceptions: z.array(z.object({ repositoryLinkId:z.uuid(),id:z.uuid(),version:z.number().int().positive(),workflowPath:z.string(),rule:z.string(),justification:z.string(),createdBy:z.string(),createdAt:z.iso.datetime() }).strict()).max(1000),
 }).strict();
 const actionEligibilitySchema = z.object({ status: z.enum(['eligible','ineligible']), blockingReasons: z.array(z.string()) }).strict();
-const githubSelectSchema = z.object({ repository: githubRepositorySchema, link: z.object({ id: z.uuid(), applicationId: z.uuid(), repositoryKey: z.string(), fullName: z.string(), defaultBranch: z.string(), readAccess: z.literal('granted'), writeAccess: z.literal('not_granted') }).strict(), source: customerSourceSummarySchema, jobId: z.uuid() }).strict();
+const githubSelectSchema = z.object({ repository: githubRepositorySchema, link: z.object({ id: z.uuid(), applicationId: z.uuid(), repositoryKey: z.string(), fullName: z.string(), defaultBranch: z.string(), readAccess: z.literal('granted'), writeAccess: z.literal('not_granted') }).strict(), source: customerSourceSummarySchema, jobId: z.uuid(), monitoringEnabled: z.boolean() }).strict();
 
 export type CustomerSession = z.infer<typeof customerSessionSchema>;
 export type CustomerJob = z.infer<typeof customerJobSchema>;

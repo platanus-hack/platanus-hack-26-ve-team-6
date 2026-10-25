@@ -50,7 +50,7 @@ async function callbackFixture(options: FixtureOptions = {}) {
     if (url.startsWith('https://api.github.com/user/memberships/orgs/')) return Response.json({ role: options.role ?? 'admin', state: options.memberState ?? 'active', organization: { id: options.membershipAccountId ?? 101 }, user: { id: options.userId ?? 101 } });
     throw new Error('Unexpected fixture request');
   };
-  const handler = createGitHubApi({ origin: 'http://localhost:3000', appFile, appSlug: 'fixture-app', services: { github, uploadSource: async () => { throw new Error('No source upload expected'); }, queue: async () => { throw new Error('No scan expected'); } }, fetchImplementation });
+  const handler = createGitHubApi({ origin: 'http://localhost:3000', appFile, appSlug: 'fixture-app', services: { github, enableDefaultMonitoring: async () => { throw new Error('No monitor expected'); }, uploadSource: async () => { throw new Error('No source upload expected'); }, queue: async () => { throw new Error('No scan expected'); } }, fetchImplementation });
   const request = new Request(`http://localhost:3000/api/customer/github/callback?code=fixture-code&installation_id=174788349&setup_action=install&state=${state}`);
   const response = await handler(request, { userId });
   if (!response) throw new Error('Callback route did not match');
