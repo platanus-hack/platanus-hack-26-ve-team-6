@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { investigationProviderCatalog, type AiCorrection } from '@gotchu/contracts';
+import { investigationProviderCatalog, type AiCorrection, type ValidationRun } from '@gotchu/contracts';
 import { customerApi, CustomerApiError } from './customer-client';
 import { Button, buttonVariants } from './ui/button';
 
@@ -14,7 +14,7 @@ type Props = {
 };
 
 const stateLabels: Record<AiCorrection['state'], string> = {
-  queued: 'Corrección en cola', running: 'Preparando cambios de código', prepared: 'Cambios privados preparados · sin validar',
+  queued: 'Corrección en cola', running: 'Preparando cambios de código', prepared: 'Cambios privados preparados',
   failed: 'No se pudo preparar la corrección', cancelled: 'Corrección cancelada', reconciliation_required: 'Corrección pendiente de conciliación',
 };
 const active = (correction: AiCorrection) => correction.state === 'queued' || correction.state === 'running';
@@ -120,23 +120,29 @@ function CorrectionForSource({ organizationId, applicationId, reportId, findingI
     </form>}
     {prepare.error && <p className="customer-form-error" role="alert">{errorText(prepare.error)} <a href={modelsLink}>Revisar modelo y presupuesto</a></p>}
     {saved.length > 0 && <ol className="customer-ai-corrections">{saved.map(item => <li key={item.id}>
-      <p role="status"><strong>{stateLabels[item.state]}</strong> · {new Date(item.createdAt).toLocaleString('es')}</p>
+      <p role="status"><strong>{item.state === 'reconciliation_required' && item.reasonCode === 'cancelled' ? 'Cancelación solicitada · pendiente de cierre' : stateLabels[item.state]}</strong> · {new Date(item.createdAt).toLocaleString('es')}</p>
       {item.summary && <p>{item.summary}</p>}
-      {item.reasonCode && <p>Motivo registrado: <code>{item.reasonCode}</code></p>}
+      {item.reasonCode && item.reasonCode !== 'cancelled' && <p>Motivo registrado: <code>{item.reasonCode}</code></p>}
       {active(item) && <><p>El trabajo guardado continuará aunque cierres esta página.</p>{canManage && <Button variant="outline" size="sm" disabled={cancel.isPending || cancel.data?.id === item.id} onClick={() => cancel.mutate(item.id)}>{cancel.isPending && cancel.variables === item.id ? 'Solicitando cancelación…' : 'Cancelar preparación'}</Button>}{cancel.data?.id === item.id && <p role="status">Cancelación solicitada; esperando el estado final guardado.</p>}</>}
       {item.state === 'cancelled' && <p>La preparación se canceló. Puedes autorizar un nuevo intento.</p>}
       {item.state === 'failed' && <p>El intento falló. Revisa el motivo antes de autorizar un nuevo intento.</p>}
-      {item.state === 'reconciliation_required' && <p>El resultado o el uso del proveedor necesita revisión. La preparación no se reintentará automáticamente.</p>}
+      {item.state === 'reconciliation_required' && <>
+        <p>{item.reasonCode === 'cancelled' ? 'La cancelación está solicitada; el estado final todavía no está guardado. Actualiza para consultar su cierre.' : 'El resultado o el uso del proveedor necesita revisión. La preparación no se reintentará automáticamente.'}</p>
+        <Button variant="outline" size="sm" disabled={corrections.isFetching} onClick={() => { void corrections.refetch(); }}>{corrections.isFetching ? 'Actualizando estado…' : 'Actualizar estado guardado'}</Button>
+      </>}
       {cancel.error && cancel.variables === item.id && <p className="customer-form-error" role="alert">{errorText(cancel.error)}</p>}
       {item.diff.map(file => <details className="customer-evidence" key={file.path}><summary>Ver cambios en {file.path}</summary><h4>Antes</h4><pre tabIndex={0} role="region" aria-label={`Antes: ${file.path}`}>{file.before}</pre><h4>Después</h4><pre tabIndex={0} role="region" aria-label={`Después: ${file.path}`}>{file.after}</pre></details>)}
       {(item.state === 'prepared' || item.diff.length > 0) && <>
         <SavedExplanation title="Qué cambiaría" items={item.implications} empty="El resultado guardado no detalló las implicaciones." />
         <SavedExplanation title="Riesgos" items={item.risks} empty="El resultado guardado no evaluó posibles efectos secundarios." />
         <SavedExplanation title="Plan de validación" items={item.validationPlan} empty="Falta definir la validación independiente." />
-        <p>Este diff no demuestra que el código funcione ni que el hallazgo esté resuelto. Las pruebas de comportamiento siguen sin verificar.</p>
+        <p>Este diff no demuestra que el código funcione ni que el hallazgo esté resuelto. Consulta la validación independiente para conocer el estado de las pruebas de comportamiento.</p>
         {item.patchHash && <p className="customer-field-note">SHA-256 del cambio: <code>{item.patchHash}</code></p>}
       </>}
-      {item.state === 'prepared' && item.candidateSourceId && <CorrectionProposal key={item.candidateSourceId} organizationId={organizationId} applicationId={applicationId} candidateId={item.candidateSourceId} canManage={canManage} />}
+      {item.state === 'prepared' && item.candidateSourceId && <>
+        <CorrectionCandidateStatus key={item.candidateSourceId} organizationId={organizationId} applicationId={applicationId} candidateId={item.candidateSourceId} correction={item} />
+        <CorrectionProposal key={item.candidateSourceId} organizationId={organizationId} applicationId={applicationId} candidateId={item.candidateSourceId} canManage={canManage} />
+      </>}
       {item.state === 'prepared' && !item.candidateSourceId && <p>No hay una instantánea candidata disponible para preparar una PR. Hace falta revisar el resultado guardado.</p>}
     </li>)}</ol>}
   </section>;
@@ -144,6 +150,99 @@ function CorrectionForSource({ organizationId, applicationId, reportId, findingI
 
 function SavedExplanation({ title, items, empty }: { title: string; items: readonly string[]; empty: string }) {
   return <><h4>{title}</h4>{items.length > 0 ? <ul>{items.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p>{empty}</p>}</>;
+}
+
+const validationLabels: Record<ValidationRun['state'], string> = {
+  queued: 'Validación en cola; comportamiento sin verificar.',
+  running: 'Validación en curso; comportamiento sin verificar.',
+  passed: 'Validación independiente superada según la evidencia guardada.',
+  failed: 'La validación detectó fallos. Revisa la corrección antes de continuar.',
+  inconclusive: 'Validación inconclusa: faltan pruebas para confirmar el comportamiento.',
+  quarantined: 'Validación detenida para revisión; comportamiento sin verificar.',
+  expired: 'La validación ha caducado. Hace falta evidencia vigente antes de aprobar.',
+};
+
+function CorrectionCandidateStatus({ organizationId, applicationId, candidateId, correction }: {
+  organizationId: string; applicationId: string; candidateId: string; correction: AiCorrection;
+}) {
+  const { rescanJobId, validationRunId } = correction;
+  const scan = useQuery({
+    queryKey: ['customer-data', organizationId, applicationId, 'ai-correction-rescan', rescanJobId],
+    enabled: rescanJobId !== null, retry: false, staleTime: Infinity,
+    queryFn: async () => {
+      if (!rescanJobId) throw new Error('No hay un análisis guardado.');
+      const job = await customerApi.job(organizationId, applicationId, rescanJobId);
+      // The jobs endpoint is scoped to the workspace, so also check the application and job kind.
+      if (job.id !== rescanJobId || job.applicationId !== applicationId || job.kind !== 'audit' || job.mode !== 'internal'
+        || job.inputKind === 'container_image') throw new Error('El análisis no corresponde a esta corrección.');
+      return job;
+    },
+    refetchInterval: query => !query.state.error && (query.state.data?.state === 'queued' || query.state.data?.state === 'running') ? 5_000 : false,
+  });
+  const resultReportId = !scan.error && scan.data?.state === 'succeeded' ? scan.data.reportId : null;
+  const report = useQuery({
+    queryKey: ['customer-data', organizationId, applicationId, 'ai-correction-rescan-report', candidateId, resultReportId],
+    enabled: resultReportId !== null, retry: false, staleTime: Infinity,
+    queryFn: async () => {
+      if (!resultReportId) throw new Error('No hay un informe guardado.');
+      const value = await customerApi.report(organizationId, applicationId, resultReportId);
+      if (value.id !== resultReportId || value.organizationId !== organizationId || value.applicationId !== applicationId
+        || value.jobId !== rescanJobId || value.mode !== 'internal' || value.subject.sourceSnapshotId !== candidateId) {
+        throw new Error('El informe no corresponde a esta instantánea candidata.');
+      }
+      return value;
+    },
+  });
+  const validation = useQuery({
+    queryKey: ['customer-data', organizationId, applicationId, 'ai-correction-validation', candidateId, validationRunId],
+    retry: false, staleTime: 5_000,
+    queryFn: async () => {
+      const value = await customerApi.validationStatus(organizationId, applicationId, candidateId);
+      if (value && (value.run.organizationId !== organizationId || value.run.applicationId !== applicationId
+        || value.run.candidateSourceId !== candidateId || value.run.targetFindingId !== correction.findingId
+        || value.run.baseSnapshotDigest !== correction.sourceDigest
+        || validationRunId !== null && value.run.id !== validationRunId
+        || correction.patchHash !== null && value.run.patchDigest !== correction.patchHash)) {
+        throw new Error('La validación no corresponde a esta corrección.');
+      }
+      return value;
+    },
+    refetchInterval: query => !query.state.error && (query.state.data?.run.state === 'queued' || query.state.data?.run.state === 'running') ? 5_000 : false,
+  });
+  const run = validation.data?.run;
+  const facts = validation.data?.facts;
+  const analysis = report.data?.internal;
+
+  return <div className="customer-dependency-validation">
+    <h4>Análisis estático de la instantánea candidata</h4>
+    {!rescanJobId && <p>No hay un análisis estático vinculado a esta corrección. Su resultado no se puede confirmar.</p>}
+    {rescanJobId && scan.isPending && <p role="status">Consultando el análisis estático guardado…</p>}
+    {scan.error && <div role="alert"><p>No se pudo confirmar el estado del análisis estático. {errorText(scan.error)}</p><Button variant="outline" size="sm" disabled={scan.isFetching} onClick={() => { void scan.refetch(); }}>Actualizar análisis estático</Button></div>}
+    {!scan.error && scan.data?.state === 'queued' && <p role="status">Análisis estático en cola.</p>}
+    {!scan.error && scan.data?.state === 'running' && <p role="status">{scan.data.progress.some(step => step.phase === 'analyzing') ? 'Analizando el código de la instantánea candidata…' : 'Preparando el análisis estático…'}</p>}
+    {!scan.error && scan.data?.state === 'failed' && <p role="status">El análisis estático no finalizó. Esto no confirma que el hallazgo esté resuelto.</p>}
+    {!scan.error && scan.data?.state === 'succeeded' && <>
+      <p role="status">Análisis estático finalizado.{!resultReportId && ' No hay un informe guardado disponible.'}</p>
+      {resultReportId && report.isPending && <p role="status">Cargando el informe de la instantánea candidata…</p>}
+      {report.error && <div role="alert"><p>No se pudo confirmar el informe de esta instantánea. {errorText(report.error)}</p><Button variant="outline" size="sm" disabled={report.isFetching} onClick={() => { void report.refetch(); }}>Reintentar carga del informe</Button></div>}
+      {!report.error && report.data && <>
+        <p>{analysis && analysis.status !== 'unavailable' ? `${analysis.findings.length} observaciones registradas en el análisis estático${analysis.status === 'partial' ? ' parcial' : ''}.` : 'El informe no contiene resultados de análisis estático disponibles.'}</p>
+        <a href={`/w/${organizationId}/p/${applicationId}/informes/${report.data.id}`}>Ver informe de la instantánea candidata</a>
+      </>}
+    </>}
+    <p className="customer-field-note">Este análisis no ejecuta el código. Incluso sin observaciones, no demuestra que la corrección funcione.</p>
+    <h4>Validación independiente del comportamiento</h4>
+    {validation.isPending && <p role="status">Consultando la validación guardada…</p>}
+    {validation.error && <div role="alert"><p>No se pudo confirmar el estado de la validación. {errorText(validation.error)}</p><Button variant="outline" size="sm" disabled={validation.isFetching} onClick={() => { void validation.refetch(); }}>Actualizar validación</Button></div>}
+    {!validation.error && validation.isSuccess && !run && <p>No hay una validación independiente registrada. La suite de pruebas y la disponibilidad de la VM están sin confirmar.</p>}
+    {!validation.error && run && <>
+      <p role="status">{validationLabels[run.state]}</p>
+      <p>{run.suiteDefinitionId ? `Suite de pruebas configurada${facts?.suiteName ? `: ${facts.suiteName}` : ''}.` : 'No hay una suite de pruebas configurada para esta validación.'}{facts?.functionalSuitePassed && ` Pruebas superadas según la evidencia guardada: ${facts.passedCount ?? 'recuento no disponible'}.`}</p>
+      <p>{run.reason === 'runner_gate_closed' ? 'La VM de validación no estaba disponible. No se pudo verificar el comportamiento.'
+        : run.firecrackerDigest && run.kernelDigest && run.rootfsDigest ? 'Hay evidencia guardada de ejecución en una VM. Su disponibilidad actual no está confirmada.'
+        : 'No hay evidencia guardada de ejecución en una VM. Su disponibilidad está sin confirmar.'}</p>
+    </>}
+  </div>;
 }
 
 function CorrectionProposal({ organizationId, applicationId, candidateId, canManage }: { organizationId: string; applicationId: string; candidateId: string; canManage: boolean }) {
