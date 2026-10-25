@@ -122,7 +122,6 @@ live('action verifier on real PostgreSQL', () => {
     const api = createBackend({
       database: f.databases.gotchu_api,
       actionVerifier: verifier,
-      stepUpVerifier: { verify: async ({ proof, userId, organizationId, actionHash }) => ({ proofId: proof, userId, organizationId, actionHash, authenticatedAt: new Date(), expiresAt: new Date(Date.now() + 300_000), method: 'webauthn' }) },
     });
     const proposed = await api.actions.propose(identity(), { organizationId: f.a.organizationId, applicationId: f.a.applicationId, kind: 'source_patch_pull_request', sourceRef: { type: 'correction_candidate', candidateId: candidateSourceId } });
     return { api, verifier, verifierFor, proposed, candidateSourceId, repositoryLinkId, runId, repositoryKey, keyPair, publicKeyPem, publicKeyDer,
@@ -194,7 +193,7 @@ live('action verifier on real PostgreSQL', () => {
     const exception = { organizationId: f.a.organizationId, applicationId: f.a.applicationId, repositoryLinkId: prepared.repositoryLinkId,
       workflowPath: violation.path, rule: violation.rule, justification: 'This workflow is reviewed and constrained.' };
     const { actionHash } = await prepared.api.workflowExceptions.getHash(identity(), exception);
-    await prepared.api.workflowExceptions.create(identity(), { ...exception, stepUpProof: actionHash });
+    await prepared.api.workflowExceptions.create(identity(), { ...exception, actionHash });
     await expect(eligibility(prepared)).resolves.toMatchObject({ status: 'eligible', blockingReasons: [] });
     prepared.setWorkflowViolations([{ ...violation, rule: 'push_without_branch_filter' }]);
     expect((await eligibility(prepared)).blockingReasons).toContain('workflow_policy_rule:push_without_branch_filter');

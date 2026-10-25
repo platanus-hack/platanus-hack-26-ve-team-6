@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { fixture, liveUrl } from '../../database/test/support.js';
-import { createBackend, type VerifiedStepUp } from '../src/index.js';
+import { createBackend } from '../src/index.js';
 
 const live = liveUrl ? describe : describe.skip;
 live('tenant application context on real PostgreSQL', () => {
@@ -95,7 +95,6 @@ live('tenant application context on real PostgreSQL', () => {
     await f.admin.query(`UPDATE gotchu.application_repository_links SET state='verified',installation_id=$4
       WHERE organization_id=$1 AND application_id=$2 AND id=$3`, [f.a.organizationId,f.a.applicationId,repositoryLinkId,readerInstallationId]);
 
-    const proofs = new Map<string, VerifiedStepUp>();
     const verifiedWrites: string[] = [];
     let writerCommit = 'a'.repeat(40);
     const repositoryWriteAccessVerifier = async (input: { repositoryKey: string }) => {
@@ -103,37 +102,21 @@ live('tenant application context on real PostgreSQL', () => {
       return { installationId:'174788477',baseCommit:writerCommit };
     };
     const sessionBackend = createBackend({ database:f.databases.gotchu_api,repositoryWriteAccessVerifier });
-    const writeBackend = createBackend({
-      database:f.databases.gotchu_api,
-      repositoryWriteAccessVerifier,
-      stepUpVerifier:{ verify:async input => {
-        const proof=proofs.get(input.proof);
-        if (!proof) throw new Error('unissued test step-up');
-        return proof;
-      } },
-    });
+    const writeBackend = sessionBackend;
     const viewer=`writer-viewer:${crypto.randomUUID()}`;
     await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'operator')", [f.a.organizationId,viewer]);
     await expect(writeBackend.context.getRepositoryWriteAccessChallenge({userId:viewer},{...scope(),repositoryLinkId,grant:true}))
       .rejects.toMatchObject({code:'forbidden',status:403});
 
-    const totpChallenge=await writeBackend.context.getRepositoryWriteAccessChallenge(identity(),{...scope(),repositoryLinkId,grant:true});
-    const totpProofId=crypto.randomUUID();
-    const totpAuthenticatedAt=new Date();
-    const totpOpaque=crypto.randomUUID();
-    proofs.set(totpOpaque,{proofId:totpProofId,userId:f.a.userId,organizationId:f.a.organizationId,actionHash:totpChallenge.actionHash,
-      authenticatedAt:totpAuthenticatedAt,expiresAt:new Date(totpAuthenticatedAt.getTime()+300_000),method:'totp'});
-    await expect(writeBackend.context.setRepositoryWriteAccess(identity(),{...scope(),repositoryLinkId,grant:true,
-      actionHash:totpChallenge.actionHash,stepUpProof:totpOpaque})).rejects.toMatchObject({code:'step_up_required',status:403});
-
-    const exactInput = {...scope(),repositoryLinkId,grant:true,actionHash:totpChallenge.actionHash};
+    const challenge=await writeBackend.context.getRepositoryWriteAccessChallenge(identity(),{...scope(),repositoryLinkId,grant:true});
+    const exactInput = {...scope(),repositoryLinkId,grant:true,actionHash:challenge.actionHash};
     for (const userId of [viewer,f.b.userId]) {
       await expect(sessionBackend.context.setRepositoryWriteAccess({userId},exactInput)).rejects.toMatchObject({code:'forbidden'});
     }
     await expect(sessionBackend.context.setRepositoryWriteAccess(identity(),{...exactInput,actionHash:'f'.repeat(64)}))
       .rejects.toMatchObject({code:'stale_state'});
     await expect(sessionBackend.context.setRepositoryWriteAccess(identity(),{...exactInput,stepUpProof:'unverifiable'}))
-      .rejects.toMatchObject({code:'step_up_unavailable'});
+      .rejects.toMatchObject({code:'invalid_input'});
     writerCommit = 'c'.repeat(40);
     await expect(sessionBackend.context.setRepositoryWriteAccess(identity(),exactInput)).rejects.toMatchObject({code:'stale_state'});
     writerCommit = 'a'.repeat(40);
