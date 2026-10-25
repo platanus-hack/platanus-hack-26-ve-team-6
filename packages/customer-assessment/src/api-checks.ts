@@ -109,7 +109,7 @@ export async function assessApiChecks(raw: ApiTarget, signal: AbortSignal, optio
     a.coverage.push({ capability: `api_${scenario}`, state: complete && (!discovery || schema && !schema.signals.operationsTruncated) ? 'inspected' : 'unavailable',
       detail: discovery
         ? schema ? `Found an inert OpenAPI document with ${schema.signals.documentedOperationCount} declared operations; at most eight retained. Alternate servers, refs, templates and parameterized routes are not probed.` : 'No complete supported OpenAPI JSON document found in the fixed locations. API inventory remains unknown; a 200 HTML fallback is not an API schema.'
-        : `${items.filter(item => item.status !== null).length}/${items.length} HTTP observations. HEAD/OPTIONS inspect response headers only; they do not prove GET access, method execution, or an authorization bypass. Incomplete or unattempted checks remain unknown.` });
+        : `${items.filter(item => item.status !== null).length}/${items.length} HTTP observations. ${scenario === 'error_handling' ? 'The fixed marker GET inspects a bounded body for error signatures; incomplete bodies remain unknown.' : 'HEAD/OPTIONS inspect response headers only; they do not prove GET access, method execution, or an authorization bypass.'} Incomplete or unattempted checks remain unknown.` });
   }
   const inventoryIncomplete = observations.some(item => item.signals.operationsTruncated);
   a.coverage.push({ capability: 'api_endpoint_mapping', state: !inventoryIncomplete && paths.length > 0 && paths.length === new Set(operations.map(item => item.path)).size && operations.every(item => item.probeEligible) ? 'inspected' : 'unavailable',
