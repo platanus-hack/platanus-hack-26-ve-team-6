@@ -62,7 +62,7 @@ describe('offline selected runner', () => {
     controls.command.mockImplementation(async (_file: string, args: string[]) => {
       let stdout = '';
       if (args[0] === 'image') stdout = JSON.stringify({ Id: `sha256:${imageDigest}`, Os: 'linux', Architecture: 'amd64',
-        Config: { User: '1000:1000', Entrypoint: ['/usr/local/bin/node', '/usr/local/lib/gotchu-docker-agent.mjs'] } });
+        Config: { User: '1000:1000', Entrypoint: ['/usr/local/bin/node', '--disable-sigusr1', '/usr/local/lib/gotchu-docker-agent.mjs'] } });
       else if (args[0] === 'create') { present = true; owner = args[args.indexOf('--name') + 1] ?? ''; stdout = containerId; }
       else if (args[1] === 'ls') stdout = present ? `${containerId}${args.at(-1)?.includes('Label') ? ` ${owner}` : ''}` : '';
       else if (args[1] === 'rm') { if (denyCleanup) throw new Error('Unreachable daemon'); present = false; }
@@ -76,6 +76,12 @@ describe('offline selected runner', () => {
     expect((await checkDockerRunnerGate({ imageDigest: 'runner:latest' })).status).toBe('closed');
     expect(controls.command).not.toHaveBeenCalled();
     controls.command.mockResolvedValue({ stdout: JSON.stringify({ Id: `sha256:${'f'.repeat(64)}`, Os: 'linux', Architecture: 'amd64',
+      Config: { User: '1000:1000', Entrypoint: ['/usr/local/bin/node', '--disable-sigusr1', '/usr/local/lib/gotchu-docker-agent.mjs'] } }), stderr: '' });
+    expect((await checkDockerRunnerGate({ imageDigest })).status).toBe('closed');
+  });
+
+  it('rejects an entrypoint that permits signal-triggered debugging', async () => {
+    controls.command.mockResolvedValue({ stdout: JSON.stringify({ Id: `sha256:${imageDigest}`, Os: 'linux', Architecture: 'amd64',
       Config: { User: '1000:1000', Entrypoint: ['/usr/local/bin/node', '/usr/local/lib/gotchu-docker-agent.mjs'] } }), stderr: '' });
     expect((await checkDockerRunnerGate({ imageDigest })).status).toBe('closed');
   });

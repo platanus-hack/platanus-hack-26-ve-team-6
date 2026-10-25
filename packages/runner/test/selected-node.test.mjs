@@ -87,6 +87,7 @@ describe('selected report channel and argv', () => {
     const pattern = 'selected.*$(touch /scratch/should-not-exist)';
     const args = selectedNodeArgs({ files: ['tests/creator.test.ts', 'tests/accounts.test.js'], namePattern: pattern });
     expect(args).toContain(pattern);
+    expect(args.slice(0, 2)).toEqual(['/usr/local/bin/node', '--disable-sigusr1']);
     expect(args).toContain('/usr/local/lib/gotchu-node-selected/node_modules/tsx/dist/loader.mjs');
     expect(args.slice(-2)).toEqual(['/scratch/work/tests/creator.test.ts', '/scratch/work/tests/accounts.test.js']);
     expect(args).not.toContain('npm');
