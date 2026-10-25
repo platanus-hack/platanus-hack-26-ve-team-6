@@ -48,7 +48,9 @@ const escape = (value: string) => value.replace(/[&<>"']/g, character => ({ '&':
 
 export function githubConsentPage(workspaceName: string, state: string, installations: Awaited<ReturnType<typeof githubUserInstallations>>, headers: Headers) {
   headers.set('Content-Type', 'text/html; charset=utf-8');
-  headers.set('Referrer-Policy', 'no-referrer');
+  // no-referrer makes browser form POSTs send Origin: null. Keep same-origin
+  // CSRF checks usable while suppressing callback queries on external requests.
+  headers.set('Referrer-Policy', 'same-origin');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   return new Response(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Conectar GitHub · Gotchu</title><style>

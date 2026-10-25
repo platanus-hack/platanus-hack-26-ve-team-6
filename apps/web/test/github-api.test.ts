@@ -106,7 +106,7 @@ describe('GitHub owner delegation HTTP boundary (mocked GitHub)', () => {
     expect(page).toContain('value="174788349"');
     expect(page).not.toContain(fixtureToken);
     expect(page).not.toContain(verifier);
-    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(response.headers.get('referrer-policy')).toBe('same-origin');
     expect(github.bind).not.toHaveBeenCalled();
     expect(github.createState).toHaveBeenCalledWith({ userId }, { organizationId, purpose: 'choose' });
   });
