@@ -35,6 +35,13 @@ export interface ApiSchemaInventory {
   truncated: boolean;
 }
 
+function supportedOperation(operation: Record<string, unknown>) {
+  if (!record(operation.responses) || Object.keys(operation.responses).length === 0) return false;
+  return Object.entries(operation.responses).every(([code, response]) =>
+    (code === 'default' || /^[1-5](?:\d{2}|XX)$/.test(code)) && record(response)
+      && !('$ref' in response) && typeof response.description === 'string');
+}
+
 /** Inert JSON only. No refs, examples, scripts, callbacks, servers or descriptions are executed/read remotely. */
 export function inspectApiSchema(body: string, origin: string): ApiSchemaInventory | null {
   let document: unknown;
@@ -42,6 +49,7 @@ export function inspectApiSchema(body: string, origin: string): ApiSchemaInvento
   if (!record(document)) return null;
   const swagger = document.swagger === '2.0';
   if (!swagger && !(typeof document.openapi === 'string' && /^3\.[01]\.\d+$/.test(document.openapi))) return null;
+  if (!record(document.info) || typeof document.info.title !== 'string' || typeof document.info.version !== 'string') return null;
   if (!record(document.paths)) return null;
   const operations: ApiOperation[] = [];
   let documentedOperationCount = 0;
@@ -56,11 +64,13 @@ export function inspectApiSchema(body: string, origin: string): ApiSchemaInvento
       const operation = item[method.toLowerCase()];
       if (operation === undefined) continue;
       documentedOperationCount++;
-      if (!record(operation) || '$ref' in operation || !apiProbePath(path)) { truncated = true; continue; }
+      if (!record(operation) || '$ref' in operation || !supportedOperation(operation) || !apiProbePath(path)) { truncated = true; continue; }
       // Parameterized operations and alternate server mappings cannot be exercised accurately here.
-      const eligible = mapped && !('$ref' in item) && !('servers' in item) && !('servers' in operation)
+      const auth = authentication(operation, document);
+      if (auth === 'unknown') truncated = true;
+      const eligible = mapped && auth !== 'unknown' && !('$ref' in item) && !('servers' in item) && !('servers' in operation)
         && !('parameters' in item) && !('parameters' in operation) && method === 'GET';
-      if (operations.length < 8) operations.push({ path, method, authentication: authentication(operation, document), probeEligible: eligible });
+      if (operations.length < 8) operations.push({ path, method, authentication: auth, probeEligible: eligible });
       else truncated = true;
     }
   }
