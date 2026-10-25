@@ -71,7 +71,7 @@ async function main() {
   const transport = createCoordinatorTransport({ redisUrl: config.redisUrl, organizationIds: config.organizationIds, dependencies, report });
   const stop = new AbortController();
   const monitoringEnabled = process.env.GOTCHU_MONITORING_ENABLED === 'true';
-  const monitoringAdapters = createConfiguredMonitoringAdapters({ ...(process.env.GOTCHU_MONITORING_CONFIG_FILE ? { configFile: process.env.GOTCHU_MONITORING_CONFIG_FILE } : {}), advisories: process.env.GOTCHU_MONITORING_OSV === 'true' });
+  const monitoringAdapters = createConfiguredMonitoringAdapters({ database, ...(process.env.GOTCHU_GITHUB_READER_APP_FILE ? { githubAppFile: process.env.GOTCHU_GITHUB_READER_APP_FILE } : {}), ...(process.env.GOTCHU_MONITORING_CONFIG_FILE ? { configFile: process.env.GOTCHU_MONITORING_CONFIG_FILE } : {}), advisories: process.env.GOTCHU_MONITORING_OSV === 'true' });
   const coordinatorId=randomUUID();
   await inspectMonitoringLiveness(database,[...allowedOrganizations]);
   await recordSchedulerHeartbeat(database,coordinatorId);

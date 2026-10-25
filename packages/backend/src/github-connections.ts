@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { githubBindInputSchema, githubConnectionSchema, githubLinkInputSchema, githubScopeSchema, githubOAuthStartSchema, githubOAuthContextSchema, type GitHubConnection } from '@gotchu/contracts';
+import { customerScopeSchema, githubBindInputSchema, githubConnectionSchema, githubLinkInputSchema, githubScopeSchema, githubOAuthStartSchema, githubOAuthContextSchema, type GitHubConnection } from '@gotchu/contracts';
 import { audit, authorize, BackendError, parse, sha256, type BaseDependencies, type Identity } from './core.js';
 
 export function createGitHubConnectionService(deps: BaseDependencies) {
@@ -63,6 +63,18 @@ export function createGitHubConnectionService(deps: BaseDependencies) {
         const result = await tx.query<{ revoked: boolean }>('SELECT gotchu.github_revoke_installation($1,$2,$3) AS revoked', [scope.organizationId, identity.userId, installationId]);
         if (!result.rows[0]?.revoked) throw new BackendError('not_found', 'La conexión ya está revocada o no existe.', 404);
         await audit(tx, scope.organizationId, identity.userId, 'github.installation_revoked', null, { installationId });
+      });
+    },
+    /** Active App-connected repositories of one application, for choosing what to monitor. */
+    async listRepositoryLinks(identity: Identity, input: { organizationId: string; applicationId: string }) {
+      const scope = parse(customerScopeSchema, input);
+      return deps.database.tenant(scope.organizationId, async tx => {
+        await authorize(tx, scope.organizationId, identity);
+        const result = await tx.query<{ repository_key: string; installation_id: string }>(`SELECT l.repository_key,l.installation_id FROM gotchu.application_repository_links l
+          JOIN gotchu.github_installations g ON g.organization_id=l.organization_id AND g.installation_id=l.installation_id
+          WHERE l.organization_id=$1 AND l.application_id=$2 AND l.source='github_app' AND NOT l.revoked AND l.read_access='granted' AND g.state='active'
+          ORDER BY l.created_at LIMIT 20`, [scope.organizationId, scope.applicationId]);
+        return result.rows.map(row => ({ repositoryKey: row.repository_key, installationId: row.installation_id }));
       });
     },
     async createRepositoryLink(identity: Identity, input: unknown) {

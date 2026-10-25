@@ -175,6 +175,9 @@ services:
       GOTCHU_RUN_CAPABILITY_PRIVATE_KEY: ${GOTCHU_RUN_CAPABILITY_PRIVATE_KEY:-}
       GOTCHU_DEMO_ENABLED: ${GOTCHU_DEMO_ENABLED:-false}
       GOTCHU_DEMO_TARGET_ORIGIN:
+      GOTCHU_MONITORING_ENABLED: "true"
+      GOTCHU_MONITORING_OSV: "true"
+      GOTCHU_GITHUB_READER_APP_FILE: ${GOTCHU_GITHUB_READER_APP_FILE:-}
       PORT: 3003
       GOTCHU_COORDINATOR_HOST: 0.0.0.0
     depends_on:
@@ -198,6 +201,7 @@ services:
     volumes:
       - ${GOTCHU_STATE_DIR:-../.gotchu}/scanner.secret:/run/secrets/scanner.secret:ro
       - ${GOTCHU_STATE_DIR:-../.gotchu}/scanner.crt:/run/secrets/scanner.crt:ro
+      - ${GOTCHU_STATE_DIR:-../.gotchu}/github:/run/secrets/github:ro
     mem_limit: 768m
     cpus: 1.0
     ports:

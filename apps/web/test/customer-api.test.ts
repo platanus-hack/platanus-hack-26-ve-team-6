@@ -23,7 +23,7 @@ function request(path: string, payload?: unknown, headers: HeadersInit = {}) {
 function operationPorts() {
   const result = ports();
   const unused = async (): Promise<never> => { throw new Error('Unexpected operation service invocation'); };
-  const operations: NonNullable<CustomerServices['operations']> = { getConfig: unused, configure: unused, claimDue: unused, getWatch: unused, heartbeatRun: unused, materialize: unused, finishRun: unused, recordObservation: unused, listAlerts: unused, updateAlert: unused, getCoverage: unused, createPlan: unused, listPlans: unused, requestPreparation: unused, attestStep: unused, checkReadiness: unused, requestExecution: unused };
+  const operations: NonNullable<CustomerServices['operations']> = { getConfig: unused, configure: unused, enableDefault: unused, claimDue: unused, getWatch: unused, heartbeatRun: unused, materialize: unused, finishRun: unused, recordObservation: unused, listAlerts: unused, updateAlert: unused, getCoverage: unused, createPlan: unused, listPlans: unused, requestPreparation: unused, attestStep: unused, checkReadiness: unused, requestExecution: unused };
   result.services.operations = operations;
   return { ...result, operations };
 }
