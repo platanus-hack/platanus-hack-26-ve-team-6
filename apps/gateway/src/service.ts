@@ -708,9 +708,10 @@ const gatewaySystemInstruction = [
   'Reply with one JSON object and nothing else, using exactly these keys:',
   '{"assessment":"candidate_issue"|"no_issue_supported"|"inconclusive","summary":string (1-2000 chars),',
   '"citedEvidenceIds":[evidenceId...],"hypotheses":[{"statement":string (1-500 chars),"evidenceIds":[evidenceId...]}] (max 8),',
-  '"candidateSuggestion":null or {"kind":"source_change"|"dependency_change"|"configuration_change","summary":string (1-500 chars),"path":string or null,"evidenceIds":[evidenceId...],"validationRequired":"D05"},',
+  '"candidateSuggestion":null or {"kind":"source_change"|"dependency_change"|"configuration_change","summary":string (1-500 chars),"path":string or null,"evidenceIds":[evidenceId...],"implications":[string...],"risks":[string...],"validationPlan":[string...],"validationRequired":"D05"},',
   '"requestedReads":[{"name":"evidence.read"|"auth.events.read"|"application.context.read"|"finding.details.read"|"source.excerpt.read"|"assessment.diff.read"|"validation.results.read"|"triage.results.read","evidenceId":evidenceId}] (max 8)}.',
   'Every evidenceId must be an evidenceId value present in the supplied evidence; list each at most once per array.',
+  'When suggesting a change, explain behavior changes and tradeoffs in implications, possible regressions in risks, and the independent checks needed in validationPlan. Each array has at most 5 strings of 500 chars. These are suggestions, never approval to write or run customer code.',
   'candidateSuggestion must be null unless assessment is "candidate_issue". Use an empty requestedReads array when the supplied evidence suffices.',
   'Write summary, statement and candidate summary text in Spanish; keep keys, enum values, IDs, code and paths unchanged.',
 ].join(' ');
