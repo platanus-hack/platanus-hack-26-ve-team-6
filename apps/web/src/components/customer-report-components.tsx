@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import type { AssessmentAnalysis, AssessmentComparison, AssessmentEvidence } from '@gotchu/contracts';
-import { comparisonPresence, comparisonVerification, perspectiveStatus } from './customer-report-model';
+import type { AssessmentAnalysis, AssessmentEvidence } from '@gotchu/contracts';
 import { ApiScenarioEvidence } from './api-scenario-evidence';
 
 const httpResponseExcerptSchema = z.object({
@@ -67,23 +66,4 @@ export function ExternalHttpsEvidence({ analysis }: { analysis: AssessmentAnalys
       ? <div className="customer-empty-inline">Sin respuestas HTTPS registradas.</div>
       : <div className="customer-http-evidence-list">{responses.map(item => <HttpEvidence item={item} key={item.id} />)}</div>}
   </section></>;
-}
-
-export function ComparisonSummary({ comparisons, internal, external }: {
-  comparisons: readonly AssessmentComparison[];
-  internal: AssessmentAnalysis | null;
-  external: AssessmentAnalysis | null;
-}) {
-  if (comparisons.length === 0) return null;
-  return <div className="customer-comparison-summary">
-    <p>Código: {perspectiveStatus(internal).toLocaleLowerCase('es')} · HTTPS: {perspectiveStatus(external).toLocaleLowerCase('es')}. Una perspectiva no descarta la otra.</p>
-  </div>;
-}
-
-export function ComparisonPresence({ item }: { item: AssessmentComparison }) {
-  return <span className="customer-status customer-status-muted">{comparisonPresence(item)}</span>;
-}
-
-export function ComparisonVerification({ item }: { item: AssessmentComparison }) {
-  return <span className="customer-status customer-status-muted">{comparisonVerification(item.classification)}</span>;
 }

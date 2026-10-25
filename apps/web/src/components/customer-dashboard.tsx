@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { z } from 'zod';
-import { AppWindowIcon, ArchiveIcon, BotIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlayIcon, PlusIcon, RadarIcon, ScaleIcon, SparklesIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
+import { AppWindowIcon, ArchiveIcon, BotIcon, DownloadIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlayIcon, PlusIcon, RadarIcon, ScaleIcon, SparklesIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -22,15 +22,14 @@ import {
 import { CustomerApiError, customerApi, type CustomerJob, type CustomerScanProfile, type CustomerSession } from './customer-client';
 import { readSavedCustomerScope } from './customer-scope-storage';
 import { ReportRecommendations } from './report-recommendations';
-import { ComparisonPresence, ComparisonSummary, ComparisonVerification, ExternalHttpsEvidence } from './customer-report-components';
-import { coverageCapabilitiesLabel, exploitabilityLabel, groupCoverage, reportInputLabel } from './customer-report-model';
+import { ExternalHttpsEvidence } from './customer-report-components';
+import { reportInputLabel, reportTabFromSlug, reportTabSlug, type ReportTab, type ReportTabSlug } from './customer-report-model';
 import { ContextPanel } from './context-panel';
 import { membersApi } from './members-client';
 import { ApprovalPanel } from './approval-panel';
 import { GitHubRepositoryPanel } from './onboarding';
 import { WorkflowExceptions } from './workflow-exceptions';
-import { InvestigationActionButton, InvestigationsTimeline } from './investigations-panel';
-import { AiCorrectionPanel } from './ai-correction-panel';
+import { InvestigationsTimeline } from './investigations-panel';
 import { DependencyInventoryPanel } from './customer-supply-chain';
 import { GotchuMark } from './gotchu-mark';
 import { DotPlate } from './dot-field/dot-plate';
@@ -39,11 +38,9 @@ import { FilePicker } from './file-picker';
 import { FirstProjectEmptyState } from './empty-state';
 import { WorkspacePages } from './workspace-pages';
 import { AssessmentProgress, ReportProgress } from './assessment-progress';
-import { CopyFindingPrompt } from './copy-finding-prompt';
-import { findingPrompt } from './finding-prompt';
-import { ProjectOverview, type ProjectHistory, type ProjectRisk, type ProjectWatch, type RecentReportRow } from './project-overview';
+import { ProjectOverview, ReportRows, type ProjectHistory, type ProjectRisk, type ProjectWatch, type RecentReportRow } from './project-overview';
 import { coverageState, examineSources, nextAction, openFindings, projectSources, type ProjectSource } from './project-risk';
-import { ProjectReports } from './project-reports';
+import { FindingList, ReportCoverage, ReportHeading, ReportSummary, ReportTabPanel, ReportTabs } from './project-reports';
 import { ProjectVigilance } from './project-vigilance';
 import { DashboardShell } from './dashboard-shell';
 import { PageHeader, ScopeSwitcher, SidebarNameForm } from './dashboard-sidebar';
@@ -116,11 +113,6 @@ const modeLabels: Record<AssessmentMode, string> = {
   external: 'HTTPS externo',
   both: 'Código + HTTPS',
 };
-const sourceLabels = { internal: 'Código', external: 'HTTPS' };
-const severityLabels = { unknown: 'Sin evaluar', critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja', informational: 'Informativa' };
-const confidenceLabels = { observed: 'Observado', inferred: 'Indicado', uncertain: 'Sin comprobar' };
-const coverageLabels = { inspected: 'Evaluado', not_requested: 'No solicitado', unsupported: 'No disponible en este perfil', unavailable: 'No disponible' };
-const analysisLabels = { completed: 'Completado', partial: 'Parcial', unavailable: 'No disponible' };
 const scanProfileLabels: Record<CustomerScanProfile, string> = { root: 'Raíz del sitio', public_surface: 'Superficie pública limitada', api_checks: 'Web y API · escenarios HTTP activos' };
 const rememberedSignInKey = 'gotchu.sign-in-preference';
 const rememberedSignInSchema = z.object({ email: z.string().max(254), method: z.string().min(1).max(128) }).strict();
@@ -509,99 +501,69 @@ function ContainerImageEnrollment({ organizationId, applicationId, images, canMa
   </section>;
 }
 
-function ReportView({ report, summary, userId, organizationId, applicationId, canManage, isOwner, archived, activeReportTab, onReportTabChange, onCorrectionQueued }: {
+function ReportView({ report, userId, organizationId, applicationId, canManage, isOwner, archived, activeReportTab, onReportTabChange, onBack, onCorrectionQueued }: {
   report: CustomerAssessmentReport;
-  summary?: CustomerReportSummary;
   userId: string;
   organizationId: string;
   applicationId: string;
   canManage: boolean;
   isOwner: boolean;
   archived: boolean;
-  activeReportTab: 'findings' | 'dependencies';
-  onReportTabChange: (tab: 'findings' | 'dependencies') => void;
+  activeReportTab: ReportTab;
+  onReportTabChange: (tab: ReportTab) => void;
+  onBack: () => void;
   onCorrectionQueued: (jobId: string) => void;
 }) {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadingSbom, setDownloadingSbom] = useState(false);
   const [sbomError, setSbomError] = useState<string | null>(null);
-  const entries = [...report.internal?.findings ?? [], ...report.external?.findings ?? []];
-  const evidence = [...report.internal?.evidence ?? [], ...report.external?.evidence ?? []];
-  const byId = new Map(entries.map(finding => [finding.id, finding]));
-  const findingTitles = new Map(entries.map(finding => [finding.id, finding.title]));
-  const evidenceById = new Map(evidence.map(item => [item.id, item]));
-  const originSections = (['internal', 'external'] as const).map(origin => ({ origin, analysis: report[origin] }));
+  const findings = [...report.internal?.findings ?? [], ...report.external?.findings ?? []];
+  const findingTitles = new Map(findings.map(finding => [finding.id, finding.title]));
+  const subjectLabel = report.subject.origin?.replace(/^https:\/\//, '') ?? report.subject.containerImageReference ?? report.subject.sourceDigest?.slice(0, 7);
   // Queue and validation timings live on the job; the report carries its own analysis timings.
   const reportJob = useQuery({ queryKey: ['customer-data', userId, 'job', organizationId, applicationId, report.jobId], queryFn: () => customerApi.job(organizationId, applicationId, report.jobId), retry: false, staleTime: Infinity });
 
   return <div className="customer-report-detail">
-    <div className="customer-report-title"><div><h2>{report.applicationName}</h2><p>{reportInputLabel(report)} · {date(report.finishedAt)}</p></div><button className="customer-button" disabled={downloading} onClick={async () => {
-      setDownloading(true); setDownloadError(null);
-      try { await customerApi.recordReportDownload(organizationId, applicationId, report.id); downloadReport(report); }
-      catch (error) { setDownloadError(readableError(error)); }
-      finally { setDownloading(false); }
-    }}>{downloading ? 'Registrando descarga…' : 'Descargar JSON'}</button></div>
+    <ReportHeading title={subjectLabel ? `${reportInputLabel(report)} · ${subjectLabel}` : reportInputLabel(report)} detail={date(report.finishedAt)} onBack={onBack}
+      actions={<button className="customer-button" type="button" disabled={downloading} onClick={async () => {
+        setDownloading(true); setDownloadError(null);
+        try { await customerApi.recordReportDownload(organizationId, applicationId, report.id); downloadReport(report); }
+        catch (error) { setDownloadError(readableError(error)); }
+        finally { setDownloading(false); }
+      }}><DownloadIcon aria-hidden="true" />{downloading ? 'Registrando descarga…' : 'Descargar JSON'}</button>} />
     {downloadError && <p className="customer-form-error" role="alert">{downloadError}</p>}
-    <div className="customer-report-subject">
-      {report.subject.sourceSnapshotId && <div><span>Instantánea de código</span><strong>{summary?.subject.sourceDigest?.slice(0, 16) ?? report.subject.sourceDigest?.slice(0, 16)}…</strong></div>}
-      {report.subject.containerImageDigest && <div><span>Digest de imagen {report.subject.containerImageReference ? 'pública' : 'subida'}</span><strong>{report.subject.containerImageDigest.slice(0, 24)}…</strong>{report.subject.containerImageReference && <small>{report.subject.containerImageReference}</small>}</div>}
-      {report.subject.origin && <div><span>Origen HTTPS solicitado</span><strong>{report.subject.origin}</strong></div>}
-      {report.subject.targetVersion !== null && <div><span>Versión del alcance</span><strong>{report.subject.targetVersion}</strong></div>}
-    </div>
-    <ReportProgress report={report} job={reportJob.data} />
-    <div className="customer-report-callout"><strong>{count(entries.length, 'observación registrada', 'observaciones registradas')}</strong><p>La cobertura parcial o no solicitada no confirma seguridad. No se hicieron cambios en el proyecto.</p></div>
-    <ComparisonSummary comparisons={report.comparison} internal={report.internal} external={report.external} />
-    <ExternalHttpsEvidence analysis={report.external} />
-    <InvestigationsTimeline key={`${organizationId}:${applicationId}:${report.id}`} organizationId={organizationId} applicationId={applicationId} reportId={report.id} canManage={canManage && !archived} />
-    <div className="customer-report-tabs" role="tablist" aria-label="Contenido del informe" onKeyDown={event => {
-      if (event.key === 'ArrowRight' || event.key === 'ArrowLeft' || event.key === 'Home' || event.key === 'End') {
-        event.preventDefault();
-        onReportTabChange(event.key === 'Home' || event.key === 'ArrowLeft' ? 'findings' : 'dependencies');
-      }
-    }}>
-      <button type="button" className="customer-report-tab" id="report-findings-tab" role="tab" aria-controls="report-findings-panel" aria-selected={activeReportTab === 'findings'} tabIndex={activeReportTab === 'findings' ? 0 : -1} onClick={() => onReportTabChange('findings')}>Hallazgos</button>
-      <button type="button" className="customer-report-tab" id="report-dependencies-tab" role="tab" aria-controls="report-dependencies-panel" aria-selected={activeReportTab === 'dependencies'} tabIndex={activeReportTab === 'dependencies' ? 0 : -1} onClick={() => onReportTabChange('dependencies')}>Dependencias y licencias</button>
-    </div>
-    {activeReportTab === 'dependencies' && <div id="report-dependencies-panel" className="customer-report-tabpanel" role="tabpanel" aria-labelledby="report-dependencies-tab" tabIndex={0}><DependencyInventoryPanel inventory={report.internal?.dependencyInventory} findings={report.internal?.findings ?? []} busy={downloadingSbom} error={sbomError} onDownload={async () => {
+    <ReportSummary report={report} onOpenCoverage={() => onReportTabChange('coverage')} />
+    <ReportTabs active={activeReportTab} counts={{ findings: report.comparison.length }} onChange={onReportTabChange} />
+    {activeReportTab === 'findings' && <ReportTabPanel tab="findings"><FindingList report={report} organizationId={organizationId} applicationId={applicationId} canManage={canManage && !archived} /></ReportTabPanel>}
+    {activeReportTab === 'fixes' && <ReportTabPanel tab="fixes">
+      {report.subject.containerImageDigest ? <section className="customer-report-section"><div className="customer-section-heading"><div><h3>Cómo corregir las CVE de la imagen</h3></div></div><p>Actualiza los paquetes en el Dockerfile o manifiestos de construcción, crea una nueva imagen y vuelve a evaluarla.</p></section> : <ReportRecommendations
+        key={`${userId}:${organizationId}:${applicationId}:${report.id}`}
+        userId={userId}
+        organizationId={organizationId}
+        applicationId={applicationId}
+        reportId={report.id}
+        reportMode={report.mode}
+        reportSourceSnapshotId={report.subject.sourceSnapshotId}
+        reportSourceDigest={report.subject.sourceDigest}
+        findingTitles={findingTitles}
+        canManage={canManage}
+        archived={archived}
+        onQueued={onCorrectionQueued}
+      />}
+      <InvestigationsTimeline key={`${organizationId}:${applicationId}:${report.id}`} organizationId={organizationId} applicationId={applicationId} reportId={report.id} canManage={canManage && !archived} />
+      <ApprovalPanel userId={userId} organizationId={organizationId} applicationId={applicationId} canManage={canManage && !archived} isOwner={isOwner} />
+    </ReportTabPanel>}
+    {activeReportTab === 'dependencies' && <ReportTabPanel tab="dependencies"><DependencyInventoryPanel inventory={report.internal?.dependencyInventory} findings={report.internal?.findings ?? []} busy={downloadingSbom} error={sbomError} onDownload={async () => {
       setDownloadingSbom(true); setSbomError(null);
       try { const blob = await customerApi.downloadSbom(organizationId, applicationId, report.id); downloadBlob(blob, `gotchu-${report.id}.cdx.json`); }
       catch (error) { setSbomError(readableError(error)); }
       finally { setDownloadingSbom(false); }
-    }} /></div>}
-    {activeReportTab === 'findings' && <div id="report-findings-panel" className="customer-report-tabpanel" role="tabpanel" aria-labelledby="report-findings-tab" tabIndex={0}>
-    <section className="customer-report-section"><div className="customer-section-heading"><div><h3>Observaciones y contraste</h3></div></div>
-      {report.comparison.length === 0 ? <div className="customer-empty-inline">Este informe no registra observaciones. Consulta «Qué se evaluó» para ver la cobertura.</div> : <div className="customer-findings">{report.comparison.map(item => {
-        const linked = [...item.internalFindingIds, ...item.externalFindingIds].map(id => byId.get(id)).filter((finding): finding is NonNullable<typeof finding> => finding !== undefined);
-        return <details className="customer-finding" key={item.key}><summary><span><strong>{linked[0]?.title ?? 'Aspecto no verificable'}</strong><small>{linked[0]?.location ?? item.explanation}</small></span><span className="customer-finding-badges"><ComparisonPresence item={item} /><ComparisonVerification item={item} />{linked.map(finding => <span className="customer-finding-risk" key={finding.id}><span className={`customer-severity customer-severity-${finding.severity}`}>{severityLabels[finding.severity]}</span><span className="customer-status customer-status-muted">Confianza: {confidenceLabels[finding.confidence]}</span><span className="customer-status customer-status-muted">Explotabilidad: {exploitabilityLabel(finding.exploitability)}</span></span>)}</span></summary>
-          <p>{item.explanation}</p>
-          {linked.map(finding => <section className="customer-finding-body" key={finding.id}><div className="customer-tag-row"><span className="customer-status customer-status-muted">{sourceLabels[finding.origin]}</span><span className={`customer-severity customer-severity-${finding.severity}`}>{severityLabels[finding.severity]}</span><span className="customer-status customer-status-muted">Confianza: {confidenceLabels[finding.confidence]}</span><span className="customer-status customer-status-muted">Explotabilidad: {exploitabilityLabel(finding.exploitability)}</span><CopyFindingPrompt prompt={() => findingPrompt({ applicationName: report.applicationName, origin: report.subject.origin, finding, evidence: finding.evidenceIds.flatMap(id => evidenceById.get(id) ?? []) })} /></div><p>{finding.description}</p><InvestigationActionButton organizationId={organizationId} applicationId={applicationId} subject={{ kind: 'finding', subjectId: finding.id, reportId: report.id }} canManage={canManage && !archived && ['medium', 'high', 'critical'].includes(finding.severity)} />{finding.origin === 'internal' && report.subject.sourceSnapshotId && report.subject.sourceDigest && <AiCorrectionPanel organizationId={organizationId} applicationId={applicationId} reportId={report.id} findingId={finding.id} expectedSourceDigest={report.subject.sourceDigest} canManage={canManage && !archived} />}<h4>Impacto posible</h4><p>{finding.impact}</p><h4>Recomendación</h4><p>{finding.recommendation}</p>{finding.limitations.length > 0 && <><h4>Límites de esta observación</h4><ul>{finding.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></>}{finding.evidenceIds.map(id => {
-            const itemEvidence = evidenceById.get(id);
-            return itemEvidence ? <details className="customer-evidence" key={id}><summary>{itemEvidence.locator}</summary><p>{itemEvidence.tool.name} · v{itemEvidence.tool.version} · {date(itemEvidence.collectedAt)}</p><pre>{itemEvidence.excerpt}</pre><p className="customer-evidence-meta">SHA-256: {itemEvidence.checksum}</p><p className="customer-evidence-meta">Instantánea: {itemEvidence.snapshotRef}</p></details> : null;
-          })}</section>)}
-        </details>;
-      })}</div>}
-    </section>
-    {report.subject.containerImageDigest ? <section className="customer-report-section"><div className="customer-section-heading"><div><h3>Cómo corregir las CVE de la imagen</h3></div></div><p>Actualiza los paquetes en el Dockerfile o manifiestos de construcción, crea una nueva imagen y vuelve a evaluarla.</p></section> : <ReportRecommendations
-      key={`${userId}:${organizationId}:${applicationId}:${report.id}`}
-      userId={userId}
-      organizationId={organizationId}
-      applicationId={applicationId}
-      reportId={report.id}
-      reportMode={report.mode}
-      reportSourceSnapshotId={report.subject.sourceSnapshotId}
-      reportSourceDigest={report.subject.sourceDigest}
-      findingTitles={findingTitles}
-      canManage={canManage}
-      archived={archived}
-      onQueued={onCorrectionQueued}
-    />}
-    <ApprovalPanel userId={userId} organizationId={organizationId} applicationId={applicationId} canManage={canManage && !archived} isOwner={isOwner} />
-    </div>}
-    <section className="customer-report-section customer-coverage"><div className="customer-section-heading"><div><h3>Qué se evaluó</h3></div></div>
-      <div className="customer-analysis-grid">{originSections.map(({ origin, analysis }) => <article className="customer-analysis-card" key={origin}><div className="customer-card-heading"><h4>{report.subject.containerImageDigest && origin === 'internal' ? 'Imagen' : sourceLabels[origin]}</h4><span className="customer-status customer-status-muted">{analysis ? analysisLabels[analysis.status] : 'No solicitado'}</span></div>{analysis ? <><p>{analysis.tool.name} · v{analysis.tool.version}</p><ul>{groupCoverage(analysis.coverage).map(item => <li key={`${item.state}:${item.detail}`}><span><strong>{coverageCapabilitiesLabel(item.capabilities)}</strong><small>{item.detail}</small></span><span className="customer-status customer-status-muted">{coverageLabels[item.state]}</span></li>)}</ul>{analysis.limitations.length > 0 && <details className="customer-analysis-limits"><summary>Límites del perfil ({analysis.limitations.length})</summary><ul>{analysis.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></details>}</> : <p>Esta perspectiva no se solicitó para este informe.</p>}</article>)}</div>
-    </section>
-    {report.limitations.length > 0 && <section className="customer-report-section"><div className="customer-section-heading"><div><h3>Límites del informe</h3></div></div><ul className="customer-report-limitations">{report.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></section>}
+    }} /></ReportTabPanel>}
+    {activeReportTab === 'coverage' && <ReportTabPanel tab="coverage"><ReportCoverage report={report}>
+      <ExternalHttpsEvidence analysis={report.external} />
+      <ReportProgress report={report} job={reportJob.data} />
+    </ReportCoverage></ReportTabPanel>}
   </div>;
 }
 
@@ -677,7 +639,7 @@ function AssessmentForm({ organizationId, applicationId, sources, images, target
   </section>;
 }
 
-function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMessage, routePage, routeOrganizationId, routeApplicationId, routeReportId, routeReportTab, routeEntry = true }: { session: CustomerSession; userId: string; acceptedInvitationId: string | null; invitationMessage: string | null; routePage?: Page; routeOrganizationId?: string; routeApplicationId?: string; routeReportId?: string; routeReportTab?: 'dependencias'; routeEntry?: boolean }) {
+function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMessage, routePage, routeOrganizationId, routeApplicationId, routeReportId, routeReportTab, routeEntry = true }: { session: CustomerSession; userId: string; acceptedInvitationId: string | null; invitationMessage: string | null; routePage?: Page; routeOrganizationId?: string; routeApplicationId?: string; routeReportId?: string; routeReportTab?: ReportTabSlug; routeEntry?: boolean }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   // Keep the form in the committed outlet; a pending destination can otherwise show it twice and lose input.
@@ -686,7 +648,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const page = routePage ?? locationRoute.page;
   const currentApplicationId = routeApplicationId ?? locationRoute.applicationId;
   const currentReportId = routeReportId ?? locationRoute.reportId;
-  const currentReportTab = routeReportTab ?? (new URLSearchParams(location.searchStr).get('pestana') === 'dependencias' ? 'dependencias' : undefined);
+  const currentReportTab = reportTabFromSlug(routeReportTab ?? new URLSearchParams(location.searchStr).get('pestana'));
   const activeJobKey = ['customer-data', userId, 'active-job'] as const;
   const [activeJob, setActiveJobState] = useState<ActiveJob | null>(() => {
     const cached = queryClient.getQueryData<ActiveJob | null>(activeJobKey);
@@ -720,11 +682,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     else if (applicationId && next === 'operations') void navigate({ to: '/w/$workspaceId/p/$projectId/vigilancia', params: { workspaceId: organizationId, projectId: applicationId } });
     else if (applicationId && next === 'reports') void navigate({ to: '/w/$workspaceId/p/$projectId/informes', params: { workspaceId: organizationId, projectId: applicationId } });
   };
-  const setReportTab = (tab: 'findings' | 'dependencies') => {
+  const openReport = (reportId: string, tab: ReportTab = 'findings') => {
     if (!organizationId || !applicationId) return;
-    const search = tab === 'dependencies' ? { pestana: 'dependencias' as const } : {};
-    if (currentReportId) void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: applicationId, reportId: currentReportId }, search });
-    else void navigate({ to: '/w/$workspaceId/p/$projectId/informes', params: { workspaceId: organizationId, projectId: applicationId }, search });
+    const slug = reportTabSlug(tab);
+    void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: applicationId, reportId }, search: slug ? { pestana: slug } : {} });
   };
   const [notice, setNotice] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -826,11 +787,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
         else if (remembered.includes('/vigilancia')) void navigate({ to: '/w/$workspaceId/p/$projectId/vigilancia', params: { workspaceId: organizationId, projectId: nextApplication.applicationId } });
         else if (remembered.includes('/informes/') && z.uuid().safeParse(remembered.split('/informes/')[1]?.split(/[?#]/)[0]).success) {
           const reportId = remembered.split('/informes/')[1]?.split(/[?#]/)[0];
-          const search = remembered.includes('pestana=dependencias') ? { pestana: 'dependencias' as const } : {};
-          if (reportId) void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: nextApplication.applicationId, reportId }, search });
+          const slug = reportTabSlug(reportTabFromSlug(new URLSearchParams(remembered.split('?')[1] ?? '').get('pestana')));
+          if (reportId) void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: nextApplication.applicationId, reportId }, search: slug ? { pestana: slug } : {} });
         } else if (remembered.includes('/informes')) {
-          const search = remembered.includes('pestana=dependencias') ? { pestana: 'dependencias' as const } : {};
-          void navigate({ to: '/w/$workspaceId/p/$projectId/informes', params: { workspaceId: organizationId, projectId: nextApplication.applicationId }, search });
+          void navigate({ to: '/w/$workspaceId/p/$projectId/informes', params: { workspaceId: organizationId, projectId: nextApplication.applicationId } });
         }
         else void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: organizationId, projectId: nextApplication.applicationId } });
         return;
@@ -911,11 +871,12 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     counts: findings.counts, total: findings.total, coverage: riskCoverage,
     next: nextAction({ sources: riskSources, pending: examination.pending, reports: riskReportData, coverage: riskCoverage }),
   };
-  // Overview: recent report rows (full reports for their severities), history and the watch.
-  const recentSummaries = (reports.data ?? []).slice(0, 4);
+  // Report rows (full reports for their severities): the overview shows the latest four, the report list all of them.
+  const listingReports = page === 'reports' && !currentReportId;
+  const recentSummaries = listingReports ? reports.data ?? [] : (reports.data ?? []).slice(0, 4);
   const recentFull = useQueries({ queries: recentSummaries.map(summary => ({
     queryKey: ['customer-data', userId, 'report', organizationId, applicationId, summary.id],
-    enabled: page === 'overview' && organizationId !== null && applicationId !== null,
+    enabled: (page === 'overview' || listingReports) && organizationId !== null && applicationId !== null,
     queryFn: () => {
       if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
       return customerApi.report(organizationId, applicationId, summary.id);
@@ -928,7 +889,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     const previous = (reports.data ?? [])[index + 1];
     const order = ['critical', 'high', 'medium', 'low', 'informational', 'unknown'];
     return {
-      id: summary.id, title: modeLabels[summary.mode], findingCount: summary.findingCount,
+      id: summary.id, title: reportInputLabel(summary), findingCount: summary.findingCount,
       detail: [date(summary.finishedAt), sourceLabel(summary)].filter(Boolean).join(' · '),
       delta: previous ? summary.findingCount - previous.findingCount : null,
       severities: full ? [...full.internal?.findings ?? [], ...full.external?.findings ?? []].map(finding => finding.severity).sort((a, b) => order.indexOf(a) - order.indexOf(b)) : null,
@@ -1021,7 +982,6 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const operationError = pageError;
   const pageTitle = pages.find(item => item.id === page)?.label ?? 'Inicio';
   const applicationReports = reports.data ?? [];
-  const selectedSummary = applicationReports.find(item => item.id === visibleReportId);
   const needsReportData = page === 'overview' || page === 'reports' || page === 'https-audit';
   const workspacePage = isWorkspacePage(page);
   if (workspaces.isPending) return <main className="gl customer-app-shell"><Loading label="Cargando tus espacios de trabajo…" /></main>;
@@ -1086,7 +1046,15 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
           onViewReport={reportId => { void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: selectedApplication.applicationId, reportId } }); }}
         />}
         {page === 'operations' && <ProjectVigilance userId={userId} organizationId={organizationId} projectId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} />}
-        {page === 'reports' && <ProjectReports title="Detalle del informe" reportCount={count(applicationReports.length, 'informe', 'informes')} reportList={applicationReports.length === 0 ? <div className="customer-empty-inline">Este proyecto aún no tiene informes.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} organizationId={organizationId} applicationId={selectedApplication.applicationId} />} detail={report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} isOwner={workspace?.role === 'owner'} archived={selectedApplication.archived} activeReportTab={currentReportTab === 'dependencias' ? 'dependencies' : 'findings'} onReportTabChange={setReportTab} onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>} />}
+        {page === 'reports' && (!currentReportId ? <section className="customer-report-index" aria-labelledby="report-index-title">
+          <div className="customer-section-head"><div><h2 id="report-index-title">{count(applicationReports.length, 'informe', 'informes')}</h2><p>Abre uno para ver sus observaciones, cómo corregirlas y qué se evaluó.</p></div></div>
+          {applicationReports.length === 0 ? <p className="customer-empty-inline">Este proyecto aún no tiene informes.</p> : <ReportRows reports={recentRows} onOpenReport={reportId => openReport(reportId)} />}
+        </section>
+        : report.isPending ? <Loading label="Cargando informe…" />
+        : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} />
+        : report.data && <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} isOwner={workspace?.role === 'owner'} archived={selectedApplication.archived}
+          activeReportTab={currentReportTab} onReportTabChange={tab => openReport(currentReportId, tab)} onBack={() => setPage('reports')}
+          onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} />)}
       </>}
     </>}
   </>;
@@ -1147,17 +1115,13 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   </DashboardShell></DashboardSectionContext.Provider>;
 }
 
-function ReportList({ reports, selectedId, organizationId, applicationId }: { reports: CustomerReportSummary[]; selectedId: string | null; organizationId: string; applicationId: string }) {
-  return <ul className="customer-report-list">{reports.map(report => <li key={report.id}><Link to="/w/$workspaceId/p/$projectId/informes/$reportId" params={{ workspaceId: organizationId, projectId: applicationId, reportId: report.id }} className={selectedId === report.id ? 'is-selected' : ''}><span className="customer-report-icon" aria-hidden="true" /><span className="customer-report-row-title"><strong>{report.subject.containerImageDigest ? 'Imagen de contenedor' : modeLabels[report.mode]}</strong><small>{date(report.finishedAt)} · {count(report.findingCount, 'observación', 'observaciones')}</small></span><ChevronRightIcon aria-hidden="true" /></Link></li>)}</ul>;
-}
-
 function jobFailureMessage(purpose: 'assessment' | 'correction', job: CustomerJob) {
   if (purpose === 'correction') return `El análisis independiente no finalizó${job.reasonCode ? ` (${job.reasonCode})` : ''}. La instantánea privada se preparó, pero no se validó.`;
   if (job.reasonCode === 'assessment_reconciliation_required') return 'No se pudo confirmar que el escáner haya terminado. Una persona operadora debe comprobarlo antes de revocar o renovar el origen. La autorización sigue activa y no se repetirá este trabajo automáticamente.';
   return job.reasonCode ? `La evaluación no finalizó (${job.reasonCode}). Los informes anteriores siguen disponibles.` : 'La evaluación no finalizó. Los informes anteriores siguen disponibles.';
 }
 
-export function CustomerDashboard({ routePage, routeOrganizationId, routeApplicationId, routeReportId, routeReportTab, authMode, routeEntry = true }: { routePage?: DashboardPage; routeOrganizationId?: string; routeApplicationId?: string; routeReportId?: string; routeReportTab?: 'dependencias'; authMode?: 'sign-in' | 'register'; routeEntry?: boolean }) {
+export function CustomerDashboard({ routePage, routeOrganizationId, routeApplicationId, routeReportId, routeReportTab, authMode, routeEntry = true }: { routePage?: DashboardPage; routeOrganizationId?: string; routeApplicationId?: string; routeReportId?: string; routeReportTab?: ReportTabSlug; authMode?: 'sign-in' | 'register'; routeEntry?: boolean }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const session = useQuery({ queryKey: ['customer-session'], queryFn: customerApi.session, retry: false, staleTime: 30_000 });
