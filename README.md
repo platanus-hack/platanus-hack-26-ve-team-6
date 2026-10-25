@@ -1,103 +1,83 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
-    <img src="docs/assets/logo-light.svg" alt="Gotchu" width="440">
+    <img src="docs/assets/logo-light.svg" alt="Gotchu" width="360">
   </picture>
 </p>
 
 <p align="center">
-  <strong>Mira de cerca. Decide con pruebas.</strong>
+  Seguridad de aplicaciones, con evidencia y correcciones revisables.
 </p>
 
 <p align="center">
-  <a href="https://gotchu.kevinbravo.com">App</a> ·
-  <a href="#ejecutar-en-tu-máquina">Ejecutar</a> ·
-  <a href="docs/self-hosting.md">Self-hosting</a> ·
-  <a href="docs/architecture.md">Arquitectura</a> ·
-  <a href="docs/implementation-plan.md">Estado</a>
-</p>
-
-<p align="center">
-  <img alt="Node 24" src="https://img.shields.io/badge/node-24-e7147d?style=flat-square&labelColor=191923">
-  <img alt="pnpm 11" src="https://img.shields.io/badge/pnpm-11-191923?style=flat-square">
-  <img alt="TanStack Start" src="https://img.shields.io/badge/TanStack-Start-191923?style=flat-square">
-  <img alt="Auth.js" src="https://img.shields.io/badge/Auth.js-191923?style=flat-square">
-  <a href="https://gotchu.kevinbravo.com"><img alt="Producción en AWS" src="https://img.shields.io/badge/producción-AWS-e7147d?style=flat-square&labelColor=191923"></a>
+  <a href="https://gotchu.kevinbravo.com">Aplicación</a> ·
+  <a href="#cómo-funciona">Cómo funciona</a> ·
+  <a href="#conectar-tu-asistente-por-mcp">MCP</a> ·
+  <a href="#arquitectura">Arquitectura</a> ·
+  <a href="#ejecutar-en-tu-máquina">Instalación local</a> ·
+  <a href="#documentación">Documentación</a>
 </p>
 
 ---
 
-> **¿Qué riesgos tiene mi aplicación, qué prueba cada uno y qué hago después?**
+Gotchu analiza el código y la web de tu aplicación para detectar riesgos de seguridad. Reúne los hallazgos en un informe que explica qué encontró, dónde está la evidencia y cómo corregirlo. Puedes revisar solo el código, solo una web HTTPS o ambos, y programar nuevas evaluaciones para seguir los cambios.
 
-Gotchu revisa el código fuente, el origen HTTPS o los dos. Guarda un informe con evidencia, permite vigilar cambios y enviar notificaciones, y prepara correcciones que pueden llegar a un PR en borrador tras la aprobación exacta del Owner.
+## Qué puedes hacer
 
-El alcance vigente es el de `main` con el [PR 25](https://github.com/0bkevin/gotchu/pull/25) integrado. Las propuestas adicionales están en [Roadmap](docs/roadmap.md).
-
-- **Tú eliges.** Revisa solo el código, solo la web o ambos. La revisión externa no necesita tu código.
-- **Muestra la evidencia.** Cada hallazgo enlaza su evidencia, su severidad y su confianza.
-- **No oculta lo que no revisó.** Una cobertura parcial queda como desconocida, no como limpia.
-- **Escaneo estático.** La auditoría no ejecuta tu código ni instala paquetes. La validación de correcciones usa una ruta aislada y configurada por separado.
-
-## En vivo
-
-| | |
+| Función | Cómo funciona y qué obtienes |
 |---|---|
-| Aplicación | https://gotchu.kevinbravo.com |
-| Infraestructura | AWS Lightsail en `us-east-1`, con TLS en Caddy y backups cifrados en S3 |
+| Revisar código y configuración | Sube una carpeta o conecta GitHub. Gotchu busca patrones de riesgo, posibles secretos y problemas de configuración en Kubernetes, Terraform y Dockerfiles. |
+| Analizar dependencias | Contrasta las dependencias de proyectos npm, pnpm y Yarn con avisos de vulnerabilidad. Consulta las licencias declaradas y descarga un inventario de componentes (SBOM) en formato CycloneDX. |
+| Evaluar una web o API | Indica un origen HTTPS público autorizado. Gotchu comprueba TLS, cabeceras y rutas públicas mediante perfiles HTTP/API acotados, sin necesitar el código fuente. |
+| Consultar informes | Abre la evidencia de cada hallazgo, su severidad, confianza y recomendación. Exporta el informe en JSON o copia un prompt con el contexto para tu asistente de código. |
+| Preparar correcciones | Genera cambios compatibles en una copia privada y revisa el diff, el reanálisis y la validación configurada. Con los requisitos cumplidos y la aprobación del cambio exacto por el Owner, publica un PR en borrador. |
+| Vigilar cambios | Programa revisiones de código, dependencias y HTTPS. Recibe alertas por email o webhooks firmados mediante los canales configurados. |
+| Recibir eventos de tu aplicación | Integra eventos firmados o el SDK de Node para agrupar errores y señales sospechosas en alertas e incidentes con contexto. |
+| Trabajar en equipo | Organiza proyectos en espacios de trabajo, invita personas y asigna roles Owner, Operator o Viewer. Consulta el historial de decisiones y configura la retención de datos. |
 
-Abre `/dashboard` y elige **Crear una cuenta**. Cada cuenta nueva empieza sin acceso a espacios existentes y puede crear su propio espacio de trabajo. El runbook de producción está en [infra/aws](infra/aws/README.md).
-
-<p align="center">
-  <img src="docs/diagrams/arquitectura-produccion.svg" alt="Producción en AWS Lightsail: Caddy, web, coordinator, PostgreSQL, Redis y scanner en un servidor, con backups cifrados en S3" width="900">
-</p>
+La IA es opcional: permite investigar hallazgos y proponer correcciones con el modelo que configures y los datos que autorices. El análisis de código y HTTPS funciona sin un modelo. Las notificaciones y la publicación de PR requieren sus integraciones habilitadas.
 
 ## Cómo funciona
 
 <p align="center">
-  <img src="docs/diagrams/flujo-evaluacion.svg" alt="Flujo de Gotchu en seis pasos: espacio de trabajo, código fuente, origen HTTPS, evaluación, reporte y corrección" width="900">
+  <img src="docs/diagrams/flujo-evaluacion.svg" alt="Código desde una carpeta o GitHub, una web HTTPS o ambos entran al análisis de Gotchu. El resultado es un informe con evidencia, desde el que puedes preparar correcciones o programar vigilancia." width="800">
 </p>
 
-| Paso | Qué hace Gotchu |
-|---|---|
-| 1. Espacio de trabajo | Crea un espacio privado. El creador es su Owner. Los roles controlan el acceso. |
-| 2. Código fuente | Sube una carpeta o conecta GitHub. Cada instantánea tiene digest; las capturas de repositorio conservan el commit exacto. Git local también admite catálogo del operador. |
-| 3. Origen HTTPS | Indica un origen HTTPS público y elige un perfil acotado. Al pedir el análisis, ese alcance queda autorizado durante 7 días. Gotchu no comprueba quién controla el dominio. |
-| 4. Evaluación | Ejecuta una evaluación `internal`, `external` o `both`. Sigue las fases internas/externas y los avisos de falta de progreso. |
-| 5. Reporte | Muestra la evidencia, la cobertura, la severidad, la confianza y las limitaciones. |
-| 6. Corrección | Prepara una copia privada, revisa el reanálisis y la suite configurada, y aprueba el cambio exacto si quieres publicar un PR draft. |
+1. Crea un espacio de trabajo y añade tu aplicación con una carpeta, un repositorio o una web HTTPS que tengas autorización para evaluar.
+2. Elige qué revisar e inicia el análisis. Gotchu trabaja en segundo plano y muestra el progreso hasta guardar el informe.
+3. Revisa los hallazgos y sus recomendaciones. Puedes copiar el contexto a tu asistente, preparar una corrección compatible o activar la vigilancia.
 
-## Qué puedes hacer
+## Qué recibes al terminar
 
-| Función | Descripción |
-|---|---|
-| Espacios de trabajo | Roles Owner, Operator y Viewer. Los Viewer solo pueden leer. |
-| Revisión del código | Inventario de versiones exactas de npm, pnpm y Yarn. Política de licencias declaradas. SBOM CycloneDX 1.5 para descargar. |
-| Revisión externa | Perfiles raíz, `public_surface` y `api_checks`: TLS, cabeceras, security.txt y escenarios HTTP/API acotados, sin acceso al código. |
-| Dashboard e informes | Observaciones, cobertura e historial por proyecto. JSON y prompt por hallazgo para copiar a un asistente de código. |
-| Vigilancia | Revisiones programadas del código y del origen. Alertas por cambios del repositorio y por nuevos avisos de npm. |
-| Notificaciones | Email SMTP y webhooks HTTPS firmados, con canales por workspace, reintentos y estado de entrega. Requieren configurar sus adaptadores. |
-| Eventos firmados | Agrupa errores, presión del servicio y actividad sospechosa compatible en alertas. |
-| Historial de decisiones | Muestra quién hizo cada acción, cuándo y con qué resultado. No muestra credenciales ni direcciones IP. |
-| IA opcional | Investigación y corrección privada con el modelo configurado, consentimiento y límites de consumo. El escaneo determinista funciona sin IA. |
-| Correcciones | Recetas TLS/Kubernetes, cambios de código compatibles y actualizaciones npm directas patch/minor con package-lock raíz v2/v3; candidato privado, reanálisis y validación configurada. |
-| PR aprobados | Un executor independiente publica y verifica el PR en borrador tras validar el candidato, el permiso de escritura y la aprobación exacta del Owner. Optativo por instalación. |
-| Retención y respaldo | Políticas por workspace, purga en background y backup/restore cifrado. |
-
-## Qué no afirma Gotchu
+Un informe por evaluación, con los hallazgos, sus ubicaciones y la evidencia que los respalda. La severidad describe el impacto potencial; la confianza indica qué sostiene la evidencia; la explotabilidad se muestra por separado. El informe también identifica las comprobaciones realizadas y la cobertura que queda desconocida.
 
 <p align="center">
-  <img src="docs/diagrams/reporte-evidencia.svg" alt="Cómo leer un reporte: confirmado, indicio y desconocido, con severidad, confianza y explotabilidad" width="900">
+  <img src="docs/diagrams/reporte-evidencia.svg" alt="Ejemplo ilustrativo de informe: una respuesta HTTPS sin cabecera CSP, de severidad baja y observada directamente. Incluye evidencia, recomendación y explotabilidad desconocida; distingue hechos observados, indicios y cobertura desconocida." width="800">
 </p>
 
-- Una coincidencia no prueba que el código esté desplegado.
-- Un paquete vulnerable no prueba que el código vulnerable se pueda alcanzar.
-- Un pico de tráfico no prueba un ataque.
-- "Sin hallazgos" no es una garantía de seguridad. Solo describe lo que la evaluación revisó.
-- La severidad de un incidente no da más permisos de acción.
+Para corregir desde Gotchu, el flujo es: candidato privado → revisión del diff y reanálisis → validación configurada → aprobación exacta del Owner → PR en borrador. También puedes usar el informe y el prompt para hacer el cambio en tu propio flujo de desarrollo.
+
+El análisis estático no instala dependencias ni ejecuta tu aplicación. La validación de correcciones usa un entorno separado que debe estar configurado. Cada resultado se limita a lo comprobado: una dependencia vulnerable es un indicio de riesgo y una evaluación sin hallazgos no garantiza seguridad.
+
+## Conectar tu asistente por MCP
+
+Conecta Claude Code, Codex o un IDE compatible para consultar aplicaciones, informes, hallazgos con evidencia, alertas y el estado de vigilancia. También puedes obtener un prompt de corrección por hallazgo. El acceso es de solo lectura.
+
+En la pestaña **MCP** de tu espacio de trabajo, crea un token personal y sigue la [guía de conexión](https://gotchu.kevinbravo.com/install). Cada token está limitado a un espacio y a tus permisos vigentes.
+
+## Arquitectura
+
+La web gestiona las sesiones y los permisos. PostgreSQL conserva las solicitudes y los informes; el coordinator procesa los trabajos en segundo plano con una cola Redis/BullMQ y llama al scanner para realizar las evaluaciones.
+
+<p align="center">
+  <img src="docs/diagrams/arquitectura-general.svg" alt="El equipo accede a la web y API de Gotchu, que consulta PostgreSQL. El coordinator lee y guarda el trabajo en PostgreSQL, usa Redis como cola y llama al scanner para analizar código y HTTPS." width="800">
+</p>
+
+La investigación con IA, la validación de correcciones y la publicación de PR usan servicios separados y opcionales. Los componentes y sus contratos están descritos en la [guía de arquitectura](docs/architecture.md).
 
 ## Ejecutar en tu máquina
 
-Necesitas Docker iniciado, Node 24 y pnpm 11.
+Necesitas Linux x86_64, Docker Engine con Compose v2, Node.js 24, pnpm 11 y OpenSSL. Reserva al menos 5 GiB libres en el almacenamiento de Docker.
 
 ```sh
 git clone https://github.com/0bkevin/gotchu.git
@@ -105,59 +85,30 @@ cd gotchu
 ./gotchu up
 ```
 
-1. Abre el enlace de configuración. El comando lo imprime y solo funciona una vez.
-2. Crea el Owner y el primer espacio de trabajo.
-3. Empieza con un origen HTTPS autorizado, una carpeta o GitHub opcional.
-4. Inicia la auditoría y abre el informe; usa `external`, `internal` o `both` según las entradas.
+El comando prepara los servicios locales e imprime un enlace de configuración de un solo uso. Ábrelo para crear tu cuenta Owner y el primer espacio de trabajo. Después, añade una aplicación e inicia su primera evaluación.
 
-El runtime escucha solo en loopback. No expongas el puerto sin `GOTCHU_PUBLIC_URL` con HTTPS y un proxy TLS. Los requisitos y los componentes opcionales están en [self-hosting](docs/self-hosting.md).
+La instalación escucha en localhost. Consulta [self-hosting](docs/self-hosting.md) para los requisitos completos, las integraciones y el acceso mediante HTTPS.
 
-## Desarrollo local
+Para desarrollar en el repositorio, con los mismos requisitos:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm dev:prepare   # solo si faltan las imágenes fijadas
+pnpm dev:prepare
 pnpm dev:start
 ```
 
-Abre http://localhost:3000/dashboard. En desarrollo, el registro local está activo. No hay cuentas, espacios ni datos de demostración precargados.
-
-| Servicio | Puerto | Variable para cambiarlo |
-|---|---|---|
-| Web | 3000 | `GOTCHU_DEV_WEB_PORT` |
-| Coordinator | 3003 | `GOTCHU_DEV_COORDINATOR_PORT` |
-| Scanner | 4400 | `GOTCHU_DEV_SCANNER_PORT` |
-
-Postgres y Redis usan volúmenes locales persistentes. El launcher guarda los PID, los puertos, los logs y las credenciales locales del scanner en `.local/dev`. `pnpm dev:stop` detiene las apps y deja Postgres, Redis y sus datos activos. Más detalles en [desarrollo local](docs/development.md).
-
-GitHub es opcional. La configuración de una sola App, la integración Reader/Writer anterior y el executor de PR están en [self-hosting](docs/self-hosting.md#conectar-github-con-una-sola-app). Los permisos de conexión, publicación y aprobación del cambio son independientes.
-
-## Estado y límites
-
-| Área | Estado |
-|---|---|
-| Producción | Desplegado en AWS: un servidor Lightsail de 4 GB en `us-east-1`. Web, coordinator y scanner corren como servicios systemd. Solo los puertos 80 y 443 son públicos. |
-| Registro | Público en producción. Cada cuenta nueva no tiene acceso a los espacios existentes. |
-| Backups | Cada diez minutos, cifrados y enviados a S3. Una restauración en una base de datos desechable funcionó. |
-| Scanner | Semgrep, Gitleaks y Trivy fijados. Probado en vivo con casos sintéticos. |
-| Abierto | Un solo servidor sin failover. Falta medir la capacidad con usuarios reales y la recuperación completa en un servidor limpio. |
-| Componentes opcionales | IA, notificaciones y PR aprobados necesitan sus servicios, credenciales y permisos. Su presencia en `main` no implica que estén activos en todo host. |
-| Identidad | Correo y contraseña con Auth.js, proveedores opcionales e invitaciones por espacio. Aprobación de PR desde sesión Owner, sin segundo factor. El correo de las cuentas locales no está verificado. La configuración alojada se registra en el runbook AWS. |
-
-Las pruebas de integración del flujo del cliente están en `test/integration/customer-applications.test.ts`. La ruta TLS de producción del scanner está en `test/integration/production-scanner.test.ts`.
-
-Las aplicaciones ficticias vulnerables y corregidas son fixtures de regresión. No son el producto y no limitan las evaluaciones de los clientes.
+Abre http://localhost:3000/dashboard y crea una cuenta. `pnpm dev:stop` detiene las aplicaciones y conserva los datos. Los puertos, logs y comandos de comprobación están en [desarrollo local](docs/development.md).
 
 ## Documentación
 
-| Documento | Contenido |
+| Guía | Contenido |
 |---|---|
-| [Arquitectura](docs/architecture.md) · [Vista general](docs/architecture-overview.html) | Componentes y contratos |
-| [Estado de implementación](docs/implementation-plan.md) | Funciones actuales, condiciones y evidencia |
-| [Operaciones](docs/operations.md) | Monitoreo, alertas y correcciones |
-| [Self-hosting](docs/self-hosting.md) | Instalación en tu propia máquina |
-| [Definición](docs/definition-interview.md) | Alcance acordado y decisiones de producto |
-| [Roadmap](docs/roadmap.md) | Propuestas futuras y verificaciones pendientes |
+| [Self-hosting](docs/self-hosting.md) | Instalación, GitHub, modelos de IA y respaldos. |
+| [Desarrollo local](docs/development.md) | Entorno de desarrollo y comprobaciones. |
+| [Operaciones](docs/operations.md) | Vigilancia, notificaciones, eventos y correcciones. |
+| [Arquitectura](docs/architecture.md) | Componentes, contratos y límites entre servicios. |
+| [Estado de implementación](docs/implementation-plan.md) | Capacidades implementadas, condiciones y evidencia de validación. |
+| [Roadmap](docs/roadmap.md) | Próximas funciones y verificaciones pendientes. |
 
 ## Platanus Hack 26
 

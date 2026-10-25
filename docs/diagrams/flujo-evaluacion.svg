@@ -1,42 +1,52 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="450" viewBox="0 0 1000 450" role="img" aria-label="Flujo de Gotchu en seis pasos">
-<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#e7147d"/></marker></defs>
-<rect width="1000" height="450" rx="18" fill="#fffefa" stroke="#d9d4d8"/>
-<text x="32" y="46" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#e7147d" text-anchor="start" letter-spacing="3">CÓMO FUNCIONA</text>
-<text x="32" y="74" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#191923" text-anchor="start" letter-spacing="0">De la autorización a la corrección, con una pregunta por paso</text>
-<rect x="32" y="110" width="290" height="120" rx="10" fill="#fffefa" stroke="#191923" stroke-width="1.5"/>
-<circle cx="62" cy="142" r="15" fill="#e7147d"/><text x="62" y="147" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#fffefa" text-anchor="middle" letter-spacing="0">1</text>
-<text x="88" y="148" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="700" fill="#191923" text-anchor="start" letter-spacing="0">Espacio de trabajo</text>
-<text x="52" y="184" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#191923" text-anchor="start" letter-spacing="0">¿Quién puede ver y cambiar?</text>
-<text x="52" y="210" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#5b5a66" text-anchor="start" letter-spacing="0">Roles Owner, Operator, Viewer</text>
-<path d="M326 170.0L353 170.0" stroke="#e7147d" stroke-width="2" fill="none" marker-end="url(#a)"/>
-<rect x="357" y="110" width="290" height="120" rx="10" fill="#fffefa" stroke="#191923" stroke-width="1.5"/>
-<circle cx="387" cy="142" r="15" fill="#e7147d"/><text x="387" y="147" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#fffefa" text-anchor="middle" letter-spacing="0">2</text>
-<text x="413" y="148" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="700" fill="#191923" text-anchor="start" letter-spacing="0">Código fuente</text>
-<text x="377" y="184" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#191923" text-anchor="start" letter-spacing="0">¿Qué versión reviso?</text>
-<text x="377" y="210" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#5b5a66" text-anchor="start" letter-spacing="0">Instantánea o commit exacto</text>
-<path d="M651 170.0L678 170.0" stroke="#e7147d" stroke-width="2" fill="none" marker-end="url(#a)"/>
-<rect x="682" y="110" width="290" height="120" rx="10" fill="#fffefa" stroke="#191923" stroke-width="1.5"/>
-<circle cx="712" cy="142" r="15" fill="#e7147d"/><text x="712" y="147" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#fffefa" text-anchor="middle" letter-spacing="0">3</text>
-<text x="738" y="148" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="700" fill="#191923" text-anchor="start" letter-spacing="0">Origen HTTPS</text>
-<text x="702" y="184" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#191923" text-anchor="start" letter-spacing="0">¿Tengo autorización?</text>
-<text x="702" y="210" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#5b5a66" text-anchor="start" letter-spacing="0">Origen y perfil solicitados · 7 días</text>
-<rect x="32" y="280" width="290" height="120" rx="10" fill="#fde7f1" stroke="#e7147d" stroke-width="1.5"/>
-<circle cx="62" cy="312" r="15" fill="#e7147d"/><text x="62" y="317" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#fffefa" text-anchor="middle" letter-spacing="0">4</text>
-<text x="88" y="318" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="700" fill="#191923" text-anchor="start" letter-spacing="0">Evaluación</text>
-<text x="52" y="354" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#191923" text-anchor="start" letter-spacing="0">¿Qué encontró?</text>
-<text x="52" y="380" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#5b5a66" text-anchor="start" letter-spacing="0">internal · external · ambas</text>
-<path d="M326 340.0L353 340.0" stroke="#e7147d" stroke-width="2" fill="none" marker-end="url(#a)"/>
-<rect x="357" y="280" width="290" height="120" rx="10" fill="#fde7f1" stroke="#e7147d" stroke-width="1.5"/>
-<circle cx="387" cy="312" r="15" fill="#e7147d"/><text x="387" y="317" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#fffefa" text-anchor="middle" letter-spacing="0">5</text>
-<text x="413" y="318" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="700" fill="#191923" text-anchor="start" letter-spacing="0">Reporte</text>
-<text x="377" y="354" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#191923" text-anchor="start" letter-spacing="0">¿Qué prueba cada hallazgo?</text>
-<text x="377" y="380" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#5b5a66" text-anchor="start" letter-spacing="0">Evidencia, cobertura, confianza</text>
-<path d="M651 340.0L678 340.0" stroke="#e7147d" stroke-width="2" fill="none" marker-end="url(#a)"/>
-<rect x="682" y="280" width="290" height="120" rx="10" fill="#fffefa" stroke="#191923" stroke-width="1.5"/>
-<circle cx="712" cy="312" r="15" fill="#e7147d"/><text x="712" y="317" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#fffefa" text-anchor="middle" letter-spacing="0">6</text>
-<text x="738" y="318" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" font-weight="700" fill="#191923" text-anchor="start" letter-spacing="0">Corrección</text>
-<text x="702" y="354" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#191923" text-anchor="start" letter-spacing="0">¿Qué hago después?</text>
-<text x="702" y="380" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#5b5a66" text-anchor="start" letter-spacing="0">Candidato privado y reevaluación</text>
-<path d="M827.0 234V255.0H177.0V276" stroke="#e7147d" stroke-width="2" fill="none" marker-end="url(#a)"/>
-<text x="32" y="428" font-family="Saira, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#5b5a66" text-anchor="start" letter-spacing="0">Después de una corrección, Gotchu ejecuta una nueva evaluación (paso 4).</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="460" viewBox="0 0 800 460" role="img" aria-labelledby="title desc">
+  <title id="title">De tu aplicación a un informe con evidencia</title>
+  <desc id="desc">Puedes aportar código desde una carpeta o GitHub, una web HTTPS autorizada o ambos. Gotchu analiza las entradas y genera un informe con evidencia y recomendaciones. Después puedes preparar una corrección revisable o programar nuevas evaluaciones.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 10 5 0 10Z" fill="#bd1067"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="798" height="458" rx="16" fill="#fffefa" stroke="#e3dfe2"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="32" y="41" font-size="12" font-weight="700" letter-spacing="2" fill="#bd1067">ENTRADAS → ANÁLISIS → RESULTADO</text>
+    <text x="32" y="76" font-size="25" font-weight="700" fill="#191923">Empieza con código, una web o ambos.</text>
+
+    <g fill="none" stroke="#bd1067" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M242 161H273V211H308"/>
+      <path d="M242 263H273V211" marker-end="none"/>
+      <path d="M492 211H542"/>
+      <path d="M652 300V333H220V354"/>
+      <path d="M652 333H580V354"/>
+    </g>
+
+    <rect x="32" y="120" width="210" height="82" rx="10" fill="#ffffff" stroke="#d9d4d8"/>
+    <text x="50" y="153" font-size="21" font-weight="650" fill="#191923">Código fuente</text>
+    <text x="50" y="180" font-size="16" fill="#5b5a66">Carpeta o GitHub</text>
+    <rect x="32" y="222" width="210" height="82" rx="10" fill="#ffffff" stroke="#d9d4d8"/>
+    <text x="50" y="255" font-size="21" font-weight="650" fill="#191923">Web HTTPS</text>
+    <text x="50" y="282" font-size="16" fill="#5b5a66">Alcance autorizado</text>
+
+    <rect x="310" y="141" width="182" height="140" rx="12" fill="#191923"/>
+    <path d="M330 163H337M330 163V170M472 163H465M472 163V170M330 259H337M330 259V252M472 259H465M472 259V252" fill="none" stroke="#f177b5" stroke-width="2"/>
+    <text x="401" y="200" text-anchor="middle" font-size="25" font-weight="700" fill="#fffefa">Gotchu</text>
+    <text x="401" y="229" text-anchor="middle" font-size="16" fill="#e1dbe0">Analiza y reúne</text>
+    <text x="401" y="251" text-anchor="middle" font-size="16" fill="#e1dbe0">la evidencia</text>
+
+    <rect x="544" y="120" width="224" height="184" rx="12" fill="#fcebf3" stroke="#e8a5c6"/>
+    <text x="564" y="156" font-size="22" font-weight="700" fill="#191923">Tu informe</text>
+    <path d="M564 174H748" stroke="#e8a5c6"/>
+    <g font-size="17" fill="#493543">
+      <text x="564" y="202">Hallazgos y evidencia</text>
+      <text x="564" y="230">Cobertura y límites</text>
+      <text x="564" y="258">Recomendaciones</text>
+    </g>
+    <text x="564" y="285" font-size="14" fill="#8e144f">Disponible en el dashboard</text>
+
+    <rect x="32" y="356" width="356" height="76" rx="10" fill="#ffffff" stroke="#d9d4d8"/>
+    <text x="50" y="386" font-size="20" font-weight="650" fill="#191923">Prepara una corrección</text>
+    <text x="50" y="412" font-size="16" fill="#5b5a66">Cambio privado para revisar y validar</text>
+    <rect x="412" y="356" width="356" height="76" rx="10" fill="#ffffff" stroke="#d9d4d8"/>
+    <text x="430" y="386" font-size="20" font-weight="650" fill="#191923">Activa la vigilancia</text>
+    <text x="430" y="412" font-size="16" fill="#5b5a66">Revisiones programadas y alertas</text>
+  </g>
 </svg>

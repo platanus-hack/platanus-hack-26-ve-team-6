@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="436" viewBox="0 0 800 436" role="img" aria-labelledby="title desc">
+  <title id="title">Arquitectura general de Gotchu</title>
+  <desc id="desc">El equipo accede desde su navegador a la web y API, construida con TanStack Start y Auth.js. La web lee y escribe en PostgreSQL. El coordinator usa PostgreSQL como registro persistente y Redis con BullMQ para distribuir los trabajos. Llama a un scanner separado para evaluar código y HTTPS, y guarda los resultados en PostgreSQL. Las flechas dobles representan comunicación en ambos sentidos.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10Z" fill="#bd1067"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="798" height="434" rx="16" fill="#fffefa" stroke="#e3dfe2"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="32" y="41" font-size="12" font-weight="700" letter-spacing="2" fill="#bd1067">ARQUITECTURA · VISTA GENERAL</text>
+    <text x="32" y="76" font-size="25" font-weight="700" fill="#191923">Los componentes principales de Gotchu.</text>
+
+    <g fill="none" stroke="#bd1067" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)">
+      <path d="M248 160H290"/>
+      <path d="M510 160H552"/>
+      <path d="M662 212V240H400V268"/>
+      <path d="M248 326H290"/>
+      <path d="M510 326H552"/>
+    </g>
+    <text x="432" y="232" font-size="14" fill="#8e144f">Lee solicitudes · guarda resultados</text>
+
+    <rect x="32" y="112" width="212" height="96" rx="10" fill="#ffffff" stroke="#d9d4d8"/>
+    <text x="50" y="150" font-size="22" font-weight="650" fill="#191923">Tu equipo</text>
+    <text x="50" y="180" font-size="16" fill="#5b5a66">Desde el navegador</text>
+
+    <rect x="294" y="112" width="212" height="96" rx="10" fill="#ffffff" stroke="#d9d4d8"/>
+    <text x="312" y="150" font-size="22" font-weight="650" fill="#191923">Web + API</text>
+    <text x="312" y="180" font-size="15" fill="#5b5a66">TanStack Start · Auth.js</text>
+
+    <rect x="556" y="112" width="212" height="96" rx="10" fill="#fcebf3" stroke="#e8a5c6"/>
+    <text x="574" y="150" font-size="22" font-weight="700" fill="#191923">PostgreSQL</text>
+    <text x="574" y="180" font-size="16" fill="#493543">Solicitudes e informes</text>
+
+    <rect x="32" y="272" width="212" height="108" rx="10" fill="#ffffff" stroke="#d9d4d8"/>
+    <text x="50" y="305" font-size="22" font-weight="650" fill="#191923">Scanner</text>
+    <text x="50" y="333" font-size="16" fill="#5b5a66">Código y HTTPS</text>
+    <text x="50" y="359" font-size="14" fill="#5b5a66">Semgrep · Gitleaks · Trivy</text>
+
+    <rect x="294" y="272" width="212" height="108" rx="12" fill="#191923"/>
+    <text x="312" y="314" font-size="22" font-weight="700" fill="#fffefa">Coordinator</text>
+    <text x="312" y="347" font-size="16" fill="#e1dbe0">Procesa los trabajos</text>
+
+    <rect x="556" y="272" width="212" height="108" rx="10" fill="#ffffff" stroke="#d9d4d8"/>
+    <text x="574" y="314" font-size="22" font-weight="650" fill="#191923">Redis / BullMQ</text>
+    <text x="574" y="347" font-size="16" fill="#5b5a66">Cola de trabajos</text>
+
+    <text x="32" y="412" font-size="16" fill="#5b5a66">El análisis continúa en segundo plano aunque cierres la página.</text>
+  </g>
+</svg>
