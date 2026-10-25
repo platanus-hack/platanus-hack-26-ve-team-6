@@ -9,7 +9,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { QUESTIONS } from './copy';
 import { Display, Mark } from './editorial';
 import { Header } from './header';
-import { Tour } from './tour';
+import { RepoFlow, WebFlow } from './flows';
 
 /** True when motion is welcome; resolved after mount so server and first client render agree. */
 function useMotionAllowed() {
@@ -46,7 +46,7 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
       <Display as="h1" id="gl-titulo" eager className="gl-display--hero" lines={['Mira de cerca.', <Mark key="m" size="big" load>Decide con pruebas.</Mark>]} />
       <div className="gl-hero-action">
         <p className="gl-lead">Sube código o verifica un dominio con DNS TXT.</p>
-        <Action href="/dashboard" size="lg">Revisar una app</Action>
+        <Action href="/registro" size="lg">Audita tu primer proyecto</Action>
       </div>
     </div>
     <div className="gl-hero-field">
@@ -64,6 +64,20 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
   </section>;
 }
 
+function RepoAudit({ motion, paused }: { motion: boolean; paused: boolean }) {
+  return <Section id="gl-repo" titleId="gl-repo-titulo" title={['Audita tu', <Mark key="m" size="big">repositorio.</Mark>]}>
+    <p className="gl-section-lead">Conecta GitHub y Gotchu revisa una copia de tu código sin ejecutarla.</p>
+    <RepoFlow motion={motion} paused={paused} action={<Action href="/registro">Audita tu repositorio</Action>} />
+  </Section>;
+}
+
+function WebAudit({ motion, paused }: { motion: boolean; paused: boolean }) {
+  return <Section id="gl-web" titleId="gl-web-titulo" title={['Audita tu web', <Mark key="m" size="big">desde fuera.</Mark>]}>
+    <p className="gl-section-lead">Sin acceso a tu código: solo demuestras que controlas el dominio.</p>
+    <WebFlow motion={motion} paused={paused} action={<Action href="/registro">Audita tu web</Action>} />
+  </Section>;
+}
+
 function Questions() {
   return <Section id="gl-preguntas" titleId="gl-preguntas-titulo" title={['Preguntas.']}>
     <Accordion className="gl-qa">
@@ -78,7 +92,10 @@ function Questions() {
 function Closing({ paused }: { paused: boolean }) {
   return <Section id="gl-cierre" titleId="gl-paso-titulo" className="gl-closing" title={['¿Qué tan seguros', 'están tus proyectos?', 'No te preocupes,', <Mark key="m" size="big">we Gotchu.</Mark>]}>
     <div className="gl-wordmark"><DotPlate formation="wordmark" paused={paused} /></div>
-    <div className="gl-closing-actions"><Action href="/dashboard" size="lg">Revisa tu primer proyecto</Action></div>
+    <div className="gl-closing-actions">
+      <Action href="/registro" size="lg">Crea tu cuenta</Action>
+      <a href="/entrar" className="gl-text-link">Ya tengo cuenta</a>
+    </div>
   </Section>;
 }
 
@@ -92,7 +109,7 @@ function Footer() {
 }
 
 /**
- * The landing: a hero, one guided walkthrough of the product, questions and the invitation to start.
+ * The landing: a hero, the two audits as animated diagrams, questions and the invitation to start.
  */
 export function Landing() {
   const motionAllowed = useMotionAllowed();
@@ -102,7 +119,8 @@ export function Landing() {
     <Header />
     <main id="contenido" tabIndex={-1} className="gl-main">
       <Hero paused={paused} onPause={setPaused} motion={motionAllowed} />
-      <Tour paused={paused} />
+      <RepoAudit motion={motionAllowed} paused={paused} />
+      <WebAudit motion={motionAllowed} paused={paused} />
       <Questions />
       <Closing paused={paused} />
     </main>

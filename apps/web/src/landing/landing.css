@@ -131,31 +131,100 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
     .gl .gl-hero-field { height: 100%; min-height: 520px; margin: 0 calc(-1 * var(--gutter)) 0 0; }
   }
 
-  /* ── Walkthrough: chapters scroll past a pinned dot field that morphs per feature ── */
-  /* Phones pin the field above the chapters, under the header; from 1000px it sits beside them. */
-  .gl .gl-tour-body { display: grid; }
-  .gl .gl-tour-stage { position: sticky; top: 0; z-index: 2; align-self: start; height: calc(var(--header-h) + 36svh); margin: 0 calc(-1 * var(--gutter)); padding-top: var(--header-h); background: var(--background); }
-  .gl .gl-tour-chapters { margin: 0; padding: 0; list-style: none; }
-  .gl .gl-tour-chapters > li { display: flex; flex-direction: column; justify-content: center; gap: 14px; min-height: 52svh; scroll-margin-top: 40svh; transition: opacity 400ms var(--ease); }
-  .gl[data-motion='on'] .gl-tour-chapters > li:not([data-active]) { opacity: .3; }
-  .gl .gl-tour-number { color: var(--brand-ink); font: 700 13px/1 var(--mono); }
-  .gl .gl-tour-chapters h3 { margin: 0; font: 700 clamp(28px, 3.4vw, 52px)/1 var(--display); letter-spacing: -.01em; text-transform: uppercase; }
-  .gl .gl-tour-chapters p { margin: 0; max-width: 40ch; font-size: clamp(18px, 1.6vw, 21px); line-height: 1.5; }
-  .gl .gl-tour-tags { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 6px 0 0; padding: 0; list-style: none; color: var(--muted-foreground); font: 500 12.5px/1.2 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
-  /* One square per chapter; the current one turns into the magenta finding diamond. */
-  .gl .gl-tour-progress { position: absolute; left: calc(var(--gutter) - 13px); bottom: 4px; display: flex; }
-  .gl .gl-tour-progress a { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid transparent; border-radius: 8px; }
-  .gl .gl-tour-progress a::before { content: ''; width: 8px; height: 8px; border-radius: 1px; background: var(--dot-5); transition: background-color 300ms var(--ease), transform 300ms var(--ease); }
-  .gl .gl-tour-progress a[aria-current]::before { background: var(--brand); transform: rotate(45deg) scale(1.25); }
-  @media (hover: hover) { .gl .gl-tour-progress a:not([aria-current]):hover::before { background: var(--foreground); } }
-  .gl .gl-tour-progress a:focus-visible { border-color: var(--brand-ink); }
-  @media (min-width: 1000px) {
-    .gl .gl-tour-body { grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: clamp(32px, 5vw, 80px); }
-    .gl .gl-tour-stage { grid-column: 2; grid-row: 1; top: calc(var(--header-h) + 24px); height: calc(100svh - var(--header-h) - 48px); margin: 0 calc(-1 * var(--gutter)) 0 0; padding: 0; }
-    .gl .gl-tour-chapters { grid-column: 1; grid-row: 1; }
-    .gl .gl-tour-chapters > li { min-height: 78svh; scroll-margin-top: 10svh; }
-    .gl .gl-tour-progress { left: -13px; bottom: 0; }
+  /* ── Audit flows: four nodes light in turn while a packet travels each wire ─── */
+  /* Phones stack the nodes with vertical wires; from 900px they run left to right. */
+  .gl .gl-section-lead { margin: 0 0 clamp(36px, 5vw, 64px); max-width: 40ch; font-size: clamp(19px, 2vw, 24px); line-height: 1.4; }
+  .gl .gl-flow { --gl-gap: 28px; --gl-node: 104px; }
+  .gl .gl-flow ol { display: grid; gap: var(--gl-gap); margin: 0; padding: 0; list-style: none; }
+  .gl .gl-flow ol > li { position: relative; display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 20px; align-items: start; }
+  .gl .gl-flow-node { display: grid; place-items: center; align-content: center; gap: 10px; height: var(--gl-node); padding: 14px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted-foreground); font: 500 12.5px/1.2 var(--mono); transition: border-color 400ms var(--ease), color 400ms var(--ease); }
+  .gl .gl-flow-node > * { transition: opacity 400ms var(--ease); }
+  .gl .gl-flow-node svg { width: 26px; height: 26px; }
+  .gl .gl-flow li[data-state='idle'] .gl-flow-node > * { opacity: .3; }
+  .gl .gl-flow li[data-state='done'] .gl-flow-node { color: var(--foreground); }
+  .gl .gl-flow li[data-state='active'] .gl-flow-node { border-color: var(--brand); color: var(--foreground); }
+  .gl .gl-flow-node { position: relative; }
+  /* The active node carries the finding diamond on its corner. */
+  .gl .gl-flow-node::before { content: ''; position: absolute; top: -5px; left: -5px; width: 9px; height: 9px; background: var(--brand); opacity: 0; transform: rotate(45deg) scale(.4); transition: opacity 300ms var(--ease), transform 300ms var(--ease); }
+  .gl .gl-flow li[data-state='active'] .gl-flow-node::before { opacity: 1; transform: rotate(45deg); }
+
+  .gl .gl-flow-wire { position: absolute; bottom: 100%; left: 73px; width: 2px; height: var(--gl-gap); background: var(--dot-6); }
+  .gl .gl-flow-wire::after { content: ''; position: absolute; inset: 0; background: var(--brand); transform: scaleY(0); transform-origin: top; transition: transform 600ms var(--sweep); }
+  .gl .gl-flow li:not([data-state='idle']) .gl-flow-wire::after { transform: none; }
+  .gl .gl-flow-packet { position: absolute; top: 0; left: 50%; width: 10px; height: 10px; background: var(--brand); opacity: 0; transform: translate(-50%, -50%) rotate(45deg); }
+  .gl .gl-flow li[data-state='active'] .gl-flow-packet { animation: gl-packet-y 650ms var(--sweep); }
+  @keyframes gl-packet-y { 0%, 85% { opacity: 1; } 0% { top: 0; } 100% { top: 100%; opacity: 0; } }
+  @keyframes gl-packet-x { 0%, 85% { opacity: 1; } 0% { left: 0; } 100% { left: 100%; opacity: 0; } }
+
+  .gl .gl-flow-step { position: relative; display: grid; justify-items: start; gap: 6px; min-height: 34px; margin: -6px -8px; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .gl .gl-flow-number { color: var(--brand-ink); font: 700 12.5px/1 var(--mono); }
+  .gl .gl-flow-step strong { font: 700 clamp(18px, 1.7vw, 24px)/1.1 var(--display); text-transform: uppercase; transition: color 300ms var(--ease); }
+  .gl .gl-flow-text { color: var(--muted-foreground); font-size: 16px; line-height: 1.45; }
+  .gl .gl-flow li[data-state='idle'] .gl-flow-step strong { color: var(--muted-foreground); }
+  @media (hover: hover) { .gl .gl-flow-step:hover strong { color: var(--brand-ink); } }
+  /* The active step's bar runs for as long as the step stays on screen; held, it stays full. */
+  .gl .gl-flow-step::after { content: ''; width: 100%; height: 2px; margin-top: 6px; background: var(--brand); transform: scaleX(0); transform-origin: left; }
+  .gl .gl-flow li[data-state='active'] .gl-flow-step::after { transform: none; }
+  .gl .gl-flow[data-running] li[data-state='active'] .gl-flow-step::after { animation: gl-progress var(--gl-step) linear; }
+  .gl .gl-flow[data-running] li:last-child[data-state='active'] .gl-flow-step::after { animation-duration: var(--gl-hold); }
+  @keyframes gl-progress { from { transform: scaleX(0); } }
+  .gl .gl-flow-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-top: clamp(32px, 4vw, 48px); }
+
+  @media (min-width: 900px) {
+    .gl .gl-flow { --gl-gap: clamp(40px, 4.5vw, 72px); --gl-node: 200px; }
+    .gl .gl-flow-node { gap: 14px; padding: 20px; font-size: 14.5px; }
+    .gl .gl-flow-node svg { width: 34px; height: 34px; }
+    .gl .gl-print { grid-template-columns: repeat(8, 10px); gap: 4px; }
+    .gl .gl-print i { width: 10px; height: 10px; }
+    .gl .gl-lanes { gap: 12px; }
+    .gl .gl-sheet { gap: 12px; width: min(100%, 168px); }
+    .gl .gl-flow ol { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .gl .gl-flow ol > li { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+    .gl .gl-flow-wire { top: calc(var(--gl-node) / 2 - 1px); right: 100%; bottom: auto; left: auto; width: var(--gl-gap); height: 2px; }
+    .gl .gl-flow-wire::after { transform: scaleX(0); transform-origin: left; }
+    .gl .gl-flow-packet { top: 50%; left: 0; }
+    .gl .gl-flow li[data-state='active'] .gl-flow-packet { animation-name: gl-packet-x; }
   }
+
+  /* Node contents. Each "active" animation starts hidden and lands on the base style, which is also the done state. */
+  .gl .gl-print { display: grid; grid-template-columns: repeat(8, 8px); gap: 3px; }
+  .gl .gl-print i { width: 8px; height: 8px; border-radius: 2px; background: var(--dot-6); }
+  .gl .gl-print i[data-on] { background: currentColor; }
+  .gl .gl-flow li[data-state='active'] .gl-print i[data-on] { animation: gl-pixel 260ms var(--ease) calc(400ms + var(--gl-i) * 40ms) backwards; }
+  @keyframes gl-pixel { from { background: var(--dot-6); transform: scale(.4); } }
+
+  .gl .gl-lanes { display: grid; gap: 8px; width: 100%; margin: 0; padding: 0; list-style: none; }
+  .gl .gl-lanes li { display: grid; grid-template-columns: minmax(0, 1fr) 38%; align-items: center; gap: 10px; }
+  .gl .gl-lanes span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gl .gl-lanes i { height: 4px; border-radius: 2px; background: linear-gradient(currentColor, currentColor) no-repeat 0 0 / 100% 100%, var(--dot-6); }
+  .gl .gl-flow li[data-state='idle'] .gl-lanes i { background-size: 0 100%, auto; }
+  .gl .gl-flow li[data-state='active'] .gl-lanes i { animation: gl-lane 700ms var(--sweep) calc(450ms + var(--gl-i) * 260ms) backwards; }
+  @keyframes gl-lane { from { background-size: 0 100%, auto; } }
+
+  .gl .gl-sheet { display: grid; gap: 9px; width: min(100%, 132px); }
+  .gl .gl-sheet i { position: relative; height: 4px; border-radius: 2px; background: currentColor; }
+  .gl .gl-sheet i:nth-child(1) { width: 86%; } .gl .gl-sheet i:nth-child(3) { width: 72%; } .gl .gl-sheet i:nth-child(4) { width: 50%; }
+  .gl .gl-sheet i[data-finding] { width: 78%; margin-left: 16px; background: var(--brand); }
+  .gl .gl-sheet i[data-finding]::before { content: ''; position: absolute; left: -16px; top: 50%; width: 8px; height: 8px; background: var(--brand); transform: translateY(-50%) rotate(45deg); }
+  .gl .gl-flow li[data-state='active'] .gl-sheet i { animation: gl-row 420ms var(--ease) calc(450ms + var(--gl-i) * 160ms) backwards; }
+  @keyframes gl-row { from { clip-path: inset(0 100% 0 0); } }
+
+  .gl .gl-record-name { text-align: center; }
+  .gl .gl-record-type { padding: 3px 7px; border: 1px solid currentColor; border-radius: 6px; font-weight: 700; }
+  .gl .gl-dns { position: relative; display: grid; place-items: center; }
+  .gl .gl-flow-node .gl-dns-check { position: absolute; right: -12px; bottom: -8px; width: 18px; height: 18px; padding: 2px; border-radius: 6px; background: var(--brand); color: var(--on-brand); }
+  .gl .gl-flow li[data-state='idle'] .gl-dns-check { opacity: 0; transform: scale(.4); }
+  .gl .gl-flow li[data-state='active'] .gl-dns-check { animation: gl-pop 360ms var(--ease) 700ms backwards; }
+  @keyframes gl-pop { from { opacity: 0; transform: scale(.4); } }
+  .gl .gl-flow li[data-state='active'] .gl-request { animation: gl-row 420ms var(--ease) calc(500ms + var(--gl-i) * 500ms) backwards; }
+  /* Phones drop the bars and light each review's name in turn. */
+  @media (max-width: 899px) {
+    .gl .gl-lanes { gap: 5px; }
+    .gl .gl-lanes li { grid-template-columns: 1fr; }
+    .gl .gl-lanes i { display: none; }
+    .gl .gl-flow li[data-state='active'] .gl-lanes span { animation: gl-lane-name 500ms var(--ease) calc(450ms + var(--gl-i) * 260ms) backwards; }
+  }
+  @keyframes gl-lane-name { from { color: var(--muted-foreground); opacity: .4; } }
 
   /* ── Questions ────────────────────────────────────────────────────────────── */
   .gl .gl-qa { border-bottom: 1px solid var(--border); }
@@ -167,7 +236,9 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
   .gl .gl-closing .gl-section-title { max-width: none; margin-bottom: 0; }
   .gl .gl-closing .gl-section-title .gl-line:nth-of-type(3) { margin-top: .45em; }
   .gl .gl-wordmark { height: clamp(140px, 24vw, 340px); margin: clamp(24px, 4vw, 56px) calc(-1 * var(--gutter)); }
-  .gl .gl-closing-actions { margin-top: 8px; }
+  .gl .gl-closing-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px; margin-top: 8px; }
+  .gl .gl-text-link { display: inline-flex; align-items: center; min-height: 34px; font-weight: 600; text-decoration: underline; text-decoration-thickness: 2px; text-decoration-color: var(--brand); }
+  @media (hover: hover) { .gl .gl-text-link:hover { color: var(--brand-ink); } }
 
   /* ── Footer ───────────────────────────────────────────────────────────────── */
   .gl .gl-footer { padding: 56px var(--gutter); background: var(--footer-bg); color: var(--footer-fg); }
