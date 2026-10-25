@@ -181,6 +181,20 @@ describe('license declarations and workspace policy', () => {
     expect(report.internal?.evidence[0]?.excerpt).toContain('"licenseSource":"registry"');
   });
 
+  it.each([
+    [{ path: 'app.ts', content: 'export const value = true;' }],
+    [{ path: 'bun.lock', content: '{}' }, { path: 'go.sum', content: 'module h1:value' }],
+    [{ path: 'package-lock.json', content: '{' }],
+  ])('keeps license and advisory coverage unknown without a complete inventory: %j', async (...files) => {
+    const report = await createCustomerAssessmentRunner({
+      scanners: absentScanners,
+      advisory: { query: async packages => packages.map(() => ({ ids: [], complete: true })) },
+    }).run(input(files));
+    for (const capability of ['dependency_inventory', 'dependency_advisories', 'license_metadata']) {
+      expect(report.internal?.coverage.find(item => item.capability === capability)?.state).toBe('unavailable');
+    }
+  });
+
   it('counts deduplicated exact versions once for bounded OSV coverage', async () => {
     const lock = JSON.stringify({ lockfileVersion: 3, packages: { '': { dependencies: { alpha: '^1.0.0' } }, 'node_modules/alpha': { version: '1.2.3', license: 'MIT' } } });
     const query = vi.fn(async (packages: ReadonlyArray<{ name: string; version: string }>) => {

@@ -277,7 +277,7 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
     const advisoryPackages = uniquePackages.slice(0, 200);
     const matches = await bounded(() => advisory.query(advisoryPackages.map(({ name, version }) => ({ name, version })), signal), signal);
     if (matches.length !== advisoryPackages.length) throw new Error('advisory_count');
-    advisoryIncomplete = uniquePackages.length > advisoryPackages.length || matches.some(match => !match.complete);
+    advisoryIncomplete = !locked.complete || uniquePackages.length > advisoryPackages.length || matches.some(match => !match.complete);
     for (let index = 0; index < matches.length; index++) {
       const match = matches[index]; const pkg = advisoryPackages[index]; if (!match || !pkg) continue;
       const records = (match.advisories ?? []).flatMap(item => item.affected.some(affected => affected.package.ecosystem === 'npm' && affected.package.name === pkg.name) ? [item] : []);
@@ -289,7 +289,7 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
       });
     }
     a.coverage.push({ capability: 'dependency_advisories', state: advisoryIncomplete ? 'unavailable' : 'inspected', detail: advisoryIncomplete
-      ? `The bounded exact-version OSV query covered at most ${advisoryPackages.length} unique package versions. Remaining results are unknown.`
+      ? `The bounded exact-version OSV query covered at most ${advisoryPackages.length} unique package versions. Remaining results are unknown.${locked.complete ? '' : ' The source dependency inventory is incomplete or unsupported.'}`
       : 'Bounded exact-version advisory queries completed; only package names and exact versions were sent to OSV.' });
   } catch {
     advisoryIncomplete = true;
@@ -472,9 +472,11 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
   }
   a.coverage.push({
     capability: 'license_metadata',
-    state: locked.found && licenseLookupComplete && !licenseFindingsIncomplete ? 'inspected' : 'unavailable',
+    state: locked.complete && licenseLookupComplete && !licenseFindingsIncomplete ? 'inspected' : 'unavailable',
     detail: !locked.found
       ? 'No dependency inventory was available for license evaluation.'
+      : !locked.complete
+        ? 'Dependency inventory is incomplete or unsupported. License metadata for missing packages remains unknown.'
       : licenseLookupComplete && !licenseFindingsIncomplete
         ? `Evaluated declared license metadata for ${inventoryComponents.length} exact package versions. Missing or unrecognized licenses remain in review; declarations are not verified.`
         : `License registry lookups or policy findings were capped or unavailable. ${inventoryComponents.filter(component => component.licenseConfidence === 'unknown').length} packages have unknown declared license metadata.`,
