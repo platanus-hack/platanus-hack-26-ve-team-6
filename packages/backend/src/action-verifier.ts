@@ -33,6 +33,7 @@ export type ValidationFactsPort = { getFacts(input: { organizationId: string; ac
 
 export interface ActionVerifierRepositoryPort {
   readonly writerInstallationId?: string;
+  writerInstallationIdFor?(scope: { organizationId: string; applicationId: string; repositoryKey: string; repositoryLinkId: string }): Promise<string | null>;
   readHead(input: { organizationId: string; applicationId: string; repositoryKey: string; branch: string }): Promise<string>;
   readTree?(input: { organizationId: string; applicationId: string; repositoryKey: string; commitSha: string }): Promise<GitTree>;
   isPolicyCurrent(input: { organizationId: string; applicationId: string; capabilityId: string; policyVersion: string }): Promise<boolean>;
@@ -176,32 +177,34 @@ export function createActionVerifier(input: {
       }
       const link = await input.database.tenant(action.organizationId, async tx => {
         type RepositoryLink = {
-          repository_key: string; default_branch: string; state: string; revoked: boolean; write_access: string;
+          repository_key: string; default_branch: string; state: string; source: string; revoked: boolean; read_access: string; write_access: string;
           installation_id: string | null; installation_state: string | null; writer_installation_id: string | null;
           writer_verified_at: Date | null; writer_verified_commit: string | null;
         };
-        const result = action.kind === 'dependency_pull_request'
-          ? await tx.query<RepositoryLink>(`SELECT l.repository_key,l.default_branch,l.state,l.revoked,l.write_access,l.installation_id,g.state AS installation_state,
+        const result = await tx.query<RepositoryLink>(`SELECT l.repository_key,l.default_branch,l.state,l.source,l.revoked,l.read_access,l.write_access,l.installation_id,g.state AS installation_state,
                 l.writer_installation_id,l.writer_verified_at,l.writer_verified_commit
               FROM gotchu.application_repository_links l LEFT JOIN gotchu.github_installations g
                 ON g.organization_id=l.organization_id AND g.installation_id=l.installation_id
               WHERE l.organization_id=$1 AND l.application_id=$2 AND l.id=$3`,
-          [action.organizationId, action.applicationId, action.target.repositoryLinkId])
-          : await tx.query<RepositoryLink>(`SELECT repository_key,default_branch,state,revoked,write_access,
-                NULL::text AS installation_id,NULL::text AS installation_state,writer_installation_id,writer_verified_at,writer_verified_commit
-              FROM gotchu.application_repository_links
-              WHERE organization_id=$1 AND application_id=$2 AND id=$3`,
           [action.organizationId, action.applicationId, action.target.repositoryLinkId]);
         return result.rows[0];
       });
       const linkValid = link !== undefined && !link.revoked && link.state === 'verified'
+        && link.read_access === 'granted'
         && link.repository_key === action.target.repositoryKey
         && link.default_branch === action.target.branch;
+      // A dynamic resolver returning null (or failing) must never fall back to a legacy writer.
+      const expectedWriter = repository.writerInstallationIdFor
+        ? await repository.writerInstallationIdFor({ organizationId: action.organizationId, applicationId: action.applicationId,
+          repositoryKey: action.target.repositoryKey, repositoryLinkId: action.target.repositoryLinkId }).catch(() => null)
+        : repository.writerInstallationId;
       const writerGrantValid = link !== undefined && link.write_access === 'granted'
         && link.writer_installation_id !== null && link.writer_verified_at !== null
-        && link.writer_verified_commit !== null && /^[a-f0-9]{40,64}$/.test(link.writer_verified_commit)
-        && (!repository.writerInstallationId || link.writer_installation_id === repository.writerInstallationId);
-      const githubConnectionValid = action.kind !== 'dependency_pull_request'
+        && link.writer_verified_commit !== null && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(link.writer_verified_commit)
+        && expectedWriter !== null && (expectedWriter === undefined || link.writer_installation_id === expectedWriter);
+      const requiresGitHub = action.kind === 'dependency_pull_request' || link?.source === 'github_app'
+        || link?.installation_id != null || action.target.repositoryKey.startsWith('gh-');
+      const githubConnectionValid = !requiresGitHub
         || link !== undefined && link.installation_id !== null && link.installation_state === 'active';
       const capability = await input.database.tenant(action.organizationId, async tx => {
         const result = await tx.query<{ capability_id: string; adapter_available: boolean }>(
