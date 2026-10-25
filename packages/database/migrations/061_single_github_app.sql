@@ -1,33 +1,9 @@
--- A legacy reader/writer pair cannot silently acquire single-App authority.
+-- Preserve legacy authority in legacy mode; switching App or mode requires reconnection.
 ALTER TABLE gotchu.github_installations
   ADD COLUMN connection_mode text NOT NULL DEFAULT 'legacy' CHECK(connection_mode IN ('legacy','single_app')),
   ADD COLUMN app_id text CHECK(app_id ~ '^[0-9]{1,20}$'),
   ADD CONSTRAINT github_connection_app_identity CHECK((connection_mode='single_app')=(app_id IS NOT NULL));
 ALTER TABLE gotchu.github_oauth_states ADD COLUMN app_id text CHECK(app_id ~ '^[0-9]{1,20}$');
-SET LOCAL gotchu.github_state_lookup='enabled';
-DELETE FROM gotchu.github_oauth_states;
-SET LOCAL gotchu.github_state_lookup='';
-SET LOCAL gotchu.github_installation_lookup='enabled';
-DO $$ DECLARE installation record; link record;
-BEGIN
-  FOR installation IN SELECT organization_id,installation_id FROM gotchu.github_installations LOOP
-    PERFORM set_config('gotchu.organization_id',installation.organization_id::text,true);
-    FOR link IN SELECT application_id,id FROM gotchu.application_repository_links
-      WHERE organization_id=installation.organization_id AND installation_id=installation.installation_id LOOP
-      PERFORM gotchu.invalidate_repository_write_actions(installation.organization_id,link.application_id,link.id);
-    END LOOP;
-    UPDATE gotchu.application_repository_links SET revoked=true,read_access='revoked',state='unknown',installation_id=NULL,
-      write_access='not_granted',writer_installation_id=NULL,writer_verified_at=NULL,writer_verified_commit=NULL
-      WHERE organization_id=installation.organization_id AND installation_id=installation.installation_id;
-    UPDATE gotchu.github_installations SET state='revoked',revoked_at=coalesce(revoked_at,clock_timestamp())
-      WHERE organization_id=installation.organization_id AND installation_id=installation.installation_id;
-    INSERT INTO gotchu.audit_records(organization_id,id,actor_id,action,detail)
-      VALUES(installation.organization_id,gen_random_uuid(),'system:migration','github.single_app_reconnection_required',
-        jsonb_build_object('installationId',installation.installation_id));
-  END LOOP;
-  PERFORM set_config('gotchu.organization_id','',true);
-END $$;
-SET LOCAL gotchu.github_installation_lookup='';
 
 CREATE FUNCTION gotchu.github_create_single_app_state(p_org uuid,p_user text,p_hash text,p_verifier text,p_installation text,p_purpose text,p_app_id text)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$

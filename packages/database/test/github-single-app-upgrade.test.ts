@@ -8,7 +8,7 @@ import { liveUrl } from './support.js';
 
 const live = liveUrl ? describe : describe.skip;
 live('populated single-App migration under forced tenant RLS', () => {
-  it('requires reconnection and consumes old approvals for every tenant without rewriting old source provenance', async () => {
+  it('preserves legacy connections, approvals and pending state without granting single-App authority', async () => {
     if (!liveUrl) throw new Error('Live database required');
     const name = `gotchu_test_single_app_${randomUUID().replaceAll('-', '')}`;
     const operator = new pg.Client({ connectionString: liveUrl });
@@ -52,16 +52,32 @@ live('populated single-App migration under forced tenant RLS', () => {
         tenants.push({ ...tenant, installationId, linkId, sourceId, proposalId });
       }
       await apply(['061_single_github_app.sql']);
-      expect((await admin.query('SELECT count(*)::int AS count FROM gotchu.github_oauth_states')).rows).toEqual([{ count: 0 }]);
+      expect((await admin.query('SELECT count(*)::int AS count FROM gotchu.github_oauth_states')).rows).toEqual([{ count: 2 }]);
       for (const tenant of tenants) {
         expect((await admin.query('SELECT state,connection_mode,app_id FROM gotchu.github_installations WHERE installation_id=$1', [tenant.installationId])).rows)
-          .toEqual([{ state: 'revoked', connection_mode: 'legacy', app_id: null }]);
+          .toEqual([{ state: 'active', connection_mode: 'legacy', app_id: null }]);
         expect((await admin.query('SELECT revoked,installation_id,write_access,writer_installation_id FROM gotchu.application_repository_links WHERE id=$1', [tenant.linkId])).rows)
-          .toEqual([{ revoked: true, installation_id: null, write_access: 'not_granted', writer_installation_id: null }]);
-        expect((await admin.query('SELECT state FROM gotchu.proposals WHERE id=$1', [tenant.proposalId])).rows).toEqual([{ state: 'invalidated' }]);
-        expect((await admin.query('SELECT consumed_at IS NOT NULL AS consumed FROM gotchu.approvals WHERE proposal_id=$1', [tenant.proposalId])).rows).toEqual([{ consumed: true }]);
+          .toEqual([{ revoked: false, installation_id: tenant.installationId, write_access: 'granted', writer_installation_id: '991' }]);
+        expect((await admin.query('SELECT state FROM gotchu.proposals WHERE id=$1', [tenant.proposalId])).rows).toEqual([{ state: 'approved' }]);
+        expect((await admin.query('SELECT consumed_at IS NOT NULL AS consumed FROM gotchu.approvals WHERE proposal_id=$1', [tenant.proposalId])).rows).toEqual([{ consumed: false }]);
         expect((await admin.query('SELECT repository_link_id,app_id,tree_sha FROM gotchu.customer_source_repository_bindings WHERE source_id=$1', [tenant.sourceId])).rows)
           .toEqual([{ repository_link_id: tenant.linkId, app_id: null, tree_sha: null }]);
+        await admin.query('BEGIN');
+        try {
+          await admin.query('SET LOCAL ROLE gotchu_owner');
+          await admin.query("SELECT set_config('gotchu.organization_id',$1,true)", [tenant.organizationId]);
+          expect((await admin.query('SELECT gotchu.github_bind_installation($1,$2,$3,$4) AS result',
+            [tenant.organizationId, tenant.userId, tenant.installationId, 'fixture'])).rows).toEqual([{ result: 'bound' }]);
+          expect((await admin.query('SELECT * FROM gotchu.github_single_app_installation($1,$2,$3,$4)',
+            [tenant.organizationId, tenant.applicationId, tenant.installationId, '12345'])).rows).toEqual([]);
+          expect((await admin.query('SELECT gotchu.github_bind_single_app($1,$2,$3,$4,$5) AS result',
+            [tenant.organizationId, tenant.userId, tenant.installationId, 'fixture', '12345'])).rows).toEqual([{ result: 'reconnection_required' }]);
+          const hash = tenant.installationId.padStart(64, 'a');
+          expect((await admin.query('SELECT * FROM gotchu.github_consume_single_app_state($1,$2,$3)', [hash, tenant.userId, '12345'])).rows).toEqual([]);
+          expect((await admin.query('SELECT * FROM gotchu.github_consume_state($1,$2)', [hash, tenant.userId])).rows)
+            .toEqual([{ organization_id: tenant.organizationId, user_id: tenant.userId, pkce_verifier: null, installation_id: null, purpose: 'install' }]);
+          await admin.query('COMMIT');
+        } catch (error) { await admin.query('ROLLBACK'); throw error; }
       }
     } finally {
       await admin.end();
