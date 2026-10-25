@@ -25,6 +25,16 @@ Webhook channels accept HTTPS URLs without credentials, query strings or fragmen
 
 The real-service suite uses isolated Postgres and Redis containers, a local TLS webhook receiver that checks signatures and replay windows, and disposable Mailpit SMTP. Run `pnpm --filter @gotchu/coordinator test:live`; this is integration evidence for those fixtures, not a production availability or external provider guarantee.
 
+## Gotchu MCP server (read-only)
+
+`/api/mcp` is a stateless Streamable HTTP MCP endpoint for Claude Code, Codex and IDEs. It answers 2026-07-28 clients (per-request `_meta` and mirrored `MCP-Protocol-Version`/`Mcp-Method`/`Mcp-Name` headers) and older clients that open with `initialize`, without sessions.
+
+Members create personal tokens in **Asistentes IA** (7, 30 or 90 days, at most ten active per member and workspace). A token is shown once, is bound to one workspace, and only a SHA-256 of its secret is stored. Each call runs the dashboard's backend service with that member's current role. A token stops working when it is revoked or its member leaves (also if they are invited back). Owners see and can revoke every token in the workspace.
+
+Tools: `list_applications`, `get_monitoring_status`, `list_alerts`, `list_reports`, `get_report`, `get_finding`, `get_finding_prompt` (the same fix prompt the dashboard copies). All are read-only: nothing queues analyses, runs agents, approves, opens pull requests or changes settings. Tool descriptions tell the model to treat report and alert text as untrusted data. Browser requests from another origin are refused, and each token is limited to 120 requests per minute per web process.
+
+`/install` is a plain-text guide an assistant follows by itself: the person pastes "Instala Gotchu siguiendo https://<origin>/install" (the Asistentes IA page offers it), and the assistant registers the server in its own client, using a token the person keeps in `GOTCHU_MCP_TOKEN`.
+
 ## Operator repository registration
 
 Set `GOTCHU_MONITORING_CONFIG_FILE` to an absolute regular JSON file before `pnpm dev:start`. Both the web catalog projection and coordinator reload this file on demand. Example shape:
