@@ -49,6 +49,8 @@ export const validationRunSchema = z.object({
 }).strict();
 export type ValidationRun = z.infer<typeof validationRunSchema>;
 
+export const validationRetryResponseSchema = z.object({ candidateSourceId: uuid, validationRunId: uuid }).strict();
+
 const findingSetSchema = z.object({ identities: z.array(z.string().min(1).max(256)).max(500), coverage: z.enum(['complete', 'partial', 'unknown']) }).strict();
 const countsSchema = z.object({ passed: z.number().int().nonnegative(), failed: z.number().int().nonnegative(), skipped: z.number().int().nonnegative() }).strict();
 export type ValidationFindingSet = z.infer<typeof findingSetSchema>;
