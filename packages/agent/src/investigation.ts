@@ -472,6 +472,12 @@ export async function runBoundedInvestigation(
         || checkpoint.scope.runId !== input.scope.runId
       ) throw new Error('checkpoint_scope_mismatch');
       if (checkpoint.stage === 'completed' && checkpoint.result) {
+        const references = [
+          ...checkpoint.result.citedEvidenceIds,
+          ...checkpoint.result.hypotheses.flatMap(item => item.evidenceIds),
+          ...(checkpoint.result.candidateSuggestion?.evidenceIds ?? []),
+        ];
+        if (references.some(id => !dependencies.capability.claims.evidenceIds.includes(id))) throw new Error('checkpoint_evidence_out_of_scope');
         return result(
           checkpoint.result.status,
           'run_already_completed',
@@ -485,6 +491,8 @@ export async function runBoundedInvestigation(
           checkpoint.result.assessment,
           checkpoint.result.summary,
           checkpoint.result.citedEvidenceIds,
+          checkpoint.result.hypotheses,
+          checkpoint.result.candidateSuggestion,
         );
       }
       baseCounters.modelCalls = checkpoint.modelCalls;

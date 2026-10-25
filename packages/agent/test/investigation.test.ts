@@ -133,6 +133,21 @@ function makeDependencies(options: {
 }
 
 describe('bounded LangGraph investigation', () => {
+  it('retains the saved suggestion and implications when loading a completed run without another model call', async () => {
+    const suggestion = { kind: 'source_change', summary: 'Validate input.', path: 'src/index.ts', evidenceIds: [baseEvidenceId],
+      implications: ['Unsupported expressions are rejected.'], risks: ['Clients may require changes.'], validationPlan: ['Review boundary cases.'], validationRequired: 'D05' };
+    const hypotheses = [{ statement: 'Input reaches evaluation.', evidenceIds: [baseEvidenceId] }];
+    const fixture = makeDependencies({ loadCheckpoint: async () => ({ version: 1, scope: { organizationId, applicationId, runId },
+      sequence: 4, stage: 'completed', modelCalls: 2, additionalReadToolCalls: 2, tokensUsed: 500, spendMicroUsd: 10,
+      result: { status: 'investigated', assessment: 'candidate_issue', summary: 'Scoped candidate.', citedEvidenceIds: [baseEvidenceId], hypotheses,
+        candidateSuggestion: suggestion, reasonCode: 'completed', independentVerification: 'not_verified',
+        counters: { modelCalls: 2, additionalReadToolCalls: 2, tokensUsed: 500, spendMicroUsd: 10, activeMs: 100 } },
+    }) });
+    const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
+    expect(output).toMatchObject({ reasonCode: 'run_already_completed', hypotheses, candidateSuggestion: suggestion });
+    expect(fixture.modelCalls).toHaveLength(0); expect(fixture.readCalls).toHaveLength(0);
+  });
+
   it('runs a validated candidate investigation and checkpoints no capability or excerpt', async () => {
     const fixture = makeDependencies();
     const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
