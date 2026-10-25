@@ -55,5 +55,13 @@ class ServiceEnvironment(unittest.TestCase):
         self.assertNotIn('AUTH_GITHUB_ID', environments['web'])
         self.assertIn('AUTH_SECRET="fixture-session-secret"', environments['web'])
 
+    def test_dotenv_quoting_is_decoded_before_systemd_encoding(self):
+        environments = self.write_environments({
+            'AUTH_GOOGLE_ID': '"fixture-client"',
+            'AUTH_GOOGLE_SECRET': "'fixture=secret'",
+        })
+        self.assertIn('AUTH_GOOGLE_ID="fixture-client"', environments['web'])
+        self.assertIn('AUTH_GOOGLE_SECRET="fixture=secret"', environments['web'])
+
 
 unittest.main()

@@ -30,12 +30,9 @@ chmod 644 /etc/gotchu/web.crt
 # Environment files are read by systemd as root; runtime users receive only their service's values.
 node --input-type=module <<'NODE'
 import { readFileSync, writeFileSync } from 'node:fs';
+import { parseEnv } from 'node:util';
 const state = '/var/lib/gotchu-admin/state';
-const config = Object.fromEntries(readFileSync(`${state}/.env`, 'utf8').split('\n').filter(line => line && !line.startsWith('#')).map(line => {
-  const separator = line.indexOf('=');
-  if (separator < 1) throw new Error('Invalid operator environment');
-  return [line.slice(0, separator), line.slice(separator + 1)];
-}));
+const config = parseEnv(readFileSync(`${state}/.env`, 'utf8'));
 function required(key) {
   const value = config[key];
   if (!value) throw new Error(`Missing ${key}`);
