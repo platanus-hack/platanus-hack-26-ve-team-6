@@ -164,6 +164,24 @@ describe('bounded LangGraph investigation', () => {
     expect(fixture.modelCalls).toHaveLength(0);
   });
 
+  it('redacts model-returned secrets from implications, risks and validation plans before persistence', async () => {
+    const reply = candidateReply();
+    const fixture = makeDependencies({ model: async () => ({ ...reply, output: { ...reply.output,
+      candidateSuggestion: { kind: 'source_change', summary: 'Use configured secrets.', path: 'src/index.ts', evidenceIds: [baseEvidenceId],
+        implications: ['Configure token=synthetic-implication-canary before startup.'],
+        risks: ['A missing password=synthetic-risk-canary prevents startup.'],
+        validationPlan: ['Check api_key=synthetic-validation-canary independently.'] },
+    } }) });
+    const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
+    expect(output.status).toBe('investigated');
+    expect(output.candidateSuggestion).toMatchObject({
+      implications: ['Configure token=[REDACTED] before startup.'],
+      risks: ['A missing password=[REDACTED] prevents startup.'],
+      validationPlan: ['Check api_key=[REDACTED] independently.'],
+    });
+    expect(JSON.stringify(output)).not.toContain('canary');
+  });
+
   it('rejects evidence that exists under a different organization, app, or run', async () => {
     const fixture = makeDependencies({
       read: async (request) => evidenceRecord(request.evidenceId, { organizationId: randomUUID() }),

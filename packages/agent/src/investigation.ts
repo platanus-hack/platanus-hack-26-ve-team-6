@@ -305,6 +305,9 @@ function result(
     candidateSuggestion: candidateSuggestion ? {
       ...candidateSuggestion, summary: sanitizeText(candidateSuggestion.summary).slice(0, 500),
       path: candidateSuggestion.path === null ? null : sanitizeText(candidateSuggestion.path).slice(0, 512),
+      ...(candidateSuggestion.implications ? { implications: candidateSuggestion.implications.map(item => sanitizeText(item).slice(0, 500)) } : {}),
+      ...(candidateSuggestion.risks ? { risks: candidateSuggestion.risks.map(item => sanitizeText(item).slice(0, 500)) } : {}),
+      ...(candidateSuggestion.validationPlan ? { validationPlan: candidateSuggestion.validationPlan.map(item => sanitizeText(item).slice(0, 500)) } : {}),
       validationRequired: 'D05',
     } : null,
     reasonCode,
