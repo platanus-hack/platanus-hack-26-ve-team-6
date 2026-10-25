@@ -28,6 +28,7 @@ export function ProviderConnectionButton({ organizationId, provider, disabled, p
       return customerApi.providerConnection(organizationId, provider, connection.id);
     },
     enabled: connection?.status === 'pending', retry: false,
+    gcTime: 0,
     refetchInterval: query => query.state.error || (query.state.data && query.state.data.status !== 'pending') ? false : 2000,
     refetchIntervalInBackground: true,
   });
@@ -52,7 +53,7 @@ export function ProviderConnectionButton({ organizationId, provider, disabled, p
     onSuccess: () => { setAuthorizationCode(''); void poll.refetch(); },
   });
   const error = start.error ?? poll.error ?? cancel.error ?? submitCode.error;
-  return <div className="customer-codex-connection">
+  return <div className="customer-provider-connection">
     <p>Conecta tu cuenta {label} para usar {provider === 'openrouter' ? 'tus créditos' : 'tu suscripción'}. La sesión se guarda sólo en el servidor de Gotchu. Si ya autorizaste datos, comprobaremos la conexión al volver.</p>
     <button type="button" className="customer-button customer-button-primary" disabled={disabled || pending} onClick={() => {
       // Open during the click so popup blockers do not interrupt the asynchronous ceremony.
@@ -62,7 +63,7 @@ export function ProviderConnectionButton({ organizationId, provider, disabled, p
     }}>{start.isPending ? 'Preparando conexión…' : `Conectar ${label}`}</button>
     {current?.status === 'pending' && <div role="status" aria-live="polite">
       <p>Autoriza la conexión en {label}:</p>
-      {current.userCode && <p><code className="customer-codex-device-code">{current.userCode}</code>{' '}
+      {current.userCode && <p><code className="customer-provider-device-code">{current.userCode}</code>{' '}
         <button type="button" className="customer-button" onClick={() => {
           void navigator.clipboard.writeText(current.userCode ?? '').then(() => setCopied(true)).catch(() => setCopied(false));
         }}>{copied ? 'Código copiado' : 'Copiar código'}</button></p>}

@@ -1,4 +1,4 @@
-import type { InvestigationProviderPreset } from '@gotchu/contracts';
+import type { InvestigationProviderPreset, InvestigationProviderPresetId } from '@gotchu/contracts';
 
 const keyUrls = {
   openai: 'https://platform.openai.com/api-keys',
@@ -11,7 +11,7 @@ const keyUrls = {
   xai: 'https://console.x.ai',
   groq: 'https://console.groq.com/keys',
   openrouter: 'https://openrouter.ai/settings/keys',
-} as const;
+} as const satisfies Record<Exclude<InvestigationProviderPresetId, 'codex' | 'claude_code' | 'custom_openai_compatible'>, string>;
 
 export function ProviderCredentialLink({ preset }: { preset: InvestigationProviderPreset }) {
   if (preset.billing === 'subscription' || preset.id === 'custom_openai_compatible') return null;

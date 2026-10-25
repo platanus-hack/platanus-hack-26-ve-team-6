@@ -168,6 +168,11 @@
 
 /* ---- Investigations ---- */
 .customer-investigation-settings > label:not(.customer-investigation-consent) { display: grid; gap: 6px; }
+.customer-provider-connection { display: grid; justify-items: start; gap: 12px; min-width: 0; }
+.customer-provider-connection p { margin: 0; }
+.customer-provider-connection > [role="status"] { display: grid; gap: 12px; max-width: 62ch; }
+.customer-provider-device-code { font-size: 20px; letter-spacing: 0.1em; user-select: all; }
+.customer-provider-credential-fields { display: grid; gap: 8px; min-width: 0; }
 .customer-investigation-consent { display: flex; align-items: flex-start; gap: 10px; color: var(--foreground); font-size: 14.5px; font-weight: 400; line-height: 1.5; }
 .customer-investigation-consent input { flex: 0 0 16px; width: 16px; height: 16px; margin: 3px 0 0; }
 .customer-investigation-budget-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
