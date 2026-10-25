@@ -228,6 +228,8 @@ function DependencyFixCard({ userId, organizationId, applicationId, reportId, re
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'action-proposals', organizationId, applicationId] }),
   });
   const validationState = validation.data?.run.state ?? recommendation.validationState;
+  const functionalEvidence = validation.data?.attestations.find(item => item.evidence.kind === 'functional_suite')?.evidence;
+  const rescanEvidence = validation.data?.attestations.find(item => item.evidence.kind === 'independent_rescan')?.evidence;
   useEffect(() => {
     if (!candidateSourceId || validation.data?.run.state !== 'passed' || proposal.isPending || proposal.data || proposal.error
       || attemptedCandidate.current === candidateSourceId) return;
@@ -258,8 +260,20 @@ function DependencyFixCard({ userId, organizationId, applicationId, reportId, re
       {validation.isPending && <p role="status">Consultando el estado de la validación…</p>}
       {validation.error && <p className="customer-field-note" role="alert">No se pudo cargar el estado de la validación. <button className="customer-link-button" type="button" onClick={() => { validation.refetch().catch(() => undefined); }}>Reintentar</button></p>}
       {!validation.error && validationState && <p role="status">{validationStateLabels[validationState]}</p>}
+      {functionalEvidence?.kind === 'functional_suite' && <>
+        <p className="customer-field-note">{functionalEvidence.suiteName}</p>
+        {functionalEvidence.baseCounts && <p>Base: {functionalEvidence.baseCounts.passed} aprobadas, {functionalEvidence.baseCounts.failed} fallidas, {functionalEvidence.baseCounts.skipped} omitidas.</p>}
+        {functionalEvidence.result !== 'inconclusive' && <p>Candidato: {functionalEvidence.counts.passed} aprobadas, {functionalEvidence.counts.failed} fallidas, {functionalEvidence.counts.skipped} omitidas. Mínimo requerido: {functionalEvidence.requiredCounts}.</p>}
+        {functionalEvidence.suiteBinding && <p className="customer-field-note">Compatibilidad de la selección configurada, versión {functionalEvidence.suiteBinding.suiteVersion}; no representa la suite completa.</p>}
+      </>}
+      {rescanEvidence?.kind === 'independent_rescan' && <p>Reanálisis objetivo: {rescanEvidence.result === 'passed' ? 'aprobado' : rescanEvidence.result === 'failed' ? 'no pasó' : 'inconcluso'}.</p>}
       {validationState === 'failed' && <p className="customer-field-note">La validación no pasó. Revisa la evidencia antes de volver a intentarlo; la propuesta de PR sigue bloqueada.</p>}
       {validationState === 'inconclusive' && <p className="customer-field-note">No se creó una propuesta de PR porque faltan pruebas independientes concluyentes.</p>}
+      {validationState === 'quarantined' && <>
+        <p className="customer-field-note">Un operador debe verificar la limpieza del entorno antes de permitir otro intento.</p>
+        <button className="customer-link-button" type="button" disabled={validation.isFetching}
+          onClick={() => { validation.refetch().catch(() => undefined); }}>Actualizar estado</button>
+      </>}
       {canPrepare && (validationState === 'failed' || validationState === 'inconclusive') && <>
         <p className="customer-field-note">El reintento conserva el historial y valida la misma corrección con la configuración vigente.</p>
         <button className="customer-button customer-button-secondary" type="button" disabled={retryValidation.isPending}
