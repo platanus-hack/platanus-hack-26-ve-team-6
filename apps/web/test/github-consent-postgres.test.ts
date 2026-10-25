@@ -15,6 +15,7 @@ live('GitHub consent through customer routing and real backend state (mocked pro
   let backend: ReturnType<typeof createBackend>;
   let handle: ReturnType<typeof createCustomerApi>;
   let directory: string;
+  const exchangedVerifiers: unknown[] = [];
   beforeAll(async () => {
     db = await fixture({ max: 5 });
     backend = createBackend({ database: db.databases.gotchu_api });
@@ -25,15 +26,21 @@ live('GitHub consent through customer routing and real backend state (mocked pro
     const unused = async (): Promise<never> => { throw new Error('Unexpected customer service call'); };
     const services: CustomerServices = { github: backend.github, listWorkspaces: unused, createWorkspace: unused, updateWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listContainerImages: unused, uploadContainerImage: unused, deleteContainerImage: unused, listReports: unused, getReport: unused, recordReportDownload: unused, queue: unused, job: unused };
     const auth: AuthService = { enabled: true, handle: unused, identity: async request => ({ userId: request.headers.get('x-fixture-user') ?? db.a.userId, cookies: [] }), accountEmail: async () => null };
-    handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [], githubAppFile: appFile });
-    const provider: typeof fetch = async input => {
+    const provider: typeof fetch = async (input, init) => {
       const url = String(input);
-      if (url === 'https://github.com/login/oauth/access_token') return Response.json({ access_token: 'fixture-token', token_type: 'bearer' });
+      if (url === 'https://github.com/login/oauth/access_token') {
+        if (typeof init?.body !== 'string') throw new Error('Missing token exchange');
+        const exchange: unknown = JSON.parse(init.body);
+        expect(exchange).toMatchObject({ code_verifier: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), redirect_uri: `${origin}/api/customer/github/callback` });
+        exchangedVerifiers.push(exchange);
+        return Response.json({ access_token: 'fixture-token', token_type: 'bearer' });
+      }
       if (url === 'https://api.github.com/user') return Response.json({ id: 101 });
       if (url.startsWith('https://api.github.com/user/installations')) return Response.json({ installations: ['111', '222'].map(id => ({ id: Number(id), account: { id: 101, login: 'fixture-owner', type: 'User' } })) });
       throw new Error('Unexpected provider request');
     };
     vi.stubGlobal('fetch', provider);
+    handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [], githubAppFile: appFile });
   }, 30_000);
   afterAll(async () => { vi.unstubAllGlobals(); await db?.close(); if (directory) await rm(directory, { recursive: true, force: true }); });
 
@@ -59,6 +66,7 @@ live('GitHub consent through customer routing and real backend state (mocked pro
     expect((await choose(state.state, '111')).status).toBe(400);
     expect(location(await authorize(authorization)).search).toBe('?github=connected');
     expect((await authorize(authorization)).status).toBe(400);
+    expect(exchangedVerifiers).toHaveLength(1);
     expect(await backend.github.list({ userId: db.a.userId }, { organizationId: db.a.organizationId })).toMatchObject([{ installationId: '111', state: 'active' }]);
   });
 
@@ -71,6 +79,7 @@ live('GitHub consent through customer routing and real backend state (mocked pro
     expect(location(await authorize(authorization)).search).toBe('?github=connected');
     expect((await backend.github.list({ userId: db.a.userId }, { organizationId: db.a.organizationId })).some(item => item.installationId === '222' && item.state === 'active')).toBe(true);
     expect((await handle(callback)).status).toBe(400);
+    expect(exchangedVerifiers).toHaveLength(2);
   });
 
   it('rejects another user without consuming consent and allows exactly one concurrent submission', async () => {

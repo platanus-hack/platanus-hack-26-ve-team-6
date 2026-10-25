@@ -191,7 +191,7 @@ globalThis.fetch = async (input, init) => {
     catch {
       const onboarding = await page.locator('.customer-onboarding').innerText().catch(() => 'Onboarding is not visible.');
       const hasSavedScope = await page.evaluate(() => window.sessionStorage.getItem('gotchu-onboarding-scope') !== null);
-      throw new Error(JSON.stringify({ onboarding, hasSavedScope, customerApiFailures }));
+      throw new Error(JSON.stringify({ onboarding, hasSavedScope, customerApiFailures, location: new URL(page.url()).origin + new URL(page.url()).pathname, visibleText: (await page.locator('body').innerText()).slice(0, 2000) }));
     }
     const scan = page.waitForResponse(response => response.url().includes('/github/installations/174788349/repositories/42/select') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Analizar fixture-owner/vulnerable-app' }).click();
