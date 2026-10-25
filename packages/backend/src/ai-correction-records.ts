@@ -8,7 +8,7 @@ import { correctionAssessment, correctionBoundary, correctionModelFingerprint, r
 export interface AiCorrectionRow {
   id: string; job_id: string; organization_id: string; application_id: string; report_id: string; finding_id: string;
   source_digest: string; state: AiCorrection['state']; summary: string | null; reason_code: string | null;
-  candidate_source_id: string | null; patch_hash: string | null; validation_run_id: string | null;
+  candidate_source_id: string | null; patch_hash: string | null; validation_run_id: string | null; rescan_job_id: string | null;
   implications: unknown; risks: unknown; validation_plan: unknown; diff: unknown; created_at: Date;
 }
 export interface PrivateAiCorrectionRow extends AiCorrectionRow {
@@ -17,12 +17,12 @@ export interface PrivateAiCorrectionRow extends AiCorrectionRow {
 }
 // Public reads cannot accidentally select a raw provider patch or settings reference.
 export const correctionProjectionColumns = `id,job_id,organization_id,application_id,report_id,finding_id,source_digest,state,
-  summary,reason_code,candidate_source_id,patch_hash,validation_run_id,implications,risks,validation_plan,diff,created_at`;
+  summary,reason_code,candidate_source_id,patch_hash,validation_run_id,rescan_job_id,implications,risks,validation_plan,diff,created_at`;
 export function projectAiCorrection(row: AiCorrectionRow): AiCorrection {
   return parse(aiCorrectionSchema, { id: row.id, jobId: row.job_id, organizationId: row.organization_id,
     applicationId: row.application_id, reportId: row.report_id, findingId: row.finding_id, sourceDigest: row.source_digest,
     state: row.state, summary: row.summary, reasonCode: row.reason_code, candidateSourceId: row.candidate_source_id,
-    patchHash: row.patch_hash, validationRunId: row.validation_run_id, implications: row.implications,
+    patchHash: row.patch_hash, validationRunId: row.validation_run_id, rescanJobId: row.rescan_job_id, implications: row.implications,
     risks: row.risks, validationPlan: row.validation_plan, diff: row.diff, createdAt: row.created_at.toISOString() });
 }
 
