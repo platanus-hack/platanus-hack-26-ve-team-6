@@ -321,9 +321,14 @@ export function createCustomerService(deps: CustomerDependencies) {
       await deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, actor, writeRoles);
         await lockApplication(tx, value, true);
-        const result = await tx.query<{ status: string }>('SELECT gotchu.customer_delete_source($1,$2,$3,$4) AS status', [value.organizationId, value.applicationId, value.sourceSnapshotId, actor.userId]);
+        const result = await tx.query<{ status: string }>('SELECT gotchu.customer_delete_source($1,$2,$3,$4) AS status', [value.organizationId, value.applicationId, value.sourceSnapshotId, actor.userId]).catch((error: unknown) => {
+          if (error instanceof Error && 'code' in error && error.code === '55006' && error.message === 'source_in_use') {
+            throw new BackendError('source_in_use', 'Wait for dependent assessments, corrections, and usage reconciliation before deleting this source', 409, { cause: error });
+          }
+          throw error;
+        });
         const status = result.rows[0]?.status;
-        if (status === 'in_use') throw new BackendError('source_in_use', 'Wait for queued or running assessments before deleting this source', 409);
+        if (status === 'in_use') throw new BackendError('source_in_use', 'Wait for dependent assessments, corrections, and usage reconciliation before deleting this source', 409);
         if (status === 'not_found') throw new BackendError('not_found', 'Source snapshot not found', 404);
         if (status !== 'deleted') throw new BackendError('forbidden', 'Source deletion was not authorized', 403);
       });
