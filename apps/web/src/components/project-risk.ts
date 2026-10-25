@@ -6,7 +6,7 @@ import type {
 export type ProjectSource =
   | { kind: 'snapshot'; id: string; label: string; detail: string }
   | { kind: 'image'; id: string; label: string; detail: string }
-  | { kind: 'target'; id: string; label: string; detail: string };
+  | { kind: 'target'; id: string; origin: string; label: string; detail: string };
 
 export const SEVERITIES = ['critical', 'high', 'medium', 'low', 'informational', 'unknown'] as const satisfies readonly AssessmentFinding['severity'][];
 export type SeverityCounts = Record<AssessmentFinding['severity'], number>;
@@ -16,7 +16,7 @@ export function projectSources(input: { sources: readonly CustomerSourceSummary[
     ...input.sources.map(source => ({ kind: 'snapshot' as const, id: source.id, label: /^[0-9a-f]{40}$/.test(source.revision) ? source.revision.slice(0, 7) : source.revision, detail: `Código · ${source.fileCount} ${source.fileCount === 1 ? 'archivo' : 'archivos'}` })),
     ...input.images.map(image => ({ kind: 'image' as const, id: image.id, label: image.label, detail: 'Imagen de contenedor' })),
     // Revoked or expired origins can no longer be assessed, so they do not count against coverage.
-    ...input.targets.filter(target => target.status === 'authorized').map(target => ({ kind: 'target' as const, id: target.id, label: target.origin.replace(/^https:\/\//, ''), detail: 'Origen HTTPS' })),
+    ...input.targets.filter(target => target.status === 'authorized').map(target => ({ kind: 'target' as const, id: target.id, origin: target.origin, label: target.origin.replace(/^https:\/\//, ''), detail: 'Origen HTTPS' })),
   ];
 }
 
@@ -24,7 +24,8 @@ function covers(report: CustomerReportSummary, source: ProjectSource) {
   switch (source.kind) {
     case 'snapshot': return report.subject.sourceSnapshotId === source.id;
     case 'image': return report.subject.containerImageId === source.id;
-    case 'target': return report.subject.targetId === source.id;
+    // A project keeps one target row and renewing it can change the origin, so a report only covers the origin it assessed.
+    case 'target': return report.subject.targetId === source.id && report.subject.origin === source.origin;
   }
 }
 

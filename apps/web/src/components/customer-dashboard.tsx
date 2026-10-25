@@ -922,7 +922,11 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     },
     retry: false,
   })) });
-  const sourceLabel = (summary: CustomerReportSummary) => riskSources.filter(source => source.kind === 'snapshot' ? summary.subject.sourceSnapshotId === source.id : source.kind === 'image' ? summary.subject.containerImageId === source.id : summary.subject.targetId === source.id).map(source => source.label).join(' · ');
+  // The origin comes from the report itself: the project's target row is renewed in place, so its current origin may differ.
+  const sourceLabel = (summary: CustomerReportSummary) => [
+    ...riskSources.filter(source => source.kind === 'snapshot' ? summary.subject.sourceSnapshotId === source.id : source.kind === 'image' && summary.subject.containerImageId === source.id).map(source => source.label),
+    summary.subject.origin?.replace(/^https:\/\//, ''),
+  ].filter(Boolean).join(' · ');
   const recentRows: RecentReportRow[] = recentSummaries.map((summary, index) => {
     const full = recentFull[index]?.data;
     const previous = (reports.data ?? [])[index + 1];
