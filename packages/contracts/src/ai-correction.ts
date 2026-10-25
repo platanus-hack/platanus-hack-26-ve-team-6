@@ -12,6 +12,8 @@ export const aiCorrectionInputSchema = z.object({
   task: z.literal('prepare_correction'),
   scope: z.object({ organizationId: z.uuid(), applicationId: z.uuid(), runId: z.uuid() }).strict(),
   correctionId: z.uuid(), sourceDigest: digest,
+  /** Selected by the trusted gateway; null removes token caps without removing usage accounting. */
+  modelTokenLimit: z.number().int().min(1).max(20_000).nullable().optional(),
   finding: assessmentFindingSchema,
   suggestion: investigationRunSchema.shape.candidateSuggestion,
   files: z.array(z.object({ path: customerSourceFileSchema.shape.path, sha256: digest, content: z.string().max(12_000) }).strict()).min(1).max(4),
