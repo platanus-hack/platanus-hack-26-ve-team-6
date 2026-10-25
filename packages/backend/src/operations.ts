@@ -14,6 +14,8 @@ import { enqueueNotificationEvent } from './notifications.js';
 
 type Scope = z.infer<typeof customerScopeSchema>;
 const writes = ['owner', 'operator'] as const;
+/** Matches the dashboard's preselected frequency. */
+export const DEFAULT_MONITOR_INTERVAL_SECONDS = 21_600;
 const discoveryTenant = '00000000-0000-0000-0000-000000000000';
 const limitsSchema = z.object({ limit: z.number().int().min(1).max(50).default(20) });
 const listSchema = customerScopeSchema.extend(limitsSchema.shape).strict();
@@ -109,6 +111,25 @@ export function createOperationsService(deps: BaseDependencies) {
           [value.organizationId, value.applicationId, value.enabled, value.intervalSeconds, value.sourceSnapshotId, value.targetId, targetVersion, value.repositoryKey, JSON.stringify([...new Set(value.providers)]), identity.userId]);
           await audit(tx, value.organizationId, identity.userId, 'monitor.configured', value.applicationId, { enabled: value.enabled });
           return parse(monitorConfigSchema, await config(tx, value));
+        });
+      } catch (error) { translateFence(error); }
+    },
+    /**
+     * Turns on default monitoring for a newly connected repository, only when the application has never
+     * had a monitor; an existing configuration, including a deliberately disabled one, is left alone.
+     * The first check waits one interval because connecting already queued a scan.
+     */
+    async enableDefault(identity: Identity, input: Scope & { repositoryKey: string }): Promise<boolean> {
+      const value = parse(monitorConfigInputSchema, { organizationId: input.organizationId, applicationId: input.applicationId, enabled: true, intervalSeconds: DEFAULT_MONITOR_INTERVAL_SECONDS, repositoryKey: input.repositoryKey });
+      try {
+        return await deps.database.tenant(value.organizationId, async tx => {
+          await authorize(tx, value.organizationId, identity, writes); await application(tx, value, true);
+          const inserted = await tx.query(`INSERT INTO gotchu.operation_monitors(organization_id,application_id,enabled,interval_seconds,repository_key,author_id,next_due_at)
+            VALUES($1,$2,true,$3::integer,$4,$5,clock_timestamp()+$3::integer*interval '1 second') ON CONFLICT(organization_id,application_id) DO NOTHING`,
+          [value.organizationId, value.applicationId, value.intervalSeconds, value.repositoryKey, identity.userId]);
+          if (!inserted.rowCount) return false;
+          await audit(tx, value.organizationId, identity.userId, 'monitor.configured', value.applicationId, { enabled: true, default: true });
+          return true;
         });
       } catch (error) { translateFence(error); }
     },
