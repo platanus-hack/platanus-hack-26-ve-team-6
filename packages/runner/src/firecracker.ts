@@ -4,10 +4,11 @@ import { join } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { runnerJobSchema, runnerResultSchema, type RunnerJob, type RunnerResult } from './contracts.js';
 import { checkRunnerGate, recordRunnerSelfTest, runnerPackageRoot } from './gate.js';
-import { parseGuestFrame, validateGuestPayload } from './protocol.js';
+import { makeOutput, parseGuestFrame, validateGuestPayload } from './protocol.js';
 import { readArchiveFiles, validateInputArchive } from './archive.js';
 import { fetchNpmDependencies } from './npm-cache.js';
 import { isolationEvidence, readImageLock, sha256 } from './images.js';
+import { validateSelectedTestFiles } from './profile.js';
 import { prepareVmBootFiles } from './vm-config.js';
 import { collectCapped, emptyOutput, finalResult, killProcessGroup, MAX_SERIAL_BYTES, parseResult, waitForExit, type VmOutcome } from './vm-output.js';
 import { readLocalInputObject } from './input-store.js';
@@ -129,9 +130,13 @@ async function inspectSandboxScope(unit: string, expected: { memoryMiB: number; 
 
 async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signal?: AbortSignal, onSpawn?: (unit: string) => Promise<HostSandboxProbe>): Promise<VmOutcome & { readonly hostProbe?: HostSandboxProbe }> {
   const archive = validateInputArchive(input);
-  const packageLock = readArchiveFiles(archive.tarBytes).get('package-lock.json');
-  if (!packageLock) throw new Error('node24-npm-test requires package-lock.json');
-  const npmDependencies = await fetchNpmDependencies(packageLock);
+  const files = readArchiveFiles(archive.tarBytes);
+  validateSelectedTestFiles(job, files);
+  const packageLock = files.get('package-lock.json');
+  if (!packageLock) throw new Error(`${job.profile} requires package-lock.json`);
+  const npmDependencies = await fetchNpmDependencies(packageLock, job.profile === 'node24-tsx-selected-v1'
+    ? { targetPlatform: 'linux-x64-glibc', maxTarballBytes: 192 * 1024 * 1024 }
+    : {});
   const dependencyEvidence = { lockfileSha256: npmDependencies.lockfileSha256, tarballSetSha256: npmDependencies.tarballSetSha256 };
   const lock = await readImageLock();
   if (!lock) {
@@ -219,7 +224,9 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
     if (timedOut) {
       outcome = runnerResultSchema.parse({
         status: 'timed_out', durationMs: Date.now() - started,
-        isolation: isolationEvidence(job, lock, true, false, dependencyEvidence), stdout: emptyOutput(job.limits.outputBytes), stderr: emptyOutput(job.limits.outputBytes),
+        isolation: isolationEvidence(job, lock, true, false, dependencyEvidence), stdout: emptyOutput(job.limits.outputBytes),
+        // Diagnostic bytes are untrusted and never count as a completed result.
+        stderr: makeOutput(`Untrusted guest serial output before timeout:\n${Buffer.from(serial).toString('utf8')}`, job.limits.outputBytes),
       });
     } else if (signal?.aborted) {
       outcome = runnerResultSchema.parse({

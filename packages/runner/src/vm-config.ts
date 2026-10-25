@@ -26,7 +26,7 @@ async function runBuildCommand(command: string, args: string[]): Promise<void> {
 async function createInputDisk(stage: string, input: Buffer, job: RunnerJob): Promise<string> {
   await mkdir(stage, { recursive: true });
   await writeFile(join(stage, 'project.tar'), input, { mode: 0o400 });
-  await writeFile(join(stage, 'job.json'), JSON.stringify({ profile: job.profile, limits: job.limits }), { mode: 0o400 });
+  await writeFile(join(stage, 'job.json'), JSON.stringify({ profile: job.profile, limits: job.limits, ...(job.profile === 'node24-tsx-selected-v1' ? { testSelection: job.testSelection } : {}) }), { mode: 0o400 });
   const image = join(stage, '..', 'input.ext4');
   const size = Math.max(16, Math.ceil((input.length + 4096) / (1024 * 1024)) + 8);
   await runBuildCommand('truncate', ['-s', `${size}M`, image]);
@@ -37,11 +37,16 @@ async function createInputDisk(stage: string, input: Buffer, job: RunnerJob): Pr
 async function createNpmCacheDisk(stage: string, dependencies: FetchedNpmDependencies): Promise<string> {
   const cacheStage = join(stage, 'npm-cache');
   await mkdir(join(cacheStage, 'tarballs'), { recursive: true });
-  const entries = dependencies.tarballs.map((tarball) => ({ file: `${tarball.sha256}.tgz`, integrity: tarball.integrity }));
-  await Promise.all(dependencies.tarballs.map((tarball) => writeFile(join(cacheStage, 'tarballs', `${tarball.sha256}.tgz`), tarball.bytes, { mode: 0o444 })));
+  // Hoisted and nested lock entries can reference the same immutable tarball.
+  // Write each content-addressed file once; reopening its read-only copy fails.
+  const tarballs = [...new Map(dependencies.tarballs.map(tarball => [tarball.sha256, tarball])).values()];
+  const entries = tarballs.map((tarball) => ({ file: `${tarball.sha256}.tgz`, integrity: tarball.integrity }));
+  await Promise.all(tarballs.map((tarball) => writeFile(join(cacheStage, 'tarballs', `${tarball.sha256}.tgz`), tarball.bytes, { mode: 0o444, flag: 'wx' })));
   await writeFile(join(cacheStage, 'manifest.json'), JSON.stringify({ lockfileSha256: dependencies.lockfileSha256, tarballSetSha256: dependencies.tarballSetSha256, entries }), { mode: 0o444 });
   const image = join(stage, 'npm-cache.ext4');
-  const size = Math.max(16, Math.ceil((dependencies.tarballs.reduce((total, item) => total + item.bytes.length, 0) + 4096) / (1024 * 1024)) + 8);
+  // ext4 journals, allocation metadata and reserved blocks grow with the disk.
+  const payloadMiB = Math.ceil((tarballs.reduce((total, item) => total + item.bytes.length, 0) + 4096) / (1024 * 1024));
+  const size = Math.max(16, Math.ceil(payloadMiB * 1.15) + 32);
   await runBuildCommand('truncate', ['-s', `${size}M`, image]);
   await runBuildCommand('mkfs.ext4', ['-q', '-F', '-d', cacheStage, image]);
   return image;

@@ -1,5 +1,6 @@
 import { createHash, generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createBackend, enqueueValidation } from '../src/index.js';
 import { verifyValidationAttestation } from '../src/validations.js';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
 
@@ -8,7 +9,8 @@ const candidateBody = { revision: 'validation-test', files: [{ path: 'src/index.
 
 live('validation persistence and leases on real PostgreSQL', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
-  beforeAll(async () => { f = await fixture({ max: 4 }); }, 30_000);
+  let api: ReturnType<typeof createBackend>;
+  beforeAll(async () => { f = await fixture({ max: 4 }); api = createBackend({ database: f.databases.gotchu_api }); }, 30_000);
   afterAll(async () => { await f?.close(); });
 
   async function createRun(organizationId: string, applicationId: string) {
@@ -24,6 +26,58 @@ live('validation persistence and leases on real PostgreSQL', () => {
     });
     return { runId, candidateId };
   }
+
+  it('persists selected coverage and queues the exact suite profile and version', async () => {
+    const organizationId = f.a.organizationId;
+    const applicationId = f.a.applicationId;
+    const repositoryLinkId = randomUUID();
+    await f.admin.query(`INSERT INTO gotchu.application_repository_links(organization_id,application_id,id,repository_key,default_branch,read_access)
+      VALUES($1,$2,$3,'selected-validation-test','main','granted')`, [organizationId, applicationId, repositoryLinkId]);
+
+    const identity = { userId: f.a.userId };
+    const selection = { files: ['src/unit.test.ts', 'test/smoke.test.mts'], namePattern: 'selected behavior' };
+    const selectedInput = { organizationId, applicationId, repositoryLinkId, profile: 'node24-tsx-selected-v1' as const,
+      scriptName: 'test', suiteName: 'focused regressions', requiredCount: 1, testSelection: selection };
+    await expect(api.validations.configureSuite(identity, { ...selectedInput, testSelection: null }))
+      .rejects.toMatchObject({ code: 'validation_profile_config_invalid' });
+    await expect(api.validations.configureSuite(identity, { ...selectedInput, scriptName: 'custom' }))
+      .rejects.toMatchObject({ code: 'validation_profile_config_invalid' });
+    await expect(api.validations.configureSuite(identity, { ...selectedInput, profile: 'node24-npm-test' }))
+      .rejects.toMatchObject({ code: 'validation_profile_config_invalid' });
+
+    const suite = await api.validations.configureSuite(identity, selectedInput);
+    expect(suite).toMatchObject({ profile: 'node24-tsx-selected-v1', testSelection: selection, suiteName: 'focused regressions [selected tests: 2 files]' });
+    const storedSuite = await f.admin.query<{ profile: string; test_selection: unknown }>(
+      'SELECT profile,test_selection FROM gotchu.validation_suite_definitions WHERE organization_id=$1 AND application_id=$2 AND id=$3',
+      [organizationId, applicationId, suite.id],
+    );
+    expect(storedSuite.rows[0]).toEqual({ profile: 'node24-tsx-selected-v1', test_selection: selection });
+
+    const baseSourceId = randomUUID();
+    const candidateSourceId = randomUUID();
+    const baseDigest = createHash('sha256').update(baseSourceId).digest('hex');
+    const candidateDigest = createHash('sha256').update(candidateSourceId).digest('hex');
+    await f.admin.query(`INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor)
+      VALUES($1,$2,$3,$4,$5::jsonb,'selected validation test'),($1,$2,$6,$7,$5::jsonb,'selected validation test')`, [
+      organizationId, applicationId, baseSourceId, baseDigest, JSON.stringify(candidateBody), candidateSourceId, candidateDigest,
+    ]);
+    const patchDigest = createHash('sha256').update('selected-validation-patch').digest('hex');
+    const runId = await f.databases.gotchu_api.tenant(organizationId, tx => enqueueValidation(tx, {
+      organizationId, applicationId, candidateSourceId, baseSourceId, targetFindingId: randomUUID(), baseDigest,
+      candidateDigest, patchDigest, repositoryLinkId,
+    }));
+    const run = await f.admin.query<{ runner_profile: string; suite_definition_id: string; suite_version: number }>(
+      'SELECT runner_profile,suite_definition_id,suite_version FROM gotchu.validation_runs WHERE organization_id=$1 AND application_id=$2 AND id=$3',
+      [organizationId, applicationId, runId],
+    );
+    expect(run.rows[0]).toEqual({ runner_profile: 'node24-tsx-selected-v1', suite_definition_id: suite.id, suite_version: suite.version });
+    await f.admin.query("UPDATE gotchu.validation_runs SET state='inconclusive',reason='test_complete',finished_at=clock_timestamp() WHERE organization_id=$1 AND id=$2", [organizationId, runId]);
+
+    const legacySuite = await api.validations.configureSuite(identity, {
+      organizationId, applicationId, repositoryLinkId, scriptName: 'test', suiteName: 'legacy regressions', requiredCount: 1,
+    });
+    expect(legacySuite).toMatchObject({ profile: 'node24-npm-test', testSelection: null });
+  });
 
   it('enforces tenant isolation and immutable attestations for the validator role', async () => {
     const run = await createRun(f.a.organizationId, f.a.applicationId);

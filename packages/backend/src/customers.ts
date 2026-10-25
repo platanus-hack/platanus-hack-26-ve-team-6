@@ -8,7 +8,7 @@ import {
   customerPendingOrganizationsSchema, customerQueueSchema, customerReportSummarySchema, customerRunInputSchema, customerScopeSchema,
   customerSourceSnapshotSchema, customerSourceSummarySchema, customerTargetIdSchema, customerTargetSchema,
   customerUpdateApplicationSchema, customerUploadSourceSchema, customerWorkspaceSchema, defaultLicensePolicy,
-  licensePolicySchema, workspaceLicensePolicySchema,
+  licensePolicySchema, workspaceLicensePolicySchema, githubCapturedSourceInputSchema,
   type CustomerApplication, type CustomerAssessmentIntent, type CustomerAssessmentReport, type CustomerClaim, type CustomerEnrollment,
   type CustomerQueueInput, type CustomerRunInput, type CustomerSourceSummary, type CustomerTarget,
   type CustomerContainerImageSummary, type LicensePolicy,
@@ -20,6 +20,8 @@ import type { Transaction } from '@gotchu/database';
 import { audit, authorize, BackendError, canonicalJson, identitySchema, parse, sha256, type BaseDependencies, type Identity } from './core.js';
 import { DEMO_ASSESSMENT_SCOPE } from './demo.js';
 import { completeJob, enqueue } from './jobs.js';
+import { enqueueAutomaticSourceInvestigations } from './automatic-source-investigations.js';
+import { bindCapturedSource, loadSingleAppRepository } from './github-connections.js';
 
 export type CustomerDependencies = BaseDependencies;
 export const CUSTOMER_MAX_UNFINISHED = 3;
@@ -32,6 +34,7 @@ const discoveryTenant = '00000000-0000-0000-0000-000000000000';
 const organizationSchema = customerScopeSchema.pick({ organizationId: true });
 type Scope = z.infer<typeof customerScopeSchema>;
 const writeRoles = ['owner', 'operator'] as const;
+const capturedSourceProvenanceSchema = githubCapturedSourceInputSchema.omit({ sourceSnapshotId: true });
 function principal(identity: Identity) {
   const value = parse(identitySchema, identity);
   if (value.userId === DEMO_ASSESSMENT_SCOPE.userId) throw new BackendError('forbidden', 'The demo principal cannot access customer workspaces', 403);
@@ -169,6 +172,57 @@ function containerImageSummary(scope: Scope, row: { id: string; digest: string; 
 }
 
 export function createCustomerService(deps: CustomerDependencies) {
+  async function storeSource(identity: Identity, input: z.input<typeof customerUploadSourceSchema>, capture?: z.infer<typeof capturedSourceProvenanceSchema>): Promise<CustomerSourceSummary> {
+    const actor = principal(identity); const value = parse(customerUploadSourceSchema, input);
+    const snapshot = { ...value.snapshot, files: [...value.snapshot.files].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0) };
+    const serialized = canonicalJson(snapshot); const digest = sha256(serialized);
+    if (capture && (capture.organizationId !== value.organizationId || capture.applicationId !== value.applicationId
+      || capture.commitSha !== snapshot.revision || capture.digest !== digest)) {
+      throw new BackendError('github_source_digest_mismatch', 'La fuente no coincide con la captura de GitHub.', 409);
+    }
+    const captureKey = capture ? sha256(canonicalJson(capture)) : '';
+    return deps.database.tenant(value.organizationId, async tx => {
+      await authorize(tx, value.organizationId, actor, writeRoles); await lockApplication(tx, value);
+      if (capture) {
+        const repository = await loadSingleAppRepository(tx, { organizationId: capture.organizationId,
+          applicationId: capture.applicationId, repositoryLinkId: capture.repositoryLinkId }, capture.appId);
+        if (repository.installationId !== capture.installationId || repository.repositoryId !== capture.repositoryId) {
+          throw new BackendError('github_source_scope_mismatch', 'La captura no corresponde al repositorio autorizado.', 409);
+        }
+      }
+      // Reuse old captures by their immutable binding, or an unbound retry by its
+      // server-derived key. An ordinary upload cannot reserve capture provenance.
+      const prior = capture
+        ? await tx.query<{ id: string; created_at: Date }>(`SELECT s.id,s.created_at FROM gotchu.customer_sources s
+            LEFT JOIN gotchu.customer_source_repository_bindings b
+              ON b.organization_id=s.organization_id AND b.application_id=s.application_id AND b.source_id=s.id
+            WHERE s.organization_id=$1 AND s.application_id=$2 AND s.digest=$3 AND s.deleted_at IS NULL
+              AND ((s.capture_key=$4 AND b.source_id IS NULL) OR
+                (b.repository_link_id=$5 AND b.app_id=$6 AND b.installation_id=$7 AND b.repository_id=$8
+                  AND b.commit_sha=$9 AND b.tree_sha=$10 AND b.source_digest=$3))
+            ORDER BY s.created_at,s.id LIMIT 1`, [value.organizationId, value.applicationId, digest, captureKey,
+          capture.repositoryLinkId, capture.appId, capture.installationId, String(capture.repositoryId), capture.commitSha, capture.treeSha])
+        : await tx.query<{ id: string; created_at: Date }>(`SELECT id,created_at FROM gotchu.customer_sources
+            WHERE organization_id=$1 AND application_id=$2 AND digest=$3 AND deleted_at IS NULL
+            ORDER BY created_at,id LIMIT 1`, [value.organizationId, value.applicationId, digest]);
+      const existing = prior.rows[0];
+      if (existing) {
+        if (capture) await bindCapturedSource(tx, actor, { ...capture, sourceSnapshotId: existing.id });
+        return sourceSummary(value, existing.id, digest, snapshot, existing.created_at);
+      }
+      const count = await tx.query<{ count: number }>('SELECT count(*)::int AS count FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND deleted_at IS NULL', [value.organizationId, value.applicationId]);
+      if ((count.rows[0]?.count ?? CUSTOMER_MAX_SOURCES) >= CUSTOMER_MAX_SOURCES) throw new BackendError('source_limit', 'Application snapshot limit reached', 429);
+      const daily = await tx.query<{ count: number }>("SELECT count(*)::int AS count FROM gotchu.customer_sources WHERE organization_id=$1 AND created_at>clock_timestamp()-interval '1 day'", [value.organizationId]);
+      if ((daily.rows[0]?.count ?? CUSTOMER_MAX_DAILY_SOURCES) >= CUSTOMER_MAX_DAILY_SOURCES) throw new BackendError('source_daily_limit', 'Workspace daily snapshot admission limit reached', 429);
+      await checkJsonSize(tx, serialized, CUSTOMER_MAX_SOURCE_BYTES);
+      const id = randomUUID();
+      const result = await tx.query<{ created_at: Date }>('INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor,capture_key) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7) RETURNING created_at', [value.organizationId, value.applicationId, id, digest, serialized, actor.userId, captureKey]);
+      const row = result.rows[0]; if (!row) throw new Error('Source insert returned no row');
+      await audit(tx, value.organizationId, actor.userId, 'source.uploaded', id, { digest });
+      if (capture) await bindCapturedSource(tx, actor, { ...capture, sourceSnapshotId: id });
+      return sourceSummary(value, id, digest, snapshot, row.created_at);
+    });
+  }
   return {
     async pendingOrganizations(input: z.input<typeof customerPendingOrganizationsSchema> = {}): Promise<string[]> {
       if (deps.database.role !== 'gotchu_coordinator') throw new BackendError('forbidden', 'Pending organization discovery is coordinator-only', 403);
@@ -294,35 +348,27 @@ export function createCustomerService(deps: CustomerDependencies) {
         return targetView(value, requireTarget(await targetRow(tx, value, value.targetId)));
       });
     },
-    async uploadSource(identity: Identity, input: z.input<typeof customerUploadSourceSchema>): Promise<CustomerSourceSummary> {
-      const actor = principal(identity); const value = parse(customerUploadSourceSchema, input);
-      const snapshot = { ...value.snapshot, files: [...value.snapshot.files].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0) };
-      const serialized = canonicalJson(snapshot); const digest = sha256(serialized);
-      return deps.database.tenant(value.organizationId, async tx => {
-        await authorize(tx, value.organizationId, actor, writeRoles); await lockApplication(tx, value);
-        const prior = await tx.query<{ id: string; created_at: Date }>('SELECT id,created_at FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND digest=$3 AND deleted_at IS NULL', [value.organizationId, value.applicationId, digest]);
-        const existing = prior.rows[0];
-        if (existing) return sourceSummary(value, existing.id, digest, snapshot, existing.created_at);
-        const count = await tx.query<{ count: number }>('SELECT count(*)::int AS count FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND deleted_at IS NULL', [value.organizationId, value.applicationId]);
-        if ((count.rows[0]?.count ?? CUSTOMER_MAX_SOURCES) >= CUSTOMER_MAX_SOURCES) throw new BackendError('source_limit', 'Application snapshot limit reached', 429);
-        const daily = await tx.query<{ count: number }>("SELECT count(*)::int AS count FROM gotchu.customer_sources WHERE organization_id=$1 AND created_at>clock_timestamp()-interval '1 day'", [value.organizationId]);
-        if ((daily.rows[0]?.count ?? CUSTOMER_MAX_DAILY_SOURCES) >= CUSTOMER_MAX_DAILY_SOURCES) throw new BackendError('source_daily_limit', 'Workspace daily snapshot admission limit reached', 429);
-        await checkJsonSize(tx, serialized, CUSTOMER_MAX_SOURCE_BYTES);
-        const id = randomUUID();
-        const result = await tx.query<{ created_at: Date }>('INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor) VALUES ($1,$2,$3,$4,$5::jsonb,$6) RETURNING created_at', [value.organizationId, value.applicationId, id, digest, serialized, actor.userId]);
-        const row = result.rows[0]; if (!row) throw new Error('Source insert returned no row');
-        await audit(tx, value.organizationId, actor.userId, 'source.uploaded', id, { digest });
-        return sourceSummary(value, id, digest, snapshot, row.created_at);
-      });
+    uploadSource(identity: Identity, input: z.input<typeof customerUploadSourceSchema>): Promise<CustomerSourceSummary> {
+      return storeSource(identity, input);
+    },
+    /** Server-only: atomically stores and binds an authenticated broker capture, never an HTTP upload body. */
+    async uploadCapturedSource(identity: Identity, input: z.input<typeof customerUploadSourceSchema>, capture: unknown): Promise<CustomerSourceSummary> {
+      if (deps.database.role !== 'gotchu_api') throw new BackendError('forbidden', 'Captured source upload requires the API role', 403);
+      return storeSource(identity, input, parse(capturedSourceProvenanceSchema, capture));
     },
     async deleteSource(identity: Identity, input: z.input<typeof customerDeleteSourceSchema>): Promise<void> {
       const actor = principal(identity); const value = parse(customerDeleteSourceSchema, input);
       await deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, actor, writeRoles);
         await lockApplication(tx, value, true);
-        const result = await tx.query<{ status: string }>('SELECT gotchu.customer_delete_source($1,$2,$3,$4) AS status', [value.organizationId, value.applicationId, value.sourceSnapshotId, actor.userId]);
+        const result = await tx.query<{ status: string }>('SELECT gotchu.customer_delete_source($1,$2,$3,$4) AS status', [value.organizationId, value.applicationId, value.sourceSnapshotId, actor.userId]).catch((error: unknown) => {
+          if (error instanceof Error && 'code' in error && error.code === '55006' && error.message === 'source_in_use') {
+            throw new BackendError('source_in_use', 'Wait for dependent assessments, corrections, and usage reconciliation before deleting this source', 409, { cause: error });
+          }
+          throw error;
+        });
         const status = result.rows[0]?.status;
-        if (status === 'in_use') throw new BackendError('source_in_use', 'Wait for queued or running assessments before deleting this source', 409);
+        if (status === 'in_use') throw new BackendError('source_in_use', 'Wait for dependent assessments, corrections, and usage reconciliation before deleting this source', 409);
         if (status === 'not_found') throw new BackendError('not_found', 'Source snapshot not found', 404);
         if (status !== 'deleted') throw new BackendError('forbidden', 'Source deletion was not authorized', 403);
       });
@@ -534,6 +580,7 @@ export function createCustomerService(deps: CustomerDependencies) {
         }
         // Locks prevent concurrent revocation; recheck time-based expiry after storage work too.
         if (request.target && !(await targetRow(tx, request, request.target.id))?.authorization_current) throw new BackendError('assessment_target_changed', 'Target authorization expired before completion', 409);
+        await enqueueAutomaticSourceInvestigations(tx, report);
         await completeJob(tx, { organizationId: request.organizationId, jobId: request.jobId, leaseToken: value.leaseToken, result: { status: 'completed', reportId: report.id } });
         await enqueue(tx, { organizationId: request.organizationId, applicationId: request.applicationId, id: randomUUID(), kind: 'notification', idempotencyKey: `assessment-observation:${report.id}`, payload: { kind: 'assessment_observation', reportId: report.id } });
         await audit(tx, request.organizationId, 'coordinator', 'customer_assessment.recorded', report.id, { jobId: request.jobId });

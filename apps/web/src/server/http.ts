@@ -23,7 +23,7 @@ export function errorResponse(error: unknown): Response {
   return json({ error: { code: 'internal_error', message: 'The request could not be completed' } }, 500);
 }
 
-export async function readBoundedBody(request: Request, maxBytes = 1_048_576, timeoutMs = 5000): Promise<Buffer> {
+export async function readBoundedBody(request: Pick<Request, 'headers' | 'body'>, maxBytes = 1_048_576, timeoutMs = 5000): Promise<Buffer> {
   const declared = request.headers.get('Content-Length');
   if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) {
     throw new HttpError(413, 'body_too_large', 'Request body exceeds the allowed size');

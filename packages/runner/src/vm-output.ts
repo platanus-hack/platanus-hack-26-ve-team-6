@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { type ChildProcess } from 'node:child_process';
-import { runnerArtifactSchema, runnerResultSchema, type RunnerJob, type RunnerResult } from './contracts.js';
+import { runnerArtifactSchema, runnerResultSchema, selectedNodeTestReportSchema, type RunnerJob, type RunnerResult } from './contracts.js';
 import { makeOutput, type GuestPayload } from './protocol.js';
 import { isolationEvidence } from './images.js';
-import { isAllowedArtifactPath, NODE24_NPM_TEST_PROFILE } from './profile.js';
+import { isAllowedArtifactPath, NODE24_NPM_TEST_PROFILE, SELECTED_NODE_REPORT_PATH } from './profile.js';
 
 export interface DependencyEvidence {
   readonly lockfileSha256: string;
@@ -60,6 +60,16 @@ export function parseResult(payload: GuestPayload, job: RunnerJob, durationMs: n
     return runnerResultSchema.parse({
       status: 'resource_exceeded', resource: payload.resource, durationMs, isolation, stdout, stderr,
     });
+  }
+  if (job.profile === 'node24-tsx-selected-v1') {
+    if (stdout.truncated || stderr.truncated) throw new Error('Selected Node output was truncated');
+    const artifact = artifacts.find((item) => item.path === SELECTED_NODE_REPORT_PATH);
+    if (!artifact || artifact.sizeBytes > 4096) throw new Error('Selected Node report is missing or oversized');
+    const report = selectedNodeTestReportSchema.parse(JSON.parse(Buffer.from(artifact.contentBase64, 'base64').toString('utf8')));
+    if (payload.exitCode === 0 && (!report.complete || !report.success || report.counts.passed === 0
+      || report.counts.failed !== 0 || report.counts.cancelled !== 0)) {
+      throw new Error('Selected Node success requires a complete successful nonempty report');
+    }
   }
   return runnerResultSchema.parse({
     status: 'completed', exitCode: payload.exitCode, durationMs, isolation, stdout, stderr, artifacts,

@@ -1,25 +1,39 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { Database } from '@gotchu/database';
+import type { Database, Transaction } from '@gotchu/database';
 import { z } from 'zod';
 import { audit, authorize, BackendError, canonicalJson, parse, type Identity } from './core.js';
-import { assertStepUp, verifiedStepUpSchema, type StepUpVerifier } from './proposals.js';
 
 const rule = z.enum(['invalid_yaml','invalid_document','pull_request_target','push_without_branch_filter','push_to_gotchu_branch','forbidden_pull_request_secret']);
 const workflowPath = z.string().regex(/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/);
-const inputSchema = z.object({ organizationId:z.uuid(),applicationId:z.uuid(),repositoryLinkId:z.uuid(),workflowPath,rule,justification:z.string().trim().min(12).max(1000),stepUpProof:z.string().min(1).max(4096) }).strict();
-export function workflowExceptionHash(value: Omit<z.infer<typeof inputSchema>,'stepUpProof'>): string {
-  return createHash('sha256').update('gotchu-workflow-exception-v1\n').update(canonicalJson(value)).digest('hex');
+const inputSchema = z.object({ organizationId:z.uuid(),applicationId:z.uuid(),repositoryLinkId:z.uuid(),workflowPath,rule,justification:z.string().trim().min(12).max(1000) }).strict();
+const confirmationSchema = inputSchema.extend({ actionHash:z.string().regex(/^[a-f0-9]{64}$/) }).strict();
+
+type ExceptionBinding = { repositoryKey:string; branch:string; revision:string; version:number };
+export function workflowExceptionHash(value: z.infer<typeof inputSchema>, binding: ExceptionBinding): string {
+  return createHash('sha256').update('gotchu-workflow-exception-v2\n').update(canonicalJson({ ...value, binding })).digest('hex');
 }
 
-export function createWorkflowExceptionService(input: { database:Database; stepUpVerifier?:StepUpVerifier }) {
+async function currentBinding(tx:Transaction,value:z.infer<typeof inputSchema>) {
+  // Serialize confirmations against repository changes and other exception creations.
+  const link=await tx.query<{repository_key:string;default_branch:string;write_access_revision:string}>(`SELECT l.repository_key,l.default_branch,l.write_access_revision
+    FROM gotchu.application_repository_links l
+    JOIN gotchu.applications a ON a.organization_id=l.organization_id AND a.id=l.application_id
+    WHERE l.organization_id=$1 AND l.application_id=$2 AND l.id=$3 AND NOT l.revoked AND NOT a.archived
+    FOR UPDATE OF l FOR SHARE OF a`,[value.organizationId,value.applicationId,value.repositoryLinkId]);
+  const row=link.rows[0];
+  if(!row) throw new BackendError('repository_link_unavailable','An active repository link is required',409);
+  const prior=await tx.query<{exception_id:string;version:number;removed_at:Date|null}>(`SELECT exception_id,version,removed_at FROM gotchu.workflow_policy_exceptions WHERE organization_id=$1 AND application_id=$2 AND repository_link_id=$3 AND workflow_path=$4 AND rule=$5 ORDER BY version DESC LIMIT 1 FOR UPDATE`,[value.organizationId,value.applicationId,value.repositoryLinkId,value.workflowPath,value.rule]);
+  return { prior:prior.rows[0], binding:{repositoryKey:row.repository_key,branch:row.default_branch,revision:String(row.write_access_revision),version:(prior.rows[0]?.version??0)+1} };
+}
+
+export function createWorkflowExceptionService(input: { database:Database }) {
   return {
     async getHash(identity:Identity,raw:unknown) {
-      const value=parse(inputSchema.omit({stepUpProof:true}),raw);
+      const value=parse(inputSchema,raw);
       return input.database.tenant(value.organizationId,async tx=>{
         await authorize(tx,value.organizationId,identity,['owner'],value.applicationId);
-        const link=await tx.query('SELECT 1 FROM gotchu.application_repository_links WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND NOT revoked',[value.organizationId,value.applicationId,value.repositoryLinkId]);
-        if(!link.rowCount) throw new BackendError('repository_link_unavailable','An active repository link is required',409);
-        return {actionHash:workflowExceptionHash(value)};
+        const {binding}=await currentBinding(tx,value);
+        return {actionHash:workflowExceptionHash(value,binding)};
       });
     },
     async list(identity:Identity, scope:{organizationId:string;applicationId:string}) {
@@ -32,24 +46,17 @@ export function createWorkflowExceptionService(input: { database:Database; stepU
       });
     },
     async create(identity:Identity,raw:unknown) {
-      const value=parse(inputSchema,raw);
-      const stepUpVerifier=input.stepUpVerifier;
-      if(!stepUpVerifier) throw new BackendError('step_up_unavailable','A trusted WebAuthn verifier is required',503);
-      const hash=workflowExceptionHash({organizationId:value.organizationId,applicationId:value.applicationId,repositoryLinkId:value.repositoryLinkId,workflowPath:value.workflowPath,rule:value.rule,justification:value.justification});
+      const {actionHash,...value}=parse(confirmationSchema,raw);
       return input.database.tenant(value.organizationId,async tx=>{
         await authorize(tx,value.organizationId,identity,['owner'],value.applicationId);
-        const link=await tx.query('SELECT 1 FROM gotchu.application_repository_links WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND NOT revoked',[value.organizationId,value.applicationId,value.repositoryLinkId]);
-        if(!link.rowCount) throw new BackendError('repository_link_unavailable','An active repository link is required',409);
-        const expected={userId:identity.userId,organizationId:value.organizationId,actionHash:hash};
-        const proof=parse(verifiedStepUpSchema,await stepUpVerifier.verify({...expected,proof:value.stepUpProof}));
-        assertStepUp(proof,expected,new Date());
-        if(proof.method!=='webauthn') throw new BackendError('webauthn_step_up_required','A fresh WebAuthn proof bound to this exception is required',403);
-        const prior=await tx.query<{exception_id:string;version:number;removed_at:Date|null}>(`SELECT exception_id,version,removed_at FROM gotchu.workflow_policy_exceptions WHERE organization_id=$1 AND application_id=$2 AND repository_link_id=$3 AND workflow_path=$4 AND rule=$5 ORDER BY version DESC LIMIT 1 FOR UPDATE`,[value.organizationId,value.applicationId,value.repositoryLinkId,value.workflowPath,value.rule]);
-        if(prior.rows[0]?.removed_at===null) throw new BackendError('exception_already_active','Remove the active workflow exception before creating a new version',409);
-        const id=prior.rows[0]?.exception_id??randomUUID(); const version=(prior.rows[0]?.version??0)+1;
+        const {prior,binding}=await currentBinding(tx,value);
+        if(prior?.removed_at===null) throw new BackendError('exception_already_active','Remove the active workflow exception before creating a new version',409);
+        const hash=workflowExceptionHash(value,binding);
+        if(hash!==actionHash) throw new BackendError('hash_mismatch','Confirm the exact exception against the current repository state',409);
+        const id=prior?.exception_id??randomUUID(); const version=binding.version;
         const inserted=await tx.query(`INSERT INTO gotchu.workflow_policy_exceptions(organization_id,application_id,repository_link_id,exception_id,version,workflow_path,rule,justification,exception_hash,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[value.organizationId,value.applicationId,value.repositoryLinkId,id,version,value.workflowPath,value.rule,value.justification,hash,identity.userId]);
         if(inserted.rowCount!==1) throw new BackendError('exception_conflict','Workflow exception could not be recorded',409);
-        await audit(tx,value.organizationId,identity.userId,'workflow.exception_created',id,{applicationId:value.applicationId,repositoryLinkId:value.repositoryLinkId,workflowPath:value.workflowPath,rule:value.rule,version,exceptionHash:hash,proofId:proof.proofId});
+        await audit(tx,value.organizationId,identity.userId,'workflow.exception_created',id,{applicationId:value.applicationId,repositoryLinkId:value.repositoryLinkId,workflowPath:value.workflowPath,rule:value.rule,version,exceptionHash:hash,authorizationMethod:'owner_session',proofId:null});
         return {id,version,workflowPath:value.workflowPath,rule:value.rule,justification:value.justification,createdBy:identity.userId,createdAt:new Date().toISOString()};
       });
     },

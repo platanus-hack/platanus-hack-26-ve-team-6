@@ -12,7 +12,6 @@ interface AuthBase {
   origin: string;
   secret: string;
   selfHostSetup?: boolean;
-  invalidateStepUpSession?: (userId: string) => Promise<void>;
 }
 const oidcSettingsSchema = z.object({
   issuer: z.url().refine((value) => { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash; }, 'OIDC issuer must use HTTPS without credentials or query parameters'),
@@ -50,7 +49,7 @@ export interface AuthService {
   accountEmail(userId: string): Promise<string | null>;
 }
 
-export function authSettings(env: NodeJS.ProcessEnv = process.env, localAccounts?: LocalAccounts, invalidateStepUpSession?: (userId: string) => Promise<void>): AuthSettings | null {
+export function authSettings(env: NodeJS.ProcessEnv = process.env, localAccounts?: LocalAccounts): AuthSettings | null {
   const oidc = env.AUTH_OIDC_ISSUER || env.AUTH_OIDC_CLIENT_ID || env.AUTH_OIDC_CLIENT_SECRET
     ? oidcSettingsSchema.parse({ issuer: env.AUTH_OIDC_ISSUER, clientId: env.AUTH_OIDC_CLIENT_ID, clientSecret: env.AUTH_OIDC_CLIENT_SECRET, name: env.AUTH_OIDC_NAME?.trim() || 'Workspace sign-in' }) : undefined;
   const github = env.AUTH_GITHUB_ID && env.AUTH_GITHUB_SECRET ? { githubClientId: env.AUTH_GITHUB_ID, githubClientSecret: env.AUTH_GITHUB_SECRET } : undefined;
@@ -66,7 +65,6 @@ export function authSettings(env: NodeJS.ProcessEnv = process.env, localAccounts
     origin: url.origin,
     secret,
     ...(env.GOTCHU_AUTH_MODE === 'self_host' ? { selfHostSetup: true } : {}),
-    ...(invalidateStepUpSession ? { invalidateStepUpSession } : {}),
   };
   const providerOptions = {
     ...(google ?? {}),
@@ -167,11 +165,6 @@ export function createAuthConfig(settings: AuthSettings): AuthConfig {
       redirect: async ({ url }) => {
         const target = new URL(url, settings.origin);
         return target.origin === settings.origin ? target.href : settings.origin;
-      },
-    },
-    events: {
-      signOut: async event => {
-        if ('token' in event && event.token?.sub) await settings.invalidateStepUpSession?.(event.token.sub);
       },
     },
     logger: {

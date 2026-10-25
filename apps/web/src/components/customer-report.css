@@ -38,6 +38,9 @@
 .customer-report-row-title strong { overflow: hidden; color: var(--foreground); font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .customer-report-row-title small { overflow: hidden; color: var(--muted-foreground); font: 12px/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .customer-report-detail { min-width: 0; padding: 0; }
+.customer-ai-correction { min-width: 0; margin-top: 12px; overflow-wrap: anywhere; }
+.customer-ai-corrections { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; }
+.customer-ai-corrections > li { min-width: 0; padding-top: 12px; border-top: 1px solid var(--border); }
 .customer-report-title { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; padding-bottom: 18px; }
 .customer-report-title > div { display: flex; min-width: 0; flex-direction: column; }
 .customer-report-title h2 { order: 1; margin: 0; font: 700 22px/1.1 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.015em; overflow-wrap: anywhere; }

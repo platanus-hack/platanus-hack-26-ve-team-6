@@ -3,6 +3,8 @@ import { SignJWT } from 'jose';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   runBoundedInvestigation,
+  investigationLimitsSchema,
+  DEFAULT_INVESTIGATION_LIMITS,
   type InvestigationInput,
   type InvestigationLimits,
   type ModelCallRequest,
@@ -133,6 +135,76 @@ function makeDependencies(options: {
 }
 
 describe('bounded LangGraph investigation', () => {
+  it('preserves the legacy token default while accepting an explicit unlimited limit', () => {
+    const { maxTokens: _maxTokens, ...otherLimits } = DEFAULT_INVESTIGATION_LIMITS;
+    expect(investigationLimitsSchema.parse(otherLimits).maxTokens).toBe(20_000);
+    expect(investigationLimitsSchema.parse({ ...otherLimits, maxTokens: null }).maxTokens).toBeNull();
+  });
+
+  it.each([undefined, 100, null])('accounts for high usage with modelTokenLimit %s', async modelTokenLimit => {
+    const fixture = makeDependencies({ model: async () => ({ ...candidateReply(),
+      usage: { inputTokens: 20_000, outputTokens: 5_000, totalTokens: 25_000, spendMicroUsd: 0 },
+    }) });
+    const output = await runBoundedInvestigation({ ...makeInput(),
+      ...(modelTokenLimit === undefined ? {} : { modelTokenLimit }),
+    }, fixture.dependencies);
+    expect(output).toMatchObject({
+      status: modelTokenLimit === null ? 'investigated' : 'delayed',
+      reasonCode: modelTokenLimit === null ? 'completed' : 'model_budget_exhausted',
+      counters: { modelCalls: 1, tokensUsed: 25_000, spendMicroUsd: 0 },
+    });
+    expect(fixture.saved.at(-1)).toMatchObject({ tokensUsed: 25_000, spendMicroUsd: 0 });
+    expect(fixture.modelCalls[0]?.remainingSpendMicroUsd).toBe(250_000);
+    if (modelTokenLimit === null) {
+      expect(fixture.modelCalls[0]).not.toHaveProperty('maxOutputTokens');
+      expect(fixture.modelCalls[0]).not.toHaveProperty('remainingTokens');
+    } else {
+      expect(fixture.modelCalls[0]).toMatchObject({ remainingTokens: modelTokenLimit ?? 20_000,
+        maxOutputTokens: modelTokenLimit ?? 2_048 });
+    }
+  });
+
+  it('continues authorized reads and model calls after unlimited usage exceeds 20,000 tokens', async () => {
+    let call = 0;
+    const fixture = makeDependencies({ model: async () => ({
+      ...candidateReply([baseEvidenceId], ++call === 1 ? [{ name: 'auth.events.read', evidenceId: extraEvidenceId }] : []),
+      usage: { inputTokens: 20_000, outputTokens: 5_000, totalTokens: 25_000, spendMicroUsd: 0 },
+    }) });
+    const output = await runBoundedInvestigation({ ...makeInput(), modelTokenLimit: null }, fixture.dependencies);
+    expect(output).toMatchObject({ status: 'investigated', reasonCode: 'completed',
+      counters: { modelCalls: 2, additionalReadToolCalls: 1, tokensUsed: 50_000, spendMicroUsd: 0 } });
+    expect(fixture.saved.at(-1)).toMatchObject({ stage: 'completed', tokensUsed: 50_000 });
+    expect(fixture.readCalls).toHaveLength(2);
+    for (const request of fixture.modelCalls) {
+      expect(request).not.toHaveProperty('maxOutputTokens');
+      expect(request).not.toHaveProperty('remainingTokens');
+    }
+  });
+
+  it('retains the limited output cap even when total usage fits the token budget', async () => {
+    const fixture = makeDependencies({ model: async () => ({ ...candidateReply(),
+      usage: { inputTokens: 100, outputTokens: 2_049, totalTokens: 2_149, spendMicroUsd: 0 },
+    }) });
+    expect(await runBoundedInvestigation(makeInput(), fixture.dependencies)).toMatchObject({
+      status: 'delayed', reasonCode: 'model_budget_exhausted', counters: { tokensUsed: 2_149 },
+    });
+  });
+
+  it('retains the saved suggestion and implications when loading a completed run without another model call', async () => {
+    const suggestion = { kind: 'source_change', summary: 'Validate input.', path: 'src/index.ts', evidenceIds: [baseEvidenceId],
+      implications: ['Unsupported expressions are rejected.'], risks: ['Clients may require changes.'], validationPlan: ['Review boundary cases.'], validationRequired: 'D05' };
+    const hypotheses = [{ statement: 'Input reaches evaluation.', evidenceIds: [baseEvidenceId] }];
+    const fixture = makeDependencies({ loadCheckpoint: async () => ({ version: 1, scope: { organizationId, applicationId, runId },
+      sequence: 4, stage: 'completed', modelCalls: 2, additionalReadToolCalls: 2, tokensUsed: 500, spendMicroUsd: 10,
+      result: { status: 'investigated', assessment: 'candidate_issue', summary: 'Scoped candidate.', citedEvidenceIds: [baseEvidenceId], hypotheses,
+        candidateSuggestion: suggestion, reasonCode: 'completed', independentVerification: 'not_verified',
+        counters: { modelCalls: 2, additionalReadToolCalls: 2, tokensUsed: 500, spendMicroUsd: 10, activeMs: 100 } },
+    }) });
+    const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
+    expect(output).toMatchObject({ reasonCode: 'run_already_completed', hypotheses, candidateSuggestion: suggestion });
+    expect(fixture.modelCalls).toHaveLength(0); expect(fixture.readCalls).toHaveLength(0);
+  });
+
   it('runs a validated candidate investigation and checkpoints no capability or excerpt', async () => {
     const fixture = makeDependencies();
     const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
@@ -162,6 +234,24 @@ describe('bounded LangGraph investigation', () => {
     expect(output).toMatchObject({ status: 'inconclusive', reasonCode: 'unauthorized_evidence' });
     expect(fixture.readCalls).toHaveLength(0);
     expect(fixture.modelCalls).toHaveLength(0);
+  });
+
+  it('redacts model-returned secrets from implications, risks and validation plans before persistence', async () => {
+    const reply = candidateReply();
+    const fixture = makeDependencies({ model: async () => ({ ...reply, output: { ...reply.output,
+      candidateSuggestion: { kind: 'source_change', summary: 'Use configured secrets.', path: 'src/index.ts', evidenceIds: [baseEvidenceId],
+        implications: ['Configure token=synthetic-implication-canary before startup.'],
+        risks: ['A missing password=synthetic-risk-canary prevents startup.'],
+        validationPlan: ['Check api_key=synthetic-validation-canary independently.'] },
+    } }) });
+    const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
+    expect(output.status).toBe('investigated');
+    expect(output.candidateSuggestion).toMatchObject({
+      implications: ['Configure token=[REDACTED] before startup.'],
+      risks: ['A missing password=[REDACTED] prevents startup.'],
+      validationPlan: ['Check api_key=[REDACTED] independently.'],
+    });
+    expect(JSON.stringify(output)).not.toContain('canary');
   });
 
   it('rejects evidence that exists under a different organization, app, or run', async () => {
@@ -239,7 +329,7 @@ describe('bounded LangGraph investigation', () => {
     expect(output).toMatchObject({ status: 'delayed', reasonCode: 'model_budget_exhausted', counters: { modelCalls: 1, tokensUsed: 13 } });
   });
 
-  it('returns delayed when model spend exceeds the remaining currency budget', async () => {
+  it.each([undefined, null])('returns delayed when model spend exceeds the remaining currency budget (token limit %s)', async modelTokenLimit => {
     const fixture = makeDependencies({
       limits: { maxTokens: 100, maxSpendMicroUsd: 10 },
       model: async () => ({
@@ -247,7 +337,9 @@ describe('bounded LangGraph investigation', () => {
         usage: { inputTokens: 8, outputTokens: 5, totalTokens: 13, spendMicroUsd: 11 },
       }),
     });
-    const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
+    const output = await runBoundedInvestigation({ ...makeInput(),
+      ...(modelTokenLimit === undefined ? {} : { modelTokenLimit }),
+    }, fixture.dependencies);
 
     expect(output).toMatchObject({ status: 'delayed', reasonCode: 'model_budget_exhausted', counters: { spendMicroUsd: 11 } });
   });
@@ -291,13 +383,15 @@ describe('bounded LangGraph investigation', () => {
     expect(fixture.readCalls).toHaveLength(1);
   });
 
-  it('stops at four model calls even when each call asks for another authorized read', async () => {
+  it.each([undefined, null])('stops at four model calls even when each asks for an authorized read (token limit %s)', async modelTokenLimit => {
     const fixture = makeDependencies({
       model: async () => candidateReply([baseEvidenceId], [
         { name: 'auth.events.read', evidenceId: extraEvidenceId },
       ]),
     });
-    const output = await runBoundedInvestigation(makeInput(), fixture.dependencies);
+    const output = await runBoundedInvestigation({ ...makeInput(),
+      ...(modelTokenLimit === undefined ? {} : { modelTokenLimit }),
+    }, fixture.dependencies);
 
     expect(output).toMatchObject({ status: 'delayed', reasonCode: 'model_budget_exhausted', counters: { modelCalls: 4 } });
     expect(fixture.modelCalls).toHaveLength(4);

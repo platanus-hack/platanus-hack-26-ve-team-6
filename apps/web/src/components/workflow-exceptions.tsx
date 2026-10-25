@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { customerApi, CustomerApiError } from './customer-client';
-import { requestStepUp } from './step-up-client';
 
 const rules=['invalid_yaml','invalid_document','pull_request_target','push_without_branch_filter','push_to_gotchu_branch','forbidden_pull_request_secret'] as const;
 const ruleLabels: Record<typeof rules[number], string> = {
@@ -22,17 +21,16 @@ export function WorkflowExceptions({userId,organizationId,applicationId,isOwner}
   const [repositoryLinkId,setRepositoryLinkId]=useState(''); const [workflowPath,setWorkflowPath]=useState('.github/workflows/'); const [policyRule,setPolicyRule]=useState<typeof rules[number]>('pull_request_target'); const [justification,setJustification]=useState('');
   const refresh=()=>client.invalidateQueries({queryKey:key});
   const create=useMutation({mutationFn:async()=>{
-    const fields={organizationId,applicationId,repositoryLinkId,workflowPath,rule:policyRule,justification};
+    const fields={organizationId,applicationId,repositoryLinkId:selected,workflowPath,rule:policyRule,justification};
     const {actionHash}=await customerApi.workflowExceptionHash(fields);
-    const stepUpProof=await requestStepUp(organizationId,actionHash);
-    return customerApi.createWorkflowException({...fields,stepUpProof});
+    return customerApi.createWorkflowException({...fields,actionHash});
   },onSuccess:refresh});
   const remove=useMutation({mutationFn:(row:NonNullable<typeof data.data>['exceptions'][number])=>customerApi.removeWorkflowException({organizationId,applicationId,repositoryLinkId:row.repositoryLinkId,id:row.id,version:row.version}),onSuccess:refresh});
   const selected=repositoryLinkId||data.data?.repositories[0]?.id||'';
   const error=create.error??remove.error??data.error;
   return <section className="customer-card customer-panel" aria-labelledby="workflow-exceptions-title">
     <div className="customer-card-heading"><div><h2 id="workflow-exceptions-title">Excepciones de GitHub Actions</h2></div></div>
-    <p>Añadir una excepción requiere un segundo factor.</p>
+    <p>Una excepción cambia qué automatización se permite en el repositorio. Solo el propietario puede confirmarla.</p>
     {data.isPending&&<div className="customer-loading" role="status">Cargando vínculos de repositorio…</div>}
     {error&&<div className="customer-error" role="alert">{error instanceof CustomerApiError?error.message:error.message}</div>}
     {isOwner&&data.data?.repositories.length? <form className="customer-exception-form" onSubmit={event=>{event.preventDefault();create.mutate();}}>

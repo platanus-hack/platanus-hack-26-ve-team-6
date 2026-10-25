@@ -6,6 +6,7 @@ import { z } from 'zod';
 const roles = ['gotchu_owner', 'gotchu_api', 'gotchu_ingest', 'gotchu_coordinator', 'gotchu_executor', 'gotchu_validator'] as const;
 // Retain old checksums so a renamed migration is not replayed on an existing local database.
 const legacyMigrationNames = new Map([
+  ['055_automatic_source_investigations.sql', '052_automatic_source_investigations.sql'],
   ['046_self_host_bootstrap_status.sql', '038_self_host_bootstrap_status.sql'],
   ['047_monitoring_quota_retention.sql', '041_monitoring_quota_retention.sql'],
   ['048_investigation_provider_presets.sql', '043_investigation_provider_presets.sql'],

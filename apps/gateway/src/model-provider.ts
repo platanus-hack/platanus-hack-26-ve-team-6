@@ -65,7 +65,8 @@ function extractJson(text: string): unknown {
     const parsed: unknown = JSON.parse(text);
     return parsed;
   }
-  catch { throw new ModelProviderError('invalid_response'); }
+  // A malformed generated payload does not invalidate the provider's usage.
+  catch { return null; }
 }
 
 function endpointMatchesPreset(request: ModelCompletionRequest, preset: typeof investigationProviderCatalog[number]): boolean {
@@ -101,7 +102,6 @@ function openAiAdapter(fetchImpl: typeof fetch): ModelPort {
       if (inputTokens === undefined || outputTokens === undefined) throw new ModelProviderError('missing_usage');
       const content = payload.data.choices[0]?.message.content;
       const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map(part => part.text ?? '').join('') : '';
-      if (!text) throw new ModelProviderError('invalid_response');
       return { output: extractJson(text), inputTokens, outputTokens };
     },
   };
@@ -128,7 +128,6 @@ function anthropicAdapter(fetchImpl: typeof fetch): ModelPort {
       const payload = anthropicResponseSchema.safeParse(await readBoundedJson(response));
       if (!payload.success) throw new ModelProviderError('invalid_response');
       const text = payload.data.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('');
-      if (!text) throw new ModelProviderError('invalid_response');
       return { output: extractJson(text), inputTokens: payload.data.usage.input_tokens, outputTokens: payload.data.usage.output_tokens };
     },
   };

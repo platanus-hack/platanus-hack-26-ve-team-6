@@ -23,6 +23,7 @@
     "@gotchu/backend": "workspace:*",
     "@gotchu/contracts": "workspace:*",
     "@gotchu/database": "workspace:*",
+    "@gotchu/gateway": "workspace:*",
     "bullmq": "6.4.0",
     "ioredis": "^6.0.0",
     "jose": "^6.2.13",

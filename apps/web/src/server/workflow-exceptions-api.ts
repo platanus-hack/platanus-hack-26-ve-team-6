@@ -16,11 +16,17 @@ export async function handleWorkflowExceptionsApi(request:Request,identity:Ident
   if(parts.length===7&&request.method==='GET'){
     return json(await service.list(identity,scope));
   }
-  if(parts.length===8&&parts[7]==='hash'&&request.method==='POST') return json(await service.getHash(identity,await readJson(request)));
+  if(parts.length===8&&parts[7]==='hash'&&request.method==='POST') {
+    const value=await readJson(request);
+    if(!value||typeof value!=='object'||Array.isArray(value))throw new HttpError(400,'invalid_input','La solicitud no coincide con el contrato permitido.');
+    if('organizationId' in value && value.organizationId!==scope.organizationId || 'applicationId' in value && value.applicationId!==scope.applicationId)throw new HttpError(400,'invalid_input','El alcance del cuerpo no coincide con la ruta.');
+    return json(await service.getHash(identity,{...value,...scope}));
+  }
   if(parts.length===7&&request.method==='POST'){
     const value=await readJson(request);
     if(!value||typeof value!=='object'||Array.isArray(value))throw new HttpError(400,'invalid_input','La solicitud no coincide con el contrato permitido.');
-    return json(await service.create(identity,{...scope,...value}),201);
+    if('organizationId' in value && value.organizationId!==scope.organizationId || 'applicationId' in value && value.applicationId!==scope.applicationId)throw new HttpError(400,'invalid_input','El alcance del cuerpo no coincide con la ruta.');
+    return json(await service.create(identity,{...value,...scope}),201);
   }
   if(parts.length===8&&request.method==='DELETE'){
     const query=new URL(request.url).searchParams;

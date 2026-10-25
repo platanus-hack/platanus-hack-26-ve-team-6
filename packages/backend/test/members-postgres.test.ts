@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setRecoveryState, type Transaction } from '@gotchu/database';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
-import { createBackend, type Proposal } from '../src/index.js';
+import { createBackend, createWebAuthnStepUpService, type Proposal } from '../src/index.js';
 import { eligibilityFixture, proposalFixture } from './proposal-fixtures.js';
 
 const live = liveUrl ? describe : describe.skip;
@@ -10,13 +10,15 @@ const digest = (value: string) => createHash('sha256').update(value).digest('hex
 live('workspace invitations and membership lifecycle on real Postgres', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
   let api: ReturnType<typeof createBackend>;
+  let legacyStepUp: ReturnType<typeof createWebAuthnStepUpService>;
   let executor: ReturnType<typeof createBackend>;
   beforeAll(async () => {
     f = await fixture({ max: 12 });
     const options = {
       proposalVerifier: { verify: async (proposal: Proposal) => eligibilityFixture(proposal) },
     };
-    api = createBackend({ database: f.databases.gotchu_api, ...options, webAuthn: { rpID: 'localhost', origin: 'http://localhost:3000' } });
+    api = createBackend({ database: f.databases.gotchu_api, ...options });
+    legacyStepUp = createWebAuthnStepUpService({ database:f.databases.gotchu_api,webAuthn:{rpID:'localhost',origin:'http://localhost:3000'} });
     executor = createBackend({ database: f.databases.gotchu_executor, ...options });
     await setRecoveryState({ connectionString: present(liveUrl), mode: 'reconciled', reconciliationReference: 'TEST ONLY: membership ledger; no provider writes' });
   }, 30_000);
@@ -100,7 +102,7 @@ live('workspace invitations and membership lifecycle on real Postgres', () => {
     expect(audit.rows[0]?.count).toBe(20);
   });
 
-  it('removal invalidates an issued step-up proof and an unconsumed approval atomically', async () => {
+  it('removal invalidates historical proofs and an Owner session approval atomically', async () => {
     const anotherOwner = `oidc:${randomUUID()}`;
     await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'owner')", [f.a.organizationId, anotherOwner]);
     await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'operator')", [f.b.organizationId, f.a.userId]);
@@ -113,17 +115,14 @@ live('workspace invitations and membership lifecycle on real Postgres', () => {
       VALUES($1,$2,$3,'assert',$4,$5,$6,clock_timestamp()+interval '2 minutes')`, [f.a.organizationId,randomUUID(),userId,'a'.repeat(64),randomUUID()+'-challenge-string-long-enough',epoch.rows[0]?.recovery_epoch]);
     const proposal = proposalFixture(f.a);
     const prepared = await api.proposals.create({ organizationId: f.a.organizationId, proposal });
-    const approvalProof = randomUUID();
-    await f.admin.query(`INSERT INTO gotchu.step_up_proofs(organization_id,id,user_id,proof_hash,action_hash,recovery_epoch,authenticated_at,expires_at,factor_id,factor_count,factor_ids)
-      VALUES($1,$2,$3,$4,$5,$6,clock_timestamp(),clock_timestamp()+interval '3 minutes',$7,1,ARRAY[$7]::uuid[])`, [f.a.organizationId,randomUUID(),userId,digest(approvalProof),prepared.actionHash,epoch.rows[0]?.recovery_epoch,factorId]);
-    const approval = await api.proposals.approve({ userId }, { organizationId: f.a.organizationId, proposalId: prepared.proposalId, actionHash: prepared.actionHash, stepUpProof: approvalProof });
+    const approval = await api.proposals.approve({ userId }, { organizationId: f.a.organizationId, proposalId: prepared.proposalId, actionHash: prepared.actionHash });
     await api.members.remove({ userId: anotherOwner }, { organizationId: f.a.organizationId, userId });
     try {
-      await expect(api.stepUp!.verifier.verify({ proof, userId, organizationId: f.a.organizationId, actionHash: 'a'.repeat(64) })).rejects.toMatchObject({ code: 'step_up_proof_invalid' });
+      await expect(legacyStepUp.verifier.verify({ proof, userId, organizationId: f.a.organizationId, actionHash: 'a'.repeat(64) })).rejects.toMatchObject({ code: 'step_up_proof_invalid' });
       await expect(executor.executions.claim({ organizationId: f.a.organizationId, approvalId: approval.approvalId })).rejects.toMatchObject({ code: 'approval_used' });
       const stored = await f.admin.query('SELECT consumed_at FROM gotchu.approvals WHERE organization_id=$1 AND id=$2', [f.a.organizationId, approval.approvalId]);
       expect(stored.rows[0]?.consumed_at).not.toBeNull();
-      expect(await api.stepUp!.list({ userId }, f.b.organizationId)).toMatchObject([{ id: factorId, label: 'fixture' }]);
+      expect(await legacyStepUp.list({ userId }, f.b.organizationId)).toMatchObject([{ id: factorId, label: 'fixture' }]);
       const factors = await f.admin.query('SELECT count(*)::int AS count FROM gotchu.step_up_user_factors WHERE user_id=$1 AND id=$2 AND revoked_at IS NULL', [userId, factorId]);
       expect(factors.rows[0]?.count).toBe(1);
     } finally {

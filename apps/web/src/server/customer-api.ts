@@ -12,37 +12,41 @@ import {
   telemetryIntegrationSchema, telemetryConnectionSchema,
   monitorConfigInputSchema, monitorConfigSchema, operationCoverageSchema, operationAlertSchema,
   operationPlanSchema, operationPlanKindSchema, operationPlanBindingSchema, operationPlanStepSchema, operationReadinessSchema,
-  validationPublicProjectionSchema, validationSuiteConfigSchema, validationSuiteDefinitionSchema,
+  validationPublicProjectionSchema, validationSuiteConfigSchema, validationSuiteDefinitionSchema, validationRetryResponseSchema,
   decisionRecordPageSchema, decisionRecordQuerySchema,
   dependencyFixPreparationRequestSchema, dependencyFixPreparationResponseSchema,
   type DependencyFixPreparationRequest, type DependencyFixPreparationResponse,
   licensePolicySchema, workspaceLicensePolicySchema,
   configureInvestigationModelSchema, investigationModelProbeResultSchema, investigationModelSettingsSchema,
-  investigationActionSchema, investigationRunSchema, investigationSubjectSchema,
+  providerConnectionSchema, investigationActionSchema, investigationRunSchema, investigationSubjectSchema,
+  aiCorrectionSchema, aiCorrectionRequestSchema,
   workspaceRetentionPolicyInputSchema, workspaceRetentionPolicySchema,
 } from '@gotchu/contracts';
 import { type Identity, type Backend } from '@gotchu/backend';
 import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, reportRecommendationsResponseSchema, type PrepareCorrectionRequest, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
 import type { AuthService } from './auth.js';
 import { localRegistrationSchema, type LocalAccounts } from './local-accounts.js';
-import { handleStepUpApi } from './step-up-api.js';
 import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } from './http.js';
 import { handleContextApi } from './context-api.js';
 import { handleTriageApi } from './triage-api.js';
 import { handleMembersApi } from './members-api.js';
 import { handleActionsApi } from './actions-api.js';
 import { createGitHubApi } from './github-api.js';
+import type { SingleGitHubPublicApp } from './github-single-app.js';
+import type { SingleAppGitHubBroker } from './github-broker-client.js';
 import { handleWorkflowExceptionsApi } from './workflow-exceptions-api.js';
 import { handleProtectionApi } from './protection-api.js';
 import { handleNotificationsApi } from './notifications-api.js';
+import type { createProviderConnections } from './provider-connections.js';
+import type { createOpenRouterLogins } from './openrouter-login.js';
 
 export interface CustomerServices {
-  stepUp?: NonNullable<Backend['stepUp']>;
   corrections?: {
     recommendations(identity: Identity, input: { organizationId: string; applicationId: string; reportId: string }): Promise<ReportRecommendationsResponse>;
     prepare(identity: Identity, input: PrepareCorrectionRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<PrepareCorrectionResponse>;
     prepareDependencyFix(identity: Identity, input: DependencyFixPreparationRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<DependencyFixPreparationResponse>;
     validationStatus?(identity: Identity, input: { organizationId: string; applicationId: string; candidateSourceId: string }): Promise<unknown>;
+    retryDependencyValidation?(identity: Identity, input: { organizationId: string; applicationId: string; candidateSourceId: string }): Promise<unknown>;
   };
   validations?: Backend['validations'];
   telemetry?: Backend['telemetry'];
@@ -56,6 +60,7 @@ export interface CustomerServices {
   triage?: Backend['triage'];
   investigationModels?: Backend['investigationModels'];
   investigations?: Backend['investigations'];
+  aiCorrections?: Backend['aiCorrections'];
   getLicensePolicy?: Backend['customers']['getLicensePolicy'];
   updateLicensePolicy?: Backend['customers']['updateLicensePolicy'];
   exportSbom?: Backend['customers']['exportSbom'];
@@ -74,6 +79,7 @@ export interface CustomerServices {
   revokeTarget(identity: Identity, value: z.infer<typeof customerTargetIdSchema>): Promise<CustomerTarget>;
   listSources(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerSourceSummary[]>;
   uploadSource(identity: Identity, value: z.infer<typeof customerUploadSourceSchema>): Promise<CustomerSourceSummary>;
+  uploadCapturedSource?: Backend['customers']['uploadCapturedSource'];
   deleteSource(identity: Identity, value: { organizationId: string; applicationId: string; sourceSnapshotId: string }): Promise<unknown>;
   listContainerImages(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerContainerImageSummary[]>;
   uploadContainerImage(identity: Identity, value: { organizationId: string; applicationId: string; label: string; authorized: true }, bytes: Uint8Array): Promise<CustomerContainerImageSummary>;
@@ -109,9 +115,13 @@ export function createCustomerApi(options: {
   selfHostSetup?: boolean;
   providers: readonly { id: string; name: string; type: string }[];
   githubAppFile?: string; githubAppSlug?: string;
+  singleAppGitHub?: { publicApp: SingleGitHubPublicApp; broker: SingleAppGitHubBroker };
+  providerConnections?: ReturnType<typeof createProviderConnections>;
+  openRouterLogins?: ReturnType<typeof createOpenRouterLogins>;
 }) {
-  const handleGitHub = createGitHubApi({ origin: options.origin, ...(options.githubAppFile ? { appFile: options.githubAppFile } : {}), ...(options.githubAppSlug ? { appSlug: options.githubAppSlug } : {}),
-    services: options.services?.github && options.services.operations ? { github: options.services.github, enableDefaultMonitoring: options.services.operations.enableDefault, uploadSource: options.services.uploadSource, queue: options.services.queue } : null });
+  const handleGitHub = createGitHubApi({ origin: options.origin, ...(options.githubAppFile ? { appFile: options.githubAppFile } : {}), ...(options.githubAppSlug ? { appSlug: options.githubAppSlug } : {}), ...(options.singleAppGitHub ? { singleApp: options.singleAppGitHub } : {}),
+    services: options.services?.github && options.services.operations ? { github: options.services.github, enableDefaultMonitoring: options.services.operations.enableDefault, uploadSource: options.services.uploadSource,
+      ...(options.services.uploadCapturedSource ? { uploadCapturedSource: options.services.uploadCapturedSource } : {}), queue: options.services.queue } : null });
   return async (request: Request): Promise<Response> => {
     try {
       const url = new URL(request.url);
@@ -151,6 +161,13 @@ export function createCustomerApi(options: {
       const headers = new Headers();
       for (const cookie of session.cookies) headers.append('set-cookie', cookie);
       const send = (value: unknown, status = 200) => json(value, status, headers);
+      if (url.pathname === '/api/customer/model-provider/openrouter/callback' && request.method === 'GET') {
+        if (!options.openRouterLogins) throw new HttpError(503, 'provider_login_not_configured', 'La conexión no está configurada.');
+        await options.openRouterLogins.complete(identity, url);
+        headers.set('Content-Type', 'text/html; charset=utf-8'); headers.set('Cache-Control', 'private, no-store');
+        headers.set('Referrer-Policy', 'no-referrer'); headers.set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+        return new Response('<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Autorización recibida · Gotchu</title><main><h1>Autorización recibida</h1><p>Vuelve a la pestaña de Gotchu. La conexión se completará automáticamente.</p><a href="/dashboard">Volver a Gotchu</a></main></html>', { headers });
+      }
       const retentionParts=url.pathname.split('/').filter(Boolean);
       if(retentionParts.length===5&&retentionParts[0]==='api'&&retentionParts[1]==='customer'&&retentionParts[2]==='workspaces'&&retentionParts[4]==='retention'){
         if(!services.retention)throw new HttpError(503,'retention_not_configured','La retención no está configurada.');
@@ -174,15 +191,6 @@ export function createCustomerApi(options: {
         const isAccept = url.pathname === '/api/customer/invitations/accept' && request.method === 'POST';
         const email = isAccept ? await options.auth.accountEmail(session.userId) : null;
         const response = await handleMembersApi(request, identity, email, services.members, options.origin);
-        if (response) {
-          for (const cookie of session.cookies) response.headers.append('set-cookie', cookie);
-          return response;
-        }
-      }
-      if (url.pathname.startsWith('/api/customer/step-up/')) {
-        const stepUp = services.stepUp;
-        if (!stepUp) throw new HttpError(503, 'step_up_not_configured', 'La verificación en dos pasos no está configurada.');
-        const response = await handleStepUpApi(request, identity, stepUp);
         if (response) {
           for (const cookie of session.cookies) response.headers.append('set-cookie', cookie);
           return response;
@@ -230,6 +238,12 @@ export function createCustomerApi(options: {
         if (request.method === 'POST') return send(customerWorkspaceSchema.parse(await services.createWorkspace(identity, parse(customerCreateWorkspaceSchema, await body(request)))), 201);
       }
       const parts = url.pathname.split('/').filter(Boolean);
+      if (parts.length === 9 && parts[0] === 'api' && parts[1] === 'customer' && parts[2] === 'workspaces' && parts[4] === 'applications' && parts[6] === 'corrections' && parts[8] === 'retry-validation' && request.method === 'POST') {
+        if (!services.corrections?.retryDependencyValidation) throw new HttpError(503, 'validation_retry_not_configured', 'El reintento de validación no está disponible.');
+        parse(z.object({}).strict(), await body(request));
+        const validationScope = parse(scopeSchema, { organizationId: parts[3], applicationId: parts[5] });
+        return send(validationRetryResponseSchema.parse(await services.corrections.retryDependencyValidation(identity, { ...validationScope, candidateSourceId: parse(uuid, parts[7]) })), 201);
+      }
       if (parts.length === 7 && parts[0] === 'api' && parts[1] === 'customer' && parts[2] === 'workspaces' && parts[4] === 'applications' && parts[6] === 'validation-suites' && request.method === 'POST') {
         if (!services.validations) throw new HttpError(503, 'validations_not_configured', 'La validación independiente no está configurada.');
         const value = parse(validationSuiteConfigSchema.omit({ organizationId: true, applicationId: true }), await body(request));
@@ -243,6 +257,19 @@ export function createCustomerApi(options: {
       }
       if (parts[0] !== 'api' || parts[1] !== 'customer' || parts[2] !== 'workspaces') throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
       const organizationId = parse(uuid, parts[3]);
+      if (parts[4] === 'investigation-model' && (parts[5] === 'codex' || parts[5] === 'claude_code' || parts[5] === 'openrouter') && parts[6] === 'connections') {
+        if (!options.providerConnections) throw new HttpError(503, 'provider_login_not_configured', 'La autorización desde el navegador está disponible en instalaciones locales de Gotchu. Los proveedores de suscripción necesitan su CLI oficial instalado.');
+        if (parts.length === 7 && request.method === 'POST') {
+          parse(z.object({}).strict(), await body(request));
+          return send(providerConnectionSchema.parse(await options.providerConnections.start(identity, organizationId, parts[5])), 201);
+        }
+        if (parts.length === 8 && (request.method === 'POST' || request.method === 'DELETE')) {
+          const input = parse(z.object({ authorizationCode: z.string().min(16).max(513).optional() }).strict(), await body(request));
+          if (request.method === 'DELETE' && input.authorizationCode) throw new HttpError(400, 'invalid_input', 'Cancelar no requiere código.');
+          return send(providerConnectionSchema.parse(await options.providerConnections.get(identity, organizationId, parse(uuid, parts[7]), request.method === 'DELETE', parts[5], input.authorizationCode)));
+        }
+        throw new HttpError(405, 'method_not_allowed', 'Método no permitido.');
+      }
       if (parts.length === 5 && parts[4] === 'investigation-model') {
         const modelSettings = services.investigationModels;
         if (!modelSettings) throw new HttpError(503, 'investigation_model_not_configured', 'La configuración del modelo no está disponible.');
@@ -432,6 +459,16 @@ export function createCustomerApi(options: {
         headers.set('Cache-Control', 'private, no-store');
         return new Response(null, { status: 204, headers });
       }
+      if (parts[6] === 'reports' && parts[8] === 'ai-corrections') {
+        if (!services.aiCorrections) throw new HttpError(503, 'corrections_not_configured', 'La preparación con IA no está configurada.');
+        const reportScope = { ...scope, reportId: parse(uuid, parts[7]) };
+        if (parts.length === 9 && request.method === 'GET') return send(z.array(aiCorrectionSchema).max(50).parse(await services.aiCorrections.list(identity, reportScope)));
+        if (parts.length === 9 && request.method === 'POST') {
+          const selection = parse(aiCorrectionRequestSchema, await body(request));
+          return send(aiCorrectionSchema.parse(await services.aiCorrections.request(identity, { ...reportScope, ...selection })), 201);
+        }
+        if (parts.length === 10 && request.method === 'DELETE') return send(aiCorrectionSchema.parse(await services.aiCorrections.cancel(identity, { ...reportScope, correctionId: parse(uuid, parts[9]) })));
+      }
       if (parts.length === 9 && parts[6] === 'reports' && ['recommendations', 'corrections', 'dependency-fixes'].includes(parts[8] ?? '')) {
         if (!services.corrections) throw new HttpError(503, 'corrections_not_configured', 'La preparación de correcciones no está configurada.');
         const reportScope = { ...scope, reportId: parse(uuid, parts[7]) };
@@ -470,10 +507,6 @@ export function createCustomerApi(options: {
       throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
     } catch (error) {
       const response = errorResponse(error);
-      if (new URL(request.url).pathname.startsWith('/api/customer/step-up/')) {
-        const headers = new Headers(response.headers); headers.set('Cache-Control', 'private, no-store');
-        return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-      }
       return response;
     }
   };

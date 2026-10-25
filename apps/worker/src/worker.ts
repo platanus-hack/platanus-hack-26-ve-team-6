@@ -1,6 +1,8 @@
 import {
   CapabilityError,
   GatewayUnavailableError,
+  aiCorrectionInputSchema,
+  runBoundedCorrection,
   runBoundedInvestigation,
   verifyRunCapability,
   type InvestigationLimits,
@@ -31,15 +33,13 @@ export interface CreateWorkerServiceOptions {
 }
 
 export function createInvestigationWorkerService(options: CreateWorkerServiceOptions): InvestigationWorkerService {
-  const gateways = options.gatewayBaseUrl
-    ? createGatewayHttpAdapters(options.gatewayBaseUrl, options.fetchImpl)
-    : undefined;
+  const gatewayBaseUrl = options.gatewayBaseUrl;
 
   return {
-    ready: gateways !== undefined,
-    ...(gateways ? {} : { readinessReason: 'gateway_unconfigured' as const }),
+    ready: gatewayBaseUrl !== undefined,
+    ...(gatewayBaseUrl ? {} : { readinessReason: 'gateway_unconfigured' as const }),
     async investigate(token: string): Promise<InvestigationResult> {
-      if (!gateways) throw new WorkerServiceError(503, 'integration_disabled');
+      if (!gatewayBaseUrl) throw new WorkerServiceError(503, 'integration_disabled');
       const startedAtMs = performance.now();
       let verified;
       try {
@@ -47,6 +47,9 @@ export function createInvestigationWorkerService(options: CreateWorkerServiceOpt
       } catch {
         throw new WorkerServiceError(401, 'invalid_capability');
       }
+      // Checkpoint versions belong to this invocation. Concurrent deliveries must
+      // not adopt each other's versions, and completed runs must leave no cache behind.
+      const gateways = createGatewayHttpAdapters(gatewayBaseUrl, options.fetchImpl);
       const scope: RunScope = {
         organizationId: verified.claims.organizationId,
         applicationId: verified.claims.applicationId,
@@ -63,7 +66,8 @@ export function createInvestigationWorkerService(options: CreateWorkerServiceOpt
         if (error instanceof CapabilityError) throw new WorkerServiceError(401, 'invalid_capability');
         throw new WorkerServiceError(503, 'gateway_unavailable');
       }
-      return runBoundedInvestigation(rawInput, {
+      const run = aiCorrectionInputSchema.safeParse(rawInput).success ? runBoundedCorrection : runBoundedInvestigation;
+      return run(rawInput, {
         capability: verified,
         readTools: gateways.readTools,
         model: gateways.model,

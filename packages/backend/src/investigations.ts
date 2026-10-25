@@ -3,6 +3,7 @@ import {
   customerAssessmentReportSchema,
   investigationActionSchema,
   investigationDataScopeSchema,
+  investigationProviderCatalog,
   investigationRunSchema,
   investigationModelSettingsSchema,
   investigationSubjectSchema,
@@ -30,14 +31,15 @@ async function applicationActive(tx: Parameters<Parameters<Database['tenant']>[1
 }
 
 async function requireInvestigationConsent(tx: Transaction, organizationId: string, requiredScopes: z.infer<typeof investigationDataScopeSchema>[]) {
-  const rows = await tx.query<{ model_opt_in: boolean; model_budget_micros: string; model_token_budget: string; provider: string | null; secret_ref: string | null; consent: boolean | null; data_scopes: unknown }>(`SELECT o.model_opt_in,o.model_budget_micros,o.model_token_budget,s.provider,s.secret_ref,
+  const rows = await tx.query<{ model_opt_in: boolean; model_budget_micros: string; model_token_budget: string; provider: string | null; provider_preset_id: string | null; secret_ref: string | null; consent: boolean | null; data_scopes: unknown }>(`SELECT o.model_opt_in,o.model_budget_micros,o.model_token_budget,s.provider,s.provider_preset_id,s.secret_ref,
     s.consent_to_external_processing AS consent,s.data_scopes FROM gotchu.organizations o
     LEFT JOIN gotchu.investigation_model_settings s ON s.organization_id=o.id WHERE o.id=$1`, [organizationId]);
   const row = rows.rows[0];
+  const subscription = investigationProviderCatalog.find(preset => preset.id === row?.provider_preset_id)?.billing === 'subscription';
   const scopes = row ? investigationModelSettingsSchema.shape.dataScopes.safeParse(row.data_scopes ?? []) : null;
   if (!row || !row.model_opt_in || !row.consent || !scopes?.success || !requiredScopes.every(scope => scopes.data.includes(scope))
     || row.provider === null || row.provider !== 'openai_compatible' && !row.secret_ref
-    || BigInt(row.model_budget_micros) <= 0n || BigInt(row.model_token_budget) <= 0n) {
+    || BigInt(row.model_budget_micros) <= 0n || (!subscription && BigInt(row.model_token_budget) <= 0n)) {
     throw new BackendError('investigation_disabled', 'Model investigation is not configured and consented for this data category', 409);
   }
 }
@@ -130,7 +132,7 @@ export function createInvestigationService(database: Database) {
           r.cancel_requested_at,COALESCE(r.tokens_spent,0)::text AS tokens_spent,COALESCE(r.tokens_reserved,0)::text AS tokens_reserved,COALESCE(r.spent_micros,0)::text AS spent_micros,
           COALESCE(r.reserved_micros,0)::text AS reserved_micros
           FROM gotchu.jobs j LEFT JOIN gotchu.agent_runs r ON r.organization_id=j.organization_id AND r.application_id=j.application_id AND r.job_id=j.id
-          WHERE j.organization_id=$1 AND j.application_id=$2 AND j.kind='investigation' ORDER BY j.created_at DESC,j.id DESC LIMIT 50`, [value.organizationId, value.applicationId]);
+          WHERE j.organization_id=$1 AND j.application_id=$2 AND j.kind='investigation' AND j.payload->>'correctionId' IS NULL ORDER BY j.created_at DESC,j.id DESC LIMIT 50`, [value.organizationId, value.applicationId]);
         return rows.rows.map(publicRun);
       });
     },
@@ -140,7 +142,7 @@ export function createInvestigationService(database: Database) {
         await authorize(tx, value.organizationId, identity, ['owner','operator']);
         const row = await tx.query<{ state: string; run_id: string | null }>(`SELECT j.state,r.id AS run_id FROM gotchu.jobs j LEFT JOIN gotchu.agent_runs r
           ON r.organization_id=j.organization_id AND r.application_id=j.application_id AND r.job_id=j.id
-          WHERE j.organization_id=$1 AND j.application_id=$2 AND j.id=$3 AND j.kind='investigation'`, [value.organizationId, value.applicationId, value.jobId]);
+          WHERE j.organization_id=$1 AND j.application_id=$2 AND j.id=$3 AND j.kind='investigation' AND j.payload->>'correctionId' IS NULL`, [value.organizationId, value.applicationId, value.jobId]);
         const current = row.rows[0];
         if (!current) throw new BackendError('not_found', 'Investigation not found', 404);
         if (current.state === 'queued') {
@@ -160,7 +162,7 @@ export function createInvestigationService(database: Database) {
         await authorize(tx, value.organizationId, identity, ['owner','operator']);
         const prior = await tx.query<{ payload: unknown; state: string; result: unknown; run_id: string | null; reserved_micros: string | null; tokens_reserved: string | null }>(`SELECT j.payload,j.state,j.result,r.id AS run_id,r.reserved_micros,r.tokens_reserved
           FROM gotchu.jobs j LEFT JOIN gotchu.agent_runs r ON r.organization_id=j.organization_id AND r.application_id=j.application_id AND r.job_id=j.id
-          WHERE j.organization_id=$1 AND j.application_id=$2 AND j.id=$3 AND j.kind='investigation'`, [value.organizationId, value.applicationId, value.jobId]);
+          WHERE j.organization_id=$1 AND j.application_id=$2 AND j.id=$3 AND j.kind='investigation' AND j.payload->>'correctionId' IS NULL`, [value.organizationId, value.applicationId, value.jobId]);
         const previous = prior.rows[0];
         if (!previous) throw new BackendError('not_found', 'Investigation not found', 404);
         if (previous.state === 'queued' || previous.state === 'running') return investigationActionSchema.parse({ status: 'already_active' });

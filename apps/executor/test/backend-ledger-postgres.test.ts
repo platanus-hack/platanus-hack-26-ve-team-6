@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BackendError, createBackend, type Proposal, type ProposalEligibility, type VerifiedStepUp } from '@gotchu/backend';
+import { createBackend, type Proposal, type ProposalEligibility } from '@gotchu/backend';
 import { setRecoveryState } from '@gotchu/database';
 import { fixture, liveUrl, present } from '../../../packages/database/test/support.js';
 import { eligibilityFixture, proposalFixture } from '../../../packages/backend/test/proposal-fixtures.js';
@@ -36,23 +36,17 @@ function fakeProvider(options: { timeout?: boolean; beforePublish?: () => Promis
 }
 
 const live = liveUrl ? describe : describe.skip;
-live('real Postgres → backend ledger adapter → executor; fake provider/MFA/eligibility fixtures only', () => {
+live('real Postgres → backend ledger adapter → executor; fake provider/eligibility fixtures only', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
   let api: ReturnType<typeof createBackend>;
   let backend: ReturnType<typeof createBackend>;
   let now = new Date();
   let facts: Partial<ProposalEligibility> = {};
-  const proofs = new Map<string, VerifiedStepUp>();
   beforeAll(async () => {
     f = await fixture({ max: 4 });
     const deps = {
       clock: { now: () => now },
       proposalVerifier: { verify: async (proposal: Proposal) => ({ ...eligibilityFixture(proposal, now), ...facts }) },
-      stepUpVerifier: { verify: async ({ proof }: { proof: string }) => {
-        const issued = proofs.get(proof);
-        if (!issued) throw new BackendError('step_up_required', 'TEST ONLY verifier requires issued fixture proof', 403);
-        return issued;
-      } },
     };
     api = createBackend({ ...deps, database: f.databases.gotchu_api });
     backend = createBackend({ ...deps, database: f.databases.gotchu_executor });
@@ -63,13 +57,8 @@ live('real Postgres → backend ledger adapter → executor; fake provider/MFA/e
 
   async function approve(proposal = proposalFixture(f.a)) {
     const stored = await api.proposals.create({ organizationId: f.a.organizationId, proposal });
-    const proof = randomUUID();
-    proofs.set(proof, {
-      proofId: proof, userId: f.a.userId, organizationId: f.a.organizationId, actionHash: stored.actionHash,
-      authenticatedAt: now, expiresAt: new Date(now.getTime() + 300_000), method: 'webauthn',
-    });
     const approval = await api.proposals.approve({ userId: f.a.userId }, {
-      organizationId: f.a.organizationId, proposalId: stored.proposalId, actionHash: stored.actionHash, stepUpProof: proof,
+      organizationId: f.a.organizationId, proposalId: stored.proposalId, actionHash: stored.actionHash,
     });
     const request: ExecutionRequest = {
       organizationId: f.a.organizationId, applicationId: f.a.applicationId, approvalId: approval.approvalId,

@@ -1,9 +1,10 @@
 import { DecisionRecordHistory } from './decision-record-history';
 import { LicensePolicyPanel, RetentionPolicyPanel } from './customer-supply-chain';
+import { InvestigationModelSettings } from './investigations-panel';
 import { MembersPanel } from './members-panel';
 import { PageHeader } from './dashboard-sidebar';
 
-type WorkspacePage = 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
+type WorkspacePage = 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model';
 
 export function WorkspacePages({ page, userId, organizationId, role, canManage }: {
   page: WorkspacePage;
@@ -12,6 +13,10 @@ export function WorkspacePages({ page, userId, organizationId, role, canManage }
   role: 'owner' | 'operator' | 'viewer';
   canManage: boolean;
 }) {
+  if (page === 'investigation-model') return <>
+    <PageHeader title="Modelos de IA" description="Qué modelo investiga y corrige los hallazgos, y qué datos puede recibir." />
+    <InvestigationModelSettings key={`${userId}:${organizationId}`} organizationId={organizationId} isOwner={role === 'owner'} />
+  </>;
   if (page === 'members') return <>
     <PageHeader title="Equipo" description="Quién tiene acceso a este espacio de trabajo y con qué rol." />
     <MembersPanel key={`${userId}:${organizationId}`} organizationId={organizationId} userId={userId} role={role} />

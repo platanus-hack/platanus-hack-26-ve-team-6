@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { z } from 'zod';
-import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlayIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
+import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlayIcon, PlusIcon, RadarIcon, ScaleIcon, SparklesIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -25,12 +25,12 @@ import { ReportRecommendations } from './report-recommendations';
 import { ComparisonPresence, ComparisonSummary, ComparisonVerification, ExternalHttpsEvidence } from './customer-report-components';
 import { coverageCapabilitiesLabel, exploitabilityLabel, groupCoverage, reportInputLabel } from './customer-report-model';
 import { ContextPanel } from './context-panel';
-import { StepUpPanel } from './step-up-panel';
 import { membersApi } from './members-client';
 import { ApprovalPanel } from './approval-panel';
 import { GitHubRepositoryPanel } from './onboarding';
 import { WorkflowExceptions } from './workflow-exceptions';
-import { InvestigationActionButton, InvestigationModelSettings } from './investigations-panel';
+import { InvestigationActionButton, InvestigationsTimeline } from './investigations-panel';
+import { AiCorrectionPanel } from './ai-correction-panel';
 import { DependencyInventoryPanel } from './customer-supply-chain';
 import { GotchuMark } from './gotchu-mark';
 import { DotPlate } from './dot-field/dot-plate';
@@ -55,13 +55,13 @@ import './customer-shell.css';
 import './customer-report.css';
 import './customer-operations.css';
 
-export type DashboardPage = 'overview' | 'applications' | 'https-audit' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
+export type DashboardPage = 'overview' | 'applications' | 'https-audit' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model';
 type Page = DashboardPage;
-type WorkspacePage = Extract<Page, 'members' | 'decision-records' | 'license-policy' | 'retention-policy'>;
+type WorkspacePage = Extract<Page, 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model'>;
 type ActiveJob = { organizationId: string; applicationId: string; jobId: string; purpose: 'assessment' | 'correction' };
 
 function isWorkspacePage(page: Page): page is WorkspacePage {
-  return page === 'members' || page === 'decision-records' || page === 'license-policy' || page === 'retention-policy';
+  return page === 'members' || page === 'decision-records' || page === 'license-policy' || page === 'retention-policy' || page === 'investigation-model';
 }
 
 function readLastProjectPath() {
@@ -77,6 +77,7 @@ const pages: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'reports', label: 'Informes', icon: FileTextIcon },
   { id: 'members', label: 'Equipo', icon: UsersIcon },
   { id: 'decision-records', label: 'Decisiones', icon: GavelIcon },
+  { id: 'investigation-model', label: 'Modelos de IA', icon: SparklesIcon },
   { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
   { id: 'retention-policy', label: 'Retención', icon: ArchiveIcon },
 ];
@@ -86,13 +87,14 @@ function DashboardNavLink({ page, organizationId, applicationId, count, onNaviga
   const content = <><Icon aria-hidden="true" /><span>{pages.find(item => item.id === page)?.label}</span>{count !== undefined && count > 0 && <span className="customer-nav-count">{count}</span>}</>;
   const common = { className: 'customer-nav-item', activeOptions: { exact: page !== 'reports' }, activeProps: { className: 'customer-nav-item is-active', 'aria-current': 'page' as const }, onClick: onNavigate };
   if (!organizationId) return null;
-  if (page !== 'members' && page !== 'decision-records' && page !== 'license-policy' && page !== 'retention-policy' && !applicationId) return null;
+  if (!isWorkspacePage(page) && !applicationId) return null;
   switch (page) {
     case 'overview': return <Link {...common} to="/w/$workspaceId/p/$projectId" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'applications': return <Link {...common} to="/w/$workspaceId/p/$projectId/fuentes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'https-audit': return <Link {...common} to="/w/$workspaceId/p/$projectId/https" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'operations': return <Link {...common} to="/w/$workspaceId/p/$projectId/vigilancia" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'reports': return <Link {...common} to="/w/$workspaceId/p/$projectId/informes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
+    case 'investigation-model': return <Link {...common} to="/w/$workspaceId/modelos" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'license-policy': return <Link {...common} to="/w/$workspaceId/licencias" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'retention-policy': return <Link {...common} to="/w/$workspaceId/retencion" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'members': return <Link {...common} to="/w/$workspaceId/equipo" params={{ workspaceId: organizationId }}>{content}</Link>;
@@ -505,13 +507,14 @@ function ContainerImageEnrollment({ organizationId, applicationId, images, canMa
   </section>;
 }
 
-function ReportView({ report, summary, userId, organizationId, applicationId, canManage, archived, activeReportTab, onReportTabChange, onCorrectionQueued }: {
+function ReportView({ report, summary, userId, organizationId, applicationId, canManage, isOwner, archived, activeReportTab, onReportTabChange, onCorrectionQueued }: {
   report: CustomerAssessmentReport;
   summary?: CustomerReportSummary;
   userId: string;
   organizationId: string;
   applicationId: string;
   canManage: boolean;
+  isOwner: boolean;
   archived: boolean;
   activeReportTab: 'findings' | 'dependencies';
   onReportTabChange: (tab: 'findings' | 'dependencies') => void;
@@ -548,6 +551,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
     <div className="customer-report-callout"><strong>{count(entries.length, 'observación registrada', 'observaciones registradas')}</strong><p>La cobertura parcial o no solicitada no confirma seguridad. No se hicieron cambios en el proyecto.</p></div>
     <ComparisonSummary comparisons={report.comparison} internal={report.internal} external={report.external} />
     <ExternalHttpsEvidence analysis={report.external} />
+    <InvestigationsTimeline key={`${organizationId}:${applicationId}:${report.id}`} organizationId={organizationId} applicationId={applicationId} reportId={report.id} canManage={canManage && !archived} />
     <div className="customer-report-tabs" role="tablist" aria-label="Contenido del informe" onKeyDown={event => {
       if (event.key === 'ArrowRight' || event.key === 'ArrowLeft' || event.key === 'Home' || event.key === 'End') {
         event.preventDefault();
@@ -569,7 +573,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
         const linked = [...item.internalFindingIds, ...item.externalFindingIds].map(id => byId.get(id)).filter((finding): finding is NonNullable<typeof finding> => finding !== undefined);
         return <details className="customer-finding" key={item.key}><summary><span><strong>{linked[0]?.title ?? 'Aspecto no verificable'}</strong><small>{linked[0]?.location ?? item.explanation}</small></span><span className="customer-finding-badges"><ComparisonPresence item={item} /><ComparisonVerification item={item} />{linked.map(finding => <span className="customer-finding-risk" key={finding.id}><span className={`customer-severity customer-severity-${finding.severity}`}>{severityLabels[finding.severity]}</span><span className="customer-status customer-status-muted">Confianza: {confidenceLabels[finding.confidence]}</span><span className="customer-status customer-status-muted">Explotabilidad: {exploitabilityLabel(finding.exploitability)}</span></span>)}</span></summary>
           <p>{item.explanation}</p>
-          {linked.map(finding => <section className="customer-finding-body" key={finding.id}><div className="customer-tag-row"><span className="customer-status customer-status-muted">{sourceLabels[finding.origin]}</span><span className={`customer-severity customer-severity-${finding.severity}`}>{severityLabels[finding.severity]}</span><span className="customer-status customer-status-muted">Confianza: {confidenceLabels[finding.confidence]}</span><span className="customer-status customer-status-muted">Explotabilidad: {exploitabilityLabel(finding.exploitability)}</span><CopyFindingPrompt prompt={() => findingPrompt({ applicationName: report.applicationName, origin: report.subject.origin, finding, evidence: finding.evidenceIds.flatMap(id => evidenceById.get(id) ?? []) })} /></div><p>{finding.description}</p><InvestigationActionButton organizationId={organizationId} applicationId={applicationId} subject={{ kind: 'finding', subjectId: finding.id, reportId: report.id }} canManage={canManage && !archived && ['medium', 'high', 'critical'].includes(finding.severity)} /><h4>Impacto posible</h4><p>{finding.impact}</p><h4>Recomendación</h4><p>{finding.recommendation}</p>{finding.limitations.length > 0 && <><h4>Límites de esta observación</h4><ul>{finding.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></>}{finding.evidenceIds.map(id => {
+          {linked.map(finding => <section className="customer-finding-body" key={finding.id}><div className="customer-tag-row"><span className="customer-status customer-status-muted">{sourceLabels[finding.origin]}</span><span className={`customer-severity customer-severity-${finding.severity}`}>{severityLabels[finding.severity]}</span><span className="customer-status customer-status-muted">Confianza: {confidenceLabels[finding.confidence]}</span><span className="customer-status customer-status-muted">Explotabilidad: {exploitabilityLabel(finding.exploitability)}</span><CopyFindingPrompt prompt={() => findingPrompt({ applicationName: report.applicationName, origin: report.subject.origin, finding, evidence: finding.evidenceIds.flatMap(id => evidenceById.get(id) ?? []) })} /></div><p>{finding.description}</p><InvestigationActionButton organizationId={organizationId} applicationId={applicationId} subject={{ kind: 'finding', subjectId: finding.id, reportId: report.id }} canManage={canManage && !archived && ['medium', 'high', 'critical'].includes(finding.severity)} />{finding.origin === 'internal' && report.subject.sourceSnapshotId && report.subject.sourceDigest && <AiCorrectionPanel organizationId={organizationId} applicationId={applicationId} reportId={report.id} findingId={finding.id} expectedSourceDigest={report.subject.sourceDigest} canManage={canManage && !archived} />}<h4>Impacto posible</h4><p>{finding.impact}</p><h4>Recomendación</h4><p>{finding.recommendation}</p>{finding.limitations.length > 0 && <><h4>Límites de esta observación</h4><ul>{finding.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></>}{finding.evidenceIds.map(id => {
             const itemEvidence = evidenceById.get(id);
             return itemEvidence ? <details className="customer-evidence" key={id}><summary>{itemEvidence.locator}</summary><p>{itemEvidence.tool.name} · v{itemEvidence.tool.version} · {date(itemEvidence.collectedAt)}</p><pre>{itemEvidence.excerpt}</pre><p className="customer-evidence-meta">SHA-256: {itemEvidence.checksum}</p><p className="customer-evidence-meta">Instantánea: {itemEvidence.snapshotRef}</p></details> : null;
           })}</section>)}
@@ -590,6 +594,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
       archived={archived}
       onQueued={onCorrectionQueued}
     />}
+    <ApprovalPanel userId={userId} organizationId={organizationId} applicationId={applicationId} canManage={canManage && !archived} isOwner={isOwner} />
     </div>}
     <section className="customer-report-section customer-coverage"><div className="customer-section-heading"><div><h3>Qué se evaluó</h3></div></div>
       <div className="customer-analysis-grid">{originSections.map(({ origin, analysis }) => <article className="customer-analysis-card" key={origin}><div className="customer-card-heading"><h4>{report.subject.containerImageDigest && origin === 'internal' ? 'Imagen' : sourceLabels[origin]}</h4><span className="customer-status customer-status-muted">{analysis ? analysisLabels[analysis.status] : 'No solicitado'}</span></div>{analysis ? <><p>{analysis.tool.name} · v{analysis.tool.version}</p><ul>{groupCoverage(analysis.coverage).map(item => <li key={`${item.state}:${item.detail}`}><span><strong>{coverageCapabilitiesLabel(item.capabilities)}</strong><small>{item.detail}</small></span><span className="customer-status customer-status-muted">{coverageLabels[item.state]}</span></li>)}</ul>{analysis.limitations.length > 0 && <details className="customer-analysis-limits"><summary>Límites del perfil ({analysis.limitations.length})</summary><ul>{analysis.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></details>}</> : <p>Esta perspectiva no se solicitó para este informe.</p>}</article>)}</div>
@@ -723,6 +728,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const [pageError, setPageError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarForm, setSidebarForm] = useState<'workspace-create' | 'workspace-rename' | 'project-create' | null>(null);
+  const pendingGithubNavigation = useRef<string | null>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -751,18 +757,30 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     ?? null;
   const applicationId = selectedApplication?.applicationId ?? null;
   useEffect(() => {
-    if (!routeEntry || location.pathname !== '/dashboard') return;
+    if (!routeEntry) return;
+    const pendingGithubScope = readSavedCustomerScope(sessionStorage, 'gotchu-pending-github-scope', userId);
+    if (location.pathname !== '/dashboard') {
+      if (pendingGithubScope && location.pathname === `/w/${pendingGithubScope.organizationId}/p/${pendingGithubScope.applicationId}/fuentes`) {
+        sessionStorage.removeItem('gotchu-pending-github-scope');
+        pendingGithubNavigation.current = null;
+      }
+      return;
+    }
     const onboardingScope = readSavedCustomerScope(sessionStorage, 'gotchu-onboarding-scope', userId);
     if (onboardingScope) {
       void navigate({ to: '/primeros-pasos', search: { espacio: onboardingScope.organizationId, fuente: 'github' } });
       return;
     }
-    const pendingGithubScope = readSavedCustomerScope(sessionStorage, 'gotchu-pending-github-scope', userId);
     if (pendingGithubScope) {
-      sessionStorage.removeItem('gotchu-pending-github-scope');
-      void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: pendingGithubScope.organizationId, projectId: pendingGithubScope.applicationId } });
+      const destination = `/w/${pendingGithubScope.organizationId}/p/${pendingGithubScope.applicationId}/fuentes`;
+      if (pendingGithubNavigation.current !== destination) {
+        pendingGithubNavigation.current = destination;
+        // Keep the validated scope until navigation commits so github=connected cannot race to the default project.
+        void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: pendingGithubScope.organizationId, projectId: pendingGithubScope.applicationId } });
+      }
       return;
     }
+    pendingGithubNavigation.current = null;
     const params = new URLSearchParams(window.location.search);
     const legacyScope = customerScopeSchema.safeParse({ organizationId: params.get('organizationId'), applicationId: params.get('applicationId') });
     if (legacyScope.success) {
@@ -1049,11 +1067,8 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
           <section className="customer-settings" aria-labelledby="project-settings-title">
             <div className="customer-section-head"><div><h2 id="project-settings-title">Ajustes del proyecto</h2><p>Ábrelos cuando los necesites.</p></div></div>
             <details className="customer-settings-row"><summary><strong>Entornos y recursos vinculados</strong><small>Servicios, despliegues, repositorios y orígenes declarados.</small></summary><ContextPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} isOwner={workspace?.role === 'owner'} archived={selectedApplication.archived} analyzedDigest={applicationReports[0]?.subject.sourceDigest ?? null} /></details>
-            <details className="customer-settings-row"><summary><strong>Modelo y consentimiento</strong><small>Proveedor, datos autorizados y presupuesto para investigar con IA.</small></summary><InvestigationModelSettings key={`${organizationId}:investigation-model`} organizationId={organizationId} isOwner={workspace?.role === 'owner'} /></details>
-            <details className="customer-settings-row"><summary><strong>Propuestas de cambio</strong><small>Aprobaciones exactas con segundo factor.</small></summary><ApprovalPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:actions`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} isOwner={workspace?.role === 'owner'} /></details>
             <details className="customer-settings-row"><summary><strong>Excepciones de GitHub Actions</strong><small>Reglas de flujos de trabajo aceptadas con justificación.</small></summary><WorkflowExceptions userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} isOwner={workspace?.role === 'owner'} /></details>
             <details className="customer-settings-row"><summary><strong>Datos del proyecto</strong><small>Nombre y archivo del proyecto.</small></summary><ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('El proyecto se actualizó.'); }} /></details>
-            {canManage && <details className="customer-settings-row"><summary><strong>Verificación en dos pasos</strong><small>Factores para confirmar aprobaciones.</small></summary><StepUpPanel key={`${userId}:${organizationId}`} organizationId={organizationId} /></details>}
           </section>
         </>}
         {page === 'https-audit' && <ProjectHttpsAudit
@@ -1070,7 +1085,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
           onViewReport={reportId => { void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: selectedApplication.applicationId, reportId } }); }}
         />}
         {page === 'operations' && <ProjectVigilance userId={userId} organizationId={organizationId} projectId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} />}
-        {page === 'reports' && <ProjectReports title="Detalle del informe" reportCount={count(applicationReports.length, 'informe', 'informes')} reportList={applicationReports.length === 0 ? <div className="customer-empty-inline">Este proyecto aún no tiene informes.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} organizationId={organizationId} applicationId={selectedApplication.applicationId} />} detail={report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} activeReportTab={currentReportTab === 'dependencias' ? 'dependencies' : 'findings'} onReportTabChange={setReportTab} onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>} />}
+        {page === 'reports' && <ProjectReports title="Detalle del informe" reportCount={count(applicationReports.length, 'informe', 'informes')} reportList={applicationReports.length === 0 ? <div className="customer-empty-inline">Este proyecto aún no tiene informes.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} organizationId={organizationId} applicationId={selectedApplication.applicationId} />} detail={report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} isOwner={workspace?.role === 'owner'} archived={selectedApplication.archived} activeReportTab={currentReportTab === 'dependencias' ? 'dependencies' : 'findings'} onReportTabChange={setReportTab} onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>} />}
       </>}
     </>}
   </>;
