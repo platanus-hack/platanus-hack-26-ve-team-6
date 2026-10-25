@@ -63,7 +63,7 @@ export async function startClaudeTokenLogin(binary = 'claude'): Promise<DeviceLo
         return { verificationUrl: url.href, credential, cancel, submitCode(code) {
           if (closed) throw new HttpError(409, 'provider_login_finished', 'La conexión ya terminó.');
           const checked = z.string().regex(/^[A-Za-z0-9_-]{16,256}(?:#[A-Za-z0-9_-]{16,256})?$/).safeParse(code);
-          if (!checked.success) throw new HttpError(400, 'provider_code_invalid', 'Pega el código de autorización que muestra Claude.');
+          if (!checked.success || checked.data.startsWith('sk-')) throw new HttpError(400, 'provider_code_invalid', 'Pega el código de autorización que muestra Claude.');
           child.stdin.write(checked.data + '\n');
         } };
       }

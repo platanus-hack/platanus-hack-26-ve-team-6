@@ -36,6 +36,7 @@ describe('Claude token authorization (synthetic CLI protocol, real private PTY)'
   it('rejects shell text and cancels without importing credentials', async () => {
     const login = await startClaudeTokenLogin(await fixture());
     expect(() => login.submitCode?.('anything\nrun-other-command')).toThrow('Pega el código');
+    expect(() => login.submitCode?.('sk-ant-oat01-syntheticSubscriptionToken1234567890')).toThrow('Pega el código');
     await login.cancel(); expect(await login.credential).toBeNull();
   });
 
