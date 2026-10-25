@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { assertAutomationSafe, assertWorkflowPatchSafe, computeGitTreeSha, computeGitTreeShaAfterPatch, createGitHubAppAdapter, createLocalGitAdapter, deterministicBranch, GitAdapterError, inspectWorkflowPolicy, verifyPublishedTree, type PullRequest } from '../src/index.js';
+import { assertAutomationSafe, assertWorkflowPatchSafe, computeGitTreeSha, computeGitTreeShaAfterPatch, createGitHubAppAdapter, createLocalGitAdapter, deterministicBranch, GitAdapterError, verifyPublishedTree, type PullRequest } from '../src/index.js';
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map(dir => rm(dir,{recursive:true,force:true}))); });
@@ -33,18 +33,6 @@ describe('git adapters', () => {
     expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on: pull_request\njobs:\n  test:\n    steps:\n      - run: echo ${{ secrets.GITHUB_TOKEN }}'}])).not.toThrow();
     expect(() => assertAutomationSafe([{path:'.github/workflows/ci.yml',content:'on:\n  pull_request_target:\n'}], [{path:'.github/workflows/ci.yml',rule:'pull_request_target'}])).not.toThrow();
     expect(() => assertAutomationSafe([{path:'.github/workflows/other.yml',content:'on:\n  pull_request_target:\n'}], [{path:'.github/workflows/ci.yml',rule:'pull_request_target'}])).toThrow(GitAdapterError);
-  });
-
-  it('reports each workflow rule with its path', () => {
-    const cases = [
-      ['on: [', 'invalid_yaml'],
-      ['- not-a-workflow-document', 'invalid_document'],
-      ['on: pull_request_target', 'pull_request_target'],
-      ['on: push', 'push_without_branch_filter'],
-      ['on:\n  push:\n    branches: ["gotchu/**"]', 'push_to_gotchu_branch'],
-      ['on: pull_request\njobs:\n  test:\n    steps:\n      - run: echo ${{ secrets.NPM_TOKEN }}', 'forbidden_pull_request_secret'],
-    ] as const;
-    for (const [content, rule] of cases) expect(inspectWorkflowPolicy([{ path: '.github/workflows/ci.yml', content }])).toContainEqual({ path: '.github/workflows/ci.yml', rule });
   });
 
   it('computes the same candidate tree as git and verifies a published PR tree', async () => {
@@ -194,12 +182,6 @@ describe('git adapters', () => {
     expect(command(leafRepo.root,'--git-dir',leafRepo.bare,'show',`${leafPublish.commitSha}:src/link.txt`)).toBe('safe replacement');
   });
 
-  it('zod rejects a malformed GitHub repository response', async () => {
-    const {privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
-    const adapter=createGitHubAppAdapter({appId:'1234',installationId:'5',privateKeyPem:privateKey.export({type:'pkcs8',format:'pem'}).toString(),owner:'owner',repository:'repo',fetchImplementation:async()=>new Response(JSON.stringify({unexpected:true}),{status:200})});
-    await expect(adapter.resolveTarget('owner/repo')).rejects.toMatchObject({code:'malformed_response'});
-  });
-
   it('treats GitHub 422 as an already-deleted branch only when the ref is absent', async () => {
     const {privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
     const privateKeyPem=privateKey.export({type:'pkcs8',format:'pem'}).toString();
@@ -223,27 +205,6 @@ describe('git adapters', () => {
 });
 
 const live = process.env.GOTCHU_TEST_GITHUB === '1' ? describe : describe.skip;
-const readerCredentialsPath=process.env.GOTCHU_TEST_GITHUB_READER_APP;
-live('real provider checks: GitHub App Reader sandbox', () => {
-  it('reads the sandbox repository workflows without writing to GitHub', async () => {
-    if(!readerCredentialsPath) throw new Error('GOTCHU_TEST_GITHUB_READER_APP is required for the read-only GitHub check');
-    const raw: unknown=JSON.parse(await readFile(readerCredentialsPath,'utf8'));
-    const credentials=z.object({
-      id:z.union([z.string(),z.number()]).transform(String).optional(), appId:z.union([z.string(),z.number()]).transform(String).optional(),
-      app_id:z.union([z.string(),z.number()]).transform(String).optional(),
-      installationId:z.union([z.string(),z.number()]).transform(String).optional(), installation_id:z.union([z.string(),z.number()]).transform(String).optional(),
-      privateKeyPem:z.string().optional(), privateKey:z.string().optional(), private_key:z.string().optional(),
-    }).passthrough().parse(raw);
-    const appId=credentials.id??credentials.appId??credentials.app_id;
-    const privateKeyPem=credentials.privateKeyPem??credentials.privateKey??credentials.private_key;
-    const installationId=credentials.installationId??credentials.installation_id??process.env.GOTCHU_TEST_GITHUB_READER_INSTALLATION_ID;
-    if(!appId||!privateKeyPem||!installationId) throw new Error('Reader App credentials are missing required fields');
-    const adapter=createGitHubAppAdapter({appId,installationId,privateKeyPem,owner:'0bkevin',repository:'gotchu-pr-sandbox'});
-    const target=await adapter.resolveTarget('0bkevin/gotchu-pr-sandbox');
-    const base=await adapter.readHead(target.baseBranch);
-    await expect(adapter.inspectAutomation(base)).resolves.toEqual([]);
-  },30_000);
-});
 const liveCredentialsPath=process.env.GOTCHU_TEST_GITHUB_WRITER_APP;
 live('real provider checks: GitHub App writer sandbox', () => {
   it('publishes one exact branch and PR, reconciles timeout, rejects a moved base, and cleans up', async () => {

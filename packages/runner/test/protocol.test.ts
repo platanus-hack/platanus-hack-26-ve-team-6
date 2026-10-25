@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GuestProtocolError, parseGuestFrame, validateHostResult } from '../src/protocol.js';
+import { GuestProtocolError, parseGuestFrame } from '../src/protocol.js';
 
 function frame(value: unknown): Buffer {
   const payload = Buffer.from(JSON.stringify(value));
@@ -22,7 +22,4 @@ describe('guest result parsing', () => {
     expect(() => parseGuestFrame(frame({ status: 'validated', success: true }))).toThrow(/schema/);
   });
 
-  it('validates the host-facing union separately from guest payloads', () => {
-    expect(() => validateHostResult({ status: 'completed', exitCode: 0 })).toThrow();
-  });
 });

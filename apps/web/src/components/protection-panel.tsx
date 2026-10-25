@@ -73,7 +73,7 @@ app.get('/search', async (request, response) => {
   const searchTerm = String(request.query.q ?? '');
   const sql = 'SELECT id FROM users WHERE name = $1';
   try {
-    // Sustituye database por el cliente SQL de tu aplicación.
+    // Sustituye database por el cliente SQL de tu proyecto.
     await guard.sql(sql, () => database.query(sql, [searchTerm]));
     response.sendStatus(200);
   } catch (error) {
@@ -97,10 +97,7 @@ app.get('/search', async (request, response) => {
 
   return <section className="customer-card customer-panel customer-protection" aria-labelledby="runtime-protection-title">
     <div className="customer-card-heading">
-      <div><h2 id="runtime-protection-title">Protección en ejecución</h2><p className="customer-card-copy">El SDK inspecciona entradas que llegan a puntos de uso instrumentados. Los valores de entrada nunca se envían a Gotchu.</p></div>
-      {config.data && <span className={`customer-status ${config.data.mode === 'block' ? 'customer-protection-status-block' : 'customer-status-muted'}`}>
-        {config.data.mode === 'block' ? 'Bloqueo configurado' : 'Monitorización configurada'}
-      </span>}
+      <div><h2 id="runtime-protection-title">Protección en ejecución</h2></div>
     </div>
 
     {config.isPending ? <p className="customer-protection-message" role="status">Cargando configuración…</p>
@@ -108,17 +105,17 @@ app.get('/search', async (request, response) => {
         : config.data && <>
           <div className="customer-protection-status" role="status" aria-live="polite">
             <span className={`customer-status ${config.data.receiving ? 'customer-status-ready' : 'customer-status-pending'}`}>
-              {config.data.receiving ? 'SDK conectado · eventos recientes' : 'Sin eventos recientes del SDK'}
+              {config.data.receiving ? 'Integración activa · eventos recientes' : 'Sin eventos recientes'}
             </span>
-            <span>{config.data.lastEventAt ? `Último evento: ${formatDate(config.data.lastEventAt)}` : 'Aún no se ha recibido un evento de protección.'}</span>
+            {config.data.lastEventAt && <span>Último evento: {formatDate(config.data.lastEventAt)}</span>}
           </div>
 
           <div className="customer-protection-layout">
             <div className="customer-protection-settings">
               <fieldset disabled={!canManage || update.isPending}>
                 <legend>Respuesta</legend>
-                <label><input type="radio" name="runtime-protection-mode" checked={mode === 'monitor'} onChange={() => setDraft({ mode: 'monitor', enabledDetectors })} /> Monitorizar: registrar indicios y dejar continuar la operación.</label>
-                <label><input type="radio" name="runtime-protection-mode" checked={mode === 'block'} onChange={() => setDraft({ mode: 'block', enabledDetectors })} /> Bloquear: detener la operación antes del punto instrumentado.</label>
+                <label><input type="radio" name="runtime-protection-mode" checked={mode === 'monitor'} onChange={() => setDraft({ mode: 'monitor', enabledDetectors })} /> Monitorizar: registrar intentos y dejar continuar la operación.</label>
+                <label><input type="radio" name="runtime-protection-mode" checked={mode === 'block'} onChange={() => setDraft({ mode: 'block', enabledDetectors })} /> Bloquear: detener la operación en el punto integrado.</label>
               </fieldset>
               <fieldset disabled={!canManage || update.isPending}>
                 <legend>Detectores activos</legend>
@@ -126,7 +123,7 @@ app.get('/search', async (request, response) => {
                   <input type="checkbox" checked={enabledDetectors.includes(kind)} onChange={event => toggleDetector(kind, event.target.checked)} /> {label}
                 </label>)}
               </fieldset>
-              <p className="customer-field-note">Si la política firmada caduca o Gotchu no responde, el SDK continúa en monitorización. El bloqueo se aplica sólo a procesos activos que usen estos wrappers.</p>
+              <p className="customer-field-note">Si Gotchu no responde o caduca la política, sigue Monitor. Bloquea sólo en los puntos integrados.</p>
               <button className="customer-button customer-button-primary" type="button" disabled={!canManage || update.isPending || !dirty || mode === 'block' && enabledDetectors.length === 0} onClick={() => update.mutate()}>
                 {update.isPending ? 'Guardando…' : 'Guardar configuración'}
               </button>
@@ -148,8 +145,8 @@ app.get('/search', async (request, response) => {
           </div>
 
           <details className="customer-protection-setup">
-            <summary>Instalar el SDK de Node</summary>
-            <p>Usa la clave de la integración HMAC de “Telemetría firmada” para esta aplicación. Guarda la clave sólo en el entorno privado del servidor. En Express, instala el middleware después del parser de JSON y antes de las rutas.</p>
+            <summary>Instalar la integración para Node</summary>
+            <p>Guarda la clave de firma de «Telemetría firmada» como secreto del servidor. En Express, instala el middleware después del parser JSON y antes de las rutas.</p>
             <pre><code>{setup}</code></pre>
             <button className="customer-button customer-button-secondary" type="button" onClick={() => { void copySetup(); }}>{copyState === 'copied' ? 'Copiado' : copyState === 'error' ? 'No se pudo copiar' : 'Copiar instrucciones'}</button>
           </details>

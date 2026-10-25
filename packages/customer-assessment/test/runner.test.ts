@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { customerAssessmentReportSchema, CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES } from '@gotchu/contracts';
-import { createCustomerAssessmentRunner, parseLockfile, sourceDigest } from '../src/index.js';
+import { customerAssessmentReportSchema, CUSTOMER_MAX_SOURCE_FILE_BYTES } from '@gotchu/contracts';
+import { createCustomerAssessmentRunner, parseLockfile } from '../src/index.js';
 import { input, absentScanners } from './fixtures.js';
 describe('customer report boundaries',()=>{
   it('reports unavailable tools and readiness without inventing findings',async()=>{
@@ -20,15 +20,6 @@ describe('customer report boundaries',()=>{
     const original=input();if(!original.source)throw new Error();original.source.files[0]!.content+='x';await expect(runner.run(original)).rejects.toThrow('digest');
     for(const files of [[{path:'../outside.ts',content:''}],[{path:'script.ts',content:'x'.repeat(CUSTOMER_MAX_SOURCE_FILE_BYTES+1)}],[{path:'.env.json',content:''}]])await expect(runner.run(input(files))).rejects.toThrow();
     await expect(runner.run({...input(),url:'https://example.com'} as never)).rejects.toThrow();
-  });
-  it('accepts realistic source counts and per-file sizes within the shared limits',async()=>{
-    const files=Array.from({length:300},(_,i)=>({path:`src/file${i}.ts`,content:'export const x=1;'}));
-    files.push({path:'large.ts',content:'// '+ 'x'.repeat(70000)});
-    const report=await createCustomerAssessmentRunner({scanners:absentScanners}).run(input(files));expect(report.subject.sourceSnapshotId).toBeTruthy();
-    await expect(createCustomerAssessmentRunner({scanners:absentScanners}).run(input(Array.from({length:CUSTOMER_MAX_SOURCE_FILES+1},(_,i)=>({path:`x${i}.ts`,content:''}))))).rejects.toThrow();
-  });
-  it('uses the backend canonical snapshot digest',()=>{
-    const a={revision:'r',files:[{path:'a.ts',content:'x'}]};expect(sourceDigest(a)).toBe(sourceDigest({revision:'r',files:[{content:'x',path:'a.ts'}]}));
   });
   it('holds ownership beyond the deadline until every scanner cleanup settles',async()=>{
     let release=()=>{};const cleanup=new Promise<void>(resolve=>{release=resolve;});

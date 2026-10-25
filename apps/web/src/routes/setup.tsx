@@ -49,11 +49,7 @@ function SetupForm() {
     <div className="setup-grid">
       <section aria-labelledby="setup-title">
         <h1 id="setup-title">Crea tu espacio de trabajo</h1>
-        <ul className="setup-facts">
-          <li>La primera cuenta tendrá el rol Owner. El enlace de configuración se usa una sola vez y caduca en una hora.</li>
-          <li>Semgrep está fijado en 1.182.0; los informes muestran cobertura parcial y límites, por lo que un resultado sin hallazgos no demuestra que la aplicación sea segura.</li>
-          <li>Validador VM no disponible: requiere Linux, /dev/kvm, bwrap y una sesión systemd de usuario. Executor y escrituras a proveedores no disponibles.</li>
-        </ul>
+        <p className="setup-fact">La primera cuenta tendrá el rol Owner. El enlace de configuración se usa una sola vez y caduca en una hora.</p>
       </section>
       <form onSubmit={submit}>
         <label htmlFor="setup-email">Correo electrónico</label><input id="setup-email" name="email" type="email" autoComplete="email" maxLength={254} required />

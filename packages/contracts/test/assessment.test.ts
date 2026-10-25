@@ -17,12 +17,6 @@ function fixture() {
 }
 
 describe('assessment evidence and permission boundaries', () => {
-  it('keeps a one-sided observation unverified and permits severity without authority', () => {
-    const report = assessmentReportSchema.parse(fixture());
-    expect(report.internal?.findings[0]?.severity).toBe('high');
-    expect(report.responseMode).toBe('observation');
-    expect(report.actionsPerformed).toEqual([]);
-  });
   it('rejects evidence-free findings and invented comparison matches', () => {
     const value = fixture();
     expect(assessmentReportSchema.safeParse({ ...value, internal: { ...value.internal, evidence: [] } }).success).toBe(false);

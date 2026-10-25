@@ -6,9 +6,9 @@ import type { Backend, Identity } from '@gotchu/backend';
 import { githubConnectResponseSchema, githubConnectionSchema, githubRepositorySchema, githubRepositoriesSchema } from '@gotchu/contracts';
 import type { CustomerServices } from './customer-api.js';
 import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } from './http.js';
+import { githubConsentPage, githubUserInstallations, requireGitHubInstallationOwner } from './github-authorization.js';
 
 const appFileSchema = z.object({ id: z.preprocess(value => typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : value, z.string().regex(/^\d+$/)), slug: z.string().regex(/^[a-z0-9-]+$/i).optional(), clientId: z.string().min(1), clientSecret: z.string().min(1), privateKeyPem: z.string().min(1), webhookSecret: z.string().min(1) }).passthrough();
-const installationListSchema = z.object({ installations: z.array(z.object({ id: z.number().int().positive(), account: z.object({ login: z.string().min(1).max(100) }).passthrough() }).passthrough()).max(100) }).passthrough();
 const repositoryListSchema = z.object({ repositories: z.array(z.object({ id: z.number().int().positive(), full_name: z.string().min(3).max(200), default_branch: z.string().min(1).max(200), private: z.boolean(), archived: z.boolean() }).passthrough()).max(1000), total_count: z.number().int().nonnegative() }).passthrough();
 const accessTokenSchema = z.object({ token: z.string().min(1), expires_at: z.iso.datetime() }).passthrough();
 const oauthTokenSchema = z.object({ access_token: z.string().min(1), token_type: z.literal('bearer'), scope: z.string().optional() }).passthrough();
@@ -75,14 +75,12 @@ export async function listGitHubInstallationRepositories(token: string, fetcher:
   return repositories;
 }
 
-async function findUserInstallation(token: string, installationId: string, fetcher: typeof fetch) {
-  for (let page = 1; page <= 10; page += 1) {
-    const result = await githubJson(`/user/installations?per_page=100&page=${page}`, token, installationListSchema, fetcher);
-    const installation = result.installations.find(item => String(item.id) === installationId);
-    if (installation) return installation;
-    if (result.installations.length < 100) return null;
-  }
-  throw new HttpError(413, 'github_user_installation_limit', 'La cuenta tiene más de 1000 instalaciones visibles; no se pudo comprobar esta conexión de forma acotada.');
+function authorizationUrl(origin: string, credentials: AppCredentials, handshake: { state: string; codeChallenge: string | null }) {
+  if (!handshake.codeChallenge) throw new Error('github_pkce_required');
+  const url = new URL('https://github.com/login/oauth/authorize');
+  url.search = new URLSearchParams({ client_id: credentials.clientId, redirect_uri: new URL('/api/customer/github/callback', origin).href,
+    state: handshake.state, code_challenge: handshake.codeChallenge, code_challenge_method: 'S256' }).toString();
+  return url.href;
 }
 
 export async function mintGitHubInstallationToken(installationId: string, appFile: string): Promise<string> {
@@ -96,8 +94,9 @@ export function createGitHubApi(options: { origin: string; appFile?: string; app
     const path = url.pathname.split('/').filter(Boolean);
     const isConnect = url.pathname === '/api/customer/github/connect';
     const isCallback = url.pathname === '/api/customer/github/callback';
+    const isChoose = url.pathname === '/api/customer/github/choose';
     const isGithubWorkspace = path[0] === 'api' && path[1] === 'customer' && path[2] === 'workspaces' && (path[4] === 'github' || (path[4] === 'applications' && path[6] === 'github'));
-    if (!isConnect && !isCallback && !isGithubWorkspace) return null;
+    if (!isConnect && !isCallback && !isChoose && !isGithubWorkspace) return null;
     const headers = new Headers({ 'Cache-Control': 'private, no-store' });
     for (const cookie of cookies) headers.append('set-cookie', cookie);
     try {
@@ -106,6 +105,7 @@ export function createGitHubApi(options: { origin: string; appFile?: string; app
       const services = options.services;
       if (!services) throw new HttpError(503, 'database_not_configured', 'La base de datos no está configurada.');
       const send = (data: unknown, status = 200) => json(data, status, headers);
+      const redirect = (location: string) => { headers.set('location', location); headers.set('Referrer-Policy', 'no-referrer'); return new Response(null, { status: 303, headers }); };
       if (isConnect && request.method === 'POST') {
         if (!options.appFile) throw new HttpError(503, 'github_not_configured', 'La conexión con GitHub no está configurada.');
         const credentials = await readApp(options.appFile);
@@ -113,31 +113,58 @@ export function createGitHubApi(options: { origin: string; appFile?: string; app
         if (!slug) throw new HttpError(503, 'github_not_configured', 'Configura el URL slug de la GitHub App.');
         const body = await readJson(request);
         const scope = z.object({ organizationId: z.uuid() }).strict().parse(body);
-        const state = await services.github.createState(identity, scope);
-        return send(githubConnectResponseSchema.parse({ installUrl: `https://github.com/apps/${encodeURIComponent(slug)}/installations/new?state=${encodeURIComponent(state)}` }));
+        const handshake = await services.github.createState(identity, scope);
+        return send(githubConnectResponseSchema.parse({ installUrl: authorizationUrl(options.origin, credentials, handshake) }));
+      }
+      if (isChoose && request.method === 'POST') {
+        if (!options.appFile) throw new HttpError(503, 'github_not_configured', 'La conexión con GitHub no está configurada.');
+        if (request.headers.get('content-type')?.split(';')[0] !== 'application/x-www-form-urlencoded') throw new HttpError(415, 'content_type', 'Utiliza el formulario de conexión de GitHub.');
+        const form = new URLSearchParams(new TextDecoder().decode(await readBoundedBody(request, 16_384)));
+        const state = form.get('state') ?? '';
+        const installationId = form.get('installationId') ?? '';
+        if (state.length < 32 || state.length > 128 || installationId !== 'new' && !/^\d{1,20}$/.test(installationId)) throw new HttpError(400, 'github_selection_invalid', 'Selecciona una instalación válida.');
+        const context = await services.github.consumeState(identity, state);
+        if (context.purpose !== 'choose') throw new HttpError(400, 'github_selection_invalid', 'Inicia la conexión de GitHub de nuevo.');
+        await services.github.workspaceName(identity, context.organizationId);
+        const credentials = await readApp(options.appFile);
+        const handshake = await services.github.createState(identity, { organizationId: context.organizationId, installationId: installationId === 'new' ? null : installationId, purpose: installationId === 'new' ? 'install' : 'authorize' });
+        if (installationId !== 'new') return redirect(authorizationUrl(options.origin, credentials, handshake));
+        const slug = options.appSlug ?? credentials.slug;
+        if (!slug) throw new HttpError(503, 'github_not_configured', 'Configura el URL slug de la GitHub App.');
+        return redirect(`https://github.com/apps/${encodeURIComponent(slug)}/installations/new?state=${encodeURIComponent(handshake.state)}`);
       }
       if (isCallback && request.method === 'GET') {
         const state = url.searchParams.get('state') ?? '';
         const code = url.searchParams.get('code') ?? '';
-        const installationId = url.searchParams.get('installation_id') ?? '';
-        const setupAction = url.searchParams.get('setup_action');
-        if (!options.appFile || !code || !/^\d{1,20}$/.test(installationId) || !['install', 'update'].includes(setupAction ?? '')) throw new HttpError(400, 'github_callback_invalid', 'GitHub no devolvió una instalación válida.');
-        const organizationId = await services.github.consumeState(identity, state);
+        if (!options.appFile || state.length < 32 || state.length > 128) throw new HttpError(400, 'github_callback_invalid', 'GitHub no devolvió una autorización válida.');
+        const context = await services.github.consumeState(identity, state);
+        const { organizationId } = context;
+        const workspaceName = await services.github.workspaceName(identity, organizationId);
         const credentials = await readApp(options.appFile);
+        if (context.purpose === 'install') {
+          const installationId = url.searchParams.get('installation_id') ?? '';
+          if (!/^\d{1,20}$/.test(installationId) || !['install', 'update'].includes(url.searchParams.get('setup_action') ?? '')) throw new HttpError(400, 'github_callback_invalid', 'GitHub no devolvió una instalación válida.');
+          // Installation callbacks are hints, never proof of delegation. Start our own PKCE flow.
+          return redirect(authorizationUrl(options.origin, credentials, await services.github.createState(identity, { organizationId, installationId })));
+        }
+        if (context.purpose !== 'authorize' || !context.verifier || !code || code.length > 512) throw new HttpError(400, 'github_callback_invalid', 'GitHub no devolvió una autorización válida.');
         const exchangeResponse = await fetcher('https://github.com/login/oauth/access_token', {
           method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json' },
-          body: JSON.stringify({ client_id: credentials.clientId, client_secret: credentials.clientSecret, code }), signal: AbortSignal.timeout(15_000),
+          body: JSON.stringify({ client_id: credentials.clientId, client_secret: credentials.clientSecret, code, code_verifier: context.verifier, redirect_uri: new URL('/api/customer/github/callback', options.origin).href }), signal: AbortSignal.timeout(15_000),
         });
         if (!exchangeResponse.ok) throw new HttpError(502, 'github_oauth_failed', 'No se pudo completar la autorización con GitHub.');
         let exchangePayload: unknown;
         try { exchangePayload = await exchangeResponse.json(); } catch { throw new HttpError(502, 'github_oauth_failed', 'GitHub devolvió una respuesta de autorización inválida.'); }
         const exchange = oauthTokenSchema.safeParse(exchangePayload);
         if (!exchange.success) throw new HttpError(400, 'github_oauth_failed', 'GitHub no autorizó la conexión. Vuelve a intentarlo.');
-        const authorized = await findUserInstallation(exchange.data.access_token, installationId, fetcher);
-        if (!authorized) throw new HttpError(403, 'github_installation_not_accessible', 'La cuenta de GitHub con la que iniciaste sesión no puede acceder a esta instalación.');
-        await services.github.bind(identity, { organizationId, userId: identity.userId, state, installationId, accountLogin: authorized.account.login });
-        headers.set('location', '/dashboard?github=connected');
-        return new Response(null, { status: 303, headers });
+        if (!context.installationId) {
+          const installations = await githubUserInstallations(exchange.data.access_token, fetcher);
+          const selection = await services.github.createState(identity, { organizationId, purpose: 'choose' });
+          return githubConsentPage(workspaceName, selection.state, installations, headers);
+        }
+        const { installation, githubUserId } = await requireGitHubInstallationOwner(exchange.data.access_token, context.installationId, fetcher);
+        await services.github.bind(identity, { organizationId, userId: identity.userId, state, installationId: context.installationId, accountLogin: installation.account.login, githubUserId, githubAccountId: String(installation.account.id) });
+        return redirect('/dashboard?github=connected');
       }
       const organizationId = z.uuid().parse(path[3]);
       if (path.length === 6 && path[5] === 'connections' && request.method === 'GET') {

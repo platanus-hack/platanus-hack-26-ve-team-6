@@ -15,6 +15,8 @@ const fakeBin = join(temp, 'bin');
 const noDockerBin = join(temp, 'no-docker-bin');
 await mkdir(fakeBin);
 await mkdir(noDockerBin);
+await symlink(process.execPath, join(fakeBin, 'node'));
+await writeFile(join(fakeBin, 'pnpm'), '#!/bin/sh\nexit 1\n', { mode: 0o700 });
 for (const binary of ['dirname', 'basename', 'tr', 'sha256sum', 'cut', 'date', 'mkdir', 'chmod', 'find']) await symlink(`/usr/bin/${binary}`, join(noDockerBin, binary));
 await writeFile(join(fakeBin, 'docker'), '#!/bin/sh\nif [ "$1" = compose ]; then [ "$2" = version ] && { echo 2.40.0; exit 0; }; fi\nexit 0\n', { mode: 0o700 });
 const basePath = `${fakeBin}:/usr/local/bin:/usr/bin:/bin`;

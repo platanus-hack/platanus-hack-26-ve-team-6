@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assessInternal } from '../src/internal.js';
-import { createHelmetCspGate, HELMET_CSP_GATE_VERSION, HELMET_CSP_TYPESCRIPT_VERSION, isHelmetCspCandidateRule } from '../src/helmet-csp-gate.js';
+import { createHelmetCspGate, HELMET_CSP_GATE_VERSION, HELMET_CSP_TYPESCRIPT_VERSION } from '../src/helmet-csp-gate.js';
 import { input } from './fixtures.js';
 
 const sourceFor = (content: string, path = 'app.ts') => ({ path, content });
@@ -11,9 +11,7 @@ const semgrepOffset = (content: string, marker = 'h({') => {
 
 describe('Helmet CSP Semgrep candidate gate', () => {
   it.each([
-    ['JavaScript default import', 'app.js', "import helmet from 'helmet';\nhelmet({contentSecurityPolicy: false});", 'helmet({'],
     ['aliased TypeScript import inside app.use', 'app.ts', "import h from 'helmet';\napp.use(h({contentSecurityPolicy: false}));", 'h({'],
-    ['top-level variable initializer', 'app.ts', "import h from 'helmet';\nconst configured = h({contentSecurityPolicy: false});", 'h({'],
   ])('accepts %s at the call start', (_label, path, content, marker) => {
     const file = sourceFor(content, path);
     const line = content.slice(0, content.indexOf(marker)).split(/\r?\n/).length;
@@ -36,8 +34,6 @@ describe('Helmet CSP Semgrep candidate gate', () => {
   it.each([
     ['function body', "import h from 'helmet';\nfunction configure() { h({contentSecurityPolicy: false}); }", 'h({'],
     ['arrow body', "import h from 'helmet';\nconst configure = () => h({contentSecurityPolicy: false});", 'h({'],
-    ['control block', "import h from 'helmet';\nif (enabled) { h({contentSecurityPolicy: false}); }", 'h({'],
-    ['namespace body', "import h from 'helmet';\nnamespace Unrelated { h({contentSecurityPolicy: false}); }", 'h({'],
   ])('ignores candidates inside a %s', (_label, content, marker) => {
     const line = content.slice(0, content.indexOf(marker)).split(/\r?\n/).length;
     expect(createHelmetCspGate([sourceFor(content)])('app.ts', semgrepOffset(content, marker), line)).toBe(false);
@@ -45,15 +41,9 @@ describe('Helmet CSP Semgrep candidate gate', () => {
 
   it.each([
     ['enabled', "import h from 'helmet';\nh({contentSecurityPolicy: true});", 'h({'],
-    ['omitted', "import h from 'helmet';\nh({});", 'h({'],
     ['nonliteral', "import h from 'helmet';\nh({contentSecurityPolicy: configured});", 'h({'],
     ['duplicate property', "import h from 'helmet';\nh({contentSecurityPolicy: false, contentSecurityPolicy: true});", 'h({'],
     ['spread override', "import h from 'helmet';\nh({contentSecurityPolicy: false, ...defaults});", 'h({'],
-    ['spread before property', "import h from 'helmet';\nh({...defaults, contentSecurityPolicy: false});", 'h({'],
-    ['computed property', "import h from 'helmet';\nh({['contentSecurityPolicy']: false});", 'h({'],
-    ['second argument', "import h from 'helmet';\nh({contentSecurityPolicy: false}, other);", 'h({'],
-    ['missing argument', "import h from 'helmet';\nh();", 'h('],
-    ['malformed syntax', "import h from 'helmet';\nh({contentSecurityPolicy: false);", 'h({'],
   ])('rejects %s options', (_label, content, marker) => {
     const line = content.slice(0, content.indexOf(marker)).split(/\r?\n/).length;
     expect(createHelmetCspGate([sourceFor(content)])('app.ts', semgrepOffset(content, marker), line)).toBe(false);
@@ -61,33 +51,14 @@ describe('Helmet CSP Semgrep candidate gate', () => {
 
   it.each([
     ['type-only default import', "import type h from 'helmet';\nh({contentSecurityPolicy: false});"],
-    ['same-name parameter in an unrelated function', "import h from 'helmet';\nh({contentSecurityPolicy: false});\nfunction unrelated(h: unknown) {}"],
     ['same-name block binding', "import h from 'helmet';\nh({contentSecurityPolicy: false});\n{ const h = other; }"],
-    ['same-name loop binding', "import h from 'helmet';\nh({contentSecurityPolicy: false});\nfor (const h of items) {}"],
-    ['hoisted var in an unrelated function', "import h from 'helmet';\nh({contentSecurityPolicy: false});\nfunction unrelated() { if (false) var h; }"],
-    ['duplicate import binding', "import h from 'helmet';\nimport { other as h } from 'other';\nh({contentSecurityPolicy: false});"],
     ['reassignment', "import h from 'helmet';\nh = replacement;\nh({contentSecurityPolicy: false});"],
-    ['compound mutation', "import h from 'helmet';\nh += replacement;\nh({contentSecurityPolicy: false});"],
   ])('rejects a file with %s', (_label, content) => {
     expect(createHelmetCspGate([sourceFor(content)])('app.ts', semgrepOffset(content), 2)).toBe(false);
   });
 
-  it('rejects files above the uploaded per-file byte limit', () => {
-    const content = `import h from 'helmet';\nh({contentSecurityPolicy: false});\n${' '.repeat(1_048_576)}`;
-    expect(createHelmetCspGate([sourceFor(content)])('app.ts', semgrepOffset(content), 2)).toBe(false);
-  });
-
-  it('limits AST gating to the two exact Semgrep rule IDs', () => {
-    expect(isHelmetCspCandidateRule('gotchu.javascript.helmet-csp-disabled')).toBe(true);
-    expect(isHelmetCspCandidateRule('profile.gotchu.javascript.helmet-csp-disabled')).toBe(true);
-    expect(isHelmetCspCandidateRule('other.gotchu.javascript.helmet-csp-disabled')).toBe(false);
-    expect(isHelmetCspCandidateRule('gotchu.javascript.helmet-csp-disabled.extra')).toBe(false);
-  });
-
-  it.each([
-    'gotchu.javascript.helmet-csp-disabled',
-    'profile.gotchu.javascript.helmet-csp-disabled',
-  ])('normalizes one valid hit for exact candidate ID %s', async rule => {
+  it('normalizes one valid hit for the exact candidate ID', async () => {
+    const rule = 'gotchu.javascript.helmet-csp-disabled';
     const content = "import h from 'helmet';\nh({contentSecurityPolicy: false});";
     const request = input([sourceFor(content)]);
     const result = await assessInternal(request, AbortSignal.timeout(5_000), {

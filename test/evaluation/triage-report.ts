@@ -279,7 +279,7 @@ export function formatEvaluationMarkdown(report: ReturnType<typeof buildEvaluati
     `| Split | Scenario | Alert P/R (TP/pred/actual) | Cause P/R (TP/pred/actual) | False-alarm windows | Abstain / windows | Confidence errors | Impact errors | Alert p50/p95 ms (n/positive) | Decision p50/p95 ms (n/windows) |\n|---|---|---:|---:|---:|---:|---:|---:|---:|---:|\n${metrics}\n\n`+
     `## Labelled mismatches\n\n${report.failures.length} mismatches across all included splits (${failureSummary}). Full case IDs, repetitions, expected values, and observed values are in the JSON artifact.\n\n`+
     `## Tuning history and repeatability\n\n`+
-    `The tuning history is retained to show why the measured detector and harness reached v1.0.2: v1.0.0 had 40 labelled mismatches (5 missed event-loop alerts, 10 unlabelled auth signals, 5 contradicted provider hypotheses, and 20 incorrect impact labels). After correcting the tuning labels and injection, v1.0.1 had no label mismatches but missed the fixed decision-latency target (p95 21,256 ms) and had 35/85 confidence errors. In v1.0.2 tuning, the bounded event-loop fault and detector-confidence correction yielded zero mismatches, 0/85 confidence errors, and 2,447 ms decision p95. No rule, label, or threshold changed after observing holdout; holdout misses remain unresolved. An independent holdout-only repeat on the same matrix and rules commit is recorded separately in [triage-evaluation-holdout-repeat-v1.0.2.json](triage-evaluation-holdout-repeat-v1.0.2.json); it is not pooled with this report.\n\n`+
+    `The tuning history is retained to show why the measured detector and harness reached v1.0.2: v1.0.0 had 40 labelled mismatches (5 missed event-loop alerts, 10 unlabelled auth signals, 5 contradicted provider hypotheses, and 20 incorrect impact labels). After correcting the tuning labels and injection, v1.0.1 had no label mismatches but missed the fixed decision-latency target (p95 21,256 ms) and had 35/85 confidence errors. In v1.0.2 tuning, the bounded event-loop fault and detector-confidence correction yielded zero mismatches, 0/85 confidence errors, and 2,447 ms decision p95. No rule, label, or threshold changed after observing holdout; holdout misses remain unresolved.\n\n`+
     `## Safety and limits\n\n`+
     `- Provider status and target HTTPS probes are local fixtures; every upstream status is marked fixture. The target app and signed intake are real local HTTP processes, and event aggregation, alert projection, and triage revisions use disposable PostgreSQL/Redis plus the durable BullMQ coordinator path.\n`+
     `- The traffic-spike negative control is healthy load; it must not produce a runtime attack rule. SQL injection and path traversal are blocked before their local sinks, and the resulting events are indications only.\n`+
@@ -290,7 +290,7 @@ export function formatEvaluationMarkdown(report: ReturnType<typeof buildEvaluati
 }
 
 export async function writeEvaluationArtifacts(report: ReturnType<typeof buildEvaluationReport>, splitOnly: boolean) {
-  const directory = splitOnly ? resolve('.local/triage-evaluation') : resolve('docs');
+  const directory = resolve('.local/triage-evaluation');
   await mkdir(directory, { recursive: true });
   const activeSplit = report.splits.find(item => item.trialCount > 0)?.split ?? 'partial';
   const jsonPath = splitOnly ? resolve(directory, `${activeSplit}.json`) : resolve(directory, 'triage-evaluation.json');

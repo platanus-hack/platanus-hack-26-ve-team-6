@@ -5,11 +5,10 @@ import { GotchuMark } from '../components/gotchu-mark';
 import { DotPlate } from '../components/dot-field/dot-plate';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { buttonVariants } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { Toggle } from '@/components/ui/toggle';
-import { FolderPlate, VennPlate } from './ascii-plates';
-import { CODE_LOOKS, DOMAIN_FACTS, DOMAIN_RECORD, GLOSSARY, QUESTIONS, REPORT_JSON, SCOPES, TEAM, VENN_LABELS, VIGILANCE_FACTS } from './copy';
-import { Display, Mark, Note, Ref } from './editorial';
+import { FolderPlate } from './ascii-plates';
+import { HOW_STEPS, QUESTIONS, REPORT_JSON } from './copy';
+import { Display, Mark } from './editorial';
 import { Header } from './header';
 
 /** True when motion is welcome; resolved after mount so server and first client render agree. */
@@ -34,18 +33,6 @@ function Action({ href, children, size = 'default' }: { href: string; children: 
   </a>;
 }
 
-function TextLink({ href, children, className }: { href: string; children: ReactNode; className?: string }) {
-  return <a href={href} data-slot="button" className={cn(buttonVariants({ variant: 'link' }), className)}>{children}<ArrowRightIcon aria-hidden="true" /></a>;
-}
-
-/** Prose with its margin notes beside it (inline below 1100px). */
-function Block({ children, notes, className = '' }: { children: ReactNode; notes?: ReactNode; className?: string }) {
-  return <div className="gl-block">
-    <div className={`gl-block-main ${className}`}>{children}</div>
-    {notes && <div className="gl-notes">{notes}</div>}
-  </div>;
-}
-
 function Section({ id, titleId, title, children, className = '', titleClass = '' }: { id?: string; titleId: string; title: ReactNode[]; children: ReactNode; className?: string; titleClass?: string }) {
   return <section id={id} className={`gl-section ${className}`} aria-labelledby={titleId}>
     <Display id={titleId} className={`gl-section-title ${titleClass}`} lines={title} />
@@ -57,13 +44,10 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
   return <section id="gl-mirada" className="gl-hero" aria-labelledby="gl-titulo">
     <div className="gl-hero-copy">
       <Display as="h1" id="gl-titulo" eager className="gl-display--hero" lines={['Mira de cerca.', <Mark key="m" size="big" load>Decide con pruebas.</Mark>]} />
-      <Block notes={<Note n={1}><strong>Tú eliges</strong> código, web o ambas.</Note>}>
-        <p className="gl-lead">Revisa el código de tu app, tu web o ambos, con evidencia para entender cada hallazgo y saber por dónde seguir.<Ref n={1} /></p>
-        <div className="gl-actions">
-          <Action href="/dashboard" size="lg">Revisar mi aplicación</Action>
-          <TextLink href="#gl-codigo">Cómo funciona</TextLink>
-        </div>
-      </Block>
+      <div className="gl-hero-action">
+        <p className="gl-lead">Sube código o verifica un dominio con DNS TXT.</p>
+        <Action href="/dashboard" size="lg">Revisar una app</Action>
+      </div>
     </div>
     <div className="gl-hero-field">
       <DotPlate formation="mark" paused={paused} />
@@ -80,115 +64,40 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
   </section>;
 }
 
-function Code() {
-  return <Section id="gl-codigo" titleId="gl-codigo-titulo" title={['Sube una copia', 'de tu código.']}>
-    <Block className="gl-cols" notes={<><Note n={2}><strong>Huella SHA-256:</strong> identifica exactamente la copia revisada.</Note><Note n={3}><strong>La copia nunca se ejecuta.</strong> No se instalan paquetes.</Note></>}>
-      <p className="gl-dropcap">Sube una instantánea de tu app, etiqueta la versión y guarda su <Mark>huella SHA-256</Mark>.<Ref n={2} /></p>
-      <p>Gotchu revisa archivos JS, TS, JSON, YAML y TOML con análisis acotados. <Mark delay={120}>No ejecuta el código ni instala paquetes.</Mark><Ref n={3} /></p>
-    </Block>
-    <div className="gl-split">
-      <FolderPlate />
-      <div>
-        <h3 className="gl-label">Qué busca</h3>
-        <ul className="gl-rules">{CODE_LOOKS.map((item, index) => <li key={item}><span aria-hidden="true">{String.fromCharCode(97 + index)}</span>{item}</li>)}</ul>
-      </div>
-    </div>
-  </Section>;
-}
-
-function Domain({ paused }: { paused: boolean }) {
-  return <Section titleId="gl-dominio-titulo" title={['Demuestra que', <>controlas el <Mark size="big">dominio.</Mark></>]}>
-    <Block notes={<Note n={4}><strong>El TXT prueba control DNS, no titularidad legal.</strong> Autoriza solo orígenes que puedes controlar.</Note>}>
-      <p>Para autorizar la revisión, publica un TXT en <code className="gl-code">{DOMAIN_RECORD}</code>. Gotchu comprueba el control DNS antes de consultar el origen.<Ref n={4} /></p>
-    </Block>
-    <p className="gl-record"><span className="gl-sr">Registro DNS: </span>{DOMAIN_RECORD}<span aria-hidden="true">{'  '}</span><span className="gl-record-type">TXT</span></p>
-    <Block notes={<Note n={5}><strong>Sin cookies, credenciales ni redirecciones.</strong> Gotchu valida el certificado y el nombre TLS.</Note>}>
-      <p>Con el perfil raíz, Gotchu hace una sola petición GET a la página principal (/). Si autorizas la superficie pública, puede hacer hasta diez peticiones GET al mismo origen. No necesitas compartir tu código fuente.<Ref n={5} /></p>
-    </Block>
-    <div className="gl-split gl-split--globe">
-      <div className="gl-globe"><DotPlate formation="globe" paused={paused} /></div>
-      <ul className="gl-rules gl-rules--facts">{DOMAIN_FACTS.map(fact => <li key={fact}><span aria-hidden="true" className="gl-bullet" />{fact}</li>)}</ul>
-    </div>
-  </Section>;
-}
-
-function TwoLooks() {
-  return <Section titleId="gl-miradas-titulo" title={['Dos miradas.', 'Más contexto.']}>
-    <Block notes={<Note n={6}>La cobertura parcial o no solicitada <strong>no demuestra que falten hallazgos.</strong></Note>}>
-      <p>Gotchu agrupa hallazgos por señales compartidas para comparar ambas revisiones. Un grupo común no prueba que describan el mismo fallo o despliegue.<Ref n={6} /></p>
-    </Block>
-    <VennPlate labels={VENN_LABELS} />
+function HowItWorks() {
+  return <Section id="gl-funciona" titleId="gl-funciona-titulo" title={['Cómo funciona.']}>
+    <ol className="gl-steps">
+      {HOW_STEPS.map(([title, detail], index) => <li key={title}>
+        <span className="gl-step-number" aria-hidden="true">0{index + 1}</span>
+        <div><h3>{title}</h3><p>{detail}</p></div>
+      </li>)}
+    </ol>
+    <div className="gl-process-plate"><FolderPlate /></div>
   </Section>;
 }
 
 function Evidence() {
-  return <Section titleId="gl-evidencia-titulo" title={['Cada hallazgo.', <Mark key="m" size="big">Su evidencia.</Mark>]}>
-    <Block notes={<Note n={7}><strong>La evidencia conserva su procedencia:</strong> fragmento, respuesta HTTP o dato de herramienta.</Note>}>
-      <p>El reporte enlaza evidencia con cada hallazgo. La severidad puede quedar sin evaluar; la confianza distingue observaciones, inferencias e incertidumbre. La explotabilidad permanece desconocida: no intentamos explotar nada.<Ref n={7} /></p>
-    </Block>
-    <dl className="gl-glossary">
-      {GLOSSARY.map(([term, definition], index) => <div className="gl-term" key={term}>
-        <dt><Mark size="big" delay={index * 90}>{term}</Mark></dt>
-        <span className="gl-leader" aria-hidden="true" />
-        <dd>{definition}</dd>
-      </div>)}
-    </dl>
-    <Block notes={<Note n={8}><strong>Sin hallazgos no es una garantía de seguridad.</strong></Note>}>
-      <p>Sin hallazgos significa que la revisión no encontró observaciones en lo que alcanzó a revisar. Lo parcial o no solicitado no descarta riesgos; no es una garantía de seguridad.<Ref n={8} /></p>
-    </Block>
-  </Section>;
-}
-
-function Scope() {
-  return <Section id="gl-alcance" titleId="gl-alcance-titulo" title={['Tú eliges', 'dónde mirar.']}>
-    <div className="gl-scopes">
-      {SCOPES.map(scope => <article className="gl-col gl-sweep-host" key={scope.name}>
-        <h3 className="gl-col-name"><Mark size="big" hover>{scope.name}</Mark></h3>
-        <p className="gl-col-title">{scope.title}</p>
-        <p>{scope.text}</p>
-        <ul className="gl-rules gl-rules--facts">{scope.facts.map(fact => <li key={fact}><span aria-hidden="true" className="gl-bullet" />{fact}</li>)}</ul>
-        <div className="gl-col-action"><TextLink href="/dashboard">{scope.action}</TextLink></div>
-      </article>)}
-    </div>
+  return <Section id="gl-informe" titleId="gl-informe-titulo" className="gl-report-section" title={['Cada hallazgo.', <Mark key="m" size="big">Su evidencia.</Mark>]}>
+    <div className="gl-report-copy"><p>El informe muestra confianza y cobertura.</p><JsonExhibit /></div>
   </Section>;
 }
 
 function Vigilance() {
-  return <Section id="gl-vigilancia" titleId="gl-vigilancia-titulo" title={['Tú marcas el ritmo.', <Mark key="m" size="big">Cada 1–24 h.</Mark>]}>
-    <Block notes={<Note n={9}>Las revisiones no son en tiempo real; las alertas se ven dentro de Gotchu. No hay avisos fuera y una alerta no confirma un ataque.</Note>}>
-      <p>Tú eliges cada cuánto revisar. Gotchu reúne lo autorizado y los eventos firmados para dar contexto a los incidentes.<Ref n={9} /></p>
-    </Block>
-    <ul className="gl-rules gl-rules--facts gl-vigilance-list">
-      {VIGILANCE_FACTS.map(fact => <li key={fact}><span aria-hidden="true" className="gl-bullet" />{fact}</li>)}
-    </ul>
+  return <Section id="gl-vigilancia" titleId="gl-vigilancia-titulo" className="gl-vigilance-section" title={['Programa evaluaciones', <Mark key="m" size="big">cada 1–24 h.</Mark>]}>
+    <p className="gl-vigilance-copy">No son evaluaciones en tiempo real.</p>
   </Section>;
 }
 
 function JsonExhibit() {
   return <figure className="gl-exhibit" aria-label="Estructura del reporte en JSON">
     <pre tabIndex={0}><code>{REPORT_JSON.map((line, index) => <span className="gl-jl" key={index}>
-      <span className="gl-jn" aria-hidden="true">{index + 1}</span>
       {line.split(/("(?:[^"\\]|\\.)*"\s*:?)/).map((part, at) => part.endsWith(':') ? <span className="gl-jk" key={at}>{part}</span> : part.startsWith('"') ? <span className="gl-js" key={at}>{part}</span> : part)}
     </span>)}</code></pre>
   </figure>;
 }
 
-function Team() {
-  return <Section titleId="gl-equipo-titulo" title={['Que el equipo', 'tenga contexto.']}>
-    <div className="gl-team">
-      <div className="gl-team-list">
-        <ol className="gl-numbered">
-          {TEAM.map((item, index) => <li key={item}><span aria-hidden="true">{['i', 'ii', 'iii', 'iv'][index]}</span><p>{item}</p></li>)}
-        </ol>
-        <div className="gl-notes"><Note n={10}><strong>La copia corregida es privada.</strong> No modifica el repositorio ni producción, no se publica ni despliega y no ejecuta pruebas de comportamiento.</Note></div>
-      </div>
-      <JsonExhibit />
-    </div>
-  </Section>;
-}
-
 function Questions() {
-  return <Section id="gl-preguntas" titleId="gl-preguntas-titulo" title={['Antes de', 'dar el paso.']}>
+  return <Section id="gl-preguntas" titleId="gl-preguntas-titulo" title={['Preguntas.']}>
     <Accordion className="gl-qa">
       {QUESTIONS.map(([question, answer]) => <AccordionItem key={question} value={question} className="gl-qa-item">
         <AccordionTrigger className="gl-qa-trigger py-[22px]">{question}</AccordionTrigger>
@@ -199,9 +108,9 @@ function Questions() {
 }
 
 function Closing({ paused }: { paused: boolean }) {
-  return <Section titleId="gl-paso-titulo" className="gl-closing" titleClass="gl-display--closing" title={['Dale otra mirada.', <Mark key="m" size="big">Da el paso.</Mark>]}>
+  return <Section id="gl-cierre" titleId="gl-paso-titulo" className="gl-closing" titleClass="gl-display--closing" title={['Revisa código', <Mark key="m" size="big">o un origen HTTPS.</Mark>]}>
     <div className="gl-wordmark"><DotPlate formation="wordmark" paused={paused} /></div>
-    <div className="gl-closing-actions"><Action href="/dashboard" size="lg">Empezar mi revisión</Action></div>
+    <div className="gl-closing-actions"><Action href="/dashboard" size="lg">Revisar una app</Action></div>
   </Section>;
 }
 
@@ -209,16 +118,13 @@ function Footer() {
   return <footer className="gl-footer">
     <div className="gl-footer-in">
       <a className="gl-brand" href="#gl-mirada" aria-label="Gotchu, inicio"><GotchuMark size={32} /><span>Gotchu</span></a>
-      <p>Tu app merece otra mirada.</p>
-      <TextLink href="/dashboard" className="text-(--footer-fg) decoration-(--footer-fg) hover:text-(--footer-accent) hover:decoration-brand">Abrir Gotchu</TextLink>
+      <a href="/dashboard" className="gl-footer-login">Entrar</a>
     </div>
   </footer>;
 }
 
 /**
- * The landing: an editorial dossier (headline reveals, highlighter, margin notes, ASCII plates) with
- * living dot fields for the mark, the domain and the closing wordmark. Follows the light, dark or
- * system theme.
+ * The landing uses short product steps and report evidence alongside authored visual plates.
  */
 export function Landing() {
   const motionAllowed = useMotionAllowed();
@@ -228,13 +134,9 @@ export function Landing() {
     <Header />
     <main id="contenido" tabIndex={-1} className="gl-main">
       <Hero paused={paused} onPause={setPaused} motion={motionAllowed} />
-      <Code />
-      <Domain paused={paused} />
-      <TwoLooks />
+      <HowItWorks />
       <Evidence />
-      <Scope />
       <Vigilance />
-      <Team />
       <Questions />
       <Closing paused={paused} />
     </main>

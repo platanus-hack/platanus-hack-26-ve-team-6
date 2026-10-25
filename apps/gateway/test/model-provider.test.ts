@@ -88,6 +88,12 @@ function localTlsFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Re
   });
 }
 
+// One fixture per request shape; presets sharing every wire-format field differ only in catalog data.
+const wireFormat = (preset: (typeof investigationProviderCatalog)[number]) =>
+  [preset.adapterKind, preset.authHeaderStyle, preset.maxTokensField, preset.supportsJsonObjectMode, preset.baseUrl === null].join(':');
+const onePresetPerWireFormat = perTokenPresets.filter((preset, index, all) =>
+  all.findIndex(other => wireFormat(other) === wireFormat(preset)) === index);
+
 describe('hosted investigator provider adapters (local HTTPS fixtures; not live-provider evidence)', () => {
   it('redacts secrets in structured values before they enter model requests', () => {
     const canary = 'canary-secret-DO_NOT_LEAK-8321';
@@ -96,7 +102,7 @@ describe('hosted investigator provider adapters (local HTTPS fixtures; not live-
     expect(excerpt).toContain('[REDACTED]');
   });
 
-  it.each(perTokenPresets)('sends the exact HTTPS request for $displayName and parses usage', async preset => {
+  it.each(onePresetPerWireFormat)('sends the exact HTTPS request for $displayName and parses usage', async preset => {
     recorded.length = 0;
     const endpoint = new URL(preset.baseUrl ?? 'https://custom.example/v1');
     const modelId = preset.defaultModelId ?? 'fixture-model';

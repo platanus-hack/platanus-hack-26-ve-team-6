@@ -34,7 +34,7 @@ En el dashboard, **Conectar GitHub** crea el primer espacio y la aplicación si 
 
 Un Owner puede cambiar los plazos desde **Retención** en el dashboard. Los valores iniciales son: instantáneas de código 90 días, imágenes de contenedor 30, informes 365, observaciones 30, ejecuciones 30, entregas de notificaciones 90 y eventos de protección 30. El coordinator ejecuta el trabajo durable de limpieza aun cuando el monitoreo programado esté desactivado y vuelve a revisar cada aplicación al menos cada diez minutos. Mantiene fuentes usadas por trabajos activos o en reconciliación; al vencer, elimina el contenido de las instantáneas e imágenes y sus informes, observaciones y alertas vencidos, ejecuciones finalizadas, entregas antiguas y eventos de protección. También recorta ejecuciones completadas, observaciones y planes antiguos para permanecer bajo sus cuotas de 1.000, 2.000 y 100 elementos; al alcanzar una cuota, ese historial puede borrarse antes del plazo configurado. La página **Vigilancia** muestra el consumo actual y las cuotas diarias; si se agotan las 100 proyecciones diarias, los eventos firmados aceptados siguen procesándose y la cobertura se marca incompleta. Los identificadores mínimos de fuentes se conservan para mantener las referencias de solicitudes. Esto no ofrece borrado permanente de aplicaciones o espacios de trabajo.
 
-Semgrep está fijado en 1.182.0 por digest. La validación local Linux/amd64 cubre los perfiles acotados que registra [`docs/validation.md`](./validation.md); el gate general de perfil y las garantías de precisión/capacidad siguen cerrados. Los informes muestran cobertura parcial y desconocida; un resultado sin hallazgos no demuestra que el sistema sea seguro.
+Semgrep está fijado en 1.182.0 por digest. La validación local Linux/amd64 cubre los perfiles acotados del scanner; el gate general de perfil y las garantías de precisión/capacidad siguen cerrados. Los informes muestran cobertura parcial y desconocida; un resultado sin hallazgos no demuestra que el sistema sea seguro.
 
 ## Investigación con IA
 
@@ -167,3 +167,32 @@ El validator VM aún no se inicia desde Compose. Requiere Linux, `/dev/kvm`, `bw
 `./gotchu upgrade` no modifica el checkout ni ejecuta `git pull`: reconstruye desde los archivos locales, aplica migraciones y reinicia conservando volúmenes y configuración. Actualiza el repositorio después de revisar sus cambios y luego ejecuta el comando. No hay rollback automatizado: toma una copia de datos antes de actualizar.
 
 Para detener Gotchu sin borrar los datos, usa `./gotchu down`. Para eliminar sus contenedores, volúmenes y secretos de ese estado local, confirma `./gotchu reset`; luego puedes borrar el checkout. `reset` conserva la carpeta hermana `.gotchu.backups/`; borra sus respaldos cifrados manualmente cuando ya no deban conservarse. Mantén fuera del directorio de estado la única copia que necesites para restaurar después de una pérdida del host.
+
+
+## Subscription model providers, live end to end — 2026-10-25
+
+Claude Code and Codex now run investigations on the Owner's own subscription. Everything below ran against a fresh `./gotchu up` in this worktree (isolated ports, disposable state) with this machine's real Claude Max and ChatGPT logins; no API keys were used. OpenRouter and the other API-key presets were **not** run live.
+
+| Check | Observed result |
+| --- | --- |
+| Self-host startup | `./gotchu up` applied gateway migrations and started web, coordinator, worker, gateway and scanner; `./gotchu status` reported all running. |
+| UI connection test, Claude Code (`claude-sonnet-5-5`) | Owner pasted the OAuth token in **Aplicaciones → Modelo y consentimiento**; "Conexión correcta · 416 tokens de entrada y 9 de salida". |
+| UI connection test, Codex (`gpt-6-luna`) | Owner pasted a Codex `auth.json`; "Conexión correcta · 5795 tokens de entrada y 9 de salida". |
+| Investigation from the report, Claude Code | Coordinator → worker → gateway → `claude -p`: `investigated`, `candidate_issue`, cited the uploaded `eval` evidence, 2 model calls + 2 additional reads, reservations settled (1,539/400 and 2,461/674 tokens), $0 charged. |
+| Investigation from the report, Codex | Same path through `codex exec`: `investigated`, `candidate_issue`, 2 model calls, 14,051 tokens settled, $0 charged. The terminal's own `auth.json` was unchanged (`last_refresh` 2026-10-19). |
+| Contract check | With the gateway's instruction, both CLIs returned replies that pass the worker's `modelOutputSchema`, in Spanish. |
+| Automated | Gateway suite 46 passed (Postgres-backed suite on a disposable PostgreSQL 17.11), backend investigation and budget suites 8 passed, worker 6 passed, `scripts/gotchu.test.mjs` passed, typecheck clean for gateway and worker. |
+
+The live run found two defects that fixtures had hidden, both fixed: the probe locked the settings row with `FOR UPDATE`, which the gateway role is not granted (every UI probe answered "no disponible"), and the gateway's fixed instruction never described the reply shape the worker enforces (the first live investigation ended `invalid_model_output`). Not measured: a real Codex token rotation, OpenRouter or any API-key provider live, the AWS runtime, and explanation quality beyond this single `eval` fixture.
+
+### Adversarial review — 2026-10-25
+
+My own review pass plus two independent read-only reviews (Codex `gpt-6-luna`, high effort) of the gateway path and the self-host wiring. Fixed:
+
+- Provably unbilled failures (CLI missing, rejected login, unknown model) left reservations stuck; a few Codex probes with an expired login could exhaust a 100k token budget. They now settle at zero.
+- Output caps now subtract a conservative input estimate (three characters per token; measured ≈3.7) for every provider, so a late call is refused cleanly instead of overrunning its reservation. Codex 0.163 ignores `model_max_output_tokens`, so its replies rely on that estimate.
+- A rotated Codex login written back after the Owner replaced or disabled it could recreate the deleted file; leftover CLI scratch directories after a crash are now swept at gateway start.
+- The money budget stays visible for subscriptions, since earlier API-key spending can still block them.
+- Existing installs get free gateway and worker ports on upgrade, and every service now receives its environment through a private `--env-file` instead of process arguments (previously `AUTH_SECRET`, database passwords and the new keys were readable in `/proc/<pid>/cmdline`).
+
+Re-verified live after the fixes: all services started through the new launcher, no secret appeared in any process's arguments, the Claude Code probe and a new investigation succeeded (Spanish explanation, both calls settled, 0 tokens left reserved), and the gateway (51) and backend investigation/budget (8) suites passed. Open: the Codex lock covers one gateway process only (see pendientes).

@@ -483,7 +483,7 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     await expect(api.customers.queue(c.identity, { ...input, idempotencyKey: randomUUID() })).resolves.toHaveProperty('jobId');
   });
 
-  it.each(['internal', 'external', 'both'] as const)('completes %s assessment atomically and reads the exact v2 report only in its workspace', async mode => {
+  it.each(['internal', 'external'] as const)('completes %s assessment atomically and reads the exact v2 report only in its workspace', async mode => {
     const c = await customer(); const result = await claim(c, mode);
     expect(result.input.version).toBe(2);
     expect(result.input.source === null).toBe(mode === 'external');

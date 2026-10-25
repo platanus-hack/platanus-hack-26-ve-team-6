@@ -28,8 +28,9 @@ const queuedResult = z.object({ accepted: z.number(), duplicates: z.number(), jo
 const delayedResult = investigationResultSchema.parse({
   status: 'delayed', assessment: 'inconclusive', summary: 'Fixture result for atomic ledger checks.',
   citedEvidenceIds: [], reasonCode: 'model_unavailable', independentVerification: 'not_verified',
+  hypotheses: [], candidateSuggestion: null,
   counters: { modelCalls: 0, additionalReadToolCalls: 0, tokensUsed: 0, spendMicroUsd: 0, activeMs: 0 },
-});
+} satisfies z.input<typeof investigationResultSchema>);
 
 async function waitFor(check: () => Promise<boolean>, description: string) {
   const until = Date.now() + 8000;
@@ -135,7 +136,7 @@ live('signed intake through durable delivery and isolated HTTP investigation', (
     });
   }
 
-  it('groups failures across batches, records an explicitly delayed investigation, and keeps tenant reads isolated', async () => {
+  it('groups failures across batches, records deterministic review without a model, and keeps tenant reads isolated', async () => {
     const a = await ingest(events(3)); const b = await ingest(events(2));
     const item = await newQueue(); await startConsumer(item);
     await dispatchOutbox(coordinator, f.a.organizationId, (envelope) => ensureQueueDelivery(item.queue, envelope));
@@ -147,9 +148,9 @@ live('signed intake through durable delivery and isolated HTTP investigation', (
     await waitFor(async () => await state(investigation.id) === 'succeeded', 'HTTP LangGraph investigation completion');
     const jobResponse = await api(new Request(`${origin}/api/v1/organizations/${f.a.organizationId}/jobs/${investigation.id}`, { headers: { cookie } }));
     expect(jobResponse.status).toBe(200);
-    expect(await jobResponse.json()).toMatchObject({ outcome: 'delayed', reasonCode: 'model_unavailable' });
+    expect(await jobResponse.json()).toMatchObject({ outcome: 'inconclusive', reasonCode: 'model_not_configured' });
     const run = present((await f.admin.query<{ state: string; checkpoint: unknown; model_calls: number; spent_micros: string }>('SELECT state,checkpoint,model_calls,spent_micros FROM gotchu.agent_runs WHERE organization_id=$1', [f.a.organizationId])).rows[0]);
-    expect(run.state).toBe('unavailable'); expect(run.model_calls).toBe(0); expect(run.spent_micros).toBe('0');
+    expect(run.state).toBe('succeeded'); expect(run.model_calls).toBe(0); expect(run.spent_micros).toBe('0');
     expect(run.checkpoint).not.toBeNull();
     const denied = await api(new Request(`${origin}/api/v1/organizations/${f.b.organizationId}/applications`, { headers: { cookie, 'x-user-id': f.b.userId } }));
     expect(denied.status).toBe(403);
@@ -316,8 +317,8 @@ live('signed intake through durable delivery and isolated HTTP investigation', (
       secretRef: null, consentToExternalProcessing: true, dataScopes: ['runtime_summaries' as const],
       inputPriceMicroUsdPerMillionTokens: 0, outputPriceMicroUsdPerMillionTokens: 0 };
     await f.admin.query('UPDATE gotchu.organizations SET model_opt_in=true,model_budget_micros=100,model_token_budget=1000 WHERE id=$1', [f.a.organizationId]);
-    await f.admin.query(`INSERT INTO gotchu.investigation_model_settings(organization_id,provider,endpoint,model_id,consent_to_external_processing,data_scopes,input_price_micro_usd_per_million_tokens,output_price_micro_usd_per_million_tokens,updated_by)
-      VALUES($1,$2,$3,$4,true,'["runtime_summaries"]'::jsonb,0,0,$5)`, [f.a.organizationId, configuration.provider, configuration.endpoint, configuration.modelId, f.a.userId]);
+    await f.admin.query(`INSERT INTO gotchu.investigation_model_settings(organization_id,provider,endpoint,model_id,consent_to_external_processing,data_scopes,input_price_micro_usd_per_million_tokens,output_price_micro_usd_per_million_tokens,updated_by,provider_preset_id)
+      VALUES($1,$2,$3,$4,true,'["runtime_summaries"]'::jsonb,0,0,$5,$6)`, [f.a.organizationId, configuration.provider, configuration.endpoint, configuration.modelId, f.a.userId, configuration.providerPresetId]);
     await coordinator.runs.reserveModel({ organizationId: f.a.organizationId, runId: run.runId, reservationId: randomUUID(), maxCostMicros: 10,
       reserveTokens: 100, requestSha256: 'a'.repeat(64), configSha256: modelConfigurationFingerprint(configuration),
       provider: configuration.provider, modelId: configuration.modelId });

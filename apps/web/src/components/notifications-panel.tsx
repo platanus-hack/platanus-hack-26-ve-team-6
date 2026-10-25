@@ -78,7 +78,7 @@ export function NotificationsPanel({userId,organizationId,applicationId,canManag
 
   return <section className="customer-card customer-panel customer-notifications-card" aria-labelledby="notifications-title">
     <div className="customer-card-heading"><div><h2 id="notifications-title">Notificaciones</h2></div><span className="customer-status customer-status-muted">Correo · Webhook</span></div>
-    <p className="customer-field-note">Las alertas externas informan sobre vigilancia detenida o reanudada, hallazgos altos o críticos de comprobaciones programadas y alertas de detectores en tiempo de ejecución.</p>
+    <p className="customer-field-note">Los avisos envían título, mensaje, tipo y gravedad. Los webhooks también reciben los identificadores del espacio y el proyecto.</p>
 
     {coverage.isPending?<div className="customer-loading" role="status">Cargando el estado de vigilancia…</div>
       :coverage.isError?<div className="customer-form-error" role="alert">No se pudo cargar el estado de vigilancia. <button type="button" className="customer-link-button" onClick={()=>{coverage.refetch().catch(()=>undefined);}}>Reintentar</button></div>
@@ -94,7 +94,7 @@ export function NotificationsPanel({userId,organizationId,applicationId,canManag
       <label htmlFor={`notification-kind-${organizationId}`}>Tipo de canal</label><select id={`notification-kind-${organizationId}`} value={kind} onChange={event=>setKind(event.target.value==='webhook'?'webhook':'email')}><option value="email">Correo electrónico</option><option value="webhook">Webhook firmado</option></select>
       <label htmlFor={`notification-label-${organizationId}`}>Nombre</label><input id={`notification-label-${organizationId}`} required maxLength={120} value={label} onChange={event=>setLabel(event.target.value)} />
       {kind==='email'?<><label htmlFor={`notification-email-${organizationId}`}>Correo destinatario</label><input id={`notification-email-${organizationId}`} type="email" autoComplete="email" required maxLength={254} value={email} onChange={event=>setEmail(event.target.value)} /></>
-        :<><label htmlFor={`notification-url-${organizationId}`}>URL HTTPS pública</label><input id={`notification-url-${organizationId}`} type="url" required maxLength={2048} placeholder="https://alertas.example.com/gotchu" value={webhookUrl} onChange={event=>setWebhookUrl(event.target.value)} /><p className="customer-field-note">Se rechazan destinos privados, locales, de enlace local y de metadatos, incluso si aparecen tras resolver DNS.</p></>}
+        :<><label htmlFor={`notification-url-${organizationId}`}>URL HTTPS pública</label><input id={`notification-url-${organizationId}`} type="url" required maxLength={2048} placeholder="https://alertas.example.com/gotchu" value={webhookUrl} onChange={event=>setWebhookUrl(event.target.value)} /></>}
       <label htmlFor={`notification-severity-${organizationId}`}>Severidad mínima</label><select id={`notification-severity-${organizationId}`} value={minimumSeverity} onChange={event=>setMinimumSeverity(event.target.value as NotificationDelivery['severity'])}>{Object.entries(severityNames).map(([value,labelText])=><option key={value} value={value}>{labelText}</option>)}</select>
       {(createEmail.error||createWebhook.error)&&<p className="customer-form-error" role="alert">{friendlyError(createEmail.error??createWebhook.error)}</p>}
       <button className="customer-button customer-button-primary" disabled={busy||!label.trim()||(kind==='email'?!email.trim():!webhookUrl.trim())}>{busy?'Guardando…':'Añadir canal'}</button>
@@ -117,7 +117,6 @@ export function NotificationsPanel({userId,organizationId,applicationId,canManag
         :deliveries.isError?<div className="customer-form-error" role="alert">No se pudo cargar el historial. <button type="button" className="customer-link-button" onClick={()=>{deliveries.refetch().catch(()=>undefined);}}>Reintentar</button></div>
         :deliveries.data?.length?<ul className="customer-ruled-list">{deliveries.data.map(item=><li key={item.id}><div className="customer-notification-delivery"><div><strong>{item.title}</strong><small>{eventNames[item.eventKind]} · {item.channelLabel} · {severityNames[item.severity]}</small><small>{deliveryNames[item.state]} · {item.attempts} {item.attempts===1?'intento':'intentos'} · {formattedDate(item.updatedAt)}</small>{item.lastError&&<small>{deliveryError(item.lastError)}</small>}</div></div></li>)}</ul>
           :<p className="customer-empty-inline">Aún no hay entregas. Usa «Enviar prueba» para comprobar un canal.</p>}
-      <p className="customer-field-note">«Aceptado por el proveedor» confirma que SMTP o el receptor webhook aceptó la solicitud; no confirma que una persona la haya leído. La clave de idempotencia se mantiene estable en los reintentos.</p>
     </div>
   </section>;
 }

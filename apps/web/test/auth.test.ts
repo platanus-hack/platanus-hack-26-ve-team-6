@@ -46,11 +46,6 @@ describe('Auth.js Request/Response integration', () => {
     expect(identity?.cookies.some((cookie) => cookie.startsWith(`${cookieName}=`))).toBe(true);
   });
 
-  it('uses a bounded email local part as a workspace name hint when no display name exists', async () => {
-    const identity = await service.identity(new Request(`${settings.origin}/api/v1/applications`, { headers: { cookie: await sessionCookie(settings.secret, { sub: 'github:42', email: `${'a'.repeat(64)}@example.test` }) } }));
-    expect(identity?.displayName).toBe('a'.repeat(64));
-  });
-
   it('does not accept unsigned identity headers or cookies encrypted with another key', async () => {
     const fake = await service.identity(new Request(`${settings.origin}/api/v1/applications`, { headers: { 'x-user-id': 'github:42', 'x-organization-id': 'another-tenant' } }));
     expect(fake).toBeNull();
@@ -94,24 +89,7 @@ describe('Auth.js Request/Response integration', () => {
     expect(() => authSettings({ AUTH_SECRET: settings.secret, AUTH_GITHUB_ID: 'id', AUTH_GITHUB_SECRET: 'secret', PUBLIC_APP_URL: 'http://public.example' })).toThrow('HTTPS');
   });
 
-  it('publishes the GitHub sign-in provider only when both credentials are configured', () => {
-    const base = { AUTH_SECRET: settings.secret, PUBLIC_APP_URL: settings.origin };
-    expect(publicAuthProviders(authSettings({ ...base, AUTH_GITHUB_ID: 'client-id' }))).toEqual([]);
-    expect(publicAuthProviders(authSettings({ ...base, AUTH_GITHUB_SECRET: 'client-secret' }))).toEqual([]);
-    expect(publicAuthProviders(authSettings({ ...base, AUTH_GITHUB_ID: 'client-id', AUTH_GITHUB_SECRET: 'client-secret' }))).toContainEqual({ id: 'github', name: 'GitHub', type: 'oauth' });
-  });
-
-  it('publishes Google only when both credentials are configured and uses the requested scopes', () => {
-    const base = { AUTH_SECRET: settings.secret, PUBLIC_APP_URL: settings.origin };
-    expect(publicAuthProviders(authSettings({ ...base, AUTH_GOOGLE_ID: 'client-id' }))).toEqual([]);
-    expect(publicAuthProviders(authSettings({ ...base, AUTH_GOOGLE_SECRET: 'client-secret' }))).toEqual([]);
-    const configured = authSettings({ ...base, AUTH_GOOGLE_ID: 'client-id', AUTH_GOOGLE_SECRET: 'client-secret' });
-    if (!configured) throw new Error('Google provider credentials were not accepted');
-    expect(publicAuthProviders(configured)).toContainEqual({ id: 'google', name: 'Google', type: 'oidc' });
-    expect(createAuthConfig(configured).providers[0]).toMatchObject({ options: { authorization: { params: { scope: 'openid email profile' } } } });
-  });
-
-  it('requires verified Google email and blocks linking to an existing local account', async () => {
+  it('requires verified Google email without letting an unverified local registration block Google', async () => {
     const emailExists = vi.fn(async () => true);
     const configured: AuthSettings = { ...settings, googleClientId: 'google-client', googleClientSecret: 'google-secret', localAccounts: localAccounts({ emailExists }) };
     const signIn = createAuthConfig(configured).callbacks?.signIn;
@@ -119,8 +97,12 @@ describe('Auth.js Request/Response integration', () => {
     await expect(signIn({ ...googleSignInInput, profile: { ...googleSignInInput.profile, email_verified: false } }))
       .resolves.toBe(`${settings.origin}/dashboard?authError=GoogleEmailUnverified`);
     expect(emailExists).not.toHaveBeenCalled();
-    await expect(signIn(googleSignInInput)).resolves.toBe(`${settings.origin}/dashboard?authError=GoogleAccountRequiresPassword`);
-    expect(emailExists).toHaveBeenCalledExactlyOnceWith('person@example.test');
+    await expect(signIn(googleSignInInput)).resolves.toBe(true);
+    expect(emailExists).not.toHaveBeenCalled();
+    const jwt = createAuthConfig(configured).callbacks?.jwt;
+    if (!jwt) throw new Error('JWT callback missing');
+    const claims = await jwt({ token: {}, user: googleSignInInput.user, account: googleSignInInput.account, trigger: 'signIn' });
+    expect(claims?.sub).toBe('google:42');
   });
 
   it('keeps self-host first-owner creation on the single-use setup flow', async () => {

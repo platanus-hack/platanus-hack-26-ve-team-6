@@ -94,6 +94,10 @@ COPY --from=coordinator-build --chown=node:node /workspace/packages/assessment/a
 COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/assessment/node_modules /workspace/packages/assessment/node_modules
 COPY --from=coordinator-build --chown=node:node /workspace/apps/demo-target/package.json /workspace/apps/demo-target/package.json
 COPY --from=coordinator-build --chown=node:node /workspace/apps/demo-target/dist /workspace/apps/demo-target/dist
+COPY --from=coordinator-production-dependencies --chown=node:node /workspace/apps/demo-target/node_modules /workspace/apps/demo-target/node_modules
+COPY --from=coordinator-build --chown=node:node /workspace/packages/sdk/package.json /workspace/packages/sdk/package.json
+COPY --from=coordinator-build --chown=node:node /workspace/packages/sdk/dist /workspace/packages/sdk/dist
+COPY --from=coordinator-production-dependencies --chown=node:node /workspace/packages/sdk/node_modules /workspace/packages/sdk/node_modules
 COPY --from=coordinator-build --chown=node:node /workspace/apps/demo-target/src/fixtures /workspace/apps/demo-target/src/fixtures
 COPY --from=coordinator-production-dependencies --chown=node:node /workspace/apps/demo-target/node_modules /workspace/apps/demo-target/node_modules
 COPY --from=coordinator-build --chown=node:node /workspace/apps/scanner/package.json /workspace/apps/scanner/package.json
