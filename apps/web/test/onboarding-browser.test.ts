@@ -200,4 +200,21 @@ globalThis.fetch = async (input, init) => {
       (SELECT count(*)::int FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2 AND kind='audit') AS jobs`, [workspace.id, application.applicationId]);
     expect(counts.rows[0]).toEqual({ sources: 1, jobs: 1 });
   }, 60_000);
+
+  it('does not reuse a previous identity\'s onboarding scope after signing out', async () => {
+    await page.context().clearCookies();
+    await page.goto(origin);
+    await page.evaluate(() => sessionStorage.clear());
+    await signIn(page, origin, `scope-owner-${randomUUID()}@example.test`);
+    await page.route(`${origin}/api/customer/github/connect`, route => route.fulfill({ json: { installUrl: `${origin}/dashboard` } }));
+    await page.getByRole('button', { name: 'Conectar GitHub' }).click();
+    await page.getByRole('heading', { name: 'Elige cómo empezar' }).waitFor();
+    await page.getByRole('button', { name: 'Cerrar sesión' }).click();
+    await page.getByRole('button', { name: 'Iniciar sesión', exact: true }).waitFor();
+    const failuresBefore = customerApiFailures.length;
+    await signIn(page, origin, `scope-new-user-${randomUUID()}@example.test`);
+    await page.getByRole('textbox', { name: 'Espacio de trabajo', exact: true }).waitFor({ timeout: 5_000 });
+    expect(customerApiFailures.slice(failuresBefore)).toEqual([]);
+    await page.unroute(`${origin}/api/customer/github/connect`);
+  }, 45_000);
 });
