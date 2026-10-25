@@ -151,7 +151,7 @@ globalThis.fetch = async (input, init) => {
     const queued = page.waitForResponse(response => response.url().endsWith('/assessments') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Analizar carpeta' }).click();
     expect((await queued).status()).toBe(202);
-    try { await page.locator('.customer-job-banner').waitFor({ timeout: 10_000 }); }
+    try { await page.locator('.customer-progress').waitFor({ timeout: 10_000 }); }
     catch {
       const dashboard = await page.locator('.customer-main').innerText().catch(() => 'Customer dashboard is not visible.');
       const alerts = await page.locator('[role="alert"]').allTextContents();
@@ -380,7 +380,7 @@ globalThis.fetch = async (input, init) => {
     const scan = page.waitForResponse(response => response.url().includes('/github/installations/174788349/repositories/42/select') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Analizar fixture-owner/vulnerable-app' }).click();
     expect((await scan).status()).toBe(201);
-    await page.locator('.customer-job-banner').waitFor({ timeout: 10_000 });
+    await page.locator('.customer-progress').waitFor({ timeout: 10_000 });
     expect(await page.evaluate(() => window.sessionStorage.getItem('onboarding-click-count'))).toBe('4');
     const workspaces = await page.evaluate(async () => await (await fetch('/api/customer/workspaces')).json());
     const workspace = customerWorkspaceSchema.parse(Array.isArray(workspaces) ? workspaces[0] : null);

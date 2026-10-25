@@ -37,6 +37,9 @@ Se encontraron durante la integración del 24 de octubre de 2026 y quedan para r
 - **Readiness del scanner.** La falta de la base de Trivy para imágenes bloqueaba la readiness completa. Ya se refresca en cada `./gotchu up`. Queda por decidir si la falta de un perfil opcional debe degradar la cobertura en lugar de bloquear el arranque.
 - **Integración de streams paralelos.** Al integrar quedaron imports duplicados y fixtures desactualizados; ya están corregidos. Conviene que cada agente compile la rama integrada antes de entregar.
 
+- **Progreso en vivo por rama del grafo de fases.** El grafo de la evaluación solo muestra lo que observa el coordinator: cola, validación y la llamada al scanner como una sola fase. Para ver por separado el análisis interno, el externo y la correlación, el scanner debe enviar eventos de progreso firmados durante la ejecución y el coordinator guardarlos bajo la misma reserva. Hasta entonces, si el scanner falla no se sabe qué rama falló.
+- **Trabajo sin noticias del scanner.** Si el proceso cae a mitad del análisis, la reserva dura 300 s y el grafo sigue mostrando "Análisis" en curso todo ese tiempo. Mostrar "sin noticias del analizador" al pasar el plazo de 55 s del motor.
+
 ## 3. Seguridad y operación (D14, resto)
 
 - **Revocación inmediata (D14).** Protege la garantía central: nada se escribe sin una aprobación exacta y vigente. Desconectar GitHub, rotar la firma de eventos, borrar un canal de notificación o quitar una llave WebAuthn (por ejemplo, tras perder el dispositivo) debe cancelar en la misma operación las aprobaciones pendientes y las pruebas de segundo factor, y quedar en el historial de decisiones. Hoy una aprobación previa podría seguir vigente y ejecutarse después.

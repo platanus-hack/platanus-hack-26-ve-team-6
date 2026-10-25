@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { jobEnvelopeSchema, type JobEnvelope } from '@gotchu/contracts';
+import { customerJobPhaseSchema, jobEnvelopeSchema, type CustomerJobPhase, type JobEnvelope } from '@gotchu/contracts';
 import type { Transaction } from '@gotchu/database';
 import { z } from 'zod';
 import { BackendError, parse, type BaseDependencies } from './core.js';
@@ -75,6 +75,15 @@ export function createJobService(deps: BaseDependencies) {
       await deps.database.tenant(value.organizationId, async tx => {
         const result = await tx.query("UPDATE gotchu.jobs SET state='failed',result=$4::jsonb,completed_at=clock_timestamp(),lease_until=NULL WHERE organization_id=$1 AND id=$2 AND lease_token=$3 AND state='running' AND lease_until>clock_timestamp()", [value.organizationId,value.jobId,value.leaseToken,JSON.stringify({reasonCode:value.reasonCode})]);
         if (result.rowCount !== 1) throw new BackendError('stale_lease', 'Job claim is no longer current', 409);
+      });
+    },
+    /** Appends an observed phase under the current lease so clients can show where the job is. */
+    async progress(input: { organizationId: string; jobId: string; leaseToken: string; phase: CustomerJobPhase }): Promise<void> {
+      const value = parse(tokenSchema.extend({ phase: customerJobPhaseSchema }), input);
+      await deps.database.tenant(value.organizationId, async tx => {
+        const result = await tx.query(`UPDATE gotchu.jobs SET progress=progress||jsonb_build_array(jsonb_build_object('phase',$4::text,'at',to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
+          WHERE organization_id=$1 AND id=$2 AND lease_token=$3 AND state='running' AND lease_until>clock_timestamp()`, [value.organizationId, value.jobId, value.leaseToken, value.phase]);
+        if (result.rowCount !== 1) throw new BackendError('stale_lease', 'Job claim expired or is no longer current', 409);
       });
     },
     async heartbeat(input: { organizationId: string; jobId: string; leaseToken: string; leaseMs?: number }): Promise<void> {

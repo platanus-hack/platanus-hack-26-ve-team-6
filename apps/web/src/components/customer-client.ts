@@ -1,5 +1,7 @@
 import {
+  assessmentModeSchema,
   customerApplicationSchema,
+  customerJobProgressSchema,
   customerAssessmentReportSchema,
   customerCreateApplicationSchema,
   customerCreateWorkspaceSchema,
@@ -66,6 +68,11 @@ const customerJobSchema = z.object({
   kind: z.string().min(1).max(64),
   reportId: z.uuid().nullable(),
   reasonCode: z.string().max(256).nullable(),
+  mode: assessmentModeSchema.nullable(),
+  inputKind: z.enum(['source_snapshot', 'container_image']).nullable(),
+  createdAt: z.iso.datetime(),
+  completedAt: z.iso.datetime().nullable(),
+  progress: customerJobProgressSchema,
 }).strict();
 const queuedAssessmentSchema = z.object({ jobId: z.uuid() }).strict();
 const errorSchema = z.object({ error: z.object({ code: z.string(), message: z.string() }).passthrough() }).passthrough();

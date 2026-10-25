@@ -60,7 +60,7 @@
 .customer-section-heading .customer-eyebrow { order: 2; margin: 0; font-size: 12px; }
 .customer-report-section > p, .customer-report-limitations { max-width: 62ch; color: var(--muted-foreground); font-size: 15px; line-height: 1.65; }
 .customer-report-limitations { margin: 12px 0 0; padding-left: 20px; }
-.customer-job-banner { scroll-margin-top: 16px; }
+.customer-progress { scroll-margin-top: 16px; }
 
 /* Tabs */
 .customer-report-tabs { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 36px 0 0; }
