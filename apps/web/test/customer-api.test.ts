@@ -13,7 +13,7 @@ const applicationId = randomUUID();
 const userId = `credentials:${randomUUID()}`;
 function ports() {
   const unused = async (): Promise<never> => { throw new Error('Unexpected service invocation'); };
-  const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, updateWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, verifyTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listContainerImages: unused, uploadContainerImage: unused, deleteContainerImage: unused, listReports: unused, getReport: unused, recordReportDownload: unused, queue: unused, job: unused };
+  const services: CustomerServices = { listWorkspaces: unused, createWorkspace: unused, updateWorkspace: unused, listApplications: unused, createApplication: unused, updateApplication: unused, listTargets: unused, enrollTarget: unused, revokeTarget: unused, listSources: unused, uploadSource: unused, deleteSource: unused, listContainerImages: unused, uploadContainerImage: unused, deleteContainerImage: unused, listReports: unused, getReport: unused, recordReportDownload: unused, queue: unused, job: unused };
   const auth: AuthService = { enabled: true, handle: async () => new Response(), identity: async () => ({ userId, cookies: ['authjs.session-token=refreshed; Path=/; HttpOnly'] }), accountEmail: async () => null };
   return { services, auth };
 }
@@ -142,11 +142,12 @@ describe('authenticated customer HTTP adapter (injected services)', () => {
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
     expect((await handle(request('workspaces', { name: 'Unexpected' }, { origin: 'https://attacker.invalid' }))).status).toBe(403);
   });
-  it('does not accept caller verification facts, source paths or automatic response authority', async () => {
+  it('does not accept client attestation, caller verification facts, source paths or automatic response authority', async () => {
     const { services, auth } = ports();
     const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [] });
     const prefix = `workspaces/${organizationId}/applications/${applicationId}`;
     expect((await handle(request(`${prefix}/targets`, { origin: 'https://example.com', authorized: true, verified: true }))).status).toBe(400);
+    expect((await handle(request(`${prefix}/targets/${randomUUID()}/verify`, {}))).status).toBe(404);
     expect((await handle(request(`${prefix}/sources`, { snapshot: { revision: 'commit', files: [{ path: '../../secret.ts', content: 'secret' }] }, authorized: true }))).status).toBe(400);
     expect((await handle(request(`${prefix}/assessments`, { mode: 'external', sourceSnapshotId: null, targetId: randomUUID(), responseMode: 'automatic_limited' }, { 'idempotency-key': randomUUID() }))).status).toBe(400);
   });

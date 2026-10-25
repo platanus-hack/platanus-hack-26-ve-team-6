@@ -107,8 +107,8 @@ export async function runMonitoringWork(deps: MonitoringDependencies, initial: M
         try {
           await deps.backend.operations.getWatch(claim); signal.throwIfAborted();
           const probeContext = await deps.database.tenant(claim.organizationId, async tx => {
-            const target = await tx.query<{id:string;origin:string;version:number;verified_at:Date;expires_at:Date;scan_profile:'root'|'public_surface'}>(`SELECT id,origin,version,verified_at,expires_at,scan_profile FROM gotchu.customer_targets
-              WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND status='verified' AND expires_at>clock_timestamp()`,[claim.organizationId,claim.applicationId,watch.config.targetId]);
+            const target = await tx.query<{id:string;origin:string;version:number;authorized_at:Date;expires_at:Date;scan_profile:NonNullable<TrustedCustomerTarget['scanProfile']>}>(`SELECT id,origin,version,authorized_at,expires_at,scan_profile FROM gotchu.customer_targets
+              WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND status='authorized' AND expires_at>clock_timestamp()`,[claim.organizationId,claim.applicationId,watch.config.targetId]);
             const routes = await tx.query<{route:string;service:string;provider:string|null;role:'application'|'control'}>(`SELECT r.route,s.name AS service,d.provider,r.role FROM gotchu.triage_probe_routes r
               JOIN gotchu.application_services s ON s.organization_id=r.organization_id AND s.application_id=r.application_id AND s.id=r.service_id
               LEFT JOIN gotchu.application_dependencies d ON d.organization_id=r.organization_id AND d.application_id=r.application_id AND d.id=r.dependency_id
@@ -117,11 +117,12 @@ export async function runMonitoringWork(deps: MonitoringDependencies, initial: M
           });
           if (!probeContext.target) throw new Error('verified_monitor_target_missing');
           const target:TrustedCustomerTarget={id:probeContext.target.id,origin:probeContext.target.origin,version:probeContext.target.version,scanProfile:probeContext.target.scan_profile,
-            verifiedAt:probeContext.target.verified_at.toISOString(),expiresAt:probeContext.target.expires_at.toISOString()};
-          const routes=probeContext.routes.length?probeContext.routes:[{route:'/',service:'application',provider:null,role:'application' as const}];
+            authorizedAt:probeContext.target.authorized_at.toISOString(),expiresAt:probeContext.target.expires_at.toISOString()};
+          const permittedRoutes = probeContext.routes.filter(item => item.route === '/' || target.scanProfile === 'public_surface');
+          const routes=permittedRoutes.length?permittedRoutes:[{route:'/',service:'application',provider:null,role:'application' as const}];
           for(const configured of routes){
             const result = await deps.adapters.httpsHealth(target,configured.route,AbortSignal.any([signal,AbortSignal.timeout(10_000)]));
-            if(probeContext.routes.length){
+            if(permittedRoutes.length){
               const probe = httpsProbeSchema.parse({route:result.route,service:configured.service,dependsOnProvider:configured.provider,
                 role:configured.role,outcome:result.incomplete?'unknown':result.status>=500?'unavailable':result.status>=400?'degraded':'healthy',at:result.observedAt});
               await persistHttpsProbeInput(deps.database,claim,probe);

@@ -43,7 +43,7 @@ function externalInput(scanProfile: 'root' | 'public_surface' = 'public_surface'
     id: request.jobId,
     origin: 'https://customer.org',
     version: 1,
-    verifiedAt: new Date(Date.now() - 1_000).toISOString(),
+    authorizedAt: new Date(Date.now() - 1_000).toISOString(),
     expiresAt: new Date(Date.now() + 30_000).toISOString(),
     scanProfile,
   };

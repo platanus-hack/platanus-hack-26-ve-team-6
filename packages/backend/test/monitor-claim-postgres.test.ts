@@ -27,8 +27,8 @@ live('monitor claim settlement with real PostgreSQL roles (no adapter I/O)', () 
     const targetId = withTarget ? randomUUID() : null;
     if (targetId) {
       // Operator fixture: no DNS resolution, HTTPS scan or provider request occurs.
-      await f.admin.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at,verified_at,expires_at)
-        VALUES($1,$2,$3,'https://example.com',1,'verified',$4,repeat('a',64),clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '1 day')`,
+      await f.admin.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,requested_by,authorized_at,expires_at)
+        VALUES($1,$2,$3,'https://example.com',1,'authorized',$4,clock_timestamp(),clock_timestamp()+interval '1 day')`,
       [scope.organizationId, scope.applicationId, targetId, author.userId]);
     }
     const config = { ...scope, enabled: true, intervalSeconds: 21600, sourceSnapshotId: source.id, targetId };
@@ -73,9 +73,9 @@ live('monitor claim settlement with real PostgreSQL roles (no adapter I/O)', () 
   it.each(['expired_target', 'renewed_target', 'revoked_target', 'deleted_source'] as const)('settles a never-started claim with %s scope', async change => {
     const c = await scheduled(true);
     // Simulates scope drift/expiry after materialization, without authorizing I/O.
-    if (change === 'expired_target') await f.admin.query("UPDATE gotchu.customer_targets SET verified_at=clock_timestamp()-interval '8 days',expires_at=clock_timestamp()-interval '1 day' WHERE id=$1", [c.targetId]);
+    if (change === 'expired_target') await f.admin.query("UPDATE gotchu.customer_targets SET authorized_at=clock_timestamp()-interval '8 days',expires_at=clock_timestamp()-interval '1 day' WHERE id=$1", [c.targetId]);
     if (change === 'renewed_target') await f.admin.query('UPDATE gotchu.customer_targets SET version=version+1 WHERE id=$1', [c.targetId]);
-    if (change === 'revoked_target') await f.admin.query("UPDATE gotchu.customer_targets SET status='revoked',verified_at=NULL,expires_at=NULL WHERE id=$1", [c.targetId]);
+    if (change === 'revoked_target') await f.admin.query("UPDATE gotchu.customer_targets SET status='revoked',authorized_at=NULL,expires_at=NULL WHERE id=$1", [c.targetId]);
     if (change === 'deleted_source') await f.admin.query('UPDATE gotchu.customer_sources SET body=NULL,deleted_at=clock_timestamp() WHERE id=$1', [c.source.id]);
     expect(await coordinator.jobs.claim(c.job)).toBeNull();
     expect(await stored(c)).toMatchObject({ state: 'failed', attempts: 0, result: { reasonCode: 'monitor_authorization_changed' }, run_status: 'degraded' });
@@ -95,7 +95,7 @@ live('monitor claim settlement with real PostgreSQL roles (no adapter I/O)', () 
     await expect(coordinator.customers.getRequest({ ...c.scope, jobId: c.job.jobId, leaseToken: first.leaseToken })).rejects.toMatchObject({ code: 'stale_lease' });
     await expect(coordinator.jobs.complete({ ...c.job, leaseToken: first.leaseToken })).rejects.toMatchObject({ code: 'stale_lease' });
     await expect(api.customers.revokeTarget(c.owner, { ...c.scope, targetId: present(c.targetId) })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
-    await expect(api.customers.enrollTarget(c.owner, { ...c.scope, origin: 'https://example.com', authorized: true })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
+    await expect(api.customers.enrollTarget(c.owner, { ...c.scope, origin: 'https://example.com' })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
     await expect(api.operations.configure(c.owner, { ...c.config, enabled: false })).rejects.toMatchObject({ code: 'monitor_work_in_progress' });
     expect(await coordinator.jobs.claim(c.job)).toBeNull();
   });

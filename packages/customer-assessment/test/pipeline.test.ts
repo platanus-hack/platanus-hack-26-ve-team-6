@@ -13,7 +13,7 @@ function request(mode: 'internal' | 'external' | 'both', content = 'source snaps
   if (mode !== 'internal') {
     value.target = {
       id: randomUUID(), origin, version: 3,
-      verifiedAt: new Date(Date.now() - 1_000).toISOString(),
+      authorizedAt: new Date(Date.now() - 1_000).toISOString(),
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     };
   }
@@ -38,6 +38,9 @@ it.each(['internal', 'external', 'both'] as const)('traverses each real StateGra
   expect(result.report.version).toBe(2);
   expect(result.report.internal === null).toBe(mode === 'external');
   expect(result.report.external === null).toBe(mode === 'internal');
+  const limitations = result.report.limitations.join(' ');
+  expect(limitations.includes('HTTPS observations')).toBe(mode !== 'internal');
+  expect(limitations.includes('static source')).toBe(mode !== 'external');
 });
 
 it('keeps concurrent assessment inputs and results in their own invocation closures', async () => {

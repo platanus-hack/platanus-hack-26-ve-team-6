@@ -18,18 +18,18 @@
 .customer-tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* History + detail */
-.customer-report-layout { display: grid; grid-template-columns: minmax(240px, .38fr) minmax(0, 1fr); gap: clamp(24px, 3vw, 48px); align-items: start; }
+.customer-report-layout { display: grid; grid-template-columns: minmax(260px, 0.34fr) minmax(0, 1fr); gap: clamp(22px, 2.5vw, 36px); align-items: start; }
 .customer-card.customer-report-history, .customer-card.customer-report-card { border: 0; border-radius: 0; background: transparent; padding: 0; overflow: visible; }
-.customer-report-card { min-height: 390px; }
+.customer-report-card { min-height: 0; }
 .customer-report-history { min-width: 0; }
 /* The list column stays in view beside the long report instead of leaving a blank column. */
 @media (min-width: 801px) {
   .customer-report-layout > .customer-card.customer-report-history { position: sticky; top: 68px; max-height: calc(100svh - 84px); overflow-y: auto; }
 }
-.customer-report-history > .customer-card-heading { padding: 16px 0 14px; }
+.customer-report-history > .customer-card-heading { padding: 0 0 10px; }
 .customer-report-list { list-style: none; margin: 0; padding: 0; }
 .customer-report-list li { border-bottom: 1px solid var(--border); }
-.customer-report-list a { display: flex; width: 100%; min-width: 0; min-height: 56px; align-items: center; gap: 12px; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--foreground); padding: 12px 10px; text-align: left; font: inherit; text-decoration: none; cursor: pointer; transition: border-color 160ms var(--ease); }
+.customer-report-list a { display: flex; width: 100%; min-width: 0; min-height: 50px; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--foreground); padding: 8px 6px; text-align: left; font: inherit; text-decoration: none; cursor: pointer; transition: border-color 160ms var(--ease); }
 .customer-report-list a:hover, .customer-report-list a.is-selected { border-bottom-color: var(--foreground); }
 /* The glyph in the markup is replaced by the brand diamond. */
 .customer-report-icon { display: block; width: var(--diamond); height: var(--diamond); flex: 0 0 var(--diamond); overflow: hidden; border: 1.5px solid var(--muted-foreground); background: transparent; color: transparent; font-size: 0; line-height: 0; transform: rotate(45deg) scale(.82); }
@@ -37,10 +37,10 @@
 .customer-report-row-title { display: grid; min-width: 0; flex: 1; gap: 4px; }
 .customer-report-row-title strong { overflow: hidden; color: var(--foreground); font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .customer-report-row-title small { overflow: hidden; color: var(--muted-foreground); font: 12px/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
-.customer-report-detail { min-width: 0; padding: 18px 0 0; }
+.customer-report-detail { min-width: 0; padding: 0; }
 .customer-report-title { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; padding-bottom: 18px; }
 .customer-report-title > div { display: flex; min-width: 0; flex-direction: column; }
-.customer-report-title h2 { order: 1; margin: 0; font: 700 clamp(26px, 3vw, 40px)/1.02 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.015em; text-transform: uppercase; overflow-wrap: anywhere; }
+.customer-report-title h2 { order: 1; margin: 0; font: 700 clamp(22px, 2.2vw, 28px)/1.1 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.015em; overflow-wrap: anywhere; }
 .customer-report-title .customer-eyebrow { order: 2; margin: 8px 0 0; }
 .customer-report-title p { order: 3; margin: 8px 0 0; color: var(--muted-foreground); font: 12.5px/1.5 var(--mono); }
 .customer-report-subject { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin: 0; }
@@ -53,7 +53,7 @@
 .customer-report-callout p { max-width: 62ch; margin: 6px 0 0; color: var(--muted-foreground); font-size: 15px; line-height: 1.6; }
 
 /* Sections */
-.customer-report-section { margin-top: 40px; }
+.customer-report-section { margin-top: 28px; }
 .customer-section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding-bottom: 12px; }
 .customer-section-heading > div { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
 .customer-section-heading h3 { order: 1; margin: 0; font: 700 clamp(18px, 1.9vw, 24px)/1.1 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.005em; text-transform: uppercase; }
@@ -208,10 +208,8 @@
 .customer-decision-inline > summary { cursor: pointer; font: 600 13px/1.5 var(--mono); }
 
 @media (max-width: 800px) {
-  .customer-report-layout { grid-template-columns: 1fr; gap: 28px; }
-  .customer-card.customer-report-history .customer-report-list { display: flex; overflow-x: auto; }
-  .customer-card.customer-report-history .customer-report-list li { min-width: 210px; border-bottom: 0; border-right: 1px solid var(--border); }
-  .customer-report-history .customer-report-list a { height: 100%; }
+  .customer-report-layout { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .customer-report-layout > .customer-card.customer-report-history { position: static; max-height: none; overflow: visible; }
 }
 @media (max-width: 700px) {
   .customer-dependency-filters, .customer-license-policy-grid, .customer-analysis-grid { grid-template-columns: 1fr; }

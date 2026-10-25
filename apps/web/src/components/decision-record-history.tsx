@@ -8,8 +8,8 @@ type Filter = { subjectType: SubjectType; subjectId: string };
 
 const actionLabels: Record<DecisionRecord['action'], string> = {
   'workspace.created': 'Creó el espacio de trabajo',
-  'application.created': 'Añadió una proyecto', 'application.updated': 'Actualizó una proyecto',
-  'target.enrolled': 'Autorizó un origen HTTPS', 'target.verified': 'Verificó un origen HTTPS', 'target.revoked': 'Revocó un origen HTTPS',
+  'application.created': 'Añadió un proyecto', 'application.updated': 'Actualizó un proyecto',
+  'target.enrolled': 'Solicitó evaluar un origen HTTPS', 'target.verified': 'Comprobó el TXT de un origen HTTPS', 'target.revoked': 'Quitó un origen del alcance',
   'source.uploaded': 'Subió una instantánea de código', 'source.deleted': 'Eliminó una instantánea de código',
   'assessment.queued': 'Solicitó una evaluación', 'assessment.recorded': 'Se generó un informe',
   'customer_assessment.queued': 'Solicitó una evaluación', 'customer_assessment.recorded': 'Se generó un informe', 'report.download_requested': 'Solicitó descargar un informe',

@@ -59,7 +59,7 @@ Abre `/dashboard` y elige **Crear una cuenta**. Cada cuenta nueva crea su propio
 |---|---|
 | 1. Espacio de trabajo | Crea un espacio privado. El creador es su Owner. Los roles controlan el acceso. |
 | 2. Código fuente | Sube una instantánea o conecta un repositorio Git o GitHub autorizado. Gotchu guarda el commit exacto. |
-| 3. Origen HTTPS | Publica un registro TXT en `_gotchu.<hostname>`. Gotchu verifica el control DNS antes de consultar el origen. |
+| 3. Origen HTTPS | Indica un origen HTTPS público y elige un perfil acotado. Al pedir el análisis, ese alcance queda autorizado durante 7 días. Gotchu no comprueba quién controla el dominio. |
 | 4. Evaluación | Ejecuta una evaluación `internal`, `external` o de los dos tipos. |
 | 5. Reporte | Muestra la evidencia, la cobertura, la severidad, la confianza y las limitaciones. |
 | 6. Corrección | Prepara correcciones compatibles en una instantánea privada y pide una nueva evaluación. |

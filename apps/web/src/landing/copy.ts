@@ -16,7 +16,7 @@ export const SIDES: readonly {
   },
   {
     id: 'gl-fuera', title: 'Por fuera.', mark: 'Tu web.', formation: 'globe', action: 'Audita tu web',
-    lead: 'Sin acceso a tu código. Verificas tu dominio con un TXT y revisamos tu web como la ve cualquiera.',
+    lead: 'Sin acceso a tu código. Indicas el origen HTTPS y revisamos tu web como la ve cualquiera.',
     benefits: [
       ['Certificado TLS', 'Comprobamos la cadena y el nombre del certificado.'],
       ['Cabeceras de seguridad', 'Qué cabeceras faltan, como CSP o HSTS.'],

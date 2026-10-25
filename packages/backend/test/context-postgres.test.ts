@@ -160,22 +160,22 @@ live('tenant application context on real PostgreSQL', () => {
     expect(decisions.records.map(row=>row.action)).toEqual(expect.arrayContaining(['context.repository_write_access_granted','context.repository_write_access_revoked']));
     expect(decisions.records.find(row=>row.action==='context.repository_write_access_granted')?.summary).toContain('Owner verificó');
   });
-  it('enforces environment, repository and target relationships and derives current ownership', async () => {
+  it('enforces environment, repository and target relationships without deriving ownership from scan authorization', async () => {
     const { environment, service } = await base();
     const otherEnvironment = await backend.context.createEnvironment(identity(), { ...scope(), name: 'staging', kind: 'staging' });
     if (!otherEnvironment) throw new Error('Second environment fixture was not created');
     await expect(backend.context.createDeployment(identity(), { ...scope(), environmentId: otherEnvironment.id, serviceId: service.id, releaseId: 'wrong-env', deployedAt: new Date().toISOString() })).rejects.toMatchObject({ code: 'not_found' });
     const targetId = crypto.randomUUID();
-    await f.admin.query("INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at,verified_at,expires_at) VALUES($1,$2,$3,'https://example.com',1,'verified',$4,$5,now()+interval '30 minutes',now(),now()+interval '1 hour')", [f.a.organizationId,f.a.applicationId,targetId,f.a.userId,'c'.repeat(64)]);
+    await f.admin.query("INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,requested_by,authorized_at,expires_at) VALUES($1,$2,$3,'https://example.com',1,'authorized',$4,now(),now()+interval '1 hour')", [f.a.organizationId,f.a.applicationId,targetId,f.a.userId]);
     await expect(backend.context.createOriginCandidate(identity(), { ...scope(), environmentId: environment.id, origin: 'https://example.com', discoverySource: 'customer_inventory', authorizationTargetId: crypto.randomUUID() })).rejects.toMatchObject({ code: 'invalid_input' });
     await expect(backend.context.createOriginCandidate(identity(), { ...scope(), environmentId: environment.id, origin: 'https://other.example', discoverySource: 'customer_inventory', authorizationTargetId: targetId })).rejects.toMatchObject({ code: 'invalid_input' });
     const foreignAppId = crypto.randomUUID(); const foreignTargetId = crypto.randomUUID();
     await f.admin.query("INSERT INTO gotchu.applications(organization_id,id,name) VALUES($1,$2,'Other application')", [f.a.organizationId,foreignAppId]);
-    await f.admin.query("INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at) VALUES($1,$2,$3,'https://example.com',1,'pending',$4,$5,now()+interval '30 minutes')", [f.a.organizationId,foreignAppId,foreignTargetId,f.a.userId,'d'.repeat(64)]);
+    await f.admin.query("INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,requested_by) VALUES($1,$2,$3,'https://example.com',1,'revoked',$4)", [f.a.organizationId,foreignAppId,foreignTargetId,f.a.userId]);
     await expect(backend.context.createOriginCandidate(identity(), { ...scope(), environmentId: environment.id, origin: 'https://example.com', discoverySource: 'customer_inventory', authorizationTargetId: foreignTargetId })).rejects.toMatchObject({ code: 'invalid_input' });
     const origin = await backend.context.createOriginCandidate(identity(), { ...scope(), environmentId: environment.id, origin: 'https://example.com', discoverySource: 'customer_inventory', ownership: 'claimed', authorizationTargetId: targetId });
-    expect(origin?.ownership).toBe('verified');
-    await f.admin.query("UPDATE gotchu.customer_targets SET verified_at=now()-interval '1 hour',expires_at=now()-interval '1 second' WHERE organization_id=$1 AND application_id=$2 AND id=$3", [f.a.organizationId,f.a.applicationId,targetId]);
+    expect(origin?.ownership).toBe('claimed');
+    await f.admin.query("UPDATE gotchu.customer_targets SET authorized_at=now()-interval '1 hour',expires_at=now()-interval '1 second' WHERE organization_id=$1 AND application_id=$2 AND id=$3", [f.a.organizationId,f.a.applicationId,targetId]);
     expect((await backend.context.list(identity(), scope())).origins[0]?.ownership).toBe('claimed');
     await f.admin.query("UPDATE gotchu.customer_targets SET status='revoked',expires_at=NULL WHERE organization_id=$1 AND application_id=$2 AND id=$3", [f.a.organizationId,f.a.applicationId,targetId]);
     expect((await backend.context.list(identity(), scope())).origins[0]?.ownership).toBe('claimed');

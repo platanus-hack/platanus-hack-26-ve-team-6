@@ -226,7 +226,7 @@ describe('versioned evidence-selected recipes', () => {
   it.each([undefined, 'public_surface'] as const)('supports authorized HTTPS-only reports with profile %s', (scanProfile) => {
     const input: CustomerRunInput = {
       organizationId, applicationId, jobId, version: 2, applicationName: 'External application', mode: 'external', source: null,
-      target: { id: sourceId, origin: 'https://app.example.com', version: 3, verifiedAt: timestamp, expiresAt: '2026-10-31T00:00:00.000Z', ...(scanProfile ? { scanProfile } : {}) },
+      target: { id: sourceId, origin: 'https://app.example.com', version: 3, authorizedAt: timestamp, expiresAt: '2026-10-31T00:00:00.000Z', ...(scanProfile ? { scanProfile } : {}) },
     };
     const targetSnapshotRef = `target:${sourceId}:3:${createHash('sha256').update('https://app.example.com').digest('hex')}${scanProfile === 'public_surface' ? ':public_surface' : ''}`;
     const externalFinding = {

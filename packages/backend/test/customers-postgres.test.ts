@@ -10,7 +10,7 @@ function latch() {
   const promise = new Promise<void>(resolve => { release = resolve; });
   return { promise, release };
 }
-/** Synthetic report and DNS answers test persistence/authorization, not live HTTPS or DNS. */
+/** Synthetic report fixture tests persistence and authorization, not live HTTPS. */
 function reportFor(input: CustomerRunInput): CustomerAssessmentReport {
   const timestamp = new Date().toISOString();
   const analysis = (origin: 'internal' | 'external'): AssessmentAnalysis => ({ origin, status: 'completed', startedAt: timestamp, finishedAt: timestamp,
@@ -28,14 +28,13 @@ function reportFor(input: CustomerRunInput): CustomerAssessmentReport {
       containerImageReference: input.containerImage?.kind === 'registry' ? input.containerImage.reference : null,
     } };
 }
-live('customer workflow on real Postgres roles/RLS with synthetic DNS and reports', () => {
+live('customer workflow on real Postgres roles/RLS and reports', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
   let api: ReturnType<typeof createBackend>;
   let coordinator: ReturnType<typeof createBackend>;
-  const dns = new Map<string, string[][]>();
   beforeAll(async () => {
     f = await fixture({ max: 10 });
-    api = createBackend({ database: f.databases.gotchu_api, customerDnsVerifier: { resolveTxt: async name => dns.get(name) ?? [] } });
+    api = createBackend({ database: f.databases.gotchu_api });
     coordinator = createBackend({ database: f.databases.gotchu_coordinator });
   }, 30_000);
   afterAll(async () => { await f?.close(); });
@@ -48,13 +47,11 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     const source = await api.customers.uploadSource(identity, { ...scope, snapshot, authorized: true });
     return { identity, workspace, app, scope, source, snapshot };
   }
-  async function verified(c: Awaited<ReturnType<typeof customer>>) {
-    const enrollment = await api.customers.enrollTarget(c.identity, { ...c.scope, origin: `https://app-${randomUUID()}.acme.com`, authorized: true });
-    dns.set(enrollment.challenge.name, [[enrollment.challenge.value.slice(0, 25), enrollment.challenge.value.slice(25)]]);
-    return api.customers.verifyTarget(c.identity, { ...c.scope, targetId: enrollment.target.id });
+  async function authorizedTarget(c: Awaited<ReturnType<typeof customer>>) {
+    return (await api.customers.enrollTarget(c.identity, { ...c.scope, origin: `https://app-${randomUUID()}.acme.com` })).target;
   }
   async function claim(c: Awaited<ReturnType<typeof customer>>, mode: 'internal' | 'external' | 'both' = 'internal') {
-    const target = mode === 'internal' ? null : await verified(c);
+    const target = mode === 'internal' ? null : await authorizedTarget(c);
     const queued = await api.customers.queue(c.identity, { ...c.scope, mode, sourceSnapshotId: mode === 'external' ? null : c.source.id, targetId: target?.id ?? null, idempotencyKey: randomUUID() });
     const job = present(await coordinator.jobs.claim({ organizationId: c.scope.organizationId, jobId: queued.jobId }));
     const input = await coordinator.customers.getRequest({ ...c.scope, jobId: queued.jobId, leaseToken: job.leaseToken });
@@ -167,45 +164,43 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     expect(await api.customers.listSources(viewer, c.scope)).toHaveLength(1);
   });
 
-  it('stores only challenge hashes and binds exact DNS proof, consent, expiry and renewal version', async () => {
+  it('activates requested origin scope immediately, enforces roles, and queues it without TXT proof', async () => {
     const c = await customer();
-    const enrollment = await api.customers.enrollTarget(c.identity, { ...c.scope, origin: 'https://WWW.acme.com:443/', authorized: true });
-    expect(enrollment.challenge.name).toBe('_gotchu.www.acme.com');
-    expect(enrollment.target).toMatchObject({ origin: 'https://www.acme.com', consentActor: c.identity.userId, status: 'pending', version: 1 });
-    const stored = await f.admin.query('SELECT challenge_hash FROM gotchu.customer_targets WHERE organization_id=$1', [c.workspace.id]);
-    expect(stored.rows[0]?.challenge_hash).toBe(sha256(enrollment.challenge.value.slice('gotchu-verification='.length)));
-    expect(JSON.stringify(await api.customers.listTargets(c.identity, c.scope))).not.toContain(enrollment.challenge.value);
-    await expect(api.customers.verifyTarget(c.identity, { ...c.scope, targetId: enrollment.target.id })).rejects.toMatchObject({ code: 'dns_verification_failed' });
-    dns.set(enrollment.challenge.name, [[`${enrollment.challenge.value}-suffix`]]);
-    await expect(api.customers.verifyTarget(c.identity, { ...c.scope, targetId: enrollment.target.id })).rejects.toMatchObject({ code: 'dns_verification_failed' });
-    dns.set(enrollment.challenge.name, [[enrollment.challenge.value]]);
-    expect((await api.customers.verifyTarget(c.identity, { ...c.scope, targetId: enrollment.target.id })).status).toBe('verified');
-    const renewed = await api.customers.enrollTarget(c.identity, { ...c.scope, origin: enrollment.target.origin, authorized: true });
-    expect(renewed.target.version).toBe(2); expect(renewed.target.status).toBe('pending');
-    expect(renewed.challenge.value).not.toBe(enrollment.challenge.value);
-    await expect(api.customers.verifyTarget(c.identity, { ...c.scope, targetId: enrollment.target.id })).rejects.toMatchObject({ code: 'dns_verification_failed' });
-    await f.admin.query("UPDATE gotchu.customer_targets SET challenge_expires_at=clock_timestamp()-interval '1 second' WHERE organization_id=$1", [c.workspace.id]);
-    await expect(api.customers.verifyTarget(c.identity, { ...c.scope, targetId: enrollment.target.id })).rejects.toMatchObject({ code: 'challenge_expired' });
+    const viewer = { userId: `credentials:${randomUUID()}` };
+    const foreign = { userId: f.b.userId };
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'viewer')", [c.workspace.id, viewer.userId]);
+    await expect(api.customers.enrollTarget(viewer, { ...c.scope, origin: 'https://www.acme.com' })).rejects.toMatchObject({ status: 403 });
+    await expect(api.customers.enrollTarget(foreign, { ...c.scope, origin: 'https://www.acme.com' })).rejects.toMatchObject({ status: 403 });
+
+    const enrollment = await api.customers.enrollTarget(c.identity, { ...c.scope, origin: 'https://WWW.acme.com:443/' });
+    expect(Object.keys(enrollment)).toEqual(['target']);
+    expect(enrollment.target).toMatchObject({ origin: 'https://www.acme.com', requestedBy: c.identity.userId, status: 'authorized', version: 1 });
+    expect(Date.parse(present(enrollment.target.authorizedAt)) <= Date.now()).toBe(true);
+    expect(Date.parse(present(enrollment.target.expiresAt)) > Date.now()).toBe(true);
+    const stored = await f.admin.query('SELECT status,origin,requested_by,authorized_at,expires_at FROM gotchu.customer_targets WHERE organization_id=$1', [c.workspace.id]);
+    expect(stored.rows[0]).toMatchObject({ status: 'authorized', origin: 'https://www.acme.com', requested_by: c.identity.userId });
+
+    const queued = await api.customers.queue(c.identity, { ...c.scope, mode: 'external', sourceSnapshotId: null, targetId: enrollment.target.id, idempotencyKey: randomUUID() });
+    const job = present(await coordinator.jobs.claim({ organizationId: c.workspace.id, jobId: queued.jobId }));
+    await f.admin.query(`UPDATE gotchu.customer_requests r SET input=r.input || jsonb_build_object('target',
+      ((r.input->'target') - 'authorizedAt'::text) || jsonb_build_object('verifiedAt', r.input->'target'->'authorizedAt')) WHERE r.organization_id=$1 AND r.job_id=$2`, [c.workspace.id, queued.jobId]);
+    await f.admin.query(`UPDATE gotchu.jobs j SET payload=j.payload || jsonb_build_object('target',
+      ((j.payload->'target') - 'authorizedAt'::text) || jsonb_build_object('verifiedAt', j.payload->'target'->'authorizedAt')) WHERE j.organization_id=$1 AND j.id=$2`, [c.workspace.id, queued.jobId]);
+    const request = await coordinator.customers.getRequest({ ...c.scope, jobId: queued.jobId, leaseToken: job.leaseToken });
+    expect(request.target).toMatchObject({ id: enrollment.target.id, origin: 'https://www.acme.com', version: 1, authorizedAt: enrollment.target.authorizedAt });
+    expect(request.target).not.toHaveProperty('verifiedAt');
+    await coordinator.customers.recordResult({ input: request, leaseToken: job.leaseToken, report: reportFor(request) });
+
+    const renewed = await api.customers.enrollTarget(c.identity, { ...c.scope, origin: enrollment.target.origin });
+    expect(renewed.target.version).toBe(2);
+    expect(renewed.target.status).toBe('authorized');
+    await expect(api.customers.revokeTarget(c.identity, { ...c.scope, targetId: renewed.target.id })).resolves.toMatchObject({ status: 'revoked', authorizedAt: null, expiresAt: null });
   });
 
-  it('rechecks authorization/version after DNS returns and fails closed without an adapter', async () => {
+  it('binds the selected public-surface profile to the immutable worker request', async () => {
     const c = await customer();
-    const enrolled = await api.customers.enrollTarget(c.identity, { ...c.scope, origin: 'https://race.acme.com', authorized: true });
-    const unconfigured = createBackend({ database: f.databases.gotchu_api });
-    await expect(unconfigured.customers.verifyTarget(c.identity, { ...c.scope, targetId: enrolled.target.id })).rejects.toMatchObject({ status: 503 });
-    const racing = createBackend({ database: f.databases.gotchu_api, customerDnsVerifier: { resolveTxt: async () => {
-      await api.customers.revokeTarget(c.identity, { ...c.scope, targetId: enrolled.target.id });
-      return [[enrolled.challenge.value]];
-    } } });
-    await expect(racing.customers.verifyTarget(c.identity, { ...c.scope, targetId: enrolled.target.id })).rejects.toMatchObject({ code: 'challenge_changed' });
-    expect((await api.customers.listTargets(c.identity, c.scope))[0]?.status).toBe('revoked');
-  });
-
-  it('binds explicit public-surface consent to the target and immutable worker request', async () => {
-    const c = await customer();
-    const enrollment = await api.customers.enrollTarget(c.identity, { ...c.scope, origin: 'https://surface.acme.com', authorized: true, scanProfile: 'public_surface' });
-    dns.set(enrollment.challenge.name, [[enrollment.challenge.value]]);
-    const target = await api.customers.verifyTarget(c.identity, { ...c.scope, targetId: enrollment.target.id });
+    const enrollment = await api.customers.enrollTarget(c.identity, { ...c.scope, origin: 'https://surface.acme.com', scanProfile: 'public_surface' });
+    const target = enrollment.target;
     expect(target.scanProfile).toBe('public_surface');
     const queued = await api.customers.queue(c.identity, { ...c.scope, mode: 'external', sourceSnapshotId: null, targetId: target.id, idempotencyKey: randomUUID() });
     const job = present(await coordinator.jobs.claim({ organizationId: c.workspace.id, jobId: queued.jobId }));
@@ -217,7 +212,7 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
   });
 
   it('blocks target changes for every queued, claimed and hydrated request, including expired leases', async () => {
-    const c = await customer(); const target = await verified(c);
+    const c = await customer(); const target = await authorizedTarget(c);
     const queueInput = { ...c.scope, mode: 'external' as const, sourceSnapshotId: null, targetId: target.id, idempotencyKey: randomUUID() };
     const first = await api.customers.queue(c.identity, queueInput);
     const second = await api.customers.queue(c.identity, { ...queueInput, mode: 'both', sourceSnapshotId: c.source.id, idempotencyKey: randomUUID() });
@@ -227,8 +222,8 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
       const expected = { status: 409, code: 'target_assessment_in_progress', message: 'Target authorization remains active while assessments are outstanding; retry once they finish or an operator reconciles uncertain work.' };
       await Promise.all([
         expect(api.customers.revokeTarget(c.identity, { ...c.scope, targetId: target.id })).rejects.toMatchObject(expected),
-        expect(api.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin, authorized: true })).rejects.toMatchObject(expected),
-        expect(api.customers.enrollTarget(c.identity, { ...c.scope, origin: 'https://replacement.acme.com', authorized: true })).rejects.toMatchObject(expected),
+        expect(api.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin })).rejects.toMatchObject(expected),
+        expect(api.customers.enrollTarget(c.identity, { ...c.scope, origin: 'https://replacement.acme.com' })).rejects.toMatchObject(expected),
       ]);
       expect(await api.customers.listTargets(c.identity, c.scope)).toEqual([target]);
     }
@@ -236,7 +231,7 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     const job = present(await coordinator.jobs.claim({ organizationId: c.workspace.id, jobId: first.jobId }));
     await blocked();
     const input = await coordinator.customers.getRequest({ ...c.scope, jobId: first.jobId, leaseToken: job.leaseToken });
-    await blocked(); // getRequest has committed; the scanner may now be resolving DNS.
+    await blocked(); // getRequest has committed; the scanner may now be resolving the target's public address.
     await f.admin.query("UPDATE gotchu.jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE organization_id=$1 AND id=$2", [c.workspace.id, first.jobId]);
     await blocked();
     await expect(coordinator.customers.getRequest({ ...c.scope, jobId: first.jobId, leaseToken: job.leaseToken })).rejects.toMatchObject({ code: 'stale_lease' });
@@ -248,11 +243,11 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     const secondInput = await coordinator.customers.getRequest({ ...c.scope, jobId: second.jobId, leaseToken: secondJob.leaseToken });
     await coordinator.customers.recordResult({ input: secondInput, leaseToken: secondJob.leaseToken, report: reportFor(secondInput) });
     expect(await api.customers.revokeTarget(c.identity, { ...c.scope, targetId: target.id })).toMatchObject({ status: 'revoked', version: target.version + 1 });
-    await expect(api.customers.queue(c.identity, { ...queueInput, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'target_not_verified' });
+    await expect(api.customers.queue(c.identity, { ...queueInput, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'target_not_authorized' });
     await expect(api.customers.queue(c.identity, queueInput)).rejects.toMatchObject({ code: 'idempotency_conflict' });
     await expect(coordinator.customers.getRequest({ ...c.scope, jobId: second.jobId, leaseToken: secondJob.leaseToken })).rejects.toMatchObject({ code: 'stale_lease' });
     expect(await coordinator.jobs.claim({ organizationId: c.workspace.id, jobId: second.jobId })).toBeNull();
-    expect((await api.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin, authorized: true })).target).toMatchObject({ status: 'pending', version: target.version + 2 });
+    expect((await api.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin })).target).toMatchObject({ status: 'authorized', version: target.version + 2 });
   });
 
   it('keeps failed work quarantined until trusted reconciliation confirms the runner has stopped', async () => {
@@ -268,7 +263,7 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     expect(await api.web.getJob(c.identity, { organizationId: c.workspace.id, jobId: result.input.jobId })).toMatchObject({ state: 'failed', reasonCode: 'assessment_reconciliation_required' });
     await Promise.all([
       expect(api.customers.revokeTarget(c.identity, { ...c.scope, targetId: target.id })).rejects.toMatchObject({ status: 409, code: 'target_assessment_in_progress' }),
-      expect(api.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin, authorized: true })).rejects.toMatchObject({ status: 409, code: 'target_assessment_in_progress' }),
+      expect(api.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin })).rejects.toMatchObject({ status: 409, code: 'target_assessment_in_progress' }),
     ]);
     expect(await api.customers.listTargets(c.identity, c.scope)).toEqual(before);
     await expect(coordinator.customers.getRequest({ ...c.scope, jobId: result.input.jobId, leaseToken: result.leaseToken })).rejects.toMatchObject({ code: 'stale_lease' });
@@ -277,11 +272,11 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     // Production must establish that every runner has stopped before clearing quarantine.
     await f.admin.query("UPDATE gotchu.jobs SET result=$3::jsonb WHERE organization_id=$1 AND id=$2", [c.workspace.id, result.input.jobId, JSON.stringify({ reasonCode: 'operator_reconciled' })]);
     expect(await api.customers.revokeTarget(c.identity, { ...c.scope, targetId: target.id })).toMatchObject({ status: 'revoked', version: target.version + 1 });
-    expect((await api.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin, authorized: true })).target).toMatchObject({ status: 'pending', version: target.version + 2 });
+    expect((await api.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin })).target).toMatchObject({ status: 'authorized', version: target.version + 2 });
   });
 
   it.each(['revoke', 'renew'] as const)('rejects %s after a concurrent queue commits under the shared lock', async mutation => {
-    const c = await customer(); const target = await verified(c); const held = pausedCommit();
+    const c = await customer(); const target = await authorizedTarget(c); const held = pausedCommit();
     const queue = held.backend.customers.queue(c.identity, { ...c.scope, mode: 'external', sourceSnapshotId: null, targetId: target.id, idempotencyKey: randomUUID() });
     const queued = Promise.allSettled([queue]);
     let changed: Promise<PromiseSettledResult<unknown>[]> | undefined;
@@ -289,7 +284,7 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
       await held.entered.promise;
       changed = Promise.allSettled([mutation === 'revoke'
         ? api.customers.revokeTarget(c.identity, { ...c.scope, targetId: target.id })
-        : api.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin, authorized: true })]);
+        : api.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin })]);
       await waitForApplicationLock();
       held.commit.release();
       expect(await queued).toMatchObject([{ status: 'fulfilled' }]);
@@ -298,11 +293,11 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     } finally { held.commit.release(); await queued; await changed; }
   });
 
-  it.each(['revoke', 'renew'] as const)('rejects new admission after a concurrent %s commits under the shared lock', async mutation => {
-    const c = await customer(); const target = await verified(c); const held = pausedCommit();
+  it.each(['revoke', 'renew'] as const)('serializes admission against concurrent %s under the shared lock', async mutation => {
+    const c = await customer(); const target = await authorizedTarget(c); const held = pausedCommit();
     const changed = Promise.allSettled([mutation === 'revoke'
       ? held.backend.customers.revokeTarget(c.identity, { ...c.scope, targetId: target.id })
-      : held.backend.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin, authorized: true })]);
+      : held.backend.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin })]);
     let queued: Promise<PromiseSettledResult<unknown>[]> | undefined;
     try {
       await held.entered.promise;
@@ -310,10 +305,17 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
       await waitForApplicationLock();
       held.commit.release();
       expect(await changed).toMatchObject([{ status: 'fulfilled' }]);
-      expect(await queued).toMatchObject([{ status: 'rejected', reason: { status: 409, code: 'target_not_verified' } }]);
-      expect((await api.customers.listTargets(c.identity, c.scope))[0]).toMatchObject({ status: mutation === 'revoke' ? 'revoked' : 'pending', version: target.version + 1 });
-      const requests = await f.admin.query('SELECT job_id FROM gotchu.customer_requests WHERE organization_id=$1', [c.workspace.id]);
-      expect(requests.rows).toEqual([]);
+      if (mutation === 'revoke') {
+        expect(await queued).toMatchObject([{ status: 'rejected', reason: { status: 409, code: 'target_not_authorized' } }]);
+        expect((await api.customers.listTargets(c.identity, c.scope))[0]).toMatchObject({ status: 'revoked', version: target.version + 1 });
+        const requests = await f.admin.query('SELECT job_id FROM gotchu.customer_requests WHERE organization_id=$1', [c.workspace.id]);
+        expect(requests.rows).toEqual([]);
+      } else {
+        expect(await queued).toMatchObject([{ status: 'fulfilled' }]);
+        expect((await api.customers.listTargets(c.identity, c.scope))[0]).toMatchObject({ status: 'authorized', version: target.version + 1 });
+        const request = await f.admin.query<{ input: { target: { version: number } } }>('SELECT input FROM gotchu.customer_requests WHERE organization_id=$1', [c.workspace.id]);
+        expect(request.rows[0]?.input.target.version).toBe(target.version + 1);
+      }
     } finally { held.commit.release(); await changed; await queued; }
   });
 
@@ -544,9 +546,9 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     for (const change of ['revoke', 'renew', 'expire', 'archive'] as const) {
       const c = await customer(); const result = await claim(c, 'external'); const target = present(result.input.target);
       // Operator-only bypass fixture: the customer API now refuses these mutations during work.
-      if (change === 'revoke') await f.admin.query("UPDATE gotchu.customer_targets SET status='revoked',version=version+1,verified_at=NULL,expires_at=NULL WHERE organization_id=$1 AND application_id=$2 AND id=$3", [c.workspace.id, c.app.applicationId, target.id]);
-      if (change === 'renew') await f.admin.query("UPDATE gotchu.customer_targets SET status='pending',version=version+1,verified_at=NULL,expires_at=NULL,challenge_hash=$4,challenge_expires_at=clock_timestamp()+interval '30 minutes' WHERE organization_id=$1 AND application_id=$2 AND id=$3", [c.workspace.id, c.app.applicationId, target.id, sha256(randomUUID())]);
-      if (change === 'expire') await f.admin.query("UPDATE gotchu.customer_targets SET verified_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '1 day' WHERE organization_id=$1", [c.workspace.id]);
+      if (change === 'revoke') await f.admin.query("UPDATE gotchu.customer_targets SET status='revoked',version=version+1,authorized_at=NULL,expires_at=NULL WHERE organization_id=$1 AND application_id=$2 AND id=$3", [c.workspace.id, c.app.applicationId, target.id]);
+      if (change === 'renew') await f.admin.query("UPDATE gotchu.customer_targets SET status='authorized',version=version+1,authorized_at=clock_timestamp(),expires_at=clock_timestamp()+interval '7 days' WHERE organization_id=$1 AND application_id=$2 AND id=$3", [c.workspace.id, c.app.applicationId, target.id]);
+      if (change === 'expire') await f.admin.query("UPDATE gotchu.customer_targets SET authorized_at=clock_timestamp()-interval '2 days',expires_at=clock_timestamp()-interval '1 day' WHERE organization_id=$1", [c.workspace.id]);
       if (change === 'archive') await api.customers.updateApplication(c.identity, { ...c.scope, archived: true });
       await expect(coordinator.customers.getRequest({ ...c.scope, jobId: result.input.jobId, leaseToken: result.leaseToken })).rejects.toMatchObject({ code: change === 'archive' ? 'application_archived' : 'assessment_target_changed' });
       await expect(coordinator.customers.recordResult(result)).rejects.toMatchObject({ code: change === 'archive' ? 'application_archived' : 'assessment_target_changed' });

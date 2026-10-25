@@ -1,15 +1,27 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES, customerOriginSchema, customerPublicImageReferenceSchema, customerSourceSnapshotSchema, customerQueueSchema, customerRunInputSchema, customerAssessmentIntentSchema, customerAssessmentReportSchema, customerEnrollTargetSchema } from '../src/index.js';
+import { CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES, customerOriginSchema, customerPublicImageReferenceSchema, customerSourceSnapshotSchema, customerQueueSchema, customerRunInputSchema, customerAssessmentIntentSchema, customerAssessmentReportSchema, customerEnrollTargetSchema, customerEnrollmentSchema, customerTargetSchema } from '../src/index.js';
 
 const snapshot = () => ({ revision: 'real-revision', files: [{ path: 'src/index.ts', content: 'export const value = 1;' }] });
 describe('customer assessment input boundaries', () => {
   it('requires an explicit supported profile without expanding legacy root consent', () => {
     const scope = { organizationId: randomUUID(), applicationId: randomUUID() };
-    const enrollment = { ...scope, origin: 'https://acme.com', authorized: true };
+    const enrollment = { ...scope, origin: 'https://acme.com' };
     expect(customerEnrollTargetSchema.parse(enrollment)).not.toHaveProperty('scanProfile');
     expect(customerEnrollTargetSchema.parse({ ...enrollment, scanProfile: 'public_surface' }).scanProfile).toBe('public_surface');
+    expect(customerEnrollTargetSchema.parse({ ...enrollment, scanProfile: 'api_checks' }).scanProfile).toBe('api_checks');
     expect(customerEnrollTargetSchema.safeParse({ ...enrollment, scanProfile: 'all_internet' }).success).toBe(false);
+    expect(customerEnrollTargetSchema.safeParse({ ...enrollment, authorized: true }).success).toBe(false);
+  });
+  it('models an Analyze request as immediately authorized without ownership attestation or DNS challenge', () => {
+    const timestamp = new Date().toISOString();
+    const scope = { organizationId: randomUUID(), applicationId: randomUUID() };
+    const target = { ...scope, id: randomUUID(), origin: 'https://acme.com', version: 1, status: 'authorized', requestedBy: 'user:owner', requestedAt: timestamp, authorizedAt: timestamp, expiresAt: new Date(Date.now() + 60_000).toISOString(), scanProfile: 'root' };
+    expect(customerTargetSchema.parse(target)).toMatchObject({ status: 'authorized', authorizedAt: timestamp });
+    expect(customerEnrollmentSchema.safeParse({ target }).success).toBe(true);
+    expect(customerEnrollmentSchema.safeParse({ target, challenge: { name: '_gotchu.acme.com', value: 'fake', expiresAt: timestamp } }).success).toBe(false);
+    expect(customerTargetSchema.safeParse({ ...target, status: 'verified' }).success).toBe(false);
+    expect(customerTargetSchema.safeParse({ ...target, status: 'pending' }).success).toBe(false);
   });
   it('normalizes public DNS HTTPS origins and rejects URL ambiguity', () => {
     expect(customerOriginSchema.parse('https://APP.acme.com:443/')).toBe('https://app.acme.com');

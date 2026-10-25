@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,19 @@ export interface ScannerAdapter {
   run(name: ScannerName, source: NonNullable<CustomerRunInput['source']>, signal: AbortSignal): Promise<ToolResult>;
   runImage?(image: NonNullable<CustomerRunInput['containerImage']>, signal: AbortSignal): Promise<ToolResult>;
   readiness(): Promise<{ready: boolean; tools: Array<{name: string; available: boolean}>}>;
+}
+// Mounted inputs must remain readable by parser UID 65534 under restrictive host umasks.
+async function createMountedDirectory(path: string) {
+  const firstCreated = await mkdir(path, { recursive: true, mode: 0o755 });
+  if (!firstCreated) return;
+  for (let current = path; ; current = dirname(current)) {
+    await chmod(current, 0o755);
+    if (current === firstCreated) break;
+  }
+}
+async function writeMountedFile(path: string, content: string | Uint8Array) {
+  await writeFile(path, content, { flag: 'wx', mode: 0o444 });
+  await chmod(path, 0o444);
 }
 async function command(args: string[], signal: AbortSignal, maxBytes = 1_048_576, allowMissing?: 'container' | 'image') {
   signal.throwIfAborted();
@@ -119,12 +132,12 @@ export function createDockerScanners(): ScannerAdapter {
       const signal = AbortSignal.any([parentSignal,AbortSignal.timeout(35000)]);
       try {
         const sourceDir = join(directory,'source'); const configDir = join(directory,'profile');
-        await mkdir(sourceDir,{mode:0o755}); await mkdir(configDir,{mode:0o755});
-        await writeFile(join(configDir,'no-ignore'),'',{mode:0o444});
-        if(name==='semgrep') await writeFile(join(sourceDir,'.semgrepignore'),'',{mode:0o444});
-        for (const file of source.files) { signal.throwIfAborted(); const path = join(sourceDir,file.path); await mkdir(dirname(path),{recursive:true,mode:0o755}); await writeFile(path,file.content,{flag:'wx',mode:0o444}); }
+        await createMountedDirectory(sourceDir); await createMountedDirectory(configDir);
+        await writeMountedFile(join(configDir,'no-ignore'),'');
+        if(name==='semgrep') await writeMountedFile(join(sourceDir,'.semgrepignore'),'');
+        for (const file of source.files) { signal.throwIfAborted(); const path = join(sourceDir,file.path); await createMountedDirectory(dirname(path)); await writeMountedFile(path,file.content); }
         const config = profile.config ? await readFile(fileURLToPath(new URL(`../profiles/${profile.config}`,import.meta.url))) : Buffer.from(`trivy-config-iac-builtins:${profile.image}`);
-        if (profile.config) await writeFile(join(configDir,profile.config),config,{mode:0o444});
+        if (profile.config) await writeMountedFile(join(configDir,profile.config),config);
         const args = name === 'semgrep' ? ['semgrep','scan','--oss-only','--config','/profile/semgrep.yaml','--json','--quiet','--metrics','off','--disable-version-check','--no-git-ignore','--disable-nosem','--jobs','1','--timeout','5','--max-memory','384','--max-target-bytes',String(CUSTOMER_MAX_SOURCE_FILE_BYTES),'/source'] : name === 'gitleaks' ? ['dir','/source','--config','/profile/gitleaks.toml','--redact=100','--no-banner','--exit-code','0','--report-format','json','--report-path','/dev/stdout','--max-target-megabytes',String(Math.ceil(CUSTOMER_MAX_SOURCE_FILE_BYTES/1_000_000)),'--ignore-gitleaks-allow','--gitleaks-ignore-path','/profile/no-ignore'] : ['config','--config','/dev/null','--format','json','--quiet','--skip-check-update','--skip-version-check','--misconfig-scanners','kubernetes,terraform,dockerfile','--ignorefile','/profile/no-ignore','--cache-dir','/tmp/trivy','--timeout','25s','/source'];
         await command(['create','--pull','never','--name',id,'--log-driver','none','--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--pids-limit','128','--memory','768m','--memory-swap','768m','--cpus','1','--ulimit','cpu=30:30','--ulimit','nofile=256:256','--user','65534:65534','--tmpfs','/tmp:rw,noexec,nosuid,size=134217728,mode=1777','--env','HOME=/tmp','--env','SEMGREP_SEND_METRICS=off','--env','SEMGREP_ENABLE_VERSION_CHECK=0','--workdir','/tmp','--mount',`type=bind,src=${sourceDir},dst=/source,readonly`,'--mount',`type=bind,src=${configDir},dst=/profile,readonly`,profile.image,...args],signal);
         const output = await command(['start','--attach',id],signal);
@@ -180,7 +193,7 @@ export function createDockerScanners(): ScannerAdapter {
         if (!archiveBytes) throw new Error('missing_container_image_archive');
         const archivePath = join(directory,'image.tar');
         const databaseDirectory = join(process.env.GOTCHU_SCANNER_TRIVY_DB_DIRECTORY ?? '', 'db');
-        await writeFile(archivePath,archiveBytes,{flag:'wx',mode:0o444});
+        await writeMountedFile(archivePath,archiveBytes);
         const args = ['image','--input','/image.tar','--format','json','--quiet','--skip-db-update','--skip-java-db-update','--skip-check-update','--scanners','vuln','--cache-dir','/tmp','--timeout','25s'];
         // Trivy opens its Bolt database read/write even with updates disabled. The
         // directory is owned by this isolated UID; checksum validation brackets use.

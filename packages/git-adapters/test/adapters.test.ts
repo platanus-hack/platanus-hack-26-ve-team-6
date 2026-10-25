@@ -18,6 +18,36 @@ async function localRepo() {
 }
 
 describe('git adapters', () => {
+  it('reads exact local file contents without stripping whitespace or BOMs', async () => {
+    const repo = await localRepo();
+    const content = '\uFEFF  export const value = true;\r\n\n';
+    await writeFile(join(repo.seed, 'src', 'exact.ts'), content);
+    command(repo.seed, 'add', '--all');
+    command(repo.seed, '-c', 'user.name=Test', '-c', 'user.email=test@localhost', 'commit', '-m', 'exact bytes');
+    command(repo.seed, 'push', repo.bare, 'HEAD:refs/heads/main');
+    const head = command(repo.seed, 'rev-parse', 'HEAD');
+    expect(await (await createLocalGitAdapter(repo.root)).readFile('src/exact.ts', head)).toBe(content);
+  });
+
+  it('encodes GitHub content paths without changing the pinned ref and accepts empty files', async () => {
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const ref = 'a'.repeat(40);
+    const path = 'src/part?ref=main#file.ts';
+    const adapter = createGitHubAppAdapter({ appId: '1234', installationId: '5', owner: 'owner', repository: 'repo',
+      privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      fetchImplementation: async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith('/access_tokens')) return new Response(JSON.stringify({ token: 'fixture-token', expires_at: new Date(Date.now() + 3_600_000).toISOString() }), { status: 201 });
+        expect(init?.method).toBe('GET');
+        expect(url.searchParams.get('ref')).toBe(ref);
+        expect(decodeURIComponent(url.pathname)).toBe(`/repos/owner/repo/contents/${path}`);
+        expect(url.hash).toBe('');
+        return new Response(JSON.stringify({ path, type: 'file', encoding: 'base64', content: '' }));
+      },
+    });
+    expect(await adapter.readFile(path, ref)).toBe('');
+  });
+
   it('derives a deterministic branch and rejects workflow changes', () => {
     expect(deterministicBranch('a'.repeat(64))).toBe('gotchu/aaaaaaaaaaaaaaaa');
     expect(() => assertWorkflowPatchSafe([{path:'.github/workflows/release.yml',content:'on: push'}])).toThrow(GitAdapterError);

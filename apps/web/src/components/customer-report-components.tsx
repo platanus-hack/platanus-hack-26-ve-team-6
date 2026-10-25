@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AssessmentAnalysis, AssessmentComparison, AssessmentEvidence } from '@gotchu/contracts';
 import { comparisonPresence, comparisonVerification, perspectiveStatus } from './customer-report-model';
+import { ApiScenarioEvidence } from './api-scenario-evidence';
 
 const httpResponseExcerptSchema = z.object({
   status: z.number().int().min(100).max(599),
@@ -8,7 +9,9 @@ const httpResponseExcerptSchema = z.object({
   headers: z.record(z.string(), z.string()),
   incomplete: z.string().nullable().optional(),
   path: z.string().min(1).optional(),
-  profile: z.literal('public_surface').optional(),
+  profile: z.enum(['public_surface', 'api_checks']).optional(),
+  method: z.enum(['GET', 'HEAD', 'OPTIONS']).optional(),
+  bodyPolicy: z.enum(['headers_only', 'bounded_body']).optional(),
 });
 
 function parseHttpResponseExcerpt(excerpt: string) {
@@ -35,9 +38,11 @@ function HttpEvidence({ item }: { item: AssessmentEvidence }) {
   return <details className="customer-evidence customer-http-evidence">
     <summary>{item.locator}{response?.path ? ` · ${response.path}` : ''}</summary>
     {response ? <>
-      <p>HTTP {response.status} · {response.tlsVerified ? 'TLS verificado' : 'TLS no verificado'}{response.profile === 'public_surface' ? ' · Superficie pública limitada' : ''}</p>
+      <p>{response.method ?? 'GET'} · HTTP {response.status} · {response.tlsVerified ? 'TLS verificado' : 'TLS no verificado'}{response.profile === 'public_surface' ? ' · Superficie pública limitada' : response.profile === 'api_checks' ? ' · Web y API' : ''}</p>
       {response.path && <p>Ruta: <code>{response.path}</code></p>}
-      {response.incomplete === undefined
+      {response.bodyPolicy === 'headers_only' && response.incomplete === null
+        ? <p>Cabeceras observadas. Cuerpo no leído.</p>
+        : response.incomplete === undefined
         ? <p>Integridad de respuesta no indicada.</p>
         : response.incomplete === null
           ? <p>Respuesta completa.</p>
@@ -56,12 +61,12 @@ function HttpEvidence({ item }: { item: AssessmentEvidence }) {
 export function ExternalHttpsEvidence({ analysis }: { analysis: AssessmentAnalysis | null }) {
   if (!analysis) return null;
   const responses = analysis.evidence.filter(item => item.kind === 'http_response');
-  return <section className="customer-report-section">
+  return <><ApiScenarioEvidence analysis={analysis} /><section className="customer-report-section">
     <div className="customer-section-heading"><div><span className="customer-eyebrow">EVIDENCIA HTTPS</span><h3>Recursos observados</h3></div></div>
     {responses.length === 0
       ? <div className="customer-empty-inline">Sin respuestas HTTPS registradas.</div>
       : <div className="customer-http-evidence-list">{responses.map(item => <HttpEvidence item={item} key={item.id} />)}</div>}
-  </section>;
+  </section></>;
 }
 
 export function ComparisonSummary({ comparisons, internal, external }: {

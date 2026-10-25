@@ -32,6 +32,7 @@ import { Route as WWorkspaceIdRetencionRouteImport } from './routes/w.$workspace
 import { Route as WWorkspaceIdPProjectIdRouteImport } from './routes/w.$workspaceId.p.$projectId'
 import { Route as WWorkspaceIdPProjectIdIndexRouteImport } from './routes/w.$workspaceId.p.$projectId.index'
 import { Route as WWorkspaceIdPProjectIdFuentesRouteImport } from './routes/w.$workspaceId.p.$projectId.fuentes'
+import { Route as WWorkspaceIdPProjectIdHttpsRouteImport } from './routes/w.$workspaceId.p.$projectId.https'
 import { Route as WWorkspaceIdPProjectIdInformesRouteImport } from './routes/w.$workspaceId.p.$projectId.informes'
 import { Route as WWorkspaceIdPProjectIdVigilanciaRouteImport } from './routes/w.$workspaceId.p.$projectId.vigilancia'
 import { Route as WWorkspaceIdPProjectIdInformesReportIdRouteImport } from './routes/w.$workspaceId.p.$projectId.informes.$reportId'
@@ -153,6 +154,12 @@ const WWorkspaceIdPProjectIdFuentesRoute =
     path: '/fuentes',
     getParentRoute: () => WWorkspaceIdPProjectIdRoute,
   } as any)
+const WWorkspaceIdPProjectIdHttpsRoute =
+  WWorkspaceIdPProjectIdHttpsRouteImport.update({
+    id: '/https',
+    path: '/https',
+    getParentRoute: () => WWorkspaceIdPProjectIdRoute,
+  } as any)
 const WWorkspaceIdPProjectIdInformesRoute =
   WWorkspaceIdPProjectIdInformesRouteImport.update({
     id: '/informes',
@@ -195,6 +202,7 @@ export interface FileRoutesByFullPath {
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/p/$projectId/fuentes': typeof WWorkspaceIdPProjectIdFuentesRoute
+  '/w/$workspaceId/p/$projectId/https': typeof WWorkspaceIdPProjectIdHttpsRoute
   '/w/$workspaceId/p/$projectId/informes': typeof WWorkspaceIdPProjectIdInformesRouteWithChildren
   '/w/$workspaceId/p/$projectId/vigilancia': typeof WWorkspaceIdPProjectIdVigilanciaRoute
   '/w/$workspaceId/p/$projectId/': typeof WWorkspaceIdPProjectIdIndexRoute
@@ -221,6 +229,7 @@ export interface FileRoutesByTo {
   '/w/$workspaceId/retencion': typeof WWorkspaceIdRetencionRoute
   '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId/fuentes': typeof WWorkspaceIdPProjectIdFuentesRoute
+  '/w/$workspaceId/p/$projectId/https': typeof WWorkspaceIdPProjectIdHttpsRoute
   '/w/$workspaceId/p/$projectId/informes': typeof WWorkspaceIdPProjectIdInformesRouteWithChildren
   '/w/$workspaceId/p/$projectId/vigilancia': typeof WWorkspaceIdPProjectIdVigilanciaRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdIndexRoute
@@ -250,6 +259,7 @@ export interface FileRoutesById {
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
   '/w/$workspaceId/p/$projectId/fuentes': typeof WWorkspaceIdPProjectIdFuentesRoute
+  '/w/$workspaceId/p/$projectId/https': typeof WWorkspaceIdPProjectIdHttpsRoute
   '/w/$workspaceId/p/$projectId/informes': typeof WWorkspaceIdPProjectIdInformesRouteWithChildren
   '/w/$workspaceId/p/$projectId/vigilancia': typeof WWorkspaceIdPProjectIdVigilanciaRoute
   '/w/$workspaceId/p/$projectId/': typeof WWorkspaceIdPProjectIdIndexRoute
@@ -280,6 +290,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/p/$projectId/fuentes'
+    | '/w/$workspaceId/p/$projectId/https'
     | '/w/$workspaceId/p/$projectId/informes'
     | '/w/$workspaceId/p/$projectId/vigilancia'
     | '/w/$workspaceId/p/$projectId/'
@@ -306,6 +317,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/retencion'
     | '/w/$workspaceId'
     | '/w/$workspaceId/p/$projectId/fuentes'
+    | '/w/$workspaceId/p/$projectId/https'
     | '/w/$workspaceId/p/$projectId/informes'
     | '/w/$workspaceId/p/$projectId/vigilancia'
     | '/w/$workspaceId/p/$projectId'
@@ -334,6 +346,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
     | '/w/$workspaceId/p/$projectId/fuentes'
+    | '/w/$workspaceId/p/$projectId/https'
     | '/w/$workspaceId/p/$projectId/informes'
     | '/w/$workspaceId/p/$projectId/vigilancia'
     | '/w/$workspaceId/p/$projectId/'
@@ -521,6 +534,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceIdPProjectIdFuentesRouteImport
       parentRoute: typeof WWorkspaceIdPProjectIdRoute
     }
+    '/w/$workspaceId/p/$projectId/https': {
+      id: '/w/$workspaceId/p/$projectId/https'
+      path: '/https'
+      fullPath: '/w/$workspaceId/p/$projectId/https'
+      preLoaderRoute: typeof WWorkspaceIdPProjectIdHttpsRouteImport
+      parentRoute: typeof WWorkspaceIdPProjectIdRoute
+    }
     '/w/$workspaceId/p/$projectId/informes': {
       id: '/w/$workspaceId/p/$projectId/informes'
       path: '/informes'
@@ -562,6 +582,7 @@ const WWorkspaceIdPProjectIdInformesRouteWithChildren =
 
 interface WWorkspaceIdPProjectIdRouteChildren {
   WWorkspaceIdPProjectIdFuentesRoute: typeof WWorkspaceIdPProjectIdFuentesRoute
+  WWorkspaceIdPProjectIdHttpsRoute: typeof WWorkspaceIdPProjectIdHttpsRoute
   WWorkspaceIdPProjectIdInformesRoute: typeof WWorkspaceIdPProjectIdInformesRouteWithChildren
   WWorkspaceIdPProjectIdVigilanciaRoute: typeof WWorkspaceIdPProjectIdVigilanciaRoute
   WWorkspaceIdPProjectIdIndexRoute: typeof WWorkspaceIdPProjectIdIndexRoute
@@ -570,6 +591,7 @@ interface WWorkspaceIdPProjectIdRouteChildren {
 const WWorkspaceIdPProjectIdRouteChildren: WWorkspaceIdPProjectIdRouteChildren =
   {
     WWorkspaceIdPProjectIdFuentesRoute: WWorkspaceIdPProjectIdFuentesRoute,
+    WWorkspaceIdPProjectIdHttpsRoute: WWorkspaceIdPProjectIdHttpsRoute,
     WWorkspaceIdPProjectIdInformesRoute:
       WWorkspaceIdPProjectIdInformesRouteWithChildren,
     WWorkspaceIdPProjectIdVigilanciaRoute:

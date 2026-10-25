@@ -20,7 +20,7 @@
 - Show the real report JSON keys: `id`, `organizationId`, `applicationId`, `jobId`, `applicationName`, `mode`, `startedAt`, `finishedAt`, `internal`, `external`, `comparison`, `limitations`, `responseMode`, `actionsPerformed`, `version` and `revision`.
 - Re-checks run every 1–24 hours only when the customer enables them. They are not real time; alerts stay inside Gotchu, and an alert never confirms an attack. Signed runtime telemetry feeds triage, not proof of compromise.
 - Source analysis is bounded to JS/TS, JSON, YAML and TOML, with Semgrep, Gitleaks, Trivy and OSV where configured. Source is not executed.
-- HTTPS scope starts with DNS TXT proof of control, not legal ownership. The root profile makes one `GET /`; the public-surface profile makes up to ten GETs to that origin. TLS is verified; cookies, credentials and redirects are not used. Exploitability remains unknown; severity may be unevaluated.
+- HTTPS scope starts with a signed-in Owner or Operator requesting one public origin and a finite profile. The root profile makes one `GET /`; the public-surface profile makes up to ten GETs to that origin. TLS is verified; cookies, credentials and redirects are not used. The request records the selected scope; it is not presented as proof of ownership or a separate customer attestation. Exploitability remains unknown; severity may be unevaluated.
 - Some findings can produce a private corrected copy and independent re-analysis. Neither changes the repository or production. After the Owner approves the exact change with a passkey, the independent executor can open a draft PR in a linked GitHub repository.
 
 ## Signature moment

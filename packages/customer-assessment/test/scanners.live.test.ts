@@ -13,6 +13,24 @@ import { createCustomerAssessmentRunner, createDockerScanners, createOsvAdapter,
 import { input } from './fixtures.js';
 process.env.GOTCHU_SCANNER_TRIVY_DB_DIRECTORY ??= fileURLToPath(new URL('../../../.local/dev/trivy-db', import.meta.url));
 describe('actual local Docker scanners (no simulated findings)',()=>{
+  it('reads nested mounted inputs and profiles with a restrictive host umask',async()=>{
+    const source=input([
+      {path:'nested/source/probe.ts',content:'export const probe = (input: string) => eval(input);\nconst apiKey = "AKIAQ7XM2V5K8D3P6L9A";'},
+      {path:'nested/config/probe.yaml',content:'apiVersion: v1\nkind: Pod\nmetadata:\n  name: probe\nspec:\n  containers:\n    - name: probe\n      image: nginx:1.27\n      securityContext:\n        privileged: true\n'},
+    ]).source;
+    if(!source)throw new Error('missing_source');
+    const previousMask=process.umask(0o077);
+    try {
+      const scanners=createDockerScanners();
+      const semgrep=await scanners.run('semgrep',source,AbortSignal.timeout(35000));
+      expect(z.object({results:z.array(z.object({check_id:z.string()}))}).parse(semgrep.output).results.some(hit=>hit.check_id.endsWith('gotchu.javascript.eval'))).toBe(true);
+      const gitleaks=await scanners.run('gitleaks',source,AbortSignal.timeout(35000));
+      expect(z.array(z.object({RuleID:z.string()})).parse(gitleaks.output).some(hit=>hit.RuleID==='generic-api-key')).toBe(true);
+      expect(JSON.stringify(gitleaks.output)).not.toContain('AKIAQ7XM2V5K8D3P6L9A');
+      const trivy=await scanners.run('trivy',source,AbortSignal.timeout(35000));
+      expect(z.object({Results:z.array(z.object({Misconfigurations:z.array(z.unknown()).optional()}))}).parse(trivy.output).Results.some(item=>(item.Misconfigurations?.length??0)>0)).toBe(true);
+    } finally { process.umask(previousMask); }
+  },60000);
   it('executes pinned Semgrep, Gitleaks and Trivy profiles against arbitrary uploaded bytes',async()=>{
     vi.stubEnv('NODE_ENV','production');
     try {
@@ -244,7 +262,7 @@ describe('actual local Docker scanners (no simulated findings)',()=>{
       const runFiles=async(files:{path:string;content:string}[])=>{
         const request=input(files);
         request.mode='both';
-        request.target={id:request.jobId,origin:'https://customer.org',version:1,verifiedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+300_000).toISOString()};
+        request.target={id:request.jobId,origin:'https://customer.org',version:1,authorizedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+300_000).toISOString()};
         return runner.run(request);
       };
       const run=async(disabled:boolean)=>runFiles([

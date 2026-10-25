@@ -207,7 +207,7 @@ The whole app (landing, `/dashboard`, `/setup`, `/privacy`, `/terms`) follows a 
 
 **Key Characteristics:**
 - Pure white (light) or pure black (dark) ground; graphite or porcelain ink; magenta as highlighter, bullet, rule and finding.
-- One Saira variable file in two faces: Gotchu Display (125% width, 700, uppercase) for headlines, Gotchu Text (100% width) for reading and controls; ui-monospace for notes, labels, code and the DNS record.
+- One Saira variable file in two faces: Gotchu Display (125% width, 700, uppercase) for headlines, Gotchu Text (100% width) for reading and controls; ui-monospace for notes, labels and code.
 - Editorial devices: line-unmask headlines, highlighter marks, superscript references to margin notes, drop cap, dotted leaders, 2px section rules.
 - shadcn/ui controls on Base UI, restyled: 8px corners, 34px floor, a hard magenta offset on hover.
 - Square-pixel dot fields only; every moving piece has a still state and a visible pause.
@@ -218,7 +218,7 @@ Four brand colours (magenta, graphite, porcelain, silver) over two absolute grou
 
 ### Primary
 - **Signal Magenta** (magenta): the brand mark in both themes. The band behind large highlighted phrases (with porcelain type), list diamonds, the left rule of mobile margin notes, the 2px nav hover underline, the link hover underline, the button hover offset and the finding in dot fields. Never behind small text.
-- **Action Magenta** (action): magenta for small text and marks on white: superscript references, JSON keys, item numerals, the TXT record type, the open FAQ control and link hover text. In dark it becomes the body highlighter band under porcelain text.
+- **Action Magenta** (action): magenta for small text and marks on white: superscript references, JSON keys, item numerals, the open FAQ control and link hover text. In dark it becomes the body highlighter band under porcelain text.
 - **Pink Ink** (pink-ink): the light-theme body highlighter band under graphite text and text selection; in dark it takes over every action-magenta role (references, keys, open FAQ control) because action is too dark on black.
 
 ### Neutral
@@ -257,7 +257,7 @@ Four brand colours (magenta, graphite, porcelain, silver) over two absolute grou
 - **Control** (600, 14.5px on mobile, 16px from md, 17px on large buttons): button and link text in the text face, sentence case. Nav links 500 15px.
 - **Note** (400, 12.5px, 1.55, mono, muted): margin notes, led by a bold superscript number and a bold foreground phrase.
 - **Label** (500, 12.5px, 0.14em, uppercase mono, muted): the heading of a ruled list; item letters and numerals use the same mono.
-- **Code / Record** (mono 400 14.5px/1.75; record 600 clamp(17px, 5.4vw, 52px) at -0.02em): the JSON exhibit with gutter line numbers, and the DNS TXT record set as a display line.
+- **Code** (mono 400 14.5px/1.75): the JSON exhibit with gutter line numbers.
 
 ### Named Rules
 **The Two-Width Rule.** Display is always 125% width, 700 and uppercase with slight negative tracking; every reading line and every control label is in the 100% text face. Reading copy is never set in the display cut.
@@ -290,7 +290,7 @@ Flat. Nothing at rest casts a shadow; depth is hairlines, rules and type scale o
 
 ## Shapes
 
-Near-square and straight. Corners come from a fixed scale: 2px for pixels, 6px for chips and the JSON exhibit frame, 8px for buttons, toggles, the FAQ control and the skip link, 12–16px reserved for panels and cards. Sections, the header, the top sheet and the dot fields stay square. Rules carry the structure: 2px foreground rules open sections and close the DNS record and glossary; 1px hairlines separate list rows, scope columns and FAQ rows; 2px dotted leaders join glossary terms to their definitions. The finding is a diamond (a square rotated 45°): 8px magenta list bullets, the packet and corner marker in the audit diagrams, and the FAQ control rotating into it when open. Dot fields draw square pixels, never round dots.
+Near-square and straight. Corners come from a fixed scale: 2px for pixels, 6px for chips and the JSON exhibit frame, 8px for buttons, toggles, the FAQ control and the skip link, 12–16px reserved for panels and cards. Sections, the header, the top sheet and the dot fields stay square. Rules carry the structure: 2px foreground rules open sections and close the glossary; 1px hairlines separate list rows, scope columns and FAQ rows; 2px dotted leaders join glossary terms to their definitions. The finding is a diamond (a square rotated 45°): 8px magenta list bullets, the packet and corner marker in the audit diagrams, and the FAQ control rotating into it when open. Dot fields draw square pixels, never round dots.
 
 ### Named Rules
 **The Small Radius Rule.** Radius never exceeds 16px and always comes from the scale; a radius softens a corner, it does not change the silhouette. No pills, no circles (badges map to 6px).
