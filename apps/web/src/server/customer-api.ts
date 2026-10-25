@@ -37,6 +37,7 @@ import type { SingleAppGitHubBroker } from './github-broker-client.js';
 import { handleWorkflowExceptionsApi } from './workflow-exceptions-api.js';
 import { handleProtectionApi } from './protection-api.js';
 import { handleNotificationsApi } from './notifications-api.js';
+import { handleMcpTokensApi } from './mcp-tokens-api.js';
 import type { createProviderConnections } from './provider-connections.js';
 import type { createOpenRouterLogins } from './openrouter-login.js';
 
@@ -56,6 +57,7 @@ export interface CustomerServices {
   operations?: Backend['operations'];
   decisionRecords?: Backend['decisionRecords'];
   notifications?: Backend['notifications'];
+  mcpTokens?: Backend['mcpTokens'];
   retention?: Backend['retention'];
   triage?: Backend['triage'];
   investigationModels?: Backend['investigationModels'];
@@ -182,6 +184,11 @@ export function createCustomerApi(options: {
       if(notificationParts.length>=5&&notificationParts[0]==='api'&&notificationParts[1]==='customer'&&notificationParts[2]==='workspaces'&&notificationParts[4]==='notifications'){
         if(!services.notifications)throw new HttpError(503,'notifications_not_configured','Las notificaciones no están configuradas.');
         const response=await handleNotificationsApi(request,identity,services.notifications,options.origin);
+        if(response){for(const cookie of session.cookies)response.headers.append('set-cookie',cookie);return response;}
+      }
+      if(notificationParts[0]==='api'&&notificationParts[1]==='customer'&&notificationParts[2]==='workspaces'&&notificationParts[4]==='mcp-tokens'){
+        if(!services.mcpTokens)throw new HttpError(503,'mcp_not_configured','Los tokens MCP no están configurados.');
+        const response=await handleMcpTokensApi(request,identity,services.mcpTokens,notificationParts);
         if(response){for(const cookie of session.cookies)response.headers.append('set-cookie',cookie);return response;}
       }
       const memberPath = url.pathname === '/api/customer/invitations/accept'

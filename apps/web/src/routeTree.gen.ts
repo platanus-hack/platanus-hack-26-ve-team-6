@@ -12,12 +12,14 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as EntrarRouteImport } from './routes/entrar'
+import { Route as InstallRouteImport } from './routes/install'
 import { Route as PrimerosPasosRouteImport } from './routes/primeros-pasos'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as RegistroRouteImport } from './routes/registro'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
+import { Route as ApiMcpRouteImport } from './routes/api.mcp'
 import { Route as ApiReadyRouteImport } from './routes/api.ready'
 import { Route as WWorkspaceIdRouteImport } from './routes/w.$workspaceId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
@@ -28,6 +30,7 @@ import { Route as WWorkspaceIdIndexRouteImport } from './routes/w.$workspaceId.i
 import { Route as WWorkspaceIdDecisionesRouteImport } from './routes/w.$workspaceId.decisiones'
 import { Route as WWorkspaceIdEquipoRouteImport } from './routes/w.$workspaceId.equipo'
 import { Route as WWorkspaceIdLicenciasRouteImport } from './routes/w.$workspaceId.licencias'
+import { Route as WWorkspaceIdMcpRouteImport } from './routes/w.$workspaceId.mcp'
 import { Route as WWorkspaceIdModelosRouteImport } from './routes/w.$workspaceId.modelos'
 import { Route as WWorkspaceIdRetencionRouteImport } from './routes/w.$workspaceId.retencion'
 import { Route as WWorkspaceIdPProjectIdRouteImport } from './routes/w.$workspaceId.p.$projectId'
@@ -51,6 +54,11 @@ const DashboardRoute = DashboardRouteImport.update({
 const EntrarRoute = EntrarRouteImport.update({
   id: '/entrar',
   path: '/entrar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InstallRoute = InstallRouteImport.update({
+  id: '/install',
+  path: '/install',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrimerosPasosRoute = PrimerosPasosRouteImport.update({
@@ -81,6 +89,11 @@ const TermsRoute = TermsRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMcpRoute = ApiMcpRouteImport.update({
+  id: '/api/mcp',
+  path: '/api/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiReadyRoute = ApiReadyRouteImport.update({
@@ -131,6 +144,11 @@ const WWorkspaceIdEquipoRoute = WWorkspaceIdEquipoRouteImport.update({
 const WWorkspaceIdLicenciasRoute = WWorkspaceIdLicenciasRouteImport.update({
   id: '/licencias',
   path: '/licencias',
+  getParentRoute: () => WWorkspaceIdRoute,
+} as any)
+const WWorkspaceIdMcpRoute = WWorkspaceIdMcpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
   getParentRoute: () => WWorkspaceIdRoute,
 } as any)
 const WWorkspaceIdModelosRoute = WWorkspaceIdModelosRouteImport.update({
@@ -189,12 +207,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/entrar': typeof EntrarRoute
+  '/install': typeof InstallRoute
   '/primeros-pasos': typeof PrimerosPasosRoute
   '/privacy': typeof PrivacyRoute
   '/registro': typeof RegistroRoute
   '/setup': typeof SetupRoute
   '/terms': typeof TermsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/ready': typeof ApiReadyRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -204,6 +224,7 @@ export interface FileRoutesByFullPath {
   '/w/$workspaceId/decisiones': typeof WWorkspaceIdDecisionesRoute
   '/w/$workspaceId/equipo': typeof WWorkspaceIdEquipoRoute
   '/w/$workspaceId/licencias': typeof WWorkspaceIdLicenciasRoute
+  '/w/$workspaceId/mcp': typeof WWorkspaceIdMcpRoute
   '/w/$workspaceId/modelos': typeof WWorkspaceIdModelosRoute
   '/w/$workspaceId/retencion': typeof WWorkspaceIdRetencionRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
@@ -219,12 +240,14 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/entrar': typeof EntrarRoute
+  '/install': typeof InstallRoute
   '/primeros-pasos': typeof PrimerosPasosRoute
   '/privacy': typeof PrivacyRoute
   '/registro': typeof RegistroRoute
   '/setup': typeof SetupRoute
   '/terms': typeof TermsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/ready': typeof ApiReadyRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/customer/$': typeof ApiCustomerSplatRoute
@@ -233,6 +256,7 @@ export interface FileRoutesByTo {
   '/w/$workspaceId/decisiones': typeof WWorkspaceIdDecisionesRoute
   '/w/$workspaceId/equipo': typeof WWorkspaceIdEquipoRoute
   '/w/$workspaceId/licencias': typeof WWorkspaceIdLicenciasRoute
+  '/w/$workspaceId/mcp': typeof WWorkspaceIdMcpRoute
   '/w/$workspaceId/modelos': typeof WWorkspaceIdModelosRoute
   '/w/$workspaceId/retencion': typeof WWorkspaceIdRetencionRoute
   '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
@@ -248,12 +272,14 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/entrar': typeof EntrarRoute
+  '/install': typeof InstallRoute
   '/primeros-pasos': typeof PrimerosPasosRoute
   '/privacy': typeof PrivacyRoute
   '/registro': typeof RegistroRoute
   '/setup': typeof SetupRoute
   '/terms': typeof TermsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/ready': typeof ApiReadyRoute
   '/w/$workspaceId': typeof WWorkspaceIdRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -263,6 +289,7 @@ export interface FileRoutesById {
   '/w/$workspaceId/decisiones': typeof WWorkspaceIdDecisionesRoute
   '/w/$workspaceId/equipo': typeof WWorkspaceIdEquipoRoute
   '/w/$workspaceId/licencias': typeof WWorkspaceIdLicenciasRoute
+  '/w/$workspaceId/mcp': typeof WWorkspaceIdMcpRoute
   '/w/$workspaceId/modelos': typeof WWorkspaceIdModelosRoute
   '/w/$workspaceId/retencion': typeof WWorkspaceIdRetencionRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
@@ -280,12 +307,14 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/entrar'
+    | '/install'
     | '/primeros-pasos'
     | '/privacy'
     | '/registro'
     | '/setup'
     | '/terms'
     | '/api/health'
+    | '/api/mcp'
     | '/api/ready'
     | '/w/$workspaceId'
     | '/api/auth/$'
@@ -295,6 +324,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/decisiones'
     | '/w/$workspaceId/equipo'
     | '/w/$workspaceId/licencias'
+    | '/w/$workspaceId/mcp'
     | '/w/$workspaceId/modelos'
     | '/w/$workspaceId/retencion'
     | '/w/$workspaceId/'
@@ -310,12 +340,14 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/entrar'
+    | '/install'
     | '/primeros-pasos'
     | '/privacy'
     | '/registro'
     | '/setup'
     | '/terms'
     | '/api/health'
+    | '/api/mcp'
     | '/api/ready'
     | '/api/auth/$'
     | '/api/customer/$'
@@ -324,6 +356,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/decisiones'
     | '/w/$workspaceId/equipo'
     | '/w/$workspaceId/licencias'
+    | '/w/$workspaceId/mcp'
     | '/w/$workspaceId/modelos'
     | '/w/$workspaceId/retencion'
     | '/w/$workspaceId'
@@ -338,12 +371,14 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/entrar'
+    | '/install'
     | '/primeros-pasos'
     | '/privacy'
     | '/registro'
     | '/setup'
     | '/terms'
     | '/api/health'
+    | '/api/mcp'
     | '/api/ready'
     | '/w/$workspaceId'
     | '/api/auth/$'
@@ -353,6 +388,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/decisiones'
     | '/w/$workspaceId/equipo'
     | '/w/$workspaceId/licencias'
+    | '/w/$workspaceId/mcp'
     | '/w/$workspaceId/modelos'
     | '/w/$workspaceId/retencion'
     | '/w/$workspaceId/'
@@ -369,12 +405,14 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRoute
   EntrarRoute: typeof EntrarRoute
+  InstallRoute: typeof InstallRoute
   PrimerosPasosRoute: typeof PrimerosPasosRoute
   PrivacyRoute: typeof PrivacyRoute
   RegistroRoute: typeof RegistroRoute
   SetupRoute: typeof SetupRoute
   TermsRoute: typeof TermsRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiMcpRoute: typeof ApiMcpRoute
   ApiReadyRoute: typeof ApiReadyRoute
   WWorkspaceIdRoute: typeof WWorkspaceIdRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -404,6 +442,13 @@ declare module '@tanstack/react-router' {
       path: '/entrar'
       fullPath: '/entrar'
       preLoaderRoute: typeof EntrarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/install': {
+      id: '/install'
+      path: '/install'
+      fullPath: '/install'
+      preLoaderRoute: typeof InstallRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/primeros-pasos': {
@@ -446,6 +491,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp': {
+      id: '/api/mcp'
+      path: '/api/mcp'
+      fullPath: '/api/mcp'
+      preLoaderRoute: typeof ApiMcpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/ready': {
@@ -516,6 +568,13 @@ declare module '@tanstack/react-router' {
       path: '/licencias'
       fullPath: '/w/$workspaceId/licencias'
       preLoaderRoute: typeof WWorkspaceIdLicenciasRouteImport
+      parentRoute: typeof WWorkspaceIdRoute
+    }
+    '/w/$workspaceId/mcp': {
+      id: '/w/$workspaceId/mcp'
+      path: '/mcp'
+      fullPath: '/w/$workspaceId/mcp'
+      preLoaderRoute: typeof WWorkspaceIdMcpRouteImport
       parentRoute: typeof WWorkspaceIdRoute
     }
     '/w/$workspaceId/modelos': {
@@ -627,6 +686,7 @@ interface WWorkspaceIdRouteChildren {
   WWorkspaceIdDecisionesRoute: typeof WWorkspaceIdDecisionesRoute
   WWorkspaceIdEquipoRoute: typeof WWorkspaceIdEquipoRoute
   WWorkspaceIdLicenciasRoute: typeof WWorkspaceIdLicenciasRoute
+  WWorkspaceIdMcpRoute: typeof WWorkspaceIdMcpRoute
   WWorkspaceIdModelosRoute: typeof WWorkspaceIdModelosRoute
   WWorkspaceIdRetencionRoute: typeof WWorkspaceIdRetencionRoute
   WWorkspaceIdIndexRoute: typeof WWorkspaceIdIndexRoute
@@ -637,6 +697,7 @@ const WWorkspaceIdRouteChildren: WWorkspaceIdRouteChildren = {
   WWorkspaceIdDecisionesRoute: WWorkspaceIdDecisionesRoute,
   WWorkspaceIdEquipoRoute: WWorkspaceIdEquipoRoute,
   WWorkspaceIdLicenciasRoute: WWorkspaceIdLicenciasRoute,
+  WWorkspaceIdMcpRoute: WWorkspaceIdMcpRoute,
   WWorkspaceIdModelosRoute: WWorkspaceIdModelosRoute,
   WWorkspaceIdRetencionRoute: WWorkspaceIdRetencionRoute,
   WWorkspaceIdIndexRoute: WWorkspaceIdIndexRoute,
@@ -651,12 +712,14 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRoute,
   EntrarRoute: EntrarRoute,
+  InstallRoute: InstallRoute,
   PrimerosPasosRoute: PrimerosPasosRoute,
   PrivacyRoute: PrivacyRoute,
   RegistroRoute: RegistroRoute,
   SetupRoute: SetupRoute,
   TermsRoute: TermsRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiMcpRoute: ApiMcpRoute,
   ApiReadyRoute: ApiReadyRoute,
   WWorkspaceIdRoute: WWorkspaceIdRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
