@@ -85,7 +85,7 @@ live('tenant application context on real PostgreSQL', () => {
     await expect(db.tenant(f.a.organizationId, tx => tx.query('SELECT gotchu.context_create_deployment($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)', [f.a.organizationId,f.a.applicationId,f.a.userId,environment.id,service.id,crypto.randomUUID(),'r',null,null,null,new Date(),'verified','operator']))).rejects.toThrow('context_self_assertion');
     await expect(db.tenant(f.a.organizationId, tx => tx.query('SELECT gotchu.context_create_origin($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)', [f.a.organizationId,f.a.applicationId,f.a.userId,environment.id,crypto.randomUUID(),'https://example.com','customer_inventory','verified',null,'declared','customer_declared',null]))).rejects.toThrow('context_self_assertion');
   });
-  it('requires an Owner WebAuthn grant verified by the Writer App and revokes pending approvals', async () => {
+  it('requires exact Owner confirmation and Writer coverage without MFA, and revokes pending approvals', async () => {
     const link = await backend.context.createRepositoryLink(identity(), { ...scope(), repositoryKey: 'gh-owner-writer-repo', defaultBranch: 'main' });
     if (!link) throw new Error('Repository fixture was not created');
     const repositoryLinkId=link.id;
@@ -97,12 +97,15 @@ live('tenant application context on real PostgreSQL', () => {
 
     const proofs = new Map<string, VerifiedStepUp>();
     const verifiedWrites: string[] = [];
+    let writerCommit = 'a'.repeat(40);
+    const repositoryWriteAccessVerifier = async (input: { repositoryKey: string }) => {
+      verifiedWrites.push(input.repositoryKey);
+      return { installationId:'174788477',baseCommit:writerCommit };
+    };
+    const sessionBackend = createBackend({ database:f.databases.gotchu_api,repositoryWriteAccessVerifier });
     const writeBackend = createBackend({
       database:f.databases.gotchu_api,
-      repositoryWriteAccessVerifier:async input => {
-        verifiedWrites.push(input.repositoryKey);
-        return { installationId:'174788477',baseCommit:'a'.repeat(40) };
-      },
+      repositoryWriteAccessVerifier,
       stepUpVerifier:{ verify:async input => {
         const proof=proofs.get(input.proof);
         if (!proof) throw new Error('unissued test step-up');
@@ -123,17 +126,25 @@ live('tenant application context on real PostgreSQL', () => {
     await expect(writeBackend.context.setRepositoryWriteAccess(identity(),{...scope(),repositoryLinkId,grant:true,
       actionHash:totpChallenge.actionHash,stepUpProof:totpOpaque})).rejects.toMatchObject({code:'step_up_required',status:403});
 
+    const exactInput = {...scope(),repositoryLinkId,grant:true,actionHash:totpChallenge.actionHash};
+    for (const userId of [viewer,f.b.userId]) {
+      await expect(sessionBackend.context.setRepositoryWriteAccess({userId},exactInput)).rejects.toMatchObject({code:'forbidden'});
+    }
+    await expect(sessionBackend.context.setRepositoryWriteAccess(identity(),{...exactInput,actionHash:'f'.repeat(64)}))
+      .rejects.toMatchObject({code:'stale_state'});
+    await expect(sessionBackend.context.setRepositoryWriteAccess(identity(),{...exactInput,stepUpProof:'unverifiable'}))
+      .rejects.toMatchObject({code:'step_up_unavailable'});
+    writerCommit = 'c'.repeat(40);
+    await expect(sessionBackend.context.setRepositoryWriteAccess(identity(),exactInput)).rejects.toMatchObject({code:'stale_state'});
+    writerCommit = 'a'.repeat(40);
+
     async function issue(grant:boolean) {
       const challenge=await writeBackend.context.getRepositoryWriteAccessChallenge(identity(),{...scope(),repositoryLinkId,grant});
-      const proofId=crypto.randomUUID();
-      const authenticatedAt=new Date();
-      const proof:VerifiedStepUp={proofId,userId:f.a.userId,organizationId:f.a.organizationId,actionHash:challenge.actionHash,
-        authenticatedAt,expiresAt:new Date(authenticatedAt.getTime()+300_000),method:'webauthn'};
-      const opaque=crypto.randomUUID(); proofs.set(opaque,proof);
-      return writeBackend.context.setRepositoryWriteAccess(identity(),{...scope(),repositoryLinkId,grant,actionHash:challenge.actionHash,stepUpProof:opaque});
+      return sessionBackend.context.setRepositoryWriteAccess(identity(),{...scope(),repositoryLinkId,grant,actionHash:challenge.actionHash});
     }
     await expect(issue(true)).resolves.toMatchObject({writeAccess:'granted'});
-    expect(verifiedWrites).toEqual(['gh-owner-writer-repo','gh-owner-writer-repo','gh-owner-writer-repo','gh-owner-writer-repo']);
+    expect(verifiedWrites.length).toBeGreaterThanOrEqual(4);
+    await expect(sessionBackend.context.setRepositoryWriteAccess(identity(),exactInput)).rejects.toMatchObject({code:'stale_state'});
     await f.admin.query(`INSERT INTO gotchu.proposals(organization_id,application_id,id,action_hash,body,recovery_epoch,version,kind,capability_id,state,blocking_reasons)
       VALUES($1,$2,$3,$4,$5::jsonb,1,2,'dependency_pull_request','repository.dependency_pr','approved','[]'::jsonb)`, [
       f.a.organizationId,f.a.applicationId,crypto.randomUUID(),'b'.repeat(64),JSON.stringify({target:{repositoryLinkId}}),
@@ -144,9 +155,10 @@ live('tenant application context on real PostgreSQL', () => {
     const state=await f.admin.query<{recovery_epoch:string}>('SELECT recovery_epoch FROM gotchu.platform_state WHERE singleton');
     const recoveryEpoch=String(state.rows[0]?.recovery_epoch);
     await f.admin.query(`UPDATE gotchu.proposals SET recovery_epoch=$3 WHERE organization_id=$1 AND id=$2`,[f.a.organizationId,proposalId,recoveryEpoch]);
-    await f.admin.query(`INSERT INTO gotchu.approvals(organization_id,id,proposal_id,action_hash,user_id,proof_id,recovery_epoch,expires_at)
-      VALUES($1,$2,$3,$4,$5,$6,$7,clock_timestamp()+interval '5 minutes')`,[f.a.organizationId,crypto.randomUUID(),proposalId,'b'.repeat(64),f.a.userId,crypto.randomUUID(),recoveryEpoch]);
+    await f.admin.query(`INSERT INTO gotchu.approvals(organization_id,id,proposal_id,action_hash,user_id,authorization_method,recovery_epoch,expires_at)
+      VALUES($1,$2,$3,$4,$5,'owner_session',$6,clock_timestamp()+interval '5 minutes')`,[f.a.organizationId,crypto.randomUUID(),proposalId,'b'.repeat(64),f.a.userId,recoveryEpoch]);
 
+    const staleRevoke = await sessionBackend.context.getRepositoryWriteAccessChallenge(identity(),{...scope(),repositoryLinkId,grant:false});
     await expect(issue(false)).resolves.toMatchObject({writeAccess:'revoked'});
     await expect(f.admin.query(`SELECT state,invalidation_reason FROM gotchu.proposals WHERE organization_id=$1 AND id=$2`,[f.a.organizationId,proposalId]))
       .resolves.toMatchObject({rows:[{state:'invalidated',invalidation_reason:'repository_write_access_revoked'}]});
@@ -154,11 +166,17 @@ live('tenant application context on real PostgreSQL', () => {
       .resolves.toMatchObject({rows:[{consumed_at:expect.any(Date)}]});
     const audit=await f.admin.query<{action:string;detail:{method?:string;writerInstallationId?:string}}> (`SELECT action,detail FROM gotchu.audit_records WHERE organization_id=$1 AND subject_id=$2 AND action LIKE 'context.repository_write_access_%' ORDER BY created_at`,[f.a.organizationId,repositoryLinkId]);
     expect(audit.rows.map(row=>row.action)).toEqual(['context.repository_write_access_granted','context.repository_write_access_revoked']);
-    expect(audit.rows.map(row=>row.detail.method)).toEqual(['webauthn','webauthn']);
+    expect(audit.rows.map(row=>row.detail.method)).toEqual(['owner_session','owner_session']);
     expect(audit.rows[0]?.detail.writerInstallationId).toBe('174788477');
     const decisions=await writeBackend.decisionRecords.list(identity(),{organizationId:f.a.organizationId,subjectId:repositoryLinkId,limit:20});
     expect(decisions.records.map(row=>row.action)).toEqual(expect.arrayContaining(['context.repository_write_access_granted','context.repository_write_access_revoked']));
     expect(decisions.records.find(row=>row.action==='context.repository_write_access_granted')?.summary).toContain('Owner verificó');
+    await issue(true);
+    await expect(sessionBackend.context.setRepositoryWriteAccess(identity(),{...scope(),repositoryLinkId,grant:false,actionHash:staleRevoke.actionHash}))
+      .rejects.toMatchObject({code:'stale_state'});
+    await f.admin.query('UPDATE gotchu.applications SET archived=true WHERE organization_id=$1 AND id=$2',[f.a.organizationId,f.a.applicationId]);
+    await expect(sessionBackend.context.getRepositoryWriteAccessChallenge(identity(),{...scope(),repositoryLinkId,grant:false}))
+      .rejects.toMatchObject({code:'repository_link_unavailable'});
   });
   it('enforces environment, repository and target relationships without deriving ownership from scan authorization', async () => {
     const { environment, service } = await base();

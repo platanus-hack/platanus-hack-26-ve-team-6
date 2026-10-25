@@ -58,6 +58,80 @@ live('real Postgres approval/execution ledger; injected test-only MFA and eligib
     const a = await api.proposals.approve(identity(), { organizationId: f.a.organizationId, proposalId: p.proposalId, actionHash: p.actionHash, stepUpProof: issue(p.actionHash) });
     return { ...p, ...a };
   }
+  function sessionApi() {
+    // Test-only eligibility facts exercise the ledger, not scanner or provider readiness.
+    return createBackend({ database:f.databases.gotchu_api,clock:{now:()=>now},actionVerifier:{verify:async()=>actionFacts} });
+  }
+  it('records exact Owner session approval once for both PR kinds, with audit and outbox but no step-up row', async () => {
+    await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=true WHERE kind='source_patch_pull_request'");
+    const withoutMfa = sessionApi();
+    const proofCount = await f.admin.query('SELECT id FROM gotchu.step_up_proofs WHERE organization_id=$1',[f.a.organizationId]);
+    for (const action of [actionFixture(),dependencyActionFixture()]) {
+      const proposal = await createV2(action);
+      const input = {organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposal.proposalId,actionHash:proposal.actionHash};
+      await expect(withoutMfa.actions.getEligibility(identity(),{organizationId:input.organizationId,applicationId:input.applicationId,proposalId:input.proposalId}))
+        .resolves.toMatchObject({status:'eligible'});
+      const attempts = await Promise.allSettled([withoutMfa.actions.approve(identity(),input),withoutMfa.actions.approve(identity(),input)]);
+      expect(attempts.filter(attempt=>attempt.status==='fulfilled')).toHaveLength(1);
+      const successful = attempts.find(attempt=>attempt.status==='fulfilled');
+      if (!successful || successful.status !== 'fulfilled') throw new Error('Missing session approval');
+      const approval = successful.value;
+      expect(approval.expiresAt.getTime()-now.getTime()).toBe(300_000);
+      expect((await f.admin.query('SELECT authorization_method,proof_id,user_id,action_hash FROM gotchu.approvals WHERE id=$1',[approval.approvalId])).rows)
+        .toEqual([{authorization_method:'owner_session',proof_id:null,user_id:f.a.userId,action_hash:proposal.actionHash}]);
+      expect((await f.admin.query("SELECT detail FROM gotchu.audit_records WHERE subject_id=$1 AND action='action.approved'",[approval.approvalId])).rows)
+        .toEqual([{detail:{proposalId:proposal.proposalId,actionHash:proposal.actionHash,authorizationMethod:'owner_session'}}]);
+      expect((await f.admin.query("SELECT o.id FROM gotchu.outbox o JOIN gotchu.jobs j ON j.organization_id=o.organization_id AND j.id=o.job_id WHERE j.payload->>'approvalId'=$1",[approval.approvalId])).rowCount).toBe(1);
+      await expect(withoutMfa.actions.approve(identity(),input)).rejects.toMatchObject({code:'proposal_ineligible'});
+      const request = {organizationId:f.a.organizationId,approvalId:approval.approvalId};
+      await executor.executions.claim(request);
+      await expect(executor.executions.claim(request)).rejects.toMatchObject({code:'approval_used'});
+    }
+    expect((await f.admin.query('SELECT id FROM gotchu.step_up_proofs WHERE organization_id=$1',[f.a.organizationId])).rowCount).toBe(proofCount.rowCount);
+  });
+  it('requires the current Owner, tenant, application and exact hash, and never ignores a supplied bad proof', async () => {
+    const proposal = await createV2(dependencyActionFixture());
+    const input = {organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposal.proposalId,actionHash:proposal.actionHash};
+    const operator = `pr-operator:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'operator')",[f.a.organizationId,operator]);
+    for (const userId of [operator,f.b.userId]) {
+      await expect(sessionApi().actions.approve({userId},input)).rejects.toMatchObject({code:'forbidden'});
+    }
+    await expect(sessionApi().actions.approve(identity(),{...input,applicationId:f.b.applicationId})).rejects.toMatchObject({code:'not_found'});
+    await expect(sessionApi().actions.approve(identity(),{...input,actionHash:'f'.repeat(64)})).rejects.toMatchObject({code:'hash_mismatch'});
+    await expect(api.actions.approve(identity(),{...input,stepUpProof:'unissued'})).rejects.toMatchObject({code:'step_up_required'});
+    await expect(sessionApi().actions.approve(identity(),{...input,stepUpProof:'unverifiable'})).rejects.toMatchObject({code:'step_up_unavailable'});
+    await f.admin.query('UPDATE gotchu.applications SET archived=true WHERE organization_id=$1 AND id=$2',[f.a.organizationId,f.a.applicationId]);
+    try { await expect(sessionApi().actions.approve(identity(),input)).rejects.toMatchObject({code:'not_found'}); }
+    finally { await f.admin.query('UPDATE gotchu.applications SET archived=false WHERE organization_id=$1 AND id=$2',[f.a.organizationId,f.a.applicationId]); }
+    expect((await f.admin.query('SELECT id FROM gotchu.approvals WHERE proposal_id=$1',[proposal.proposalId])).rowCount).toBe(0);
+  });
+  it('keeps session approval subject to cancellation, independent validation and base freshness', async () => {
+    const proposal = await createV2(dependencyActionFixture());
+    const input = {organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposal.proposalId,actionHash:proposal.actionHash};
+    actionFacts = {eligible:false,blockingReasons:['validation_tampered']};
+    await expect(sessionApi().actions.approve(identity(),input)).rejects.toMatchObject({code:'proposal_ineligible'});
+    actionFacts = {eligible:false,blockingReasons:['base changed'],baseChanged:true};
+    await expect(sessionApi().actions.approve(identity(),input)).rejects.toMatchObject({code:'stale_state'});
+    actionFacts = {eligible:true,blockingReasons:[]};
+    await expect(sessionApi().actions.approve(identity(),input)).rejects.toMatchObject({code:'not_found'});
+    const cancelled = await createV2(dependencyActionFixture());
+    await sessionApi().actions.cancel(identity(),{organizationId:input.organizationId,applicationId:input.applicationId,proposalId:cancelled.proposalId,reason:'cancelled'});
+    await expect(sessionApi().actions.approve(identity(),{...input,proposalId:cancelled.proposalId,actionHash:cancelled.actionHash})).rejects.toMatchObject({code:'not_found'});
+  });
+  it('rechecks session approval expiry and current Owner at the executor boundary', async () => {
+    const owner = `session-owner:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'owner')",[f.a.organizationId,owner]);
+    for (const reason of ['expired','demoted'] as const) {
+      const proposal = await createV2(dependencyActionFixture());
+      const approval = await sessionApi().actions.approve({userId:owner},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposal.proposalId,actionHash:proposal.actionHash});
+      if (reason === 'expired') now = new Date(now.getTime()+300_000);
+      else await f.admin.query("UPDATE gotchu.memberships SET role='viewer' WHERE organization_id=$1 AND user_id=$2",[f.a.organizationId,owner]);
+      await expect(executor.executions.claim({organizationId:f.a.organizationId,approvalId:approval.approvalId}))
+        .rejects.toMatchObject({code:reason === 'expired' ? 'approval_expired' : 'forbidden'});
+      now = new Date();
+    }
+  });
   it('keeps exact proposals immutable and idempotent', async () => {
     const proposal = proposalFixture(f.a);
     const first = await api.proposals.create({ organizationId: f.a.organizationId, proposal });
