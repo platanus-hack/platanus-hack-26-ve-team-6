@@ -5,15 +5,42 @@ const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const timestamp = z.iso.datetime();
 
 export const validationStateSchema = z.enum(['queued', 'running', 'passed', 'failed', 'inconclusive', 'quarantined', 'expired']);
+export const validationProfileSchema = z.enum(['node24-npm-test', 'node24-tsx-selected-v1']);
+const validationTestPathSchema = z.string().min(1).max(512)
+  .regex(/^(?:[A-Za-z0-9_@][A-Za-z0-9_@.-]*\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.(?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/)
+  .refine(path => !path.split('/').includes('node_modules'));
+const validationTestNamePatternSchema = z.string().min(1).max(256).refine(pattern => {
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(pattern)) return false;
+  try {
+    RegExp(pattern);
+    return true;
+  } catch {
+    return false;
+  }
+});
+export const validationTestSelectionSchema = z.object({
+  files: z.array(validationTestPathSchema).min(1).max(20).refine(files => new Set(files).size === files.length),
+  namePattern: validationTestNamePatternSchema.optional(),
+}).strict();
+
 export const validationSuiteDefinitionSchema = z.object({
   id: uuid, organizationId: uuid, applicationId: uuid, repositoryLinkId: uuid, version: z.number().int().positive(),
-  profile: z.literal('node24-npm-test'), scriptName: z.string().regex(/^[A-Za-z0-9:_-]{1,64}$/),
+  profile: validationProfileSchema, scriptName: z.string().regex(/^[A-Za-z0-9:_-]{1,64}$/),
   suiteName: z.string().trim().min(1).max(128), requiredCount: z.number().int().min(1).max(10_000),
-  regressionTestPath: z.string().min(1).max(256).nullable(), createdAt: timestamp,
-}).strict();
+  regressionTestPath: z.string().min(1).max(256).nullable(), testSelection: validationTestSelectionSchema.nullable().default(null), createdAt: timestamp,
+}).strict().superRefine((suite, context) => {
+  if (suite.profile === 'node24-tsx-selected-v1' && (suite.scriptName !== 'test' || suite.testSelection === null)) {
+    context.addIssue({ code: 'custom', path: ['testSelection'], message: 'The selected test profile requires the test script and an explicit file selection' });
+  }
+  if (suite.profile === 'node24-npm-test' && suite.testSelection !== null) {
+    context.addIssue({ code: 'custom', path: ['testSelection'], message: 'The legacy test profile cannot include a selected file scope' });
+  }
+});
 export const validationSuiteConfigSchema = z.object({
   organizationId: uuid, applicationId: uuid, repositoryLinkId: uuid,
   scriptName: z.string().regex(/^[A-Za-z0-9:_-]{1,64}$/), suiteName: z.string().trim().min(1).max(128),
+  profile: validationProfileSchema.default('node24-npm-test'),
+  testSelection: validationTestSelectionSchema.nullable().default(null),
   requiredCount: z.number().int().min(1).max(10_000), regressionTestPath: z.string().min(1).max(256).nullable().optional(),
 }).strict();
 export const validationSandboxSchema = z.literal('bwrap+systemd-scope');
@@ -27,7 +54,7 @@ export const validationRunSchema = z.object({
   id: uuid, organizationId: uuid, applicationId: uuid,
   actionRef: uuid, targetFindingId: uuid, candidateSourceId: uuid, baseSourceId: uuid,
   baseSnapshotDigest: digest, candidateTreeDigest: digest, patchDigest: digest,
-  suiteRepositoryLinkId: uuid.nullable(), suiteDefinitionId: uuid.nullable(), suiteVersion: z.number().int().positive().nullable(), runnerProfile: z.literal('node24-npm-test'),
+  suiteRepositoryLinkId: uuid.nullable(), suiteDefinitionId: uuid.nullable(), suiteVersion: z.number().int().positive().nullable(), runnerProfile: validationProfileSchema,
   runnerDigest: digest.nullable(), firecrackerDigest: digest.nullable(), kernelDigest: digest.nullable(), rootfsDigest: digest.nullable(),
   sandboxKind: validationSandboxSchema, limits: validationLimitsSchema,
   state: validationStateSchema, reason: z.string().min(1).max(160).nullable(),
