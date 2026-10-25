@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Transaction } from '@gotchu/database';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
 import { createBackend } from '../src/index.js';
 
@@ -66,6 +67,166 @@ live('private AI correction source lifecycle with real PostgreSQL roles', () => 
       patch_hash: 'b'.repeat(64), validation_run_id: c.validationId, rescan_job_id: c.rescanJobId });
   }
   const remove = (c: Correction, sourceId: string) => api.customers.deleteSource(c.identity, { ...c.scope, sourceSnapshotId: sourceId });
+
+  async function expireReport(c: Correction) {
+    await f.admin.query("UPDATE gotchu.customer_reports SET created_at=clock_timestamp()-interval '366 days' WHERE organization_id=$1 AND id=$2",
+      [c.scope.organizationId, c.reportId]);
+  }
+  async function purgeReports(c: Correction) {
+    await f.admin.query('UPDATE gotchu.retention_purge_jobs SET next_due_at=clock_timestamp() WHERE organization_id=$1', [c.scope.organizationId]);
+    return coordinator.retention.purge(present((await coordinator.retention.claimDue({ organizationId: c.scope.organizationId }))[0]));
+  }
+
+  it.each(['prepared', 'failed', 'cancelled'])('purges an expired report and its %s private request, preserving independent records', async state => {
+    const c = await correction(); const other = await correction();
+    await f.databases.gotchu_api.tenant(c.scope.organizationId, tx => tx.query(
+      'UPDATE gotchu.ai_correction_requests SET state=$3 WHERE organization_id=$1 AND id=$2', [c.scope.organizationId, c.id, state]));
+    expect(await purgeReports(c)).toMatchObject({ reports: 0 });
+    await expireReport(c);
+    expect(await purgeReports(c)).toMatchObject({ reports: 1, sourceSnapshots: 0 });
+    for (const table of ['customer_reports', 'ai_correction_requests']) {
+      expect((await f.admin.query(`SELECT id FROM gotchu.${table} WHERE organization_id=$1`, [c.scope.organizationId])).rowCount).toBe(0);
+    }
+    expect((await f.admin.query('SELECT id FROM gotchu.jobs WHERE organization_id=$1 AND id=$2', [c.scope.organizationId, c.jobId])).rowCount).toBe(1);
+    expect((await f.admin.query('SELECT id FROM gotchu.validation_runs WHERE organization_id=$1 AND id=$2', [c.scope.organizationId, c.validationId])).rowCount).toBe(1);
+    expect((await api.customers.listSources(c.identity, c.scope)).map(source => source.id)).toEqual(expect.arrayContaining([c.base.id, c.candidate.id]));
+    expect((await row(other)).model_patch).not.toBeNull();
+    const audits = await f.admin.query("SELECT detail FROM gotchu.audit_records WHERE organization_id=$1 AND action='retention.purged'", [c.scope.organizationId]);
+    expect(JSON.stringify(audits.rows)).not.toContain('synthetic-private-code');
+  });
+
+  it.each(['queued', 'running', 'reconciliation_required'])('defers expired reports for a %s request', async state => {
+    const c = await correction(); await expireReport(c);
+    await f.databases.gotchu_api.tenant(c.scope.organizationId, tx => tx.query(
+      'UPDATE gotchu.ai_correction_requests SET state=$3 WHERE organization_id=$1 AND id=$2', [c.scope.organizationId, c.id, state]));
+    expect(await purgeReports(c)).toMatchObject({ reports: 0 });
+    expect((await row(c)).model_patch).not.toBeNull();
+  });
+
+  it('retains reports until jobs, usage holds, rescans and validations settle', async () => {
+    const c = await correction(); await expireReport(c);
+    const retained = async () => {
+      expect(await purgeReports(c)).toMatchObject({ reports: 0 });
+      expect((await row(c)).model_patch).not.toBeNull();
+    };
+    for (const jobId of [c.jobId, c.rescanJobId]) {
+      for (const state of ['queued', 'running']) {
+        await f.admin.query('UPDATE gotchu.jobs SET state=$3 WHERE organization_id=$1 AND id=$2', [c.scope.organizationId, jobId, state]);
+        await retained();
+      }
+      await f.admin.query(`UPDATE gotchu.jobs SET state='failed',result='{"reasonCode":"assessment_reconciliation_required"}'
+        WHERE organization_id=$1 AND id=$2`, [c.scope.organizationId, jobId]);
+      await retained();
+      await f.admin.query("UPDATE gotchu.jobs SET state='succeeded',result=NULL WHERE organization_id=$1 AND id=$2", [c.scope.organizationId, jobId]);
+    }
+    const runId = randomUUID(); const reservationId = randomUUID();
+    await f.admin.query(`INSERT INTO gotchu.agent_runs(organization_id,application_id,id,job_id,state,deadline)
+      VALUES($1,$2,$3,$4,'pending',clock_timestamp())`, [c.scope.organizationId, c.scope.applicationId, runId, c.jobId]);
+    await retained();
+    await f.admin.query("UPDATE gotchu.agent_runs SET state='running' WHERE organization_id=$1 AND id=$2", [c.scope.organizationId, runId]);
+    await retained();
+    await f.admin.query("UPDATE gotchu.agent_runs SET state='failed',reserved_micros=1 WHERE organization_id=$1 AND id=$2", [c.scope.organizationId, runId]);
+    await retained();
+    await f.admin.query('UPDATE gotchu.agent_runs SET reserved_micros=0,tokens_reserved=1 WHERE organization_id=$1 AND id=$2', [c.scope.organizationId, runId]);
+    await retained();
+    await f.admin.query('UPDATE gotchu.agent_runs SET tokens_reserved=0 WHERE organization_id=$1 AND id=$2', [c.scope.organizationId, runId]);
+    await f.admin.query(`INSERT INTO gotchu.model_reservations(organization_id,id,run_id,amount_micros,state)
+      VALUES($1,$2,$3,1,'unknown')`, [c.scope.organizationId, reservationId, runId]);
+    await retained();
+    expect((await f.admin.query('SELECT state,charged_micros FROM gotchu.model_reservations WHERE organization_id=$1 AND id=$2',
+      [c.scope.organizationId, reservationId])).rows[0]).toEqual({ state: 'unknown', charged_micros: null });
+    await f.admin.query("UPDATE gotchu.model_reservations SET state='settled',charged_micros=1,charged_tokens=0 WHERE organization_id=$1 AND id=$2",
+      [c.scope.organizationId, reservationId]);
+    for (const state of ['queued', 'running', 'quarantined']) {
+      await f.admin.query(`UPDATE gotchu.validation_runs SET state=$3,
+        lease_token=CASE WHEN $3='queued' THEN NULL ELSE gen_random_uuid() END,
+        lease_until=CASE WHEN $3='queued' THEN NULL ELSE clock_timestamp()+interval '1 hour' END
+        WHERE organization_id=$1 AND id=$2`, [c.scope.organizationId, c.validationId, state]);
+      await retained();
+    }
+    await f.admin.query("UPDATE gotchu.validation_runs SET state='inconclusive',lease_token=NULL,lease_until=NULL WHERE organization_id=$1 AND id=$2",
+      [c.scope.organizationId, c.validationId]);
+    expect(await purgeReports(c)).toMatchObject({ reports: 1 });
+    expect((await f.admin.query('SELECT state,charged_micros FROM gotchu.model_reservations WHERE organization_id=$1 AND id=$2',
+      [c.scope.organizationId, reservationId])).rows[0]).toEqual({ state: 'settled', charged_micros: '1' });
+  });
+
+  it.each(['executing', 'uncertain', 'reconciliation_required'])('retains the report for a directly linked %s proposal', async state => {
+    const c = await correction(); await expireReport(c);
+    const proposalId = randomUUID();
+    // No correction.prepared audit: exercise the request's canonical candidate link.
+    await f.admin.query(`INSERT INTO gotchu.proposals(organization_id,application_id,id,action_hash,body,recovery_epoch,
+      version,kind,capability_id,state,source_ref) VALUES($1,$2,$3,repeat('a',64),'{}',1,2,
+      'source_patch_pull_request','repository.source_patch_pr',$4,jsonb_build_object('candidateId',$5::text))`,
+    [c.scope.organizationId, c.scope.applicationId, proposalId, state, c.candidate.id]);
+    expect(await purgeReports(c)).toMatchObject({ reports: 0 });
+    expect((await row(c)).model_patch).not.toBeNull();
+    await f.admin.query("UPDATE gotchu.proposals SET state='succeeded' WHERE organization_id=$1 AND id=$2", [c.scope.organizationId, proposalId]);
+    expect(await purgeReports(c)).toMatchObject({ reports: 1 });
+  });
+
+  async function newJob(c: Correction) {
+    const id = randomUUID();
+    await f.admin.query(`INSERT INTO gotchu.jobs(organization_id,application_id,id,kind,idempotency_key)
+      VALUES($1,$2,$3,'investigation',$3::text)`, [c.scope.organizationId, c.scope.applicationId, id]);
+    return id;
+  }
+  const insertRequest = (tx: Transaction, c: Correction, jobId: string) => tx.query(`INSERT INTO gotchu.ai_correction_requests(
+    organization_id,application_id,id,job_id,report_id,finding_id,base_source_id,source_digest,requested_by,model_config_sha256,authorized_files)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,repeat('a',64),'[{"path":"src/value.ts"}]')`,
+  [c.scope.organizationId, c.scope.applicationId, randomUUID(), jobId, c.reportId, randomUUID(), c.base.id, c.base.digest, c.identity.userId]);
+
+  it('serializes report deletion against a newly inserted request before allowing retention', async () => {
+    const c = await correction(); await expireReport(c);
+    const jobId = await newJob(c);
+    const claim = present((await coordinator.retention.claimDue({ organizationId: c.scope.organizationId }))[0]);
+    await f.databases.gotchu_api.tenant(c.scope.organizationId, async tx => {
+      await insertRequest(tx, c, jobId);
+      await expect(f.databases.gotchu_coordinator.tenant(c.scope.organizationId, async purge => {
+        await purge.query("SET LOCAL lock_timeout='100ms'");
+        return purge.query('SELECT gotchu.retention_purge($1,$2,$3,$4)',
+          [claim.organization_id, claim.application_id, claim.job_id, claim.lease_token]);
+      })).rejects.toMatchObject({ code: '55P03' });
+    });
+    expect(await coordinator.retention.purge(claim)).toMatchObject({ reports: 0 });
+    expect((await row(c)).model_patch).not.toBeNull();
+  });
+
+  it('rejects request admission after a concurrent report purge commits', async () => {
+    const c = await correction(); await expireReport(c);
+    const jobId = await newJob(c);
+    const claim = present((await coordinator.retention.claimDue({ organizationId: c.scope.organizationId }))[0]);
+    await f.databases.gotchu_coordinator.tenant(c.scope.organizationId, async tx => {
+      const purged = await tx.query('SELECT gotchu.retention_purge($1,$2,$3,$4) AS result',
+        [claim.organization_id, claim.application_id, claim.job_id, claim.lease_token]);
+      expect(purged.rows[0]?.result).toMatchObject({ reports: 1 });
+      await expect(f.databases.gotchu_api.tenant(c.scope.organizationId, async insert => {
+        await insert.query("SET LOCAL lock_timeout='100ms'");
+        return insertRequest(insert, c, jobId);
+      })).rejects.toMatchObject({ code: '55P03' });
+    });
+    await expect(f.databases.gotchu_api.tenant(c.scope.organizationId, tx => insertRequest(tx, c, jobId)))
+      .rejects.toMatchObject({ code: '23503', message: 'correction_report_unavailable' });
+  });
+
+  it('defers a locked dependency and grants no report or request deletion capability', async () => {
+    const c = await correction(); await expireReport(c);
+    await f.databases.gotchu_api.tenant(c.scope.organizationId, async tx => {
+      await tx.query('SELECT id FROM gotchu.ai_correction_requests WHERE organization_id=$1 AND id=$2 FOR UPDATE', [c.scope.organizationId, c.id]);
+      expect(await purgeReports(c)).toMatchObject({ reports: 0 });
+    });
+    for (const helper of ['erase_private_correction_report', 'guard_private_correction_report']) {
+      await expect(f.databases.gotchu_api.tenant(c.scope.organizationId, tx => tx.query(`SELECT gotchu.${helper}()`)))
+        .rejects.toMatchObject({ code: '42501' });
+    }
+    for (const table of ['customer_reports', 'ai_correction_requests']) {
+      await expect(f.databases.gotchu_api.tenant(c.scope.organizationId, async tx => {
+        await tx.query("SET LOCAL gotchu.retention_purge='enabled'");
+        return tx.query(`DELETE FROM gotchu.${table} WHERE organization_id=$1`, [c.scope.organizationId]);
+      })).rejects.toMatchObject({ code: '42501' });
+    }
+    expect(await purgeReports(c)).toMatchObject({ reports: 1 });
+  });
 
   it.each(['base', 'candidate'] as const)('erases all model content when the %s is deleted, retaining references', async which => {
     const c = await correction();
