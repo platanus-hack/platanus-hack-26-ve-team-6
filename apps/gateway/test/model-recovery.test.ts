@@ -187,7 +187,7 @@ live('server-owned investigation replies', () => {
       tx => recordValidatedModelReply(tx, s.scope, s.reservationId, s.output, [s.evidenceId])))
       .rejects.toMatchObject({ code: 'run_not_authorized' });
     await f.admin.query(`UPDATE gotchu.jobs SET payload=payload || $3::jsonb WHERE organization_id=$1 AND id=$2`,
-      [s.scope.organizationId, s.jobId, JSON.stringify({ aiCorrectionId: randomUUID() })]);
+      [s.scope.organizationId, s.jobId, JSON.stringify({ correctionId: randomUUID() })]);
     await expect(record(s)).rejects.toMatchObject({ code: 'run_not_authorized' });
   });
 

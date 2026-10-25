@@ -21,7 +21,7 @@ async function loadRun(tx: Transaction, scope: RunScope) {
     FROM gotchu.agent_runs r JOIN gotchu.jobs j ON j.organization_id=r.organization_id
       AND j.application_id=r.application_id AND j.id=r.job_id AND j.kind='investigation'
     WHERE r.organization_id=$1 AND r.application_id=$2 AND r.id=$3
-      AND NOT (j.payload ? 'aiCorrectionId') FOR UPDATE OF r`,
+      AND NOT (j.payload ? 'correctionId') FOR UPDATE OF r`,
   [scope.organizationId, scope.applicationId, scope.runId]);
   if (!rows.rows[0]) throw new GatewayError('run_not_authorized', 403);
   const run = runSchema.parse(rows.rows[0]);
@@ -137,7 +137,7 @@ export async function recoverTrustedCheckpoint(
   if (checkpoint.stage === 'running') return safeCheckpointSchema.parse(base);
   const result = checkpoint.result;
   const claimsCompletion = checkpoint.stage !== 'delayed' && result && result.status !== 'delayed'
-    && (result.reasonCode === 'completed' || result.reasonCode === 'model_inconclusive');
+    && ['completed', 'model_inconclusive', 'run_already_completed'].includes(result.reasonCode);
   let trusted: ModelOutput | undefined;
   if (claimsCompletion && checkpoint.modelCalls === run.modelCalls && checkpoint.additionalReadToolCalls === run.toolCalls) {
     const reply = await tx.query(`SELECT v.output,v.loaded_evidence_ids AS "loadedIds"
