@@ -184,6 +184,7 @@ function codexAdapter(binary: string, path: string): ModelPort {
         ]);
         let run: CliOutput;
         try {
+          // Codex 0.163 ignores model_max_output_tokens; the gateway relies on its input estimate.
           run = await runCli(binary, [
             'exec', '--json', '--ephemeral', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules',
             '--sandbox', 'read-only', '--color', 'never', '-C', work, '-m', request.modelId,
