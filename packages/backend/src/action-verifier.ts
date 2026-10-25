@@ -1,4 +1,4 @@
-import { actionV2Schema, customerSourceSnapshotSchema, validationFactsSchema } from '@gotchu/contracts';
+import { actionV2Schema, customerSourceSnapshotSchema, validationFactsSchema, validationProfileSchema, validationSuiteDefinitionSchema } from '@gotchu/contracts';
 import { computeGitTreeShaAfterPatch, type GitTree, type PatchFile, type WorkflowPolicyException, type WorkflowPolicyViolation } from '@gotchu/git-adapters';
 import type { Database } from '@gotchu/database';
 import { createHash } from 'node:crypto';
@@ -27,6 +27,13 @@ const factBundleSchema = validationFactsSchema.extend({
   validationMode: z.enum(['correction', 'dependency']),
   patchDigest: digest,
   candidateTreeDigest: digest,
+  baseSnapshotDigest: digest,
+  dependencyBaseDigest: digest.nullable(),
+  runnerProfile: validationProfileSchema,
+  suiteRepositoryLinkId: z.uuid().nullable(),
+  suiteDefinitionId: z.uuid().nullable(),
+  suiteVersion: z.number().int().positive().nullable(),
+  configuredSuite: z.unknown().nullable(),
   storedAttestations: z.array(z.object({ id: z.uuid(), keyId: digest, signature: z.string().min(1), expiresAt: z.date() }).strict()),
 });
 export type ValidationFactsPort = { getFacts(input: { organizationId: string; actionRef: string }): Promise<unknown | null> };
@@ -43,7 +50,9 @@ export interface ActionVerifierRepositoryPort {
 function validationReason(raw: unknown, runner: {
   runnerIsolationEvidence: unknown; runExpiresAt: Date; runOrganizationId: string; runApplicationId: string;
   runActionRef: string; storedRunId: string; candidateSourceId: string; patchDigest: string; candidateTreeDigest: string;
-  validationMode: 'correction' | 'dependency';
+  validationMode: string; state: string; baseSnapshotDigest: string; dependencyBaseDigest: string | null;
+  runnerProfile: string; suiteRepositoryLinkId: string | null; suiteDefinitionId: string | null;
+  suiteVersion: number | null; configuredSuite: unknown;
   storedAttestations: Array<{ id: string; keyId: string; signature: string; expiresAt: Date }>;
 } | null, action: z.infer<typeof actionV2Schema>, rootfsDigest: string): string | null {
   if (raw === null) return 'validation_missing';
@@ -54,13 +63,17 @@ function validationReason(raw: unknown, runner: {
   const facts = parsed.data;
   const expectedActionRef = action.kind === 'source_patch_pull_request'
     ? action.evidence.find(item => item.kind === 'private_correction_candidate')?.id
-    : action.evidence[0]?.id;
+    : action.evidence.find(item => item.kind === 'dependency_candidate')?.id;
   if (facts.runOrganizationId !== action.organizationId || facts.runApplicationId !== action.applicationId
     || facts.runActionRef !== facts.actionRef || facts.storedRunId !== facts.runId || facts.candidateSourceId !== expectedActionRef) return 'validation_tampered';
   if (action.kind === 'dependency_pull_request' && facts.validationMode !== 'dependency'
     || action.kind === 'source_patch_pull_request' && facts.validationMode !== 'correction') return 'validation_tampered';
-  if (action.kind === 'source_patch_pull_request'
-    && (facts.patchDigest !== action.patchSha256 || facts.candidateTreeDigest !== action.snapshotSha256)) return 'validation_tampered';
+  if (action.kind === 'source_patch_pull_request' || action.kind === 'dependency_pull_request') {
+    const candidateDigest = action.kind === 'source_patch_pull_request' ? action.snapshotSha256
+      : action.evidence.find(item => item.kind === 'dependency_candidate')?.sha256;
+    if (facts.patchDigest !== action.patchSha256 || facts.candidateTreeDigest !== candidateDigest) return 'validation_tampered';
+  }
+  if (action.kind === 'dependency_pull_request' && facts.baseSnapshotDigest !== facts.dependencyBaseDigest) return 'validation_tampered';
   const boundAttestationIds = action.kind === 'source_patch_pull_request' ? action.validationAttestationIds
     : action.kind === 'dependency_pull_request' ? [action.rescanAttestationId, action.suiteAttestationId] : [];
   if (facts.attestations.length === 0) return 'validation_unsigned';
@@ -92,6 +105,27 @@ function validationReason(raw: unknown, runner: {
     if (rescan?.payload.evidence.kind !== 'independent_rescan' || rescan.payload.evidence.result !== 'passed'
       || suite?.payload.evidence.kind !== 'functional_suite' || suite.payload.evidence.result !== 'passed') return 'validation_tampered';
   }
+  const suite = facts.attestations.map(item => item.payload.evidence).find(item => item.kind === 'functional_suite');
+  const rescan = facts.attestations.map(item => item.payload.evidence).find(item => item.kind === 'independent_rescan');
+  if (facts.runnerProfile === 'node24-tsx-selected-v1') {
+    // Selected tests establish only the explicitly configured dependency validation scope.
+    if (action.kind !== 'dependency_pull_request' || !suite?.suiteBinding || !suite.baseCounts || !rescan?.dependencyScope) return 'validation_tampered';
+    const configured = validationSuiteDefinitionSchema.safeParse(facts.configuredSuite);
+    if (!configured.success) return 'validation_tampered';
+    const definition = configured.data;
+    const binding = suite.suiteBinding;
+    if (definition.organizationId !== action.organizationId || definition.applicationId !== action.applicationId
+      || definition.repositoryLinkId !== action.target.repositoryLinkId || definition.repositoryLinkId !== facts.suiteRepositoryLinkId
+      || definition.id !== facts.suiteDefinitionId || definition.version !== facts.suiteVersion
+      || definition.profile !== facts.runnerProfile || binding.profile !== definition.profile
+      || binding.repositoryLinkId !== definition.repositoryLinkId || binding.suiteDefinitionId !== definition.id
+      || binding.suiteVersion !== definition.version || canonicalJson(binding.testSelection) !== canonicalJson(definition.testSelection)
+      || binding.selectionDigest !== sha256(canonicalJson({ profile: definition.profile, testSelection: definition.testSelection }))
+      || suite.requiredCounts !== definition.requiredCount) return 'validation_tampered';
+    if (suite.counts.failed !== 0 || suite.baseCounts.failed !== 0) return 'validation_failed';
+    if (rescan.dependencyScope.baseSnapshotDigest !== facts.baseSnapshotDigest
+      || rescan.dependencyScope.candidateSnapshotDigest !== facts.candidateTreeDigest) return 'validation_tampered';
+  } else if (suite?.suiteBinding || rescan?.dependencyScope) return 'validation_tampered';
   if (facts.state === 'failed') return 'validation_failed';
   if (facts.state === 'expired' || facts.runExpiresAt.getTime() <= Date.now()) return 'validation_expired';
   if (facts.state !== 'passed') return 'validation_inconclusive';
@@ -221,6 +255,7 @@ export function createActionVerifier(input: {
         : null;
       if (dependencyCandidate && !dependencyCandidate.success) return { eligible:false,blockingReasons:['dependency_candidate_invalid'] };
 
+      let dependencyValidation: { runId: string; baseDigest: string } | null = null;
       let artifactValid = action.kind !== 'source_patch_pull_request' && action.kind !== 'dependency_pull_request';
       let artifactReason = 'execution_artifact_missing';
       if (action.kind === 'source_patch_pull_request' && candidate?.success) {
@@ -266,10 +301,12 @@ export function createActionVerifier(input: {
             WHERE c.organization_id=$1 AND c.application_id=$2 AND c.candidate_source_id=$3`, [action.organizationId,action.applicationId,dependencyCandidate.data.id]);
           return result.rows[0];
         });
+        if (metadata) dependencyValidation = { runId: metadata.validation_run_id, baseDigest: metadata.base_digest };
         const advisoryIds = metadata ? z.array(z.string().regex(/^[A-Za-z0-9._-]{1,128}$/)).min(1).max(20).safeParse(metadata.advisory_ids) : null;
         const change = action.changes.length === 1 ? action.changes[0] : undefined;
         const metadataValid = metadata !== undefined && advisoryIds?.success === true && change !== undefined
           && metadata.candidate_source_id === dependencyCandidate.data.id && metadata.source_digest === dependencyCandidate.data.sha256
+          && metadata.candidate_digest === dependencyCandidate.data.sha256
           && metadata.source_deleted_at === null && metadata.repository_link_id === action.target.repositoryLinkId
           && metadata.bound_repository_link_id === action.target.repositoryLinkId && metadata.base_commit === action.baseCommit
           && metadata.binding_commit === action.baseCommit && metadata.binding_digest === metadata.base_digest
@@ -301,9 +338,24 @@ export function createActionVerifier(input: {
         catch { factsUnavailable = true; }
       }
       const runner = facts === null ? null : await input.database.tenant(action.organizationId, async tx => {
-        const result = await tx.query<{ organization_id: string; application_id: string; id: string; action_ref: string; candidate_source_id: string; patch_digest: string; candidate_tree_digest: string; validation_mode: string; sandbox_kind: string; rootfs_digest: string | null; cleanup_verified: boolean; expires_at: Date }>(`SELECT organization_id,application_id,id,action_ref,candidate_source_id,patch_digest,candidate_tree_digest,validation_mode,sandbox_kind,rootfs_digest,cleanup_verified,expires_at FROM gotchu.validation_runs WHERE organization_id=$1 AND application_id=$2 AND action_ref=$3`, [action.organizationId, action.applicationId, actionRef]);
+        const result = await tx.query<{
+          organization_id: string; application_id: string; id: string; action_ref: string; candidate_source_id: string;
+          patch_digest: string; candidate_tree_digest: string; base_snapshot_digest: string; validation_mode: string; state: string;
+          runner_profile: string; suite_repository_link_id: string | null; suite_definition_id: string | null; suite_version: number | null;
+          sandbox_kind: string; rootfs_digest: string | null; cleanup_verified: boolean; expires_at: Date;
+        }>(`SELECT organization_id,application_id,id,action_ref,candidate_source_id,patch_digest,candidate_tree_digest,base_snapshot_digest,
+          validation_mode,state,runner_profile,suite_repository_link_id,suite_definition_id,suite_version,sandbox_kind,rootfs_digest,cleanup_verified,expires_at
+          FROM gotchu.validation_runs WHERE organization_id=$1 AND application_id=$2 AND action_ref=$3
+            AND ($4::uuid IS NULL OR id=$4)`, [action.organizationId, action.applicationId, actionRef, dependencyValidation?.runId ?? null]);
         const row = result.rows[0];
         if (!row) return null;
+        const suite = row.runner_profile === 'node24-tsx-selected-v1' ? await tx.query<{
+          organization_id: string; application_id: string; repository_link_id: string; id: string; version: number; profile: string;
+          script_name: string; suite_name: string; required_count: number; regression_test_path: string | null; test_selection: unknown; created_at: Date;
+        }>(`SELECT organization_id,application_id,repository_link_id,id,version,profile,script_name,suite_name,required_count,regression_test_path,test_selection,created_at
+          FROM gotchu.validation_suite_definitions WHERE organization_id=$1 AND application_id=$2 AND repository_link_id=$3 AND id=$4 AND version=$5`,
+        [action.organizationId, action.applicationId, row.suite_repository_link_id, row.suite_definition_id, row.suite_version]) : null;
+        const definition = suite?.rows[0];
         const storedAttestations = await tx.query<{ id: string; key_id: string; signature: string; expires_at: Date }>(`SELECT id,key_id,signature,expires_at FROM gotchu.validation_attestations
           WHERE organization_id=$1 AND application_id=$2 AND run_id=$3 ORDER BY created_at,id`, [action.organizationId, action.applicationId, row.id]);
         return {
@@ -311,7 +363,16 @@ export function createActionVerifier(input: {
           runExpiresAt: row.expires_at, runOrganizationId: row.organization_id, runApplicationId: row.application_id,
           runActionRef: row.action_ref, storedRunId: row.id, candidateSourceId: row.candidate_source_id,
           patchDigest: row.patch_digest, candidateTreeDigest: row.candidate_tree_digest,
-          validationMode: row.validation_mode === 'dependency' ? 'dependency' as const : 'correction' as const,
+          validationMode: row.validation_mode, state: row.state, baseSnapshotDigest: row.base_snapshot_digest,
+          dependencyBaseDigest: dependencyValidation?.baseDigest ?? null,
+          runnerProfile: row.runner_profile, suiteRepositoryLinkId: row.suite_repository_link_id,
+          suiteDefinitionId: row.suite_definition_id, suiteVersion: row.suite_version,
+          configuredSuite: definition ? {
+            organizationId: definition.organization_id, applicationId: definition.application_id, repositoryLinkId: definition.repository_link_id,
+            id: definition.id, version: definition.version, profile: definition.profile, scriptName: definition.script_name,
+            suiteName: definition.suite_name, requiredCount: definition.required_count, regressionTestPath: definition.regression_test_path,
+            testSelection: definition.test_selection, createdAt: definition.created_at.toISOString(),
+          } : null,
           storedAttestations: storedAttestations.rows.map(item => ({ id: item.id, keyId: item.key_id, signature: item.signature, expiresAt: item.expires_at })),
         };
       });
