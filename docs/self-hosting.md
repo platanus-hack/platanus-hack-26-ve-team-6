@@ -230,6 +230,7 @@ This run used an isolated local stack with real PostgreSQL, Redis, scanner, coor
 | Choose **Corregir con IA** and confirm the scoped consent | The correction graph made one real Sol call, consuming 8,174 tokens. It produced a private replacement snapshot and a saved one-file diff. An independent static rescan completed with zero indications. |
 | Reload the report and repeat the same correction request | The saved correction and rescan link remained available. Concurrent repeated requests returned the existing correction ID without another model invocation. |
 | Choose **Preparar propuesta de PR** | The interface explained the missing verified repository binding and preserved the private correction. No provider write or PR was performed. |
+| Delete an older generated fixture candidate through the customer service | The source body, saved model patch, diff and explanation were erased together. Usage and digest metadata remained. The newer Sol correction retained its source and private diff. |
 
 Subscription reservations in this run settled with their actual token usage and zero reserved tokens. Two older, uncertain investigations from before the fix retain their historical holds; they were not silently cleared. A zero-indication rescan does not establish behavioral correctness. Independent behavioral validation remained inconclusive because no validation suite or VM runner was configured. GitHub write binding, VM validation, human exact approval and actual PR publication therefore remain unverified here.
 
