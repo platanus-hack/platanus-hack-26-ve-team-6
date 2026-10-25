@@ -150,7 +150,7 @@ function claudeCodeAdapter(binary: string, path: string): ModelPort {
           env: {
             PATH: path, HOME: home, CLAUDE_CONFIG_DIR: join(home, '.claude'), CLAUDE_CODE_OAUTH_TOKEN: token,
             // Claude Code fails rather than truncates above this cap, so leave room for a short JSON reply.
-            CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(Math.max(256, request.maxOutputTokens)),
+            ...(request.maxOutputTokens === undefined ? {} : { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(Math.max(256, request.maxOutputTokens)) }),
             DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
           },
         });
@@ -203,9 +203,11 @@ function codexAdapter(binary: string, path: string): ModelPort {
         await Promise.all([mkdir(home, { mode: 0o700 }), mkdir(codexHome, { mode: 0o700 }), mkdir(work, { mode: 0o700 })]);
         const authFile = join(codexHome, 'auth.json');
         const instructionsFile = join(codexHome, 'instructions.md');
+        const schemaFile = join(codexHome, 'response-schema.json');
         await Promise.all([
           writeFile(authFile, credential, { mode: 0o600, flag: 'wx' }),
           writeFile(instructionsFile, request.systemInstruction, { mode: 0o600, flag: 'wx' }),
+          ...(request.outputSchema ? [writeFile(schemaFile, JSON.stringify(request.outputSchema), { mode: 0o600, flag: 'wx' })] : []),
         ]);
         let run: CliOutput;
         try {
@@ -213,6 +215,7 @@ function codexAdapter(binary: string, path: string): ModelPort {
           run = await runCli(binary, [
             'exec', '--json', '--ephemeral', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules',
             '--sandbox', 'read-only', '--color', 'never', '-C', work, '-m', request.modelId,
+            ...(request.outputSchema ? ['--output-schema', schemaFile] : []),
             ...codexDisabledFeatures.flatMap(feature => ['--disable', feature]),
             '-c', 'web_search="disabled"', '-c', 'approval_policy="never"',
             '-c', `model_instructions_file=${JSON.stringify(instructionsFile)}`,
@@ -230,6 +233,7 @@ function codexAdapter(binary: string, path: string): ModelPort {
         let outputTokens = 0;
         let completedTurns = 0;
         let failure: string | undefined;
+        const completedItems: Record<string, number> = {};
         for (const line of run.stdout.split('\n')) {
           if (!line.trim()) continue;
           let raw: unknown;
@@ -239,6 +243,7 @@ function codexAdapter(binary: string, path: string): ModelPort {
           const event = codexEventSchema.safeParse(raw);
           if (!event.success) continue;
           if (event.data.type === 'item.completed') {
+            completedItems[event.data.item.type] = (completedItems[event.data.item.type] ?? 0) + 1;
             if (event.data.item.type === 'agent_message' && event.data.item.text) reply = event.data.item.text;
           } else if (event.data.type === 'turn.completed') {
             completedTurns += 1;
@@ -251,6 +256,9 @@ function codexAdapter(binary: string, path: string): ModelPort {
         if (failure !== undefined) throw new ModelProviderError('request_failed', codexFailureStatus(failure));
         if (run.exitCode !== 0) throw new ModelProviderError('request_failed');
         if (completedTurns === 0) throw new ModelProviderError('missing_usage');
+        console.error(JSON.stringify({ event: 'codex_completion', completedTurns, inputTokens, outputTokens,
+          // Only protocol item categories are logged, never their contents.
+          completedItems: Object.fromEntries(Object.entries(completedItems).filter(([name]) => /^[a-z_]{1,40}$/.test(name))) }));
         return { output: parseJsonReply(reply), inputTokens, outputTokens } satisfies ModelCompletion;
       });
     },
