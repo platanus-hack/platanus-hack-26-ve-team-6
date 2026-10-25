@@ -30,6 +30,38 @@ export function useReveal<T extends HTMLElement>(margin = '0px 0px -40% 0px') {
   return ref;
 }
 
+/**
+ * Writes `--gl-q` on the element while motion is on: its distance from the viewport centre, -1 (above) to 1
+ * (below). The stylesheet turns it into parallax under `[data-parallax]`; React never re-renders for it.
+ */
+export function useParallax<T extends HTMLElement>(enabled: boolean) {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || !enabled) return;
+    element.dataset.parallax = '';
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const box = element.getBoundingClientRect();
+      const distance = (box.top + box.height / 2 - innerHeight / 2) / innerHeight;
+      element.style.setProperty('--gl-q', Math.min(1, Math.max(-1, distance)).toFixed(3));
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    update();
+    addEventListener('scroll', schedule, { passive: true });
+    addEventListener('resize', schedule);
+    return () => {
+      removeEventListener('scroll', schedule);
+      removeEventListener('resize', schedule);
+      cancelAnimationFrame(frame);
+      delete element.dataset.parallax;
+      element.style.removeProperty('--gl-q');
+    };
+  }, [enabled]);
+  return ref;
+}
+
 type MarkProps = {
   children: ReactNode;
   /** `body`: graphite on pink band. `big`: porcelain on magenta band, large type only. */
