@@ -52,8 +52,17 @@ live('live Postgres/Redis assessment delivery', () => {
   it('quarantines an uncertain remote scanner outcome instead of releasing target authorization', async () => {
     const c = await customerTargetJob();
     let calls = 0;
-    await processDurableJob({ ...dependencies(), customerAssessmentRunner: { run: async () => { calls++; throw new Error('Synthetic transport failure after remote admission'); } } }, c.envelope);
+    let progressAtAdmission: unknown;
+    const readJob = () => c.customerApi.web.getJob(c.identity, { organizationId: c.customerScope.organizationId, jobId: c.envelope.id });
+    await processDurableJob({ ...dependencies(), customerAssessmentRunner: { run: async () => {
+      calls++; progressAtAdmission = (await readJob()).progress;
+      throw new Error('Synthetic transport failure after remote admission');
+    } } }, c.envelope);
     expect(calls).toBe(1);
+    // Members can see the job reached the scanner before the uncertain failure.
+    const phases = [expect.objectContaining({ phase: 'validating' }), expect.objectContaining({ phase: 'analyzing' })];
+    expect(progressAtAdmission).toEqual(phases);
+    expect((await readJob()).progress).toEqual(phases);
     expect(await c.customerApi.web.getJob(c.identity, { organizationId: c.customerScope.organizationId, jobId: c.envelope.id })).toMatchObject({ state: 'failed', reasonCode: 'assessment_reconciliation_required', reportId: null });
     await expect(c.customerApi.customers.revokeTarget(c.identity, { ...c.customerScope, targetId: c.targetId })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
     expect(await processDurableJob(dependencies(), c.envelope)).toEqual({ status: 'already_terminal' });

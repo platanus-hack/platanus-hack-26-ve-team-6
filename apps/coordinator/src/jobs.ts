@@ -177,7 +177,11 @@ async function assess(dependencies: CoordinatorDependencies, claim: JobClaim) {
       // release its target authorization based only on an expired job lease.
       if (claim.attempts > 1) throw new BackendError('assessment_reconciliation_required', 'A previous assessment delivery has an uncertain outcome', 409);
       if (!dependencies.customerAssessmentRunner) throw new BackendError('customer_scanner_not_configured', 'Customer scanner is not configured', 503);
+      const lease = { organizationId, jobId, leaseToken: claim.leaseToken };
+      await dependencies.backend.jobs.progress({ ...lease, phase: 'validating' });
       const input = await dependencies.backend.customers.getRequest({ organizationId, applicationId, jobId, leaseToken: claim.leaseToken });
+      // Recorded before the scanner admits remote work, so a failed write never strands scanner effects.
+      await dependencies.backend.jobs.progress({ ...lease, phase: 'analyzing' });
       const report = await runCustomerAssessment(dependencies.customerAssessmentRunner, input).catch((cause: unknown) => {
         throw new BackendError('assessment_reconciliation_required', 'Scanner work must be reconciled before changing target authorization', 503, { cause });
       });
