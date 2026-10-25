@@ -66,6 +66,39 @@ describe('Claude Code subscription adapter', () => {
     await expect(port.complete(request('claude_code', claudeToken))).rejects.toMatchObject({ code: 'request_failed', status: 401 });
   });
 
+  it.each([
+    { name: 'malformed-json', result: '{"ok":', is_error: false },
+    { name: 'missing-reply', is_error: false },
+    { name: 'empty-reply', result: '', is_error: false },
+    { name: 'generation-error', result: '{"ok":true}', is_error: true },
+  ])('preserves known usage with unusable output: $name', async ({ name, ...payload }) => {
+    const envelope = { type: 'result', ...payload,
+      usage: { input_tokens: 400, cache_creation_input_tokens: 10, cache_read_input_tokens: 5, output_tokens: 9 } };
+    const { binary } = await fakeCli(`claude-${name}`, `process.stdout.write(${JSON.stringify(JSON.stringify(envelope))});
+      process.exitCode = ${payload.is_error ? 1 : 0};`);
+    const port = createSubscriptionCliPorts({ claudeCodeBinary: binary }).claudeCode;
+    await expect(port.complete(request('claude_code', claudeToken)))
+      .resolves.toEqual({ output: null, inputTokens: 415, outputTokens: 9 });
+  });
+
+  it.each([401, 403, 404, 429, 500])('keeps explicit API rejection %i even with usage present', async status => {
+    const envelope = { type: 'result', is_error: true, api_error_status: status,
+      result: '{"ok":true}', usage: { input_tokens: 0, output_tokens: 0 } };
+    const { binary } = await fakeCli(`claude-rejected-${status}`, `process.stdout.write(${JSON.stringify(JSON.stringify(envelope))});
+      process.exitCode = 1;`);
+    const port = createSubscriptionCliPorts({ claudeCodeBinary: binary }).claudeCode;
+    await expect(port.complete(request('claude_code', claudeToken)))
+      .rejects.toMatchObject({ code: 'request_failed', status });
+  });
+
+  it.each([false, true])('does not infer usage when it is absent (is_error=%s)', async isError => {
+    const envelope = { type: 'result', is_error: isError, result: '{"ok":' };
+    const { binary } = await fakeCli(`claude-no-usage-${isError}`, `process.stdout.write(${JSON.stringify(JSON.stringify(envelope))});`);
+    const port = createSubscriptionCliPorts({ claudeCodeBinary: binary }).claudeCode;
+    await expect(port.complete(request('claude_code', claudeToken)))
+      .rejects.toMatchObject({ code: isError ? 'request_failed' : 'missing_usage' });
+  });
+
   it('reports a missing CLI distinctly from a provider failure', async () => {
     const port = createSubscriptionCliPorts({ claudeCodeBinary: join(directory, 'not-installed') }).claudeCode;
     await expect(port.complete(request('claude_code', claudeToken))).rejects.toMatchObject({ code: 'cli_unavailable' });
@@ -121,6 +154,41 @@ describe('Codex subscription adapter', () => {
     await expect(port.complete(request('codex', codexAuth, { persistCredential: async next => { persisted.push(next); } })))
       .rejects.toMatchObject({ code: 'request_failed', status: 404 });
     expect(persisted).toHaveLength(1);
+  });
+
+  it.each([
+    { name: 'malformed-json', items: [{ type: 'agent_message', text: '{"ok":' }] },
+    { name: 'missing-reply', items: [] },
+    { name: 'empty-reply', items: [{ type: 'agent_message', text: '' }] },
+    { name: 'tool-output', items: [{ type: 'command_execution', text: '{"ok":true}' }] },
+  ])('preserves completed-turn usage with unusable output: $name', async ({ name, items }) => {
+    const events = [
+      ...items.map(item => ({ type: 'item.completed', item })),
+      { type: 'turn.completed', usage: { input_tokens: 5000, cached_input_tokens: 3000, output_tokens: 12 } },
+      { type: 'turn.completed', usage: { input_tokens: 200, output_tokens: 5 } },
+    ];
+    const { binary } = await fakeCli(`codex-${name}`, `process.stdout.write(${JSON.stringify(events.map(event => JSON.stringify(event)).join('\n'))});`);
+    const port = createSubscriptionCliPorts({ codexBinary: binary }).codex;
+    await expect(port.complete(request('codex', codexAuth)))
+      .resolves.toEqual({ output: null, inputTokens: 5200, outputTokens: 17 });
+  });
+
+  it('does not infer usage without a completed turn', async () => {
+    const event = { type: 'item.completed', item: { type: 'agent_message', text: '{"ok":' } };
+    const { binary } = await fakeCli('codex-no-usage', `process.stdout.write(${JSON.stringify(JSON.stringify(event))});`);
+    const port = createSubscriptionCliPorts({ codexBinary: binary }).codex;
+    await expect(port.complete(request('codex', codexAuth))).rejects.toMatchObject({ code: 'missing_usage' });
+  });
+
+  it('keeps a failed later turn uncertain despite earlier completed-turn usage', async () => {
+    const events = [
+      { type: 'turn.completed', usage: { input_tokens: 5000, output_tokens: 12 } },
+      { type: 'turn.failed', error: { message: 'Connection interrupted.' } },
+    ];
+    const { binary } = await fakeCli('codex-partial-usage', `process.stdout.write(${JSON.stringify(events.map(event => JSON.stringify(event)).join('\n'))});
+      process.exitCode = 1;`);
+    const port = createSubscriptionCliPorts({ codexBinary: binary }).codex;
+    await expect(port.complete(request('codex', codexAuth))).rejects.toMatchObject({ code: 'request_failed', status: undefined });
   });
 
   it('rejects a credential that is not a ChatGPT auth.json before starting the CLI', async () => {
