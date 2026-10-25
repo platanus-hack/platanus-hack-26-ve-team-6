@@ -12,7 +12,7 @@ const singleAppCredentialSchema = z.object({
   id: z.union([z.string().regex(/^[0-9]+$/),z.number().int().positive()]).transform(String),
   clientId: z.string().min(1).max(200),
   clientSecret: z.string().min(1).max(4096),
-  slug: z.string().regex(/^[a-z0-9-]+$/i).max(100),
+  slug: singleGitHubPublicAppSchema.shape.slug,
   privateKeyPem: z.string().min(100).max(32_000),
 }).strict();
 const targetSchema=z.object({installationId:z.union([z.string().regex(/^[0-9]+$/),z.number().int().positive()]).transform(String),owner:z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/),repository:z.string().min(1).max(100)}).strict();
