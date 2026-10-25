@@ -146,6 +146,46 @@ ensure_model_runtime() {
 }
 gateway_port() { local value; value="$(optional_env_value GATEWAY_HOST_PORT)"; printf '%s' "${value:-${GOTCHU_GATEWAY_PORT:-3002}}"; }
 worker_port() { local value; value="$(optional_env_value WORKER_HOST_PORT)"; printf '%s' "${value:-${GOTCHU_WORKER_PORT:-3001}}"; }
+ensure_gateway_worker_ports() {
+  local key override default port
+  for key in GATEWAY_HOST_PORT WORKER_HOST_PORT; do
+    grep -q "^${key}=" "$env_file" && continue
+    if [[ "$key" == GATEWAY_HOST_PORT ]]; then override="${GOTCHU_GATEWAY_PORT:-}"; default=3002
+    else override="${GOTCHU_WORKER_PORT:-}"; default=3001; fi
+    port="${override:-$default}"
+    [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail "${key} debe ser un puerto entre 1024 y 65535."
+    if [[ -z "$override" ]]; then
+      port="$(node - "$port" <<'NODE'
+const net = require('node:net');
+const requested = Number(process.argv[2]);
+const server = net.createServer();
+server.once('error', error => {
+  if (error.code !== 'EADDRINUSE') { console.error(`Gotchu: no se pudo comprobar el puerto ${requested}.`); process.exit(1); }
+  const fallback = net.createServer();
+  fallback.once('error', () => { console.error('Gotchu: no se pudo elegir un puerto libre en loopback.'); process.exit(1); });
+  fallback.listen(0, '127.0.0.1', () => {
+    const port = fallback.address().port;
+    fallback.close(() => process.stdout.write(String(port)));
+  });
+});
+server.listen(requested, '127.0.0.1', () => server.close(() => process.stdout.write(String(requested))));
+NODE
+      )" || fail "No se pudo elegir un puerto para ${key}."
+    fi
+    chmod 600 "$env_file"
+    printf '%s=%s\n' "$key" "$port" >>"$env_file"
+  done
+}
+check_gateway_worker_port() {
+  local service="$1" key="$2" port="$3"
+  app_running "$service" && return 0
+  node - "$port" <<'NODE' >/dev/null 2>&1 || fail "El puerto ${port} está ocupado. Cambia ${key} en ${env_file} y vuelve a ejecutar ./gotchu up."
+const net = require('node:net');
+const server = net.createServer();
+server.once('error', () => process.exit(1));
+server.listen(Number(process.argv[2]), '127.0.0.1', () => server.close(() => process.exit(0)));
+NODE
+}
 stop_all_apps() { stop_app executor; stop_app web; stop_app coordinator; stop_app worker; stop_app gateway; stop_app scanner; }
 compose_ready() {
   local user db redis_password; user="$(env_value POSTGRES_USER)"; db="$(env_value POSTGRES_DB)"; redis_password="$(env_value REDIS_PASSWORD)"
@@ -372,7 +412,10 @@ up() {
     node "$root/apps/gateway/dist/migrate-cli.js" >/dev/null || fail 'No se pudieron aplicar las migraciones del gateway. Revisa ./gotchu logs postgres.'
   ensure_local_tls scanner; ensure_local_tls internal; ensure_model_runtime
   if executor_enabled; then require_executor_setup; fi
+  ensure_gateway_worker_ports
   stop_all_apps
+  check_gateway_worker_port gateway GATEWAY_HOST_PORT "$(gateway_port)"
+  check_gateway_worker_port worker WORKER_HOST_PORT "$(worker_port)"
   local scanner_port coordinator_port web_port; scanner_port="$(env_value SCANNER_HOST_PORT)"; coordinator_port="$(env_value COORDINATOR_HOST_PORT)"; web_port="$(env_value WEB_HOST_PORT)"
   start_app scanner "$scanner_port"
   NODE_EXTRA_CA_CERTS="$state_dir/scanner.crt" wait_http "https://127.0.0.1:${scanner_port}/readyz" scanner
