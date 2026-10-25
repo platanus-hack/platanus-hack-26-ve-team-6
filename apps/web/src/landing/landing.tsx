@@ -46,7 +46,7 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
     <div className="gl-hero-copy">
       <Display as="h1" id="gl-titulo" eager className="gl-display--hero" lines={['Mira de cerca.', <Mark key="m" size="big" load>Decide con pruebas.</Mark>]} />
       <div className="gl-hero-action">
-        <p className="gl-lead">Sube código o verifica un dominio con DNS TXT.</p>
+        <p className="gl-lead">Todo tu proyecto bajo la lupa: tu código por dentro y tu web por fuera.</p>
         <Action href="/registro" size="lg">Audita tu primer proyecto</Action>
       </div>
     </div>
@@ -67,18 +67,18 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
 
 type Motion = { motion: boolean; paused: boolean };
 
-/** The core promise: one field shows code (inside) and the web (outside); each side's column sits under its half. */
-function BothSides({ motion, paused }: Motion) {
-  return <Section motion={motion} id="gl-auditoria" titleId="gl-auditoria-titulo" title={['Te auditamos', <Mark key="m" size="big">por los dos lados.</Mark>]}>
-    <p className="gl-section-lead">Revisamos tu código por dentro y tu web por fuera, y comparamos lo que ve cada lado.</p>
-    <div className="gl-both-field" data-depth=""><DotPlate formation="both" paused={paused} /></div>
-    <div className="gl-sides">
-      {SIDES.map(side => <article key={side.id} id={side.id} className="gl-side" aria-labelledby={`${side.id}-titulo`}>
-        <h3 id={`${side.id}-titulo`} className="gl-side-name">{side.name}</h3>
-        <p>{side.text}</p>
-        <ul className="gl-side-tags">{side.tags.map(tag => <li key={tag}>{tag}</li>)}</ul>
+/** One side of the audit: its dot field (with a scan line that follows scroll) beside what you get. */
+function Side({ side, motion, paused }: Motion & { side: (typeof SIDES)[number] }) {
+  return <Section motion={motion} id={side.id} titleId={`${side.id}-titulo`} className="gl-side" title={[side.title, <Mark key="m" size="big">{side.mark}</Mark>]}>
+    <div className="gl-split">
+      <div className="gl-split-field" data-depth=""><DotPlate formation={side.formation} paused={paused} /><span className="gl-scan" aria-hidden="true" /></div>
+      <div className="gl-split-copy">
+        <p className="gl-section-lead">{side.lead}</p>
+        <ul className="gl-benefits">
+          {side.benefits.map(([title, text], index) => <li key={title} style={{ '--gl-i': index }}><strong>{title}</strong><span>{text}</span></li>)}
+        </ul>
         <Action href="/registro">{side.action}</Action>
-      </article>)}
+      </div>
     </div>
   </Section>;
 }
@@ -128,7 +128,7 @@ function Footer() {
 }
 
 /**
- * The landing: a hero, the audit from both sides, evidence, questions and the invitation to start.
+ * The landing: a hero, the audit from inside and outside, evidence, questions and the invitation to start.
  */
 export function Landing() {
   const motionAllowed = useMotionAllowed();
@@ -138,7 +138,7 @@ export function Landing() {
     <Header />
     <main id="contenido" tabIndex={-1} className="gl-main">
       <Hero paused={paused} onPause={setPaused} motion={motionAllowed} />
-      <BothSides motion={motionAllowed} paused={paused} />
+      {SIDES.map(side => <Side key={side.id} side={side} motion={motionAllowed} paused={paused} />)}
       <Evidence motion={motionAllowed} paused={paused} />
       <Questions motion={motionAllowed} />
       <Closing motion={motionAllowed} paused={paused} />
