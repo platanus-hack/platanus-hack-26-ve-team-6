@@ -56,7 +56,7 @@ async function main() {
   const config = z.object({
     databaseUrl: z.url(), redisUrl: z.url(), port: z.coerce.number().int().min(1).max(65535),
     publicAppUrl: z.url(),
-    connectionMode: z.enum(['legacy', 'single_app']).default('legacy'),
+    connectionMode: z.enum(['legacy_two_app', 'single_app']).default('legacy_two_app'),
     internalToken: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     writerAppFile: z.string().min(1).optional(), writerInstallationId: z.string().regex(/^[0-9]{1,20}$/).optional(),
     monitoringConfigFile: z.string().min(1).optional(),
@@ -77,20 +77,20 @@ async function main() {
   if (!['redis:','rediss:'].includes(new URL(config.redisUrl).protocol)) throw new Error('Invalid Redis connection protocol');
   const legacyProviderConfigured = Boolean(config.writerAppFile && config.writerInstallationId && config.monitoringConfigFile);
   const legacyConfigPresent = Boolean(config.writerAppFile || config.writerInstallationId || config.monitoringConfigFile);
-  if (config.connectionMode === 'legacy' && legacyConfigPresent && !legacyProviderConfigured) throw new Error('Executor writer configuration must be complete');
+  if (config.connectionMode === 'legacy_two_app' && legacyConfigPresent && !legacyProviderConfigured) throw new Error('Executor writer configuration must be complete');
   if (config.connectionMode === 'single_app' && (!config.singleAppFile || !config.publicAppFile || !config.internalToken)) {
     throw new Error('Single App broker configuration must include public/private App files and internal authentication');
   }
   if (legacyProviderConfigured && !config.internalToken) throw new Error('Executor internal authentication is required with the Writer App');
   const writesEnabled = config.writesEnabled === 'true'
-    || config.writesEnabled === undefined && config.connectionMode === 'legacy' && legacyProviderConfigured;
-  if (writesEnabled && config.connectionMode === 'legacy' && !legacyProviderConfigured) throw new Error('Executor writes require a complete legacy provider configuration');
-  if (config.connectionMode === 'legacy' && writesEnabled && config.monitoringConfigFile) await loadMonitoringRepositoryCatalog(config.monitoringConfigFile);
+    || config.writesEnabled === undefined && config.connectionMode === 'legacy_two_app' && legacyProviderConfigured;
+  if (writesEnabled && config.connectionMode === 'legacy_two_app' && !legacyProviderConfigured) throw new Error('Executor writes require a complete legacy provider configuration');
+  if (config.connectionMode === 'legacy_two_app' && writesEnabled && config.monitoringConfigFile) await loadMonitoringRepositoryCatalog(config.monitoringConfigFile);
 
   const singleAppFiles = config.connectionMode === 'single_app'
     ? await loadGitHubSingleAppCredentials({ privateFile: config.singleAppFile!, publicFile: config.publicAppFile! })
     : undefined;
-  const legacyWriter = config.connectionMode === 'legacy' && writesEnabled && config.writerAppFile
+  const legacyWriter = config.connectionMode === 'legacy_two_app' && writesEnabled && config.writerAppFile
     ? await loadGitHubWriterAppCredentials(config.writerAppFile) : undefined;
   const writer = singleAppFiles ? { appId: singleAppFiles.app.id, privateKeyPem: singleAppFiles.app.privateKeyPem } : legacyWriter;
 
@@ -101,7 +101,7 @@ async function main() {
   const adapterFor = async (scope: { organizationId: string; applicationId: string; repositoryKey: string; repositoryLinkId?: string }) => {
     if (singleAppFiles && singleResolver) {
       if (!scope.repositoryLinkId) throw new Error('repository_link_required');
-      const binding = await singleResolver.resolveRepository(scope);
+      const binding = await singleResolver.resolveRepository({ ...scope, repositoryLinkId: scope.repositoryLinkId });
       const installationId = await writerInstallationIdFor(database, singleAppFiles.app.id, scope);
       if (!installationId || !await singleResolver.isActiveInstallation(scope.organizationId, scope.applicationId, installationId)) throw new Error('writer_provider_unavailable');
       const adapter = await singleResolver.withRepositoryMetadata(binding, repository => {
@@ -202,7 +202,7 @@ async function main() {
           const input = await readJsonBody(request, 16 * 1024, 15_000);
           const result = await broker.dispatch(input);
           const body = JSON.stringify(result);
-          if (Buffer.byteLength(body) > 4 * 1024 * 1024) {
+          if (Buffer.byteLength(body) > 4_194_304 + 128_000) {
             response.writeHead(413, { 'content-type': 'application/json', 'cache-control': 'no-store' });
             response.end('{"error":"response_too_large"}'); return;
           }

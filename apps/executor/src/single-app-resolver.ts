@@ -318,7 +318,7 @@ function createSingleAppResolver(options: {
         })) };
       });
     },
-    async readRepository(input: { organizationId: string; applicationId: string; repositoryLinkId: string; read: 'snapshot' | 'head' | 'tree' | 'automation'; commitSha?: string }) {
+    async readRepository(input: { organizationId: string; applicationId: string; repositoryLinkId: string; read: 'snapshot' | 'head' | 'tree' | 'automation'; commitSha?: string | undefined }) {
       const binding = await requireRepository(input);
       return withInstallationToken(binding.installationId, binding.repositoryId, async token => {
         const repository = await repositoryMetadata(binding, token);
@@ -367,7 +367,7 @@ function createSingleAppResolver(options: {
     async inspectAutomation(scope: SingleAppReadScope, baseCommit: string): Promise<WorkflowPolicyViolation[]> {
       return withRepositoryRead(scope, (_binding, _repository, owner, name, token) => automationViolations(owner, name, baseCommit, token));
     },
-    async withRepositoryMetadata<T>(binding: SingleAppRepositoryBinding, work: (repository: z.infer<typeof githubRepositorySchema>) => Promise<T>): Promise<T> {
+    async withRepositoryMetadata<T>(binding: SingleAppRepositoryBinding, work: (repository: z.infer<typeof githubRepositorySchema>) => T | Promise<T>): Promise<T> {
       return withInstallationToken(binding.installationId, binding.repositoryId, async token => work(await repositoryMetadata(binding, token)));
     },
     async isActiveInstallation(organizationId: string, applicationId: string, installationId: string) {
