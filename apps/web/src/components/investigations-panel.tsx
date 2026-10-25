@@ -181,17 +181,17 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
       </label>)}
     </fieldset>
     <label className="customer-investigation-consent"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={!isOwner || save.isPending || testConnection.isPending} />Autorizo el procesamiento externo de las categorías seleccionadas</label>
-    {subscription && <p className="customer-field-note">Sin coste por token en Gotchu: cada llamada se descuenta de los límites de tu suscripción. El presupuesto de tokens sigue limitando cuánto puede consumir este espacio.</p>}
+    {subscription && <p className="customer-field-note">Las llamadas no tienen coste por token en Gotchu. El presupuesto en dinero sólo limita proveedores con clave API y debe mantenerse por encima de lo ya gastado.</p>}
     <div className="customer-investigation-budget-grid">
       {!subscription && <>
       <label htmlFor="investigation-input-rate">Entrada · micro USD por millón de tokens<input id="investigation-input-rate" type="number" min="0" max="1000000000" step="1" value={inputRate} onChange={event => setInputRate(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
       <label htmlFor="investigation-output-rate">Salida · micro USD por millón de tokens<input id="investigation-output-rate" type="number" min="0" max="1000000000" step="1" value={outputRate} onChange={event => setOutputRate(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
-      <label htmlFor="investigation-budget">Presupuesto del espacio · centavos<input id="investigation-budget" type="number" min="0" max="100000000" step="1" value={budgetCents} onChange={event => setBudgetCents(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
       </>}
+      <label htmlFor="investigation-budget">Presupuesto del espacio · centavos<input id="investigation-budget" type="number" min="0" max="100000000" step="1" value={budgetCents} onChange={event => setBudgetCents(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
       <label htmlFor="investigation-token-budget">Presupuesto de tokens<input id="investigation-token-budget" type="number" min="0" max="100000000" step="1000" value={tokenBudget} onChange={event => setTokenBudget(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
     </div>
     {settings.data && (subscription
-      ? <p className="customer-field-note">Uso: {settings.data.tokensSpent.toLocaleString('es')} tokens de tu suscripción · {settings.data.tokensReserved.toLocaleString('es')} reservados.</p>
+      ? <p className="customer-field-note">Uso del espacio: {settings.data.tokensSpent.toLocaleString('es')} tokens · {settings.data.tokensReserved.toLocaleString('es')} reservados{settings.data.spentMicroUsd !== 0 && <> · ${(settings.data.spentMicroUsd / 1_000_000).toFixed(6)} USD gastados</>}{settings.data.reservedMicroUsd !== 0 && <> · ${(settings.data.reservedMicroUsd / 1_000_000).toFixed(6)} USD reservados</>}.</p>
       : <p className="customer-field-note">Uso: {settings.data.tokensSpent.toLocaleString('es')} tokens · ${(settings.data.spentMicroUsd / 1_000_000).toFixed(6)} USD gastados · ${(settings.data.reservedMicroUsd / 1_000_000).toFixed(6)} USD reservados.</p>)}
     {(save.error || disable.error || testConnection.error) && <p className="customer-form-error" role="alert">{errorText(save.error ?? disable.error ?? testConnection.error)}</p>}
     {notice && <p role="status">{notice}</p>}
