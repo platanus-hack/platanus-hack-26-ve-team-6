@@ -7,6 +7,7 @@ import { audit, authorize, BackendError, parse, type BaseDependencies, type Iden
 const scopeSchema = z.object({ organizationId: z.uuid(), applicationId: z.uuid() }).strict();
 const configureSchema = validationSuiteConfigSchema;
 const defaultLimits = { vcpu: 1, memMiB: 1024, pids: 128, wallMs: 120_000, outputBytes: 262_144, diskMiB: 2048 } as const;
+const selectedLimits = { vcpu: 2, memMiB: 2048, pids: 256, wallMs: 300_000, outputBytes: 1_048_576, diskMiB: 4096 } as const;
 
 function suiteNameForConfig(name: string, selection: { files: readonly string[] } | null): string {
   if (!selection) return name;
@@ -60,7 +61,7 @@ export async function enqueueValidation(tx: Transaction, input: {
     VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'bwrap+systemd-scope',$20::jsonb,CASE WHEN $17='inconclusive' THEN clock_timestamp() ELSE NULL END)`,
   [input.organizationId, input.applicationId, id, input.candidateSourceId, input.targetFindingId, JSON.stringify(targetFindingIds), input.mode ?? 'correction', JSON.stringify(dependencyAllowlist), input.candidateSourceId, input.baseSourceId,
     selectedSuite?.repository_link_id ?? null, selectedSuite?.id ?? null, selectedSuite?.version ?? null, input.baseDigest, input.candidateDigest, input.patchDigest,
-    selectedSuite ? 'queued' : 'inconclusive', selectedSuite ? null : 'suite_not_configured', selectedSuite?.profile ?? 'node24-npm-test', JSON.stringify(defaultLimits)]);
+    selectedSuite ? 'queued' : 'inconclusive', selectedSuite ? null : 'suite_not_configured', selectedSuite?.profile ?? 'node24-npm-test', JSON.stringify(selectedSuite?.profile === 'node24-tsx-selected-v1' ? selectedLimits : defaultLimits)]);
   return id;
 }
 
