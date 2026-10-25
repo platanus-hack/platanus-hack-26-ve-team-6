@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, defaultLicensePolicy, type AssessmentAnalysis, type CustomerAssessmentReport, type CustomerRunInput } from '@gotchu/contracts';
+import { CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, customerJobProgressSchema, defaultLicensePolicy, type AssessmentAnalysis, type CustomerAssessmentReport, type CustomerRunInput } from '@gotchu/contracts';
 import { fixture, liveUrl, present } from '../../database/test/support.js';
 import { canonicalJson, createBackend, DEMO_ASSESSMENT_SCOPE, sha256 } from '../src/index.js';
 
@@ -253,6 +253,29 @@ live('customer workflow on real Postgres roles/RLS with synthetic DNS and report
     await expect(coordinator.customers.getRequest({ ...c.scope, jobId: second.jobId, leaseToken: secondJob.leaseToken })).rejects.toMatchObject({ code: 'stale_lease' });
     expect(await coordinator.jobs.claim({ organizationId: c.workspace.id, jobId: second.jobId })).toBeNull();
     expect((await api.customers.enrollTarget(c.identity, { ...c.scope, origin: target.origin, authorized: true })).target).toMatchObject({ status: 'pending', version: target.version + 2 });
+  });
+
+  it('records job progress only under the current coordinator lease and shows it only to workspace members', async () => {
+    const c = await customer();
+    const queued = await api.customers.queue(c.identity, { ...c.scope, mode: 'internal', sourceSnapshotId: c.source.id, targetId: null, idempotencyKey: randomUUID() });
+    const read = () => api.web.getJob(c.identity, { organizationId: c.workspace.id, jobId: queued.jobId });
+    expect(await read()).toMatchObject({ state: 'queued', mode: 'internal', inputKind: 'source_snapshot', progress: [] });
+    const job = present(await coordinator.jobs.claim({ organizationId: c.workspace.id, jobId: queued.jobId }));
+    const lease = { organizationId: c.workspace.id, jobId: queued.jobId, leaseToken: job.leaseToken };
+    await coordinator.jobs.progress({ ...lease, phase: 'validating' });
+    const input = await coordinator.customers.getRequest({ ...c.scope, jobId: queued.jobId, leaseToken: job.leaseToken });
+    await coordinator.jobs.progress({ ...lease, phase: 'analyzing' });
+    await expect(coordinator.jobs.progress({ ...lease, leaseToken: randomUUID(), phase: 'analyzing' })).rejects.toMatchObject({ code: 'stale_lease' });
+    // The API role reads jobs but cannot write their progress, even with the right lease.
+    await expect(api.jobs.progress({ ...lease, phase: 'analyzing' })).rejects.toThrow(/permission denied/);
+    const progress = customerJobProgressSchema.parse((await read()).progress);
+    expect(progress.map(entry => entry.phase)).toEqual(['validating', 'analyzing']);
+    expect(Date.parse(present(progress[1]).at)).toBeGreaterThanOrEqual(Date.parse(present(progress[0]).at));
+    const outsider = await customer();
+    await expect(api.web.getJob(outsider.identity, { organizationId: c.workspace.id, jobId: queued.jobId })).rejects.toMatchObject({ code: 'forbidden' });
+    await coordinator.customers.recordResult({ input, leaseToken: job.leaseToken, report: reportFor(input) });
+    await expect(coordinator.jobs.progress({ ...lease, phase: 'analyzing' })).rejects.toMatchObject({ code: 'stale_lease' });
+    expect(await read()).toMatchObject({ state: 'succeeded', progress });
   });
 
   it('keeps failed work quarantined until trusted reconciliation confirms the runner has stopped', async () => {
