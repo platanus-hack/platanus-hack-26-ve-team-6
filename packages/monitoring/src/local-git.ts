@@ -230,7 +230,7 @@ async function readTree(run: GitRunner, revision: string): Promise<SourceTreeEnt
   const records = output.toString('binary').split('\0');
   if (records.at(-1) === '') records.pop();
   if (records.length > MAX_REPOSITORY_TREE_ENTRIES) throw new Error('repository_tree_entry_limit');
-  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
   const entries: SourceTreeEntry[] = [];
   for (const record of records) {
     const tab = record.indexOf('\t');
@@ -272,7 +272,7 @@ async function readBlobContents(run: GitRunner, tree: readonly SourceTreeEntry[]
     if (totalKnownBytes > CUSTOMER_MAX_SOURCE_BYTES) throw new Error('repository_source_bytes_limit');
   }
   const contents = new Map<string, string>();
-  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
   let offset = 0;
   while (offset < blobs.length) {
     signal?.throwIfAborted();

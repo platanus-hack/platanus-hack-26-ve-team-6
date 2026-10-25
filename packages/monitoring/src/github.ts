@@ -1,4 +1,5 @@
 import { constants } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { lstat, open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -183,6 +184,7 @@ async function readCommit(base: URL, ref: string, options: Omit<JsonRequestOptio
   const url = new URL(base.pathname + '/commits/' + encodeURIComponent(ref), base.origin);
   const response = await requestJson(url, options);
   const parsed = commitResponseSchema.parse(parseJsonBody(response.body));
+  if (gitSha.test(ref) && parsed.sha.toLowerCase() !== ref.toLowerCase()) throw new Error('github_commit_mismatch');
   const committedAt = parsed.commit.committer?.date;
   return {
     sha: parsed.sha.toLowerCase(),
@@ -195,6 +197,7 @@ async function readTree(base: URL, treeSha: string, options: Omit<JsonRequestOpt
   const url = new URL(base.pathname + '/git/trees/' + encodeURIComponent(treeSha) + '?recursive=1', base.origin);
   const response = await requestJson(url, { ...options, maxBytes: MAX_REPOSITORY_TREE_BYTES });
   const parsed = treeResponseSchema.parse(parseJsonBody(response.body));
+  if (parsed.sha.toLowerCase() !== treeSha.toLowerCase()) throw new Error('github_tree_mismatch');
   if (parsed.truncated) throw new Error('github_tree_truncated');
   if (parsed.tree.length > MAX_REPOSITORY_TREE_ENTRIES) throw new Error('repository_tree_entry_limit');
   const entries: SourceTreeEntry[] = [];
@@ -275,9 +278,11 @@ async function readBlobs(
       if (bytes.byteLength !== parsed.size) throw new Error('github_blob_mismatch');
       if (bytes.byteLength > CUSTOMER_MAX_SOURCE_BYTES - downloadedSourceBytes) throw new Error('repository_source_bytes_limit');
       downloadedSourceBytes += bytes.byteLength;
+      const blobSha = createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex');
+      if (blobSha !== entry.sha) throw new Error('github_blob_mismatch');
       let content: string;
       try {
-        content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
       } catch {
         throw new Error('repository_source_not_utf8');
       }

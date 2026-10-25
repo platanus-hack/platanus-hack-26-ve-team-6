@@ -85,6 +85,20 @@ describe('local bare Git reader', () => {
     expect(JSON.stringify(changed)).not.toContain('not read by the monitoring adapter');
   });
 
+  it('preserves UTF-8 BOM bytes in source contents and repository paths', async () => {
+    const root = await tempDirectory();
+    const fixture = await repositoryFixture(root);
+    const path = '\uFEFFbom.ts';
+    const content = '\uFEFFexport const value = true;\r\n';
+    await writeFile(join(fixture.working, path), content);
+    git(['add', '--', path], fixture.working);
+    git(['-c', 'user.name=Test Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'BOM source'], fixture.working);
+    git(['push', fixture.bare, 'HEAD:refs/heads/main'], fixture.working);
+    const { catalog, scope } = scopedCatalog(fixture.managed);
+    const result = await createLocalGitRepositoryReader(catalog).read({ ...scope, repositoryKey: 'customer-product' });
+    expect(result.snapshot.files).toContainEqual({ path, content });
+  });
+
   it('excludes a real gitlink while retaining source files from the bare repository', async () => {
     const root = await tempDirectory();
     const fixture = await repositoryFixture(root);
