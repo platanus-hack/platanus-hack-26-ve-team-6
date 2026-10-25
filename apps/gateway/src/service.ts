@@ -821,6 +821,7 @@ async function invokeModel(
   }, 1_000);
   cancelPoll.unref();
   let usageSettled = false;
+  let providerUsageKnown = false;
   try {
     const completion = await completeWithStoredCredential({ modelPort, secrets, database: authorized.database,
       organizationId: scope.organizationId, secretRef, apiKey }, {
@@ -834,6 +835,7 @@ async function invokeModel(
       signal: abortController.signal,
     });
     const totalTokens = completion.inputTokens + completion.outputTokens;
+    providerUsageKnown = true;
     if (!Number.isSafeInteger(totalTokens) || totalTokens > reserveTokens) throw new GatewayError('model_usage_exceeds_reservation', 409);
     const cost = pricedUsage(completion.inputTokens, completion.outputTokens, inputRate, outputRate);
     await runs.settleModel({ organizationId: scope.organizationId, reservationId: input.reservationId,
@@ -844,10 +846,18 @@ async function invokeModel(
       const patch = aiCorrectionPatchSchema.safeParse(completion.output);
       if (patch.success) await authorized.database.tenant(scope.organizationId, tx => storeAiCorrectionPatch(tx, { ...scope, correctionId }, patch.data));
     } else {
-      await authorized.database.tenant(scope.organizationId, tx => recordValidatedModelReply(tx, scope, input.reservationId, completion.output, settings.loadedEvidenceIds ?? []));
+      try { await authorized.database.tenant(scope.organizationId, tx => recordValidatedModelReply(tx, scope, input.reservationId, completion.output, settings.loadedEvidenceIds ?? [])); }
+      catch (error) {
+        if (!(error instanceof GatewayError) || !['invalid_model_output', 'unsupported_evidence', 'model_reply_too_large'].includes(error.code)) throw error;
+        console.error(JSON.stringify({ event: 'model_reply_rejected', runId: scope.runId, reason: error.code }));
+      }
     }
     return { output: completion.output, usage: { inputTokens: completion.inputTokens, outputTokens: completion.outputTokens, totalTokens, spendMicroUsd: cost } };
   } catch (error) {
+    console.error(JSON.stringify({ event: 'model_invocation_failed', runId: scope.runId,
+      providerPresetId: settings.config.provider_preset_id, providerUsageKnown, usageSettled,
+      reason: error instanceof GatewayError || error instanceof ModelProviderError ? error.code : 'internal_error',
+      ...(error instanceof ModelProviderError && error.status !== undefined ? { providerStatus: error.status } : {}) }));
     if (usageSettled) throw new GatewayError('model_result_not_persisted', 503);
     if (rejectedBeforeGeneration(error)) {
       await runs.settleModel({ organizationId: scope.organizationId, reservationId: input.reservationId,
