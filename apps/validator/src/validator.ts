@@ -126,12 +126,12 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
       runnerProfile: runnerProfileSchema.parse(row.runner_profile), runnerDigest: null, firecrackerDigest: null, kernelDigest: null, rootfsDigest: null, sandboxKind: 'bwrap+systemd-scope', limits: validationLimitsSchema.parse(row.limits), state: 'running', reason: null,
       queuedAt: new Date(String(row.queued_at)).toISOString(), startedAt: row.started_at ? new Date(String(row.started_at)).toISOString() : null, finishedAt: null, expiresAt: new Date(String(row.expires_at)).toISOString(),
     };
-    const inconclusive = async (why: string) => finish(run, claim.leaseToken, [
+    const inconclusive = async (why: string, results: RunnerResult[] = []) => finish(run, claim.leaseToken, [
       { kind: 'base_reproduction', result: 'unavailable', exitCode: null, durationMs: 0 },
       { kind: 'candidate_regression', result: 'unavailable', exitCode: null, durationMs: 0 },
       { kind: 'functional_suite', suiteName: String(row.suite_name ?? 'unconfigured'), result: 'inconclusive', counts: { passed: 0, failed: 0, skipped: 0 }, requiredCounts: Number(row.required_count ?? 1) },
       { kind: 'independent_rescan', result: 'inconclusive', before: { identities: [], coverage: 'unknown' }, after: { identities: [], coverage: 'unknown' }, targetedIdentities: [] },
-    ], 'inconclusive', why, []);
+    ], 'inconclusive', why, results);
 
     const admission = { suiteConfigured: Boolean(run.suiteDefinitionId && row.suite_name && row.script_name && row.required_count), baseDigestMatches: row.base_source_digest === run.baseSnapshotDigest, candidateDigestMatches: row.candidate_source_digest === run.candidateTreeDigest, scriptName: typeof row.script_name === 'string' ? row.script_name : null, gateOpen: true };
     const preflightReason = validationAdmissionReason(admission);
@@ -188,6 +188,9 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     try {
       const baseResult = await runVm(beforeArchive.bytes); results.push(baseResult);
       if (await quarantineAndWait(baseResult)) return;
+      if (selection && (!testPassed(baseResult) || suiteCounts(baseResult, run.runnerProfile)?.success !== true)) {
+        return inconclusive('selected_base_suite_not_passed', results);
+      }
       const candidateRegression = await runVm(candidateArchive.bytes); results.push(candidateRegression);
       if (await quarantineAndWait(candidateRegression)) return;
       const candidateSuite = await runVm(candidateArchive.bytes); results.push(candidateSuite);
