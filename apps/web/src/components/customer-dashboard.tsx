@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { z } from 'zod';
-import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlayIcon, PlusIcon, RadarIcon, ScaleIcon, SparklesIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
+import { AppWindowIcon, ArchiveIcon, BotIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlayIcon, PlusIcon, RadarIcon, ScaleIcon, SparklesIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -55,13 +55,13 @@ import './customer-shell.css';
 import './customer-report.css';
 import './customer-operations.css';
 
-export type DashboardPage = 'overview' | 'applications' | 'https-audit' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model';
+export type DashboardPage = 'overview' | 'applications' | 'https-audit' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model' | 'assistants';
 type Page = DashboardPage;
-type WorkspacePage = Extract<Page, 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model'>;
+type WorkspacePage = Extract<Page, 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model' | 'assistants'>;
 type ActiveJob = { organizationId: string; applicationId: string; jobId: string; purpose: 'assessment' | 'correction' };
 
 function isWorkspacePage(page: Page): page is WorkspacePage {
-  return page === 'members' || page === 'decision-records' || page === 'license-policy' || page === 'retention-policy' || page === 'investigation-model';
+  return page === 'members' || page === 'decision-records' || page === 'license-policy' || page === 'retention-policy' || page === 'investigation-model' || page === 'assistants';
 }
 
 function readLastProjectPath() {
@@ -78,6 +78,7 @@ const pages: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'members', label: 'Equipo', icon: UsersIcon },
   { id: 'decision-records', label: 'Decisiones', icon: GavelIcon },
   { id: 'investigation-model', label: 'Modelos de IA', icon: SparklesIcon },
+  { id: 'assistants', label: 'Asistentes IA', icon: BotIcon },
   { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
   { id: 'retention-policy', label: 'Retención', icon: ArchiveIcon },
 ];
@@ -95,6 +96,7 @@ function DashboardNavLink({ page, organizationId, applicationId, count, onNaviga
     case 'operations': return <Link {...common} to="/w/$workspaceId/p/$projectId/vigilancia" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'reports': return <Link {...common} to="/w/$workspaceId/p/$projectId/informes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'investigation-model': return <Link {...common} to="/w/$workspaceId/modelos" params={{ workspaceId: organizationId }}>{content}</Link>;
+    case 'assistants': return <Link {...common} to="/w/$workspaceId/asistentes" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'license-policy': return <Link {...common} to="/w/$workspaceId/licencias" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'retention-policy': return <Link {...common} to="/w/$workspaceId/retencion" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'members': return <Link {...common} to="/w/$workspaceId/equipo" params={{ workspaceId: organizationId }}>{content}</Link>;

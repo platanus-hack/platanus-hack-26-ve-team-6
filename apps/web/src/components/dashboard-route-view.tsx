@@ -37,6 +37,7 @@ export function routePageFromPath(pathname: string): { page: DashboardPage; appl
     return { page: 'reports', ...(applicationId ? { applicationId } : {}), ...(reportId ? { reportId } : {}) };
   }
   if (section === '/modelos') return { page: 'investigation-model' };
+  if (section === '/asistentes') return { page: 'assistants' };
   if (section === '/licencias') return { page: 'license-policy', ...(applicationId ? { applicationId } : {}) };
   if (section === '/retencion') return { page: 'retention-policy', ...(applicationId ? { applicationId } : {}) };
   if (section === '/equipo') return { page: 'members', ...(applicationId ? { applicationId } : {}) };
