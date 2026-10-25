@@ -169,6 +169,42 @@ globalThis.fetch = async (input, init) => {
     expect(counts.rows[0]).toEqual({ sources: 1, jobs: 1 });
   }, 60_000);
 
+  it('selects models without duplicating controls across provider switches and preserves custom IDs', async () => {
+    await page.context().clearCookies();
+    await signIn(page, origin, `model-picker-${randomUUID()}@example.test`);
+    const workspace = customerWorkspaceSchema.parse(await page.evaluate(async () => {
+      const response = await fetch('/api/customer/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Model selector fixture' }) });
+      if (!response.ok) throw new Error('Workspace fixture could not be created');
+      return await response.json();
+    }));
+    await page.goto(`${origin}/w/${workspace.id}`);
+    await page.getByRole('link', { name: 'Modelos de IA', exact: true }).click();
+    await page.getByRole('heading', { name: 'Modelo y consentimiento', exact: true }).waitFor();
+    for (const [provider, model] of [
+      ['openrouter', 'anthropic/claude-sonnet-5.5'], ['codex', 'gpt-6-luna'], ['claude_code', 'claude-sonnet-5-5'],
+      ['codex', 'gpt-6-luna'], ['anthropic', 'claude-sonnet-5-5'], ['openai', 'gpt-5.4'], ['codex', 'gpt-6-luna'],
+    ]) {
+      if (!provider || !model) throw new Error('Model fixture missing');
+      await page.getByLabel('Proveedor', { exact: true }).selectOption(provider);
+      await page.locator(`#investigation-model-choice option[value="${model}"]`).waitFor({ state: 'attached' });
+      expect(await page.locator('#investigation-model-choice').count()).toBe(1);
+      expect(await page.locator('#investigation-provider').count()).toBe(1);
+      expect(await page.locator('#investigation-model-choice').inputValue()).toBe(model);
+    }
+    await page.getByLabel('Modelo', { exact: true }).selectOption('gpt-6.1-sol');
+    const saved = page.waitForResponse(response => response.url().endsWith('/investigation-model') && response.request().method() === 'PUT');
+    await page.getByRole('button', { name: 'Guardar configuración', exact: true }).click(); expect((await saved).ok()).toBe(true);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector<HTMLSelectElement>('#investigation-model-choice')?.value === 'gpt-6.1-sol');
+    await page.getByLabel('Modelo', { exact: true }).selectOption('__custom__');
+    await page.getByLabel('ID del modelo personalizado').fill('synthetic-custom-model');
+    const savedCustom = page.waitForResponse(response => response.url().endsWith('/investigation-model') && response.request().method() === 'PUT');
+    await page.getByRole('button', { name: 'Guardar configuración', exact: true }).click(); expect((await savedCustom).ok()).toBe(true);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector<HTMLInputElement>('#investigation-model-id')?.value === 'synthetic-custom-model');
+    expect(await page.getByLabel('Modelo', { exact: true }).inputValue()).toBe('__custom__');
+  }, 60_000);
+
   it('analyzes a requested HTTPS scope from the first workspace and rejects it after expiry', async () => {
     await page.context().clearCookies();
     await page.goto(origin);

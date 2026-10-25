@@ -186,8 +186,8 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
       <label htmlFor="investigation-endpoint">Endpoint HTTPS personalizado</label>
       <input id="investigation-endpoint" type="url" value={customEndpoint} onChange={event => setCustomEndpoint(event.target.value)} maxLength={2048} disabled={!isOwner || save.isPending || testConnection.isPending || connectingProvider} placeholder="https://api.example.com/v1" />
     </>}
-    {preset && <InvestigationModelPicker key={providerPresetId} preset={preset} modelId={modelId} onChange={setModelId} disabled={!isOwner || save.isPending || testConnection.isPending || connectingProvider} />}
-    {(providerPresetId === 'codex' || providerPresetId === 'claude_code' || providerPresetId === 'openrouter') && isOwner && <ProviderConnectionButton key={providerPresetId} organizationId={organizationId} provider={providerPresetId} disabled={save.isPending || testConnection.isPending} prepare={() => save.mutateAsync()} onConnected={providerConnected} onPendingChange={setConnectingProvider} />}
+    {preset && <InvestigationModelPicker key={`model:${providerPresetId}`} preset={preset} modelId={modelId} onChange={setModelId} disabled={!isOwner || save.isPending || testConnection.isPending || connectingProvider} />}
+    {(providerPresetId === 'codex' || providerPresetId === 'claude_code' || providerPresetId === 'openrouter') && isOwner && <ProviderConnectionButton key={`connection:${providerPresetId}`} organizationId={organizationId} provider={providerPresetId} disabled={save.isPending || testConnection.isPending} prepare={() => save.mutateAsync()} onConnected={providerConnected} onPendingChange={setConnectingProvider} />}
     {credentialConfigured && subscription && <p className="customer-field-note">Cuenta conectada en este espacio.</p>}
     {preset && <ProviderCredentialLink preset={preset} />}
     {subscription || providerPresetId === 'openrouter' ? <details><summary>Conexión manual avanzada</summary>{credentialFields}</details> : credentialFields}
