@@ -773,14 +773,12 @@ async function invokeModel(
     inputPriceMicroUsdPerMillionTokens: Number(inputRate), outputPriceMicroUsdPerMillionTokens: Number(outputRate),
   });
   const reserveTokens = Math.min(input.remainingTokens, 20_000);
-  const maxOutputTokens = Math.min(input.maxOutputTokens, 2_048, reserveTokens);
-  // A subscription CLI cannot be capped mid-call; refuse up front rather than overrun the reservation
-  // and leave it for reconciliation. Three characters per token is a deliberately high estimate.
   const preset = investigationProviderCatalog.find(item => item.id === settings.config.provider_preset_id);
-  if (preset?.billing === 'subscription') {
-    const estimatedTokens = preset.fixedPromptTokens + Math.ceil((gatewaySystemInstruction.length + settings.userContext.length) / 3) + maxOutputTokens;
-    if (reserveTokens < estimatedTokens) throw new GatewayError('model_budget_exhausted', 429);
-  }
+  const estimatedInputTokens = (preset?.fixedPromptTokens ?? 0)
+    + Math.ceil((gatewaySystemInstruction.length + settings.userContext.length) / 3);
+  const maxOutputTokens = Math.min(input.maxOutputTokens, 2_048, reserveTokens - estimatedInputTokens);
+  // Three characters per token deliberately overestimates the prompt size for every provider.
+  if (maxOutputTokens < 64) throw new GatewayError('model_budget_exhausted', 429);
   const worstRate = inputRate > outputRate ? inputRate : outputRate;
   const estimatedCost = Number((BigInt(reserveTokens) * worstRate + 999_999n) / 1_000_000n);
   const reserveCost = Math.max(1, Math.min(input.remainingSpendMicroUsd, estimatedCost));
