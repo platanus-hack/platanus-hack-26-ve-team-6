@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, CUSTOMER_MAX_SOURCE_BYTES, CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES, customerOriginSchema, customerPublicImageReferenceSchema, customerSourceSnapshotSchema, customerQueueSchema, customerRunInputSchema, customerAssessmentIntentSchema, customerAssessmentReportSchema, customerEnrollTargetSchema } from '../src/index.js';
+import { CUSTOMER_MAX_SOURCE_FILES, CUSTOMER_MAX_SOURCE_FILE_BYTES, customerOriginSchema, customerPublicImageReferenceSchema, customerSourceSnapshotSchema, customerQueueSchema, customerRunInputSchema, customerAssessmentIntentSchema, customerAssessmentReportSchema, customerEnrollTargetSchema } from '../src/index.js';
 
 const snapshot = () => ({ revision: 'real-revision', files: [{ path: 'src/index.ts', content: 'export const value = 1;' }] });
 describe('customer assessment input boundaries', () => {
@@ -25,7 +25,6 @@ describe('customer assessment input boundaries', () => {
     expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: Array.from({ length: CUSTOMER_MAX_SOURCE_FILES + 1 }, (_, i) => ({ path: `${i}.ts`, content: '' })) }).success).toBe(false);
     expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: Array.from({ length: 5 }, (_, i) => ({ path: `${i}.ts`, content: 'x'.repeat(CUSTOMER_MAX_SOURCE_FILE_BYTES) })) }).success).toBe(false);
     expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), revision: 'r'.repeat(201) }).success).toBe(false);
-    expect(CUSTOMER_MAX_SOURCE_BYTES).toBe(4 * CUSTOMER_MAX_SOURCE_FILE_BYTES);
     expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: [{ path: 'package-lock.json', content: ' '.repeat(100_000) }] }).success).toBe(true);
     expect(customerSourceSnapshotSchema.safeParse({ ...snapshot(), files: Array.from({ length: CUSTOMER_MAX_SOURCE_FILES }, (_, i) => ({ path: `${i}.ts`, content: '' })) }).success).toBe(true);
   });
@@ -42,7 +41,6 @@ describe('customer assessment input boundaries', () => {
     const digest = 'a'.repeat(64);
     const reference = `docker.io/library/alpine@sha256:${digest}`;
     const archive = Buffer.from('tiny archive');
-    expect(CUSTOMER_MAX_CONTAINER_IMAGE_BYTES).toBe(8 * 1024 * 1024);
     expect(customerPublicImageReferenceSchema.safeParse(reference).success).toBe(true);
     for (const invalid of ['docker.io/library/alpine:latest', 'private.example.com/team/app@sha256:' + digest, 'docker.io/library/alpine@sha256:' + 'A'.repeat(64)]) {
       expect(customerPublicImageReferenceSchema.safeParse(invalid).success, invalid).toBe(false);

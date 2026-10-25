@@ -2,7 +2,9 @@
 
 Read `PRODUCT.md`, `DESIGN.md` and `design/landing.direction.md` before changing public web presentation. They are scoped to this package. Product truth comes from existing contracts and repository architecture; visual references do not grant product capabilities.
 
-Current iteration owns only the landing at `/`. Do not restyle `/dashboard` or `/demo`, alter auth/permissions, introduce customer-code execution, or deploy to a public host without a new request. Scope identity variables and browser-surface rules to `.g-page` so the landing stylesheet cannot recolor the customer application after navigation.
+The brand applies to the whole app: the landing at `/` and the customer application (`/dashboard`, `/setup`, `/privacy`, `/terms`). Do not alter auth/permissions, introduce customer-code execution, or deploy to a public host without a new request. Landing-only rules stay scoped to `.g-page`; page roots elsewhere carry the `.gl` class to receive the tokens.
+
+App styles: `src/components/customer-shell.css` (shell, auth page, shared buttons/forms/cards/chips), `customer-report.css`, `customer-operations.css`, `public-legal.css`. The theme switch is `src/components/theme-switch.tsx`; `THEME_SCRIPT` runs from the root route.
 
 ## Tools
 
@@ -25,7 +27,7 @@ The landing lives in `src/landing/` (route `/`). Dot fields (`src/components/dot
 
 ## Components and themes
 
-Controls are shadcn/ui (style `base-nova` on Base UI, see `components.json`; the shadcn skill is in `.agents/skills/shadcn`). Add components with `npx shadcn@latest add <name>` from `apps/web`, then restyle them in `src/components/ui/` to DESIGN.md instead of overriding them from page CSS. Navigation styled as a button is a real `<a>` with `buttonVariants`, because Base UI's Button announces anchors as buttons. Theme tokens are the shadcn slots in `src/styles/landing-ui.css`, scoped to `.gl` so they cannot restyle `/dashboard` or `/demo`; Tailwind loads without preflight for the same reason. Page CSS sits in `@layer components` so utility classes win. Light is pure `#ffffff`, dark is pure `#000000`, and system follows the OS; `THEME_SCRIPT` applies the stored choice before paint.
+Controls are shadcn/ui (style `base-nova` on Base UI, see `components.json`; the shadcn skill is in `.agents/skills/shadcn`). Add components with `npx shadcn@latest add <name>` from `apps/web`, then restyle them in `src/components/ui/` to DESIGN.md instead of overriding them from page CSS. Navigation styled as a button is a real `<a>` with `buttonVariants`, because Base UI's Button announces anchors as buttons. Theme tokens are the shadcn slots in `src/styles/landing-ui.css`, applied to every page root with the `.gl` class and loaded from the root route; Tailwind loads without preflight so it cannot reset unbranded markup. Page CSS sits in `@layer components` so utility classes win. Light is pure `#ffffff`, dark is pure `#000000`, and system follows the OS; `THEME_SCRIPT` applies the stored choice before paint.
 
 After the finished surface, run the detector and triage real findings rather than suppressing them broadly:
 
@@ -41,15 +43,13 @@ The shared `.impeccable/config.json` enables supported design hooks. Automatic i
 pnpm build:packages
 pnpm --filter @gotchu/web typecheck
 pnpm --filter @gotchu/web test
-pnpm --filter @gotchu/web exec playwright install chromium
-pnpm --filter @gotchu/web test:design
 pnpm --filter @gotchu/web build
 ```
 
-Playwright starts/reuses a loopback-only preview on port 3085 (set `GOTCHU_DESIGN_URL` to test an already running server). Its tests exercise the actual landing and its shadcn controls, not mocked security assessments. Review rendered desktop and mobile images in both themes, pointer following and the pause control, the theme switch, keyboard FAQ and menu, 320px layout, reduced motion and no-JavaScript content. Automated axe checks do not constitute an accessibility certification or a hardware performance benchmark.
+There is no automated landing design suite. For visual changes, run the app and check the changed spot in a real browser on desktop and mobile widths, in both themes.
 
 ## Editorial and asset rules
 
 Write direct Spanish about implemented features. Never insert artwork explanation, meta/helper copy or mock-analysis instructions. Do not invent scanner output, scores, testimonials, uptime or results: abstract original product assets remove the need for such disclaimers. Genuine scope limits belong in a normal product answer, not captions attached to art.
 
-The landing ships no raster or SVG artwork files: the mark, ASCII plates and dot fields are authored in components (`gotchu-mark.tsx` holds the shared geometry). Do not reuse reference-site assets or unlicensed AIRNT. Respect the OFL files alongside the self-hosted Saira font. Small text never sits on `#e7147d`; use the action shade, ink or silver. Controls are 34px minimum (desktop primary buttons 48px) and the header is 52px (48px on mobile); the browser gate enforces 34px, which replaces the earlier 44px rule at the user's request. Keep installed skill engines, local credentials and test traces out of Git.
+The landing ships no raster or SVG artwork files: the mark, ASCII plates and dot fields are authored in components (`gotchu-mark.tsx` holds the shared geometry). Do not reuse reference-site assets or unlicensed AIRNT. Respect the OFL files alongside the self-hosted Saira font. Small text never sits on `#e7147d`; use the action shade, ink or silver. Controls are 34px minimum (desktop primary buttons 48px) and the header is 52px (48px on mobile). The 34px minimum replaces the earlier 44px rule at the user's request. Keep installed skill engines, local credentials and test traces out of Git.

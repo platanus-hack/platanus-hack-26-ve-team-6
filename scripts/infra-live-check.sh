@@ -48,7 +48,19 @@ test_auth_secret="$(openssl rand -hex 32)"
 project="gotchu-infra-check-$(date +%s)-$$"
 temp_dir="$(mktemp -d)"
 env_file="${temp_dir}/compose.env"
+state_dir="${temp_dir}/state"
+mkdir -p "$state_dir/github"
+# The coordinator validates its configured scanner files even while unassigned.
+# Keep these fixtures separate from any operator's real .gotchu credentials.
+(umask 077; openssl rand 32 >"$state_dir/scanner.secret"
+  openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 \
+    -keyout "$temp_dir/scanner.key" -out "$state_dir/scanner.crt" \
+    -subj '/CN=gotchu-ci-scanner' -addext 'basicConstraints=critical,CA:TRUE' >/dev/null 2>&1)
+docker run --rm --network none --read-only --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges \
+  --mount "type=bind,src=$state_dir,dst=/state" node:24.18.1-bookworm-slim node -e \
+  'const fs=require("node:fs"); for(const name of ["scanner.secret","scanner.crt"]) fs.chownSync(`/state/${name}`,1000,1000);'
 cat > "$env_file" <<EOF
+GOTCHU_STATE_DIR=${state_dir}
 POSTGRES_DB=gotchu
 POSTGRES_USER=gotchu_bootstrap
 POSTGRES_PASSWORD=${test_pg_password}

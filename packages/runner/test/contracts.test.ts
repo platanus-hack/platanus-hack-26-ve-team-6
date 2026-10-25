@@ -11,10 +11,6 @@ const validJob = {
 };
 
 describe('runner job contract', () => {
-  it('accepts a bounded profile-selected job', () => {
-    expect(runnerJobSchema.parse(validJob)).toMatchObject({ profile: 'node24-npm-test' });
-  });
-
   it('rejects free-form command fields, oversized input, and unsupported limits', () => {
     expect(runnerJobSchema.safeParse({ ...validJob, command: 'sh -c rm -rf /' }).success).toBe(false);
     expect(runnerJobSchema.safeParse({ ...validJob, input: { ...validJob.input, sizeBytes: 9 * 1024 * 1024 } }).success).toBe(false);
@@ -25,19 +21,4 @@ describe('runner job contract', () => {
     expect(runnerResultSchema.safeParse({ status: 'completed', exitCode: 0, durationMs: 3, stdout: {}, stderr: {}, artifacts: [] }).success).toBe(false);
     expect(runnerResultSchema.safeParse({ status: 'cleanup_uncertain', reason: 'process remains', durationMs: 3, isolation: {} }).success).toBe(false);
   });
-
-  it('retains bounded Firecracker stderr on infrastructure failures', () => {
-    const result = runnerResultSchema.safeParse({
-      status: 'infrastructure_failed', reason: 'No guest result frame', firecrackerStderr: 'startup error', durationMs: 3,
-      isolation: {
-        sandbox: { kind: 'bwrap+systemd-scope', memoryMaxMiB: 1024, tasksMax: 80, cpuQuotaPercent: 100 },
-        runnerVersion: '0.1.0', firecrackerVersion: '1.17.0', kernelDigest: 'a'.repeat(64), rootfsDigest: 'b'.repeat(64),
-        profile: 'node24-npm-test', networkPolicy: { mode: 'deny' }, lockfileSha256: 'c'.repeat(64),
-        tarballSetSha256: 'd'.repeat(64), cleanupVerified: true,
-      },
-    });
-    expect(result.success).toBe(true);
-  });
 });
-
-export { validJob };

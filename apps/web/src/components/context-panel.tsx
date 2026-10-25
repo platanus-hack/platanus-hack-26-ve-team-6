@@ -30,8 +30,8 @@ export function ContextPanel({ userId, organizationId, applicationId, canManage,
     return contextClient.setRepositoryWriteAccess({organizationId,applicationId,...input,actionHash:challenge.actionHash,stepUpProof});
   },onSuccess:async()=>{setError(null);await refresh();},onError:caught=>setError(message(caught)) });
   const data = inventory.data;
-  return <section className="customer-card customer-context-panel" aria-labelledby="context-heading">
-    <div className="customer-card-heading"><div><span className="customer-eyebrow">RELACIONES Y PROCEDENCIA</span><h2 id="context-heading">Contexto de la aplicación</h2></div></div>
+  return <section className="customer-card customer-panel customer-context-panel" aria-labelledby="context-heading">
+    <div className="customer-card-heading"><div><h2 id="context-heading">Contexto de la aplicación</h2></div></div>
     <p className="customer-card-copy">Registra dónde corre cada servicio y qué evidencia vincula el código con una versión desplegada. Una coincidencia de nombre no verifica una relación.</p>
     {inventory.isPending ? <p className="customer-empty-inline" role="status">Cargando inventario de contexto…</p>
       : inventory.error ? <div className="customer-empty-inline" role="alert">{message(inventory.error)} <button className="customer-link-button" onClick={() => { inventory.refetch().catch(() => undefined); }}>Reintentar</button></div>

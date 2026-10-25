@@ -3,8 +3,12 @@
 set -euo pipefail
 umask 077
 [[ $(id -u) == 0 ]] || exit 1
+if [[ ${GOTCHU_MAINTENANCE_LOCK_HELD:-false} != true ]]; then
+  exec 8>/run/lock/gotchu-maintenance.lock
+  flock -w 180 8 || exit 1
+fi
 exec 9>/var/lib/gotchu-backup/backup.lock
-flock -n 9 || exit 0
+flock -w 30 9 || exit 1
 app=/opt/gotchu/app
 stage=$(mktemp -d /var/lib/gotchu-backup/staging.XXXXXX)
 trap 'rm -rf -- "$stage"' EXIT

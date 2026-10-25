@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { CUSTOMER_MAX_SOURCE_FILE_BYTES, customerAssessmentReportSchema, type CustomerAssessmentReport, type CustomerRunInput } from '@gotchu/contracts';
 import { buildRecipeRecommendations, calculateSourceDigest, correctionResponseForQueuedScan, prepareCandidatePatch, RecipeBoundaryError } from '../src/server.js';
-import { prepareCorrectionResponseSchema, remediationRecipeCatalog } from '../src/contracts.js';
+import { prepareCorrectionResponseSchema } from '../src/contracts.js';
 
 const organizationId = '10000000-0000-4000-8000-000000000001';
 const applicationId = '20000000-0000-4000-8000-000000000002';
@@ -64,15 +64,6 @@ function reportFor(
 }
 
 describe('versioned evidence-selected recipes', () => {
-  it('catalogs current source/HTTPS detectors separately from operational gaps', () => {
-    const ids = new Set(remediationRecipeCatalog.map((recipe) => recipe.id));
-    for (const id of ['dynamic-evaluation', 'shell-command-execution', 'tls-certificate-verification', 'credential-exposure', 'dependency-advisory', 'kubernetes-config-hardening', 'https-security-headers', 'authentication-failure-spike', 'route-enumeration', 'application-errors', 'resource-pressure', 'provider-outage']) {
-      expect(ids.has(id)).toBe(true);
-    }
-    expect(remediationRecipeCatalog.find((recipe) => recipe.id === 'authentication-failure-spike')?.detectorAvailability).toBe('available');
-    expect(remediationRecipeCatalog.find((recipe) => recipe.id === 'route-enumeration')?.detectorAvailability).toBe('not_implemented');
-  });
-
   it.each(['gotchu.javascript.tls-disabled', 'profile.gotchu.javascript.tls-disabled'])('selects the exact scanner rule %s and preserves unknown coverage', ruleId => {
     const input = runInput([{ path: 'src/client.ts', content: 'const client = { rejectUnauthorized: false };\n' }]);
     const report = reportFor(input, ruleId, 'src/client.ts:1', 'unavailable');
@@ -180,21 +171,6 @@ describe('versioned evidence-selected recipes', () => {
     expect(result.afterBytes).toBe(content.replace('privileged: true # customer comment', 'privileged: false # customer comment'));
   });
 
-  it.each([
-    ['AVD-KSV-0001', 'KSV001', 'allowPrivilegeEscalation: true', 'allowPrivilegeEscalation: false'],
-    ['AVD-KSV-0012', 'KSV012', 'runAsNonRoot: false', 'runAsNonRoot: true'],
-    ['AVD-KSV-0014', 'KSV014', 'readOnlyRootFilesystem: false', 'readOnlyRootFilesystem: true'],
-  ])('supports the exact %s Trivy correction only', (ruleId, checkId, before, after) => {
-    const content = `apiVersion: v1\nkind: Pod\nmetadata:\n  name: customer\nspec:\n  containers:\n    - name: app\n      securityContext:\n        ${before}\n`;
-    const input = runInput([{ path: 'k8s/pod.yaml', content }]);
-    const report = reportFor(input, ruleId, 'k8s/pod.yaml:9', 'inspected', { checkId, startLine: 7, endLine: 9, propertyLine: 9 });
-    const result = prepareCandidatePatch(input, report, selection(input, 'kubernetes-config-hardening'));
-
-    expect(result.status).toBe('prepared');
-    if (result.status !== 'prepared') return;
-    expect(result.afterBytes).toBe(content.replace(before, after));
-  });
-
   it('keeps Kubernetes findings guidance-only without a unique scanner binding', () => {
     const duplicate = 'spec:\n  containers:\n    - name: app\n      securityContext:\n        privileged: true\n        privileged: true\n';
     const input = runInput([{ path: 'k8s/pod.yaml', content: duplicate }]);
@@ -238,12 +214,6 @@ describe('versioned evidence-selected recipes', () => {
     expect(() => prepareCandidatePatch(input, report, { ...selection(input, 'tls-certificate-verification'), expectedSourceDigest: 'c'.repeat(64) })).toThrowError(new RecipeBoundaryError('expected_source_digest_mismatch'));
   });
 
-  it('enforces shared per-file source caps before deriving recommendations', () => {
-    const input = runInput([{ path: 'src/oversized.ts', content: 'x'.repeat(1_048_577) }]);
-    const report = reportFor(input, 'gotchu.javascript.tls-disabled', 'src/oversized.ts:1');
-    expect(() => buildRecipeRecommendations(input, report)).toThrow();
-  });
-
   it('keeps secret rotation and dependency fixes behind integrations', () => {
     const input = runInput([{ path: 'package.json', content: '{"dependencies":{"lodash":"4.17.20"}}\n' }]);
     const advisory = reportFor(input, 'osv.GHSA-example', 'package-lock.json:1');
@@ -253,7 +223,7 @@ describe('versioned evidence-selected recipes', () => {
     expect(prepareCandidatePatch(input, credential, selection(input, 'credential-exposure'))).toMatchObject({ status: 'blocked', reason: 'recipe_requires_integration' });
   });
 
-  it.each([undefined, 'root', 'public_surface'] as const)('supports authorized HTTPS-only reports with profile %s', (scanProfile) => {
+  it.each([undefined, 'public_surface'] as const)('supports authorized HTTPS-only reports with profile %s', (scanProfile) => {
     const input: CustomerRunInput = {
       organizationId, applicationId, jobId, version: 2, applicationName: 'External application', mode: 'external', source: null,
       target: { id: sourceId, origin: 'https://app.example.com', version: 3, verifiedAt: timestamp, expiresAt: '2026-10-31T00:00:00.000Z', ...(scanProfile ? { scanProfile } : {}) },

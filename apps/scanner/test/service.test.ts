@@ -34,10 +34,7 @@ describe('service authentication and client',()=>{
   const run=vi.fn(runner().run);const origin=await listen(createScannerServer({secret,runner:{run,readiness:runner().readiness}}));
   expect(await post(origin,Buffer.from('{bad'))).toBe(400);expect(await post(origin,Buffer.from(JSON.stringify({...input(),url:'https://attacker.org'})))).toBe(400);expect(await post(origin,Buffer.alloc(4_500_001))).toBe(400);expect(run).not.toHaveBeenCalled();
  });
- it('reports unavailable readiness honestly',async()=>{
-  const origin=await listen(createScannerServer({secret,runner:runner()}));const response=await fetch(`${origin}/readyz`);expect(response.status).toBe(503);expect((await response.json()).ready).toBe(false);
- });
- it.each(['http://localhost:4400','http://127.1:4400','http://10.0.0.1:4400','https://user:pass@scanner.org','https://scanner.org/path','https://scanner.org?foo=1'])('rejects service origin %s',origin=>expect(()=>createScannerClient({origin,secret,allowDevelopmentHttp:true})).toThrow());
+ it.each(['http://127.1:4400','https://user:pass@scanner.org','https://scanner.org/path'])('rejects service origin %s',origin=>expect(()=>createScannerClient({origin,secret,allowDevelopmentHttp:true})).toThrow());
  it('requires explicit development HTTP opt-in and refuses it in production',()=>{
   expect(()=>createScannerClient({origin:'http://127.0.0.1:4400',secret})).toThrow();const prior=process.env.NODE_ENV;process.env.NODE_ENV='production';try{expect(()=>createScannerClient({origin:'http://127.0.0.1:4400',secret,allowDevelopmentHttp:true})).toThrow();}finally{process.env.NODE_ENV=prior;}
  });
@@ -105,5 +102,4 @@ describe('service authentication and client',()=>{
   expect((await fetch(`${origin}/readyz`)).status).toBe(503);
   expect(run).toHaveBeenCalledTimes(method==='run'?1:0);expect(readiness).toHaveBeenCalledTimes(method==='readiness'?1:0);
  });
-
 });

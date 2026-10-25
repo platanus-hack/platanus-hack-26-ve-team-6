@@ -1,7 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowRightIcon, PauseIcon, PlayIcon } from 'lucide-react';
-import '../styles/tokens.css';
-import '../styles/landing-ui.css';
 import './landing.css';
 import { GotchuMark } from '../components/gotchu-mark';
 import { DotPlate } from '../components/dot-field/dot-plate';
@@ -177,12 +175,15 @@ function JsonExhibit() {
 
 function Team() {
   return <Section titleId="gl-equipo-titulo" title={['Que el equipo', 'tenga contexto.']}>
-    <ol className="gl-numbered">
-      {TEAM.map((item, index) => <li key={item}><span aria-hidden="true">{['i', 'ii', 'iii', 'iv'][index]}</span><p>{item}</p></li>)}
-    </ol>
-    <Block notes={<Note n={10}><strong>La copia corregida es privada.</strong> No modifica el repositorio ni producción, no se publica ni despliega y no ejecuta pruebas de comportamiento.</Note>}>
+    <div className="gl-team">
+      <div className="gl-team-list">
+        <ol className="gl-numbered">
+          {TEAM.map((item, index) => <li key={item}><span aria-hidden="true">{['i', 'ii', 'iii', 'iv'][index]}</span><p>{item}</p></li>)}
+        </ol>
+        <div className="gl-notes"><Note n={10}><strong>La copia corregida es privada.</strong> No modifica el repositorio ni producción, no se publica ni despliega y no ejecuta pruebas de comportamiento.</Note></div>
+      </div>
       <JsonExhibit />
-    </Block>
+    </div>
   </Section>;
 }
 

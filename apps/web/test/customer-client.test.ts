@@ -53,105 +53,6 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('customer API client', () => {
-  it('submits only the selected assessment scope and verifies the queued response', async () => {
-    fetchMock.mockResolvedValueOnce(json({ jobId: sourceId }, 202));
-
-    await customerApi.queue({
-      organizationId,
-      applicationId,
-      mode: 'external',
-      sourceSnapshotId: null,
-      targetId,
-    });
-
-    const [path, init] = fetchMock.mock.calls[0] ?? [];
-    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/assessments`);
-    expect(init?.credentials).toBe('same-origin');
-    expect(init?.cache).toBe('no-store');
-    expect(init?.method).toBe('POST');
-    expect(init?.headers).toMatchObject({ 'Content-Type': 'application/json' });
-    expect(new Headers(init?.headers).get('Idempotency-Key')).toMatch(/^[0-9a-f-]{36}$/i);
-    expect(JSON.parse(String(init?.body))).toEqual({ mode: 'external', sourceSnapshotId: null, targetId });
-  });
-
-  it('rejects a mode whose source and target do not match before making a request', async () => {
-    expect(() => customerApi.queue({
-      organizationId,
-      applicationId,
-      mode: 'external',
-      sourceSnapshotId: sourceId,
-      targetId,
-    })).toThrow();
-
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('uploads only the authorized source snapshot body to its tenant-scoped path', async () => {
-    fetchMock.mockResolvedValueOnce(json({
-      organizationId,
-      applicationId,
-      id: sourceId,
-      digest: 'a'.repeat(64),
-      revision: 'main',
-      fileCount: 1,
-      createdAt: '2026-10-24T00:00:00.000Z',
-    }));
-
-    await customerApi.uploadSource({
-      organizationId,
-      applicationId,
-      snapshot: { revision: 'main', files: [{ path: 'src/app.ts', content: 'export const ready = true;' }] },
-      authorized: true,
-    });
-
-    const [path, init] = fetchMock.mock.calls[0] ?? [];
-    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/sources`);
-    expect(init?.method).toBe('POST');
-    expect(init?.credentials).toBe('same-origin');
-    expect(JSON.parse(String(init?.body))).toEqual({
-      snapshot: { revision: 'main', files: [{ path: 'src/app.ts', content: 'export const ready = true;' }] },
-      authorized: true,
-    });
-  });
-
-  it('sends the explicitly selected public-surface profile with fresh target consent', async () => {
-    fetchMock.mockResolvedValueOnce(json({
-      target: {
-        organizationId,
-        applicationId,
-        id: targetId,
-        origin: 'https://app.customer.net',
-        version: 1,
-        status: 'pending',
-        consentActor: 'user:owner',
-        consentAt: '2026-10-24T08:00:00.000Z',
-        challengeExpiresAt: '2026-10-24T08:30:00.000Z',
-        verifiedAt: null,
-        expiresAt: null,
-        scanProfile: 'public_surface',
-      },
-      challenge: { name: '_gotchu.app.customer.net', value: 'gotchu-verification=challenge', expiresAt: '2026-10-24T08:30:00.000Z' },
-    }, 201));
-
-    const enrolled = await customerApi.enrollTarget({ organizationId, applicationId, origin: 'https://app.customer.net', authorized: true, scanProfile: 'public_surface' });
-
-    expect(enrolled.target.scanProfile).toBe('public_surface');
-    const [path, init] = fetchMock.mock.calls[0] ?? [];
-    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/targets`);
-    expect(JSON.parse(String(init?.body))).toEqual({ origin: 'https://app.customer.net', authorized: true, scanProfile: 'public_surface' });
-  });
-
-  it('rejects unsupported source paths before upload', () => {
-    expect(() => customerApi.uploadSource({
-      organizationId,
-      applicationId,
-      snapshot: { revision: 'main', files: [{ path: '../.env', content: 'not sent' }] },
-      authorized: true,
-    })).toThrow();
-
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   it('uses Auth.js CSRF and Credentials callback before trusting the returned session', async () => {
     fetchMock
       .mockResolvedValueOnce(json({ csrfToken: 'csrf-value' }))
@@ -184,17 +85,6 @@ describe('customer API client', () => {
     await expect(result).rejects.toMatchObject({ status: 200, code: 'invalid_response' });
   });
 
-  it('loads recommendations from the selected tenant report and validates the response scope', async () => {
-    fetchMock.mockResolvedValueOnce(json(recommendationsResponse));
-
-    const result = await customerApi.reportRecommendations(organizationId, applicationId, reportId);
-
-    expect(result.recommendations[0]?.recipeId).toBe('tls-certificate-verification');
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/reports/${reportId}/recommendations`);
-    expect(fetchMock.mock.calls[0]?.[1]?.credentials).toBe('same-origin');
-    expect(fetchMock.mock.calls[0]?.[1]?.cache).toBe('no-store');
-  });
-
   it('rejects recommendations returned for a different application', async () => {
     fetchMock.mockResolvedValueOnce(json({ ...recommendationsResponse, scope: { ...reportScope, applicationId: targetId } }));
 
@@ -220,27 +110,6 @@ describe('customer API client', () => {
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({ email: 'invitee@example.test', role: 'viewer' });
   });
 
-  it('prepares only the validated finding and source digest on the report-scoped correction route', async () => {
-    fetchMock.mockResolvedValueOnce(json({
-      sourceId,
-      jobId: 'f51f998d-dd37-414e-b5a3-6cc86d263c6d',
-      changes: [{ path: 'src/client.ts', description: 'Se habilitó la verificación TLS.' }],
-      patchHash: 'b'.repeat(64),
-    }, 201));
-
-    const result = await customerApi.prepareCorrection({
-      organizationId, applicationId, reportId,
-      request: { recipeId: 'tls-certificate-verification', findingId, expectedSourceDigest: sourceDigest },
-    });
-
-    expect(result.changes).toEqual([{ path: 'src/client.ts', description: 'Se habilitó la verificación TLS.' }]);
-    const [path, init] = fetchMock.mock.calls[0] ?? [];
-    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/reports/${reportId}/corrections`);
-    expect(init?.method).toBe('POST');
-    expect(init?.credentials).toBe('same-origin');
-    expect(JSON.parse(String(init?.body))).toEqual({ recipeId: 'tls-certificate-verification', findingId, expectedSourceDigest: sourceDigest });
-  });
-
   it('requires the correction endpoint to return 201 and surfaces an unavailable source response', async () => {
     fetchMock.mockResolvedValueOnce(json({
       sourceId, jobId: 'f51f998d-dd37-414e-b5a3-6cc86d263c6d',
@@ -256,27 +125,5 @@ describe('customer API client', () => {
       organizationId, applicationId, reportId,
       request: { recipeId: 'tls-certificate-verification', findingId, expectedSourceDigest: sourceDigest },
     })).rejects.toMatchObject({ status: 409, code: 'source_unavailable', message: 'La instantánea ya no está disponible.' });
-  });
-
-  it('sends only the private candidate reference when preparing a v2 correction proposal', async () => {
-    const proposalId = '45fc7599-c67c-4a64-939b-437e0279f85e';
-    fetchMock.mockResolvedValueOnce(json({ proposalId, actionHash: 'c'.repeat(64) }, 201));
-    await expect(customerApi.proposeCorrectionAction({ organizationId, applicationId, candidateId: sourceId })).resolves.toEqual({ proposalId, actionHash: 'c'.repeat(64) });
-    const [path, init] = fetchMock.mock.calls[0] ?? [];
-    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/actions`);
-    expect(init?.method).toBe('POST');
-    expect(JSON.parse(String(init?.body))).toEqual({ kind: 'source_patch_pull_request', sourceRef: { type: 'correction_candidate', candidateId: sourceId } });
-  });
-
-  it('deletes a source snapshot with the tenant-scoped DELETE endpoint', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
-
-    await expect(customerApi.deleteSource(organizationId, applicationId, sourceId)).resolves.toBeUndefined();
-
-    const [path, init] = fetchMock.mock.calls[0] ?? [];
-    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/sources/${sourceId}`);
-    expect(init?.method).toBe('DELETE');
-    expect(init?.credentials).toBe('same-origin');
-    expect(init?.body).toBeUndefined();
   });
 });

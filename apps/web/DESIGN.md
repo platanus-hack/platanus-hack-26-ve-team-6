@@ -209,7 +209,7 @@ Gotchu reads like a case file someone has already worked through with a pen: gia
 
 Art is digital and made of the world's own materials: ASCII plates drawn from a character grid (the snapshot folder with its fingerprint, the two overlapping looks) and dot fields of square pixels and glyphs on canvas (the `[◆]` mark in the hero, the domain globe, the closing GOTCHU wordmark). The finding diamond `◆` is the only coloured glyph. The fields ripple away from a fine pointer, gather on their finding while a primary action is hovered or focused, and hold still when paused. Content is real product vocabulary (SHA-256, `_gotchu.<dominio>`, report JSON keys) and is never padded with invented results.
 
-The landing follows a light, dark or system theme. Every rule below holds in both; values are shadcn tokens scoped to `.gl` so they cannot restyle `/dashboard` or `/demo`.
+The whole app (landing, `/dashboard`, `/setup`, `/privacy`, `/terms`) follows a light, dark or system theme. Every rule below holds in both; values are shadcn tokens on page roots that carry the `.gl` class, loaded once from the root route. App CSS lives in `src/components/customer-shell.css` (shared primitives), `customer-report.css` and `customer-operations.css`.
 
 **Key Characteristics:**
 - Pure white (light) or pure black (dark) ground; graphite or porcelain ink; magenta as highlighter, bullet, rule and finding.
@@ -289,7 +289,6 @@ Flat. Nothing at rest casts a shadow; depth is hairlines, rules and type scale o
 
 ### Shadow Vocabulary
 - **Hard magenta offset** (`box-shadow: 4px 4px 0 #e7147d` with `translate(-2px, -2px)`, 160ms `cubic-bezier(.23, 1, .32, 1)`): hover on primary and secondary buttons, both themes.
-- **Inset hairline** (`box-shadow: inset 0 0 0 1px` border colour): the frame of the theme switch group.
 
 ### Named Rules
 **The Hard Offset Rule.** Shadows are never blurred and never ambient. The 4px solid magenta offset appears only as a response to hover on a filled button; reduced motion removes the shift.
@@ -315,8 +314,8 @@ shadcn/ui (style `base-nova` on Base UI), restyled in `src/components/ui/`. Navi
 - **Link:** no fill, foreground text over a 2px underline at .28em; hover turns text action/pink ink and the underline magenta, arrow nudges right.
 - **Catch:** every primary path into `/dashboard` carries `data-catch`; hovering or focusing it pulls the dot fields toward their finding.
 
-### Theme switch (ToggleGroup)
-Three 34px icon toggles (sun, moon, monitor at 14px) in an 8px group framed by an inset hairline, 4px apart. Idle icons are muted and turn foreground on hover; the pressed one fills with foreground and its icon takes the ground colour. Arrow keys move within the group; one option is always pressed. Applied before paint from `localStorage` key `gotchu-theme`; without JS, `prefers-color-scheme` decides.
+### Theme switch (DropdownMenu)
+One 34px outline icon button (sun, moon or monitor for the current choice, labelled "Tema") opens a menu with Claro, Oscuro and Sistema: icon, label and a check on the selected one. The popup is a flat popover (`--popover` ground, 1px border, 8px radius, no blur, no soft shadow); items are 34px, `--muted` on highlight, and arrow keys, Enter and Escape work as in any menu. Selecting closes it. Applied before paint from `localStorage` key `gotchu-theme`; without JS, `prefers-color-scheme` decides.
 
 ### Pause (Toggle)
 A 34px outline toggle on the ground with a 12px play/pause icon, bottom-right of the hero field; pressed fills with foreground. It holds every dot field on the page. It renders only when motion is allowed.

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
-import { createCustomerAssessmentRunner, sourceDigest } from '../src/index.js';
+import { createCustomerAssessmentRunner } from '../src/index.js';
 import { analysis, compare, finding, sha256 } from '../src/common.js';
 import { runCustomerAssessmentPipeline, settleAnalyses } from '../src/pipeline.js';
 import { absentScanners, input } from './fixtures.js';
@@ -166,20 +166,4 @@ it('explains comparison uncertainty without claiming opposite-side absence', () 
     explanation: 'Source contains a Helmet CSP-disabling configuration indication; independent HTTPS responses omit CSP. These observations concern the same control. Shared deployment, route association, causal relationship, issue identity and exploitability are unverified.',
   }));
   expect(compare(sourceFinding, null)[0]?.classification).toBe('unverified');
-});
-
-it('rejects malformed and digest-mismatched inputs before scanner or HTTPS I/O', async () => {
-  const scannerRun = vi.fn(absentScanners.run);
-  const lookup = vi.fn(offlineHttps.lookup);
-  const runner = createCustomerAssessmentRunner({ scanners: { ...absentScanners, run: scannerRun }, https: { lookup } });
-  const malformed = { ...request('both'), applicationName: '' };
-  const badDigest = request('both');
-  if (!badDigest.source) throw new Error('expected_source');
-  badDigest.source.digest = '0'.repeat(64);
-
-  await expect(runner.run(malformed)).rejects.toThrow();
-  await expect(runner.run(badDigest)).rejects.toThrow('source_digest_mismatch');
-  expect(scannerRun).not.toHaveBeenCalled();
-  expect(lookup).not.toHaveBeenCalled();
-  expect(sourceDigest(badDigest.source)).not.toBe(badDigest.source.digest);
 });

@@ -50,15 +50,15 @@ export function MembersPanel({ organizationId, userId, role }: { organizationId:
     if (action.kind === 'leave') leave.mutate(); else remove.mutate(action.userId);
   }
 
-  return <section className="customer-card" aria-labelledby="workspace-members-title">
-    <div className="customer-card-heading"><div><span className="customer-eyebrow">ESPACIO DE TRABAJO</span><h2 id="workspace-members-title">Personas y acceso</h2></div><span className="customer-status customer-status-muted">{roleLabels[role]}</span></div>
+  return <section className="customer-card customer-panel" aria-labelledby="workspace-members-title">
+    <div className="customer-card-heading"><div><h2 id="workspace-members-title">Personas y acceso</h2></div><span className="customer-status customer-status-muted">{roleLabels[role]}</span></div>
     <p className="customer-field-note">Los cambios de acceso invalidan las verificaciones y aprobaciones pendientes de la persona afectada.</p>
     {message && <p role="status" className="customer-success">{message}</p>}
     {members.isPending ? <div role="status" className="customer-loading">Cargando miembros…</div>
       : members.error ? <div role="alert" className="customer-form-error">{errorMessage(members.error)} <button type="button" className="customer-link-button" onClick={() => { members.refetch().catch(() => undefined); }}>Reintentar</button></div>
       : members.data?.length === 0 ? <p className="customer-empty-inline">Todavía no hay miembros en este espacio.</p>
-      : <ul className="customer-report-list">{members.data?.map(member => <li key={member.userId}>
-        <div className="customer-member-row"><span className="customer-report-row-title"><strong>{member.email ?? member.userId}</strong><small>{member.email ? member.userId : `Se unió ${friendlyDate(member.joinedAt)}`}</small></span>
+      : <ul className="customer-ruled-list">{members.data?.map(member => <li key={member.userId}>
+        <div className="customer-member-row"><span className="customer-ruled-title"><strong>{member.email ?? member.userId}</strong><small>{member.email ? member.userId : `Se unió ${friendlyDate(member.joinedAt)}`}</small></span>
           <span className="customer-status customer-status-muted">{roleLabels[member.role]}</span>
           {role === 'owner' && member.userId !== userId && <label className="customer-member-role"> <span className="sr-only">Rol de {member.email ?? member.userId}</span><select value={member.role} disabled={busy} onChange={event => { const nextRole = workspaceRoleSchema.safeParse(event.target.value); if (nextRole.success) changeRole.mutate({ userId: member.userId, role: nextRole.data }); }}><option value="owner">Owner</option><option value="operator">Operador</option><option value="viewer">Lector</option></select></label>}
           {role === 'owner' && member.userId !== userId && <button type="button" className="customer-link-button" disabled={busy} onClick={() => setAction({ kind: 'remove', userId: member.userId })}>Quitar</button>}
@@ -77,7 +77,7 @@ export function MembersPanel({ organizationId, userId, role }: { organizationId:
         {invitations.isPending ? <div role="status" className="customer-loading">Cargando invitaciones…</div>
           : invitations.error ? <div role="alert" className="customer-form-error">{errorMessage(invitations.error)} <button type="button" className="customer-link-button" onClick={() => { invitations.refetch().catch(() => undefined); }}>Reintentar</button></div>
           : invitations.data?.length === 0 ? <p className="customer-empty-inline">No hay invitaciones pendientes.</p>
-          : <ul className="customer-report-list">{invitations.data?.map(item => <li key={item.id}><div className="customer-member-row"><span className="customer-report-row-title"><strong>{item.email}</strong><small>{roleLabels[item.role]} · vence {friendlyDate(item.expiresAt)}</small></span><button type="button" className="customer-link-button" disabled={busy} onClick={() => revoke.mutate(item.id)}>Revocar</button></div></li>)}</ul>}
+          : <ul className="customer-ruled-list">{invitations.data?.map(item => <li key={item.id}><div className="customer-member-row"><span className="customer-ruled-title"><strong>{item.email}</strong><small>{roleLabels[item.role]} · vence {friendlyDate(item.expiresAt)}</small></span><button type="button" className="customer-link-button" disabled={busy} onClick={() => revoke.mutate(item.id)}>Revocar</button></div></li>)}</ul>}
         {revoke.error && <p role="alert" className="customer-form-error">{errorMessage(revoke.error)}</p>}
       </section>
     </>}
