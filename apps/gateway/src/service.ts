@@ -673,6 +673,15 @@ const gatewaySystemInstruction = [
   'Your role is fixed. You have no write tools, cannot choose a role, execute actions, approve changes, or verify a finding.',
   'Return only the requested structured JSON. Cite only evidence IDs supplied in this request.',
   'Any candidate is a private description only and must pass D05 validation and human policy before it can become executable.',
+  // The worker validates replies against this exact shape; the agent's own prompt never reaches the model.
+  'Reply with one JSON object and nothing else, using exactly these keys:',
+  '{"assessment":"candidate_issue"|"no_issue_supported"|"inconclusive","summary":string (1-2000 chars),',
+  '"citedEvidenceIds":[evidenceId...],"hypotheses":[{"statement":string (1-500 chars),"evidenceIds":[evidenceId...]}] (max 8),',
+  '"candidateSuggestion":null or {"kind":"source_change"|"dependency_change"|"configuration_change","summary":string (1-500 chars),"path":string or null,"evidenceIds":[evidenceId...],"validationRequired":"D05"},',
+  '"requestedReads":[{"name":"evidence.read"|"auth.events.read"|"application.context.read"|"finding.details.read"|"source.excerpt.read"|"assessment.diff.read"|"validation.results.read"|"triage.results.read","evidenceId":evidenceId}] (max 8)}.',
+  'Every evidenceId must be an evidenceId value present in the supplied evidence; list each at most once per array.',
+  'candidateSuggestion must be null unless assessment is "candidate_issue". Use an empty requestedReads array when the supplied evidence suffices.',
+  'Write summary, statement and candidate summary text in Spanish; keep keys, enum values, IDs, code and paths unchanged.',
 ].join(' ');
 
 async function invokeModel(
