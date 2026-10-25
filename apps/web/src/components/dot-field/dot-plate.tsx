@@ -10,6 +10,7 @@ function readPalette(element: Element): Palette {
 }
 
 type DotPlateProps = {
+  /** Changing it morphs the particles already on screen into the new formation. */
   formation: FormationName;
   className?: string;
   /** Holds the field still, e.g. from a visible pause control. */
@@ -26,9 +27,12 @@ export function DotPlate({ formation, className = '', paused = false }: DotPlate
   const root = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const pausedRef = useRef(paused);
+  const formationRef = useRef(formation);
   const wake = useRef<() => void>(() => undefined);
+  const morph = useRef<() => void>(() => undefined);
 
   useEffect(() => { pausedRef.current = paused; wake.current(); }, [paused]);
+  useEffect(() => { formationRef.current = formation; morph.current(); }, [formation]);
 
   useEffect(() => {
     const element = canvas.current;
@@ -77,7 +81,12 @@ export function DotPlate({ formation, className = '', paused = false }: DotPlate
       const layout = plateLayout(width, height);
       state = createState(layout.particles, width, height, state ?? undefined);
       // Until the plate is first seen the particles stay as dust, so they can fly in when it appears.
-      if (entered) retarget(state, buildFormation(formation, layout), animate && canRun());
+      if (entered) retarget(state, buildFormation(formationRef.current, layout), animate && canRun());
+      start();
+    };
+    morph.current = () => {
+      if (!state || !entered) return;
+      retarget(state, buildFormation(formationRef.current, plateLayout(state.width, state.height)), canRun());
       start();
     };
     const resize = () => {
@@ -120,7 +129,7 @@ export function DotPlate({ formation, className = '', paused = false }: DotPlate
     reducedQuery.addEventListener('change', onMotionChange);
 
     // The wordmark is sampled from text, so rebuild it once the display face is ready.
-    if (formation === 'wordmark') {
+    if (formationRef.current === 'wordmark') {
       void Promise.all([document.fonts.load('700 100px "Gotchu Display"'), document.fonts.ready]).catch(() => undefined).then(() => { if (!disposed && state) build(false); });
     }
     resize();
@@ -128,6 +137,7 @@ export function DotPlate({ formation, className = '', paused = false }: DotPlate
     return () => {
       disposed = true;
       wake.current = () => undefined;
+      morph.current = () => undefined;
       cancelAnimationFrame(frameId);
       sizer.disconnect(); watcher.disconnect(); themeWatcher.disconnect();
       window.removeEventListener('pointermove', onMove);
@@ -138,7 +148,7 @@ export function DotPlate({ formation, className = '', paused = false }: DotPlate
       colorQuery.removeEventListener('change', refreshPalette);
       reducedQuery.removeEventListener('change', onMotionChange);
     };
-  }, [formation]);
+  }, []);
 
   return <div ref={root} className={`g-dot-plate ${className}`} aria-hidden="true"><canvas ref={canvas} /></div>;
 }

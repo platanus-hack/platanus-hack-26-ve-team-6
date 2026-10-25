@@ -4,7 +4,7 @@
  */
 import { FINDING_RADIUS, LEFT_BRACKET, RIGHT_BRACKET } from '../gotchu-mark';
 
-export const FORMATION_NAMES = ['mark', 'code', 'globe', 'both', 'report', 'wordmark', 'none'] as const;
+export const FORMATION_NAMES = ['mark', 'code', 'globe', 'both', 'report', 'branch', 'cycle', 'wordmark', 'none'] as const;
 export type FormationName = (typeof FORMATION_NAMES)[number];
 export const isFormationName = (value: string | undefined): value is FormationName => FORMATION_NAMES.some(name => name === value);
 
@@ -230,6 +230,47 @@ function reportPoints(L: Layout, s: number): Points {
   return p;
 }
 
+/** A main line of commits and a magenta branch that lifts off it and stops at the finding: a draft PR, never merged. */
+function branchPoints(L: Layout, s: number): Points {
+  const p = points();
+  const ds = s * 0.6, node = s * 1.4;
+  const left = L.cx - L.w * 0.44, right = L.cx + L.w * 0.44;
+  const main = L.cy + L.h * 0.18, high = L.cy - L.h * 0.2;
+  polyline(p, [[left, main], [right, main]], ds, STRUCTURE);
+  for (let i = 0; i < 5; i++) {
+    const x = left + (right - left) * i / 4;
+    fillRect(p, x - node, main - node, x + node, main + node, s * 0.7, STRUCTURE);
+  }
+  const from = left + (right - left) / 4, rise = (right - left) * 0.2, end = left + (right - left) * 0.8;
+  const curve = Array.from({ length: 17 }, (_, i) => {
+    const t = i / 16;
+    return [from + rise * t, main + (high - main) * t * t * (3 - 2 * t)] as const;
+  });
+  polyline(p, [...curve, [end, high]], ds * 0.8, FINDING);
+  fillRect(p, from + rise + (end - from - rise) * 0.4 - node, high - node, from + rise + (end - from - rise) * 0.4 + node, high + node, s * 0.7, FINDING);
+  fillDiamond(p, end, high, node * 2.6, s * 0.72, FINDING);
+  return p;
+}
+
+/** A day as a dotted dial: 24 hour ticks, a diamond at every sixth hour and a hand on the next check. */
+function cyclePoints(L: Layout, s: number): Points {
+  const p = points();
+  const r = Math.min(L.w, L.h) * 0.44;
+  const ring = Math.round(2 * Math.PI * r / (s * 1.2));
+  for (let i = 0; i < ring; i++) add(p, L.cx + Math.cos(i / ring * 2 * Math.PI) * r, L.cy + Math.sin(i / ring * 2 * Math.PI) * r, STRUCTURE);
+  const at = (hour: number, radius: number) => {
+    const angle = hour / 24 * 2 * Math.PI - Math.PI / 2;
+    return [L.cx + Math.cos(angle) * radius, L.cy + Math.sin(angle) * radius] as const;
+  };
+  for (let hour = 0; hour < 24; hour++) {
+    if (hour % 6 === 0) fillDiamond(p, ...at(hour, r * 0.8), s * 2.4, s * 0.72, FINDING);
+    else polyline(p, [at(hour, r * 0.76), at(hour, r * 0.86)], s * 0.6, STRUCTURE);
+  }
+  polyline(p, [[L.cx, L.cy], at(4, r * 0.58)], s * 0.6, STRUCTURE);
+  fillRect(p, L.cx - s * 1.2, L.cy - s * 1.2, L.cx + s * 1.2, L.cy + s * 1.2, s * 0.7, STRUCTURE);
+  return p;
+}
+
 function wordmarkPoints(L: Layout, s: number): Points {
   const p = points();
   const canvas = document.createElement('canvas');
@@ -263,7 +304,7 @@ function wordmarkPoints(L: Layout, s: number): Points {
 }
 
 const BUILDERS: Record<FormationName, (L: Layout, s: number) => Points> = {
-  mark: markPoints, code: codePoints, globe: globeOnly, both: bothPoints, report: reportPoints, wordmark: wordmarkPoints,
+  mark: markPoints, code: codePoints, globe: globeOnly, both: bothPoints, report: reportPoints, branch: branchPoints, cycle: cyclePoints, wordmark: wordmarkPoints,
   none: () => points(),
 };
 
