@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { actionV2Schema, customerSourceSnapshotSchema, validationAttestationPayloadSchema, type ActionV2 } from '@gotchu/contracts';
+import { actionV2Schema, customerSourceSnapshotSchema, scoreIndependentRescan, validationAttestationPayloadSchema, type ActionV2 } from '@gotchu/contracts';
 import type { Transaction } from '@gotchu/database';
 import { computeGitTreeSha, type PatchFile, type WorkflowPolicyException } from '@gotchu/git-adapters';
 import { z } from 'zod';
@@ -298,7 +298,7 @@ async function loadDependencyCandidate(tx: Transaction, scope: { organizationId:
   const rescanRaw: unknown = attestations.rows.find(item => item.kind === 'independent_rescan')?.body;
   const rescanPayload = validationAttestationPayloadSchema.parse(rescanRaw);
   if (rescanPayload.evidence.kind !== 'independent_rescan'
-    || rescanPayload.evidence.before.coverage !== 'complete' || rescanPayload.evidence.after.coverage !== 'complete') {
+    || scoreIndependentRescan(rescanPayload.evidence, 'dependency').result !== 'passed') {
     throw new BackendError('dependency_validation_invalid', 'The signed validation does not cover every package advisory', 409);
   }
   const targetKeys = advisoryIds.map(id => `npm:${row.package_name}:${id}`);
