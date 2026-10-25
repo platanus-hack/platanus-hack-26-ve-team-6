@@ -278,7 +278,7 @@ function parsePnpmLock(sourceFile: string, content: string): ParsedFile {
   if (major !== '6' && major !== '9') return { packages: [], format: 'unsupported', state: 'unsupported', graphComplete: false, unknownCount: 1 };
   const format = major === '6' ? 'pnpm-v6' : 'pnpm-v9';
   const rawPackages = parsed.packages ?? {};
-  const dependencySnapshots = parsed.snapshots ?? rawPackages;
+  const dependencySnapshots = major === '9' ? parsed.snapshots ?? {} : rawPackages;
   const packages: LockedPackage[] = []; const rawByPurl = new Map<string, string[]>();
   let unknownCount = 0; let graphComplete = true;
   for (const [rawId, entry] of Object.entries(rawPackages)) {
@@ -291,9 +291,11 @@ function parsePnpmLock(sourceFile: string, content: string): ParsedFile {
   }
   const direct = new Set<string>();
   const importers = Object.values(parsed.importers ?? {});
-  const rootDependencyGroups = major === '6'
-    ? [{ dependencies: parsed.dependencies, devDependencies: parsed.devDependencies, optionalDependencies: parsed.optionalDependencies }]
-    : importers;
+  const rootDependencyGroups = importers.length > 0
+    ? importers
+    : major === '6'
+      ? [{ dependencies: parsed.dependencies, devDependencies: parsed.devDependencies, optionalDependencies: parsed.optionalDependencies }]
+      : [];
   if (rootDependencyGroups.length === 0) graphComplete = false;
   let directDependencyCount = 0;
   let directnessUnknown = false;
@@ -316,7 +318,7 @@ function parsePnpmLock(sourceFile: string, content: string): ParsedFile {
   for (const component of packages) {
     const rawIds = rawByPurl.get(component.purl) ?? [];
     const snapshot = rawIds.map(id => dependencySnapshots[id]).find((value): value is z.infer<typeof yamlPackageSchema> => value !== undefined);
-    if (!snapshot) continue;
+    if (!snapshot) { graphComplete = false; continue; }
     for (const [name, ref] of Object.entries({ ...snapshot.dependencies, ...snapshot.optionalDependencies })) {
       if (typeof ref === 'string' && /\([^)]*\)/.test(ref)) graphComplete = false;
       const version = pnpmRefVersion(ref); const target = version ? npmPurl(name, version) : null;
@@ -448,8 +450,8 @@ function parseYarnLock(sourceFile: string, content: string, directDependencies: 
   for (const component of packages) {
     component.dependencies = [...new Set(component.dependencies)].slice(0, MAX_COMPONENT_DEPENDENCIES);
   }
-  for (const [name, range] of directDependencies) {
-    if (![...selectorToPackage.keys()].some(key => key === `${name}\0${range}`)) graphComplete = false;
+  for (const [name, ranges] of directDependencies) {
+    for (const range of ranges) if (!selectorToPackage.has(`${name}\0${range}`)) graphComplete = false;
   }
   if (!directnessDeterminable) graphComplete = false;
   return { packages, format, state: unknownCount ? 'unavailable' : 'inspected', graphComplete: graphComplete && unknownCount === 0, unknownCount };
