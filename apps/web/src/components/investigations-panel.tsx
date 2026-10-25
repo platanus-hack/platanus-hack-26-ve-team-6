@@ -12,6 +12,7 @@ import {
 import { customerApi, CustomerApiError } from './customer-client';
 import { ProviderConnectionButton } from './provider-connection';
 import { ProviderCredentialLink } from './provider-credential-links';
+import { InvestigationModelPicker } from './investigation-model-picker';
 
 const scopeNames: Record<InvestigationDataScope, string> = {
   application_context: 'Contexto declarado de el proyecto',
@@ -185,9 +186,7 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
       <label htmlFor="investigation-endpoint">Endpoint HTTPS personalizado</label>
       <input id="investigation-endpoint" type="url" value={customEndpoint} onChange={event => setCustomEndpoint(event.target.value)} maxLength={2048} disabled={!isOwner || save.isPending || testConnection.isPending || connectingProvider} placeholder="https://api.example.com/v1" />
     </>}
-    <label htmlFor="investigation-model-id">Modelo</label>
-    <input id="investigation-model-id" list="investigation-model-suggestions" value={modelId} onChange={event => setModelId(event.target.value)} maxLength={200} disabled={!isOwner || save.isPending || testConnection.isPending || connectingProvider} placeholder="Escribe un ID de modelo" />
-    <datalist id="investigation-model-suggestions">{preset?.suggestedModelIds.map(model => <option value={model} key={model} />)}</datalist>
+    {preset && <InvestigationModelPicker key={providerPresetId} preset={preset} modelId={modelId} onChange={setModelId} disabled={!isOwner || save.isPending || testConnection.isPending || connectingProvider} />}
     {(providerPresetId === 'codex' || providerPresetId === 'claude_code' || providerPresetId === 'openrouter') && isOwner && <ProviderConnectionButton key={providerPresetId} organizationId={organizationId} provider={providerPresetId} disabled={save.isPending || testConnection.isPending} prepare={() => save.mutateAsync()} onConnected={providerConnected} onPendingChange={setConnectingProvider} />}
     {credentialConfigured && subscription && <p className="customer-field-note">Cuenta conectada en este espacio.</p>}
     {preset && <ProviderCredentialLink preset={preset} />}
