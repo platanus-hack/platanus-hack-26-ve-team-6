@@ -31,7 +31,7 @@ export const customerUpdateWorkspaceSchema = z.object({ organizationId: uuid, na
 export const customerCreateApplicationSchema = z.object({ organizationId: uuid, name }).strict();
 export const customerApplicationSchema = customerScopeSchema.extend({ name, archived: z.boolean(), createdAt: timestamp }).strict();
 export const customerUpdateApplicationSchema = customerScopeSchema.extend({ name: name.optional(), archived: z.boolean().optional() }).strict().refine(value => value.name !== undefined || value.archived !== undefined);
-export const customerScanProfileSchema = z.enum(['root', 'public_surface']);
+export const customerScanProfileSchema = z.enum(['root', 'public_surface', 'api_checks']);
 export const customerEnrollTargetSchema = customerScopeSchema.extend({ origin: customerOriginSchema, scanProfile: customerScanProfileSchema.optional() }).strict();
 export const customerTargetIdSchema = customerScopeSchema.extend({ targetId: uuid }).strict();
 export const customerTargetSchema = customerScopeSchema.extend({
@@ -164,6 +164,7 @@ export const customerReportSummarySchema = z.object({ id: uuid, jobId: uuid, app
 export type CustomerWorkspace = z.infer<typeof customerWorkspaceSchema>;
 export type CustomerApplication = z.infer<typeof customerApplicationSchema>;
 export type CustomerTarget = z.infer<typeof customerTargetSchema>;
+export type CustomerScanProfile = z.infer<typeof customerScanProfileSchema>;
 export type CustomerEnrollment = z.infer<typeof customerEnrollmentSchema>;
 export type CustomerSourceSnapshot = z.infer<typeof customerSourceSnapshotSchema>;
 export type CustomerSourceSummary = z.infer<typeof customerSourceSummarySchema>;
