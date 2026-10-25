@@ -10,11 +10,16 @@ const appFileSchema = z.object({
   privateKeyPem: z.string().min(1),
 }).passthrough();
 const accessTokenSchema = z.object({ token: z.string().min(1), expires_at: z.iso.datetime() }).passthrough();
-const repositorySchema = z.object({
-  id: z.number().int().positive(),
-  full_name: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/).max(200),
-  archived: z.boolean(),
+const repositoryListSchema = z.object({
+  total_count: z.number().int().nonnegative(),
+  repositories: z.array(z.object({
+    id: z.number().int().positive(),
+    full_name: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/).max(200),
+    default_branch: z.string().min(1).max(200),
+    archived: z.boolean(),
+  }).passthrough()).max(100),
 }).passthrough();
+const MAX_INSTALLATION_REPOSITORY_PAGES = 10;
 
 export interface GitHubAppInstallationClientOptions {
   fetchImplementation?: typeof fetch;
@@ -44,16 +49,25 @@ export function createGitHubAppInstallationClient(appFile: string, options: GitH
 
   return {
     installationToken,
-    /** Resolves a numeric repository id to its current owner/name through the installation. */
+    /**
+     * Finds a repository among those the installation can currently access, with its current name and
+     * default branch. `/repositories/:id` is not enough: it also serves public repositories outside the installation.
+     */
     async repository(installationId: string, repositoryId: number, signal?: AbortSignal) {
       const token = await installationToken(installationId, signal);
-      const response = await requestJson(new URL(`/repositories/${repositoryId}`, apiBase), {
-        ...request, headers: { ...headers, authorization: `Bearer ${token}` }, ...(signal ? { signal } : {}),
-      });
-      const repository = repositorySchema.parse(parseJsonBody(response.body));
-      if (repository.id !== repositoryId) throw new Error('github_repository_mismatch');
-      const [owner = '', name = ''] = repository.full_name.split('/');
-      return { owner, repository: name, fullName: repository.full_name, archived: repository.archived, token };
+      for (let page = 1; page <= MAX_INSTALLATION_REPOSITORY_PAGES; page += 1) {
+        const response = await requestJson(new URL(`/installation/repositories?per_page=100&page=${page}`, apiBase), {
+          ...request, maxBytes: 4 * 1024 * 1024, headers: { ...headers, authorization: `Bearer ${token}` }, ...(signal ? { signal } : {}),
+        });
+        const list = repositoryListSchema.parse(parseJsonBody(response.body));
+        const repository = list.repositories.find(item => item.id === repositoryId);
+        if (repository) {
+          const [owner = '', name = ''] = repository.full_name.split('/');
+          return { owner, repository: name, fullName: repository.full_name, defaultBranch: repository.default_branch, archived: repository.archived };
+        }
+        if (page * 100 >= list.total_count) throw new Error('github_repository_not_in_installation');
+      }
+      throw new Error('github_installation_repository_limit');
     },
   };
 }

@@ -19,14 +19,15 @@ export function createConfiguredMonitoringAdapters(options: { database: Database
       const appRepository = githubAppKey.exec(input.repositoryKey);
       if (appRepository) {
         if (!github) throw new Error('github_app_not_configured');
-        const link = await options.database.tenant(input.organizationId, tx => tx.query<{ installation_id: string; default_branch: string }>(
-          'SELECT installation_id,default_branch FROM gotchu.monitor_github_repository($1,$2,$3)', [input.organizationId, input.applicationId, input.repositoryKey]));
+        const link = await options.database.tenant(input.organizationId, tx => tx.query<{ installation_id: string }>(
+          'SELECT installation_id FROM gotchu.monitor_github_repository($1,$2,$3)', [input.organizationId, input.applicationId, input.repositoryKey]));
         const row = link.rows[0];
         if (!row) throw new Error('github_repository_link_unavailable');
+        // Membership and the default branch are re-read live, so removal from the installation or a branch switch is not missed.
         const repository = await github.repository(row.installation_id, Number(appRepository[1]), input.signal);
         const catalog = createMonitoringRepositoryCatalog({ repositoryRoot: '/nonexistent', repositories: [{
           organizationId: input.organizationId, applicationId: input.applicationId, repositoryKey: input.repositoryKey, displayName: repository.fullName,
-          provider: 'github', owner: repository.owner, repository: repository.repository, ref: row.default_branch,
+          provider: 'github', owner: repository.owner, repository: repository.repository, ref: repository.defaultBranch,
         }] });
         return createGitHubRepositoryReader(catalog, { installationTokenProvider: () => github.installationToken(row.installation_id, input.signal) }).read(input);
       }
