@@ -15,7 +15,7 @@
 
 ## Content
 
-- The sequence is Mirada (hero), Repositorio (animated GitHub audit diagram), Web (animated external audit diagram), Preguntas (shadcn accordion) and Cierre (question, “we Gotchu.”, the dot GOTCHU wordmark, “Crea tu cuenta” and “Ya tengo cuenta”).
+- The sequence is Mirada (hero), Repositorio (scroll-driven GitHub audit diagram), Web (scroll-driven external audit diagram), Preguntas (shadcn accordion) and Cierre (question, “we Gotchu.”, the dot GOTCHU wordmark, “Crea tu cuenta” and “Ya tengo cuenta”).
 - Only the main audits get a diagram; do not list every feature. Diagrams show how an audit runs, never results. Every audit ends in an action to `/registro`.
 - Show the real report JSON keys: `id`, `organizationId`, `applicationId`, `jobId`, `applicationName`, `mode`, `startedAt`, `finishedAt`, `internal`, `external`, `comparison`, `limitations`, `responseMode`, `actionsPerformed`, `version` and `revision`.
 - Re-checks run every 1–24 hours only when the customer enables them. They are not real time; alerts stay inside Gotchu, and an alert never confirms an attack. Signed runtime telemetry feeds triage, not proof of compromise.
