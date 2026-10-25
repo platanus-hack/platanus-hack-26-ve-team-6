@@ -236,3 +236,8 @@
 .customer-dependency-table td details { margin-top: 6px; }
 .customer-dependency-table td summary { cursor: pointer; font: 600 12.5px/1.5 var(--mono); }
 .customer-dependency-table td details p { margin: 6px 0; font-size: 14px; line-height: 1.6; }
+/* Finding actions (copy, investigate, correct with AI) read as one row of equal controls; hints are quiet links. */
+.customer-finding-body .customer-investigation-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.customer-finding-body :is(.customer-investigation-action, .customer-ai-correction) button[data-slot='button'] { min-height: 34px; height: 34px; padding: 0 14px; font-size: 14px; font-weight: 600; }
+.customer-finding-body :is(.customer-investigation-action, .customer-ai-correction) :is(small, a:not([data-slot])) { color: var(--muted-foreground); font-size: 13px; }
+.customer-finding-body :is(.customer-investigation-action, .customer-ai-correction) a:not([data-slot]) { color: var(--foreground); text-decoration: underline; text-decoration-color: var(--brand); text-underline-offset: 3px; }
