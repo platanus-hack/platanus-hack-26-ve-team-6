@@ -53,7 +53,7 @@ export function ProjectOverview({ risk, onAddSource, onExamine, examining, exami
       <section className="customer-risk-tile" aria-labelledby="risk-coverage-title">
         <div className="customer-risk-head">
           <h2 id="risk-coverage-title">Cobertura</h2>
-          <span className={`customer-coverage-status is-${risk.coverage}`}>{risk.coverage === 'complete' ? 'Completa' : risk.coverage === 'partial' ? 'Parcial' : 'Sin fuentes'}</span>
+          {risk.state === 'ready' && <span className={`customer-coverage-status is-${risk.coverage}`}>{risk.coverage === 'complete' ? 'Completa' : risk.coverage === 'partial' ? 'Parcial' : 'Sin fuentes'}</span>}
         </div>
         <p className="customer-risk-figure"><strong>{risk.examined.length}<small> de {risk.sources.length}</small></strong><span>{risk.sources.length === 1 ? 'fuente examinada' : 'fuentes examinadas'}</span></p>
         {risk.sources.length > 0 && <ul className="customer-coverage-list">
@@ -67,12 +67,12 @@ export function ProjectOverview({ risk, onAddSource, onExamine, examining, exami
             </li>;
           })}
         </ul>}
-        {risk.coverage === 'partial' && risk.pending.length === 0 && <p className="customer-risk-note">Algún análisis terminó con cobertura parcial; revisa «Qué se evaluó» en el informe.</p>}
+        {risk.state === 'ready' && risk.coverage === 'partial' && risk.pending.length === 0 && <p className="customer-risk-note">Algún análisis terminó con cobertura parcial; revisa «Qué se evaluó» en el informe.</p>}
       </section>
 
       <section className="customer-risk-tile customer-next-step" aria-labelledby="risk-next-title">
         <h2 id="risk-next-title">Siguiente paso</h2>
-        <NextStep next={risk.next} examining={examining} onAddSource={onAddSource} onExamine={onExamine} onOpenReport={onOpenReport} onOpenSources={onOpenSources} />
+        {risk.state === 'ready' && <NextStep next={risk.next} examining={examining} onAddSource={onAddSource} onExamine={onExamine} onOpenReport={onOpenReport} onOpenSources={onOpenSources} />}
         {examineError && <p className="customer-form-error" role="alert">{examineError}</p>}
       </section>
     </div>

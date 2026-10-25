@@ -885,7 +885,9 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     retry: false,
   })) });
   const riskReportData = riskReports.flatMap(query => query.data ? [query.data] : []);
-  const riskCoverage = coverageState({ sources: riskSources, pending: examination.pending, reports: riskReportData });
+  // Until every latest report has loaded, nothing may read as complete or clear.
+  const riskLoaded = riskReportData.length === examination.reportIds.length;
+  const riskCoverage = riskLoaded ? coverageState({ sources: riskSources, pending: examination.pending, reports: riskReportData }) : riskSources.length === 0 ? 'none' : 'partial';
   const findings = openFindings(riskReportData);
   const risk: ProjectRisk = {
     state: riskReports.some(query => query.error) || reports.error ? 'error' : riskReports.some(query => query.isPending) || reports.isPending ? 'loading' : 'ready',
@@ -991,7 +993,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     : !organizationId || !selectedApplication ? <FirstProjectEmptyState canManage={canManage || !organizationId} onCreateProject={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId } : {} }); }} onAnalyzeWeb={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId, fuente: 'web' } : { fuente: 'web' } }); }} />
     : <>
       <PageHeader
-        title={page === 'overview' ? selectedApplication.name : pageTitle}
+        title={pageTitle}
         description={pageDescriptions[page] ?? (applicationReports[0] ? <>Último informe <strong>{date(applicationReports[0].finishedAt)}</strong> · {modeLabels[applicationReports[0].mode]}</> : 'Todavía no hay informes en este proyecto.')}
         status={selectedApplication.archived ? <span className="customer-status customer-status-muted">Proyecto archivado</span> : null}
         actions={page === 'overview' && canManage && !selectedApplication.archived ? <button className="customer-button" type="button" onClick={() => setPage('applications')}><PlusIcon aria-hidden="true" />Añadir fuente</button> : null}
@@ -1076,7 +1078,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
           setSidebarForm(null); await applications.refetch();
           void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: workspace.id, projectId: created.applicationId } });
         }} />}
-        {pages.slice(0, 5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} count={item.id === 'reports' ? reports.data?.length : item.id === 'applications' && sources.data && targets.data ? sources.data.length + targets.data.filter(target => target.status === 'authorized').length : undefined} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}
+        {pages.slice(0, 5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} count={item.id === 'reports' ? reports.data?.length : item.id === 'applications' && sources.data && images.data && targets.data ? riskSources.length : undefined} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}
       </nav>}
       {workspace && <nav className="customer-nav" aria-labelledby="nav-workspace">
         <h2 id="nav-workspace" className="customer-nav-label">Espacio de trabajo</h2>
