@@ -36,11 +36,11 @@ export const customerEnrollTargetSchema = customerScopeSchema.extend({ origin: c
 export const customerTargetIdSchema = customerScopeSchema.extend({ targetId: uuid }).strict();
 export const customerTargetSchema = customerScopeSchema.extend({
   id: uuid, origin: customerOriginSchema, version: z.number().int().positive(),
-  status: z.enum(['pending', 'verified', 'revoked']), consentActor: z.string().min(1).max(256), consentAt: timestamp,
-  challengeExpiresAt: timestamp, verifiedAt: timestamp.nullable(), expiresAt: timestamp.nullable(),
+  status: z.enum(['authorized', 'revoked']), consentActor: z.string().min(1).max(256), consentAt: timestamp,
+  authorizedAt: timestamp.nullable(), expiresAt: timestamp.nullable(),
   scanProfile: customerScanProfileSchema.optional(),
 }).strict();
-export const customerEnrollmentSchema = z.object({ target: customerTargetSchema, challenge: z.object({ name: z.string(), value: z.string(), expiresAt: timestamp }).strict() }).strict();
+export const customerEnrollmentSchema = z.object({ target: customerTargetSchema }).strict();
 export const customerSourceFileSchema = z.object({
   path: z.string().min(1).max(512).refine(path => {
     const parts = path.split('/');
@@ -110,7 +110,7 @@ export const customerRunInputSchema = customerScopeSchema.extend({
   inputKind: z.enum(['source_snapshot', 'container_image']).optional(),
   source: customerSourceSnapshotSchema.safeExtend({ id: uuid, digest }).nullable(),
   containerImage: customerRunContainerImageSchema.nullable().optional(),
-  target: z.object({ id: uuid, origin: customerOriginSchema, version: z.number().int().positive(), verifiedAt: timestamp, expiresAt: timestamp, scanProfile: customerScanProfileSchema.optional() }).strict().nullable(),
+  target: z.object({ id: uuid, origin: customerOriginSchema, version: z.number().int().positive(), authorizedAt: timestamp, expiresAt: timestamp, scanProfile: customerScanProfileSchema.optional() }).strict().nullable(),
   licensePolicy: licensePolicySchema.optional(),
 }).strict().superRefine((value, context) => {
   const inputKind = value.inputKind ?? 'source_snapshot';
