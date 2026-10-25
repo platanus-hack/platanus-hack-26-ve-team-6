@@ -58,4 +58,15 @@ describe('assessment phase graph markup', () => {
     expect(count(unavailable, 'done')).toBe(0);
     expect(count(unavailable, 'failed')).toBe(0);
   });
+
+  it('stops animating and says so when the scanner has been silent past its deadline', () => {
+    const long = job('running', { mode: 'both', createdAt: '2020-01-01T00:00:00.000Z', progress: [{ phase: 'validating', at: '2020-01-01T00:00:01.000Z' }, { phase: 'analyzing', at: '2020-01-01T00:00:02.000Z' }] });
+    const stalled = render({ job: long });
+    expect(stalled).toContain('Sin noticias del analizador');
+    expect(stalled).toContain('is-stalled');
+    expect(stalled.match(/Sin respuesta/g)).toHaveLength(2);
+    const fresh = render({ job: job('running', { mode: 'both', createdAt: new Date().toISOString(), progress: [{ phase: 'analyzing', at: new Date().toISOString() }, { phase: 'internal_finished', at: new Date().toISOString() }] }) });
+    expect(fresh).not.toContain('Sin noticias del analizador');
+    expect(fresh).toContain('Esperando externo');
+  });
 });

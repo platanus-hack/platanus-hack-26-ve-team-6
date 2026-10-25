@@ -53,6 +53,9 @@
 .customer-progress-edge.is-off { stroke-dasharray: 3 4; }
 .customer-progress-edge.is-lit { stroke: var(--brand); transition: stroke-dashoffset .45s var(--ease); }
 .customer-progress-dot { fill: var(--brand); }
+.customer-progress-graph.is-stalled .customer-progress-node.is-running { border-color: var(--border); background: var(--background); }
+.customer-progress-graph.is-stalled .customer-progress-pixels i { animation: none; }
+.customer-progress-graph.is-stalled .customer-progress-pixels i:nth-child(-n+3) { opacity: 1; }
 .customer-progress-graph.is-instant .customer-progress-edge, .customer-progress-graph.is-instant .customer-progress-node, .customer-progress-graph.is-instant .customer-progress-icon { transition: none; }
 
 /* Narrow containers stack the phases; the report always shows them stacked. */
