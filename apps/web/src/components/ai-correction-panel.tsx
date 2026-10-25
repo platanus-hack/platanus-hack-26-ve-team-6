@@ -234,13 +234,13 @@ function CorrectionCandidateStatus({ organizationId, applicationId, candidateId,
     <h4>Validación independiente del comportamiento</h4>
     {validation.isPending && <p role="status">Consultando la validación guardada…</p>}
     {validation.error && <div role="alert"><p>No se pudo confirmar el estado de la validación. {errorText(validation.error)}</p><Button variant="outline" size="sm" disabled={validation.isFetching} onClick={() => { void validation.refetch(); }}>Actualizar validación</Button></div>}
-    {!validation.error && validation.isSuccess && !run && <p>No hay una validación independiente registrada. La suite de pruebas y la disponibilidad de la VM están sin confirmar.</p>}
+    {!validation.error && validation.isSuccess && !run && <p>No hay una validación independiente registrada. La suite de pruebas y la disponibilidad del entorno están sin confirmar.</p>}
     {!validation.error && run && <>
       <p role="status">{validationLabels[run.state]}</p>
       <p>{run.suiteDefinitionId ? `Suite de pruebas configurada${facts?.suiteName ? `: ${facts.suiteName}` : ''}.` : 'No hay una suite de pruebas configurada para esta validación.'}{facts?.functionalSuitePassed && ` Pruebas superadas según la evidencia guardada: ${facts.passedCount ?? 'recuento no disponible'}.`}</p>
-      <p>{run.reason === 'runner_gate_closed' ? 'La VM de validación no estaba disponible. No se pudo verificar el comportamiento.'
-        : run.firecrackerDigest && run.kernelDigest && run.rootfsDigest ? 'Hay evidencia guardada de ejecución en una VM. Su disponibilidad actual no está confirmada.'
-        : 'No hay evidencia guardada de ejecución en una VM. Su disponibilidad está sin confirmar.'}</p>
+      <p>{run.reason === 'runner_gate_closed' ? 'El entorno de validación no estaba disponible. No se pudo verificar el comportamiento.'
+        : (run.firecrackerDigest && run.kernelDigest && run.rootfsDigest || run.containerImageDigest) ? 'Hay evidencia guardada de ejecución aislada. Su disponibilidad actual no está confirmada.'
+        : 'No hay evidencia guardada de ejecución aislada. Su disponibilidad está sin confirmar.'}</p>
     </>}
   </div>;
 }
@@ -260,7 +260,7 @@ function CorrectionProposal({ organizationId, applicationId, candidateId, canMan
   const savedProposal = proposals.data?.find(item => item.id === proposalId);
   const sourcesLink = `/w/${organizationId}/p/${applicationId}/fuentes#${proposal.data ? `action-${proposal.data.actionHash}` : 'action-approvals-title'}`;
   return <div>
-    <p>La PR requiere un repositorio y commit verificados, validación independiente D05 en una VM, un ejecutor habilitado y aprobación exacta con segundo factor en Fuentes.</p>
+    <p>La PR requiere un repositorio y commit verificados, validación independiente en un entorno aislado, un ejecutor habilitado y aprobación exacta con segundo factor en Fuentes.</p>
     {!proposal.data && <Button variant="outline" size="sm" disabled={!canManage || proposal.isPending} onClick={() => proposal.mutate()}>{proposal.isPending ? 'Preparando propuesta de PR…' : 'Preparar propuesta de PR'}</Button>}
     {proposal.error && <p className="customer-form-error" role="alert">PR bloqueada: {errorText(proposal.error)}</p>}
     {proposal.data && <p role="status">Propuesta de PR guardada. Revisa sus requisitos y el cambio exacto antes de aprobar.</p>}
