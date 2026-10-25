@@ -170,7 +170,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
         const cors = { 'access-control-allow-origin': 'https://gotchu.invalid', 'access-control-allow-credentials': 'true' };
         if (request.method === 'OPTIONS') return response.writeHead(204, { ...cors, allow: 'GET, HEAD, OPTIONS', 'access-control-allow-methods': 'GET', 'access-control-allow-headers': 'authorization' }).end();
         if (request.method === 'HEAD') return response.writeHead(path === '/api/account' ? 401 : 200, cors).end();
-        if (path === '/openapi.json') return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ openapi: '3.0.3', security: [{ bearer: [] }], paths: { '/api/account': { get: { description: 'API_BODY_MUST_NOT_PERSIST' } } } }));
+        if (path === '/openapi.json') return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ openapi: '3.0.3', info: { title: 'Controlled API', version: '1' }, security: [{ bearer: [] }], paths: { '/api/account': { get: { description: 'API_BODY_MUST_NOT_PERSIST', responses: { '200': { description: 'Fixture response' } } } } } }));
         return response.writeHead(404).end('API_BODY_MUST_NOT_PERSIST');
       }
       const headers = corrected ? { 'content-security-policy': "default-src 'none'", 'strict-transport-security': 'max-age=31536000', 'x-content-type-options': 'nosniff' } : { server: 'Untrusted-Fixture/1.0' };
