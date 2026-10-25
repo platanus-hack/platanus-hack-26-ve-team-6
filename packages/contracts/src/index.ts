@@ -124,3 +124,4 @@ export * from './retention.js';
 export * from './investigation-providers.js';
 export * from './provider-connection.js';
 export * from './ai-correction.js';
+export * from './mcp.js';
