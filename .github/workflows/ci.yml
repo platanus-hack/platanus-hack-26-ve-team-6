@@ -19,6 +19,7 @@ concurrency:
 # Independent jobs run in parallel, so wall-clock time is the slowest selected job.
 jobs:
   changes:
+    if: github.repository == '0bkevin/gotchu'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -49,7 +50,7 @@ jobs:
 
   verify:
     needs: changes
-    if: needs.changes.outputs.verify == 'true'
+    if: github.repository == '0bkevin/gotchu' && needs.changes.outputs.verify == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -66,7 +67,7 @@ jobs:
 
   postgres:
     needs: changes
-    if: needs.changes.outputs.postgres == 'true'
+    if: github.repository == '0bkevin/gotchu' && needs.changes.outputs.postgres == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -86,7 +87,7 @@ jobs:
 
   live-stack:
     needs: changes
-    if: needs.changes.outputs.live == 'true'
+    if: github.repository == '0bkevin/gotchu' && needs.changes.outputs.live == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -101,7 +102,7 @@ jobs:
 
   infrastructure:
     needs: changes
-    if: needs.changes.outputs.infra == 'true'
+    if: github.repository == '0bkevin/gotchu' && needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -118,7 +119,7 @@ jobs:
 
   release-safety:
     needs: changes
-    if: needs.changes.outputs.infra == 'true'
+    if: github.repository == '0bkevin/gotchu' && needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -128,7 +129,7 @@ jobs:
       - run: python3 -B infra/aws/test-maintenance.py
 
   required-checks:
-    if: always()
+    if: github.repository == '0bkevin/gotchu' && always()
     needs: [changes, verify, postgres, live-stack, infrastructure, release-safety]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -146,7 +147,7 @@ jobs:
 
   prod-source:
     name: ${{ github.event_name == 'pull_request' && github.base_ref == 'prod' && 'prod-source' || 'prod-source-not-required' }}
-    if: github.event_name == 'pull_request' && github.base_ref == 'prod'
+    if: github.repository == '0bkevin/gotchu' && github.event_name == 'pull_request' && github.base_ref == 'prod'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

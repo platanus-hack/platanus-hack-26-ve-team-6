@@ -10,9 +10,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   checks:
-    if: github.ref == 'refs/heads/prod'
+    if: github.repository == '0bkevin/gotchu' && github.ref == 'refs/heads/prod'
     uses: ./.github/workflows/ci.yml
   package:
+    if: github.repository == '0bkevin/gotchu' && github.ref == 'refs/heads/prod'
     needs: checks
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -43,6 +44,7 @@ jobs:
           retention-days: 3
           if-no-files-found: error
   deploy:
+    if: github.repository == '0bkevin/gotchu' && github.ref == 'refs/heads/prod'
     needs: package
     runs-on: ubuntu-24.04
     timeout-minutes: 30
