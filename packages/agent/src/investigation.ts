@@ -674,7 +674,6 @@ export async function runBoundedInvestigation(
     let modelOutput: ModelOutput;
     try {
       reply = z.object({ output: z.unknown(), usage: modelUsageSchema }).strict().parse(replyUnknown);
-      modelOutput = modelOutputSchema.parse(reply.output);
     } catch {
       throw new InvalidModelOutputError();
     }
@@ -682,6 +681,8 @@ export async function runBoundedInvestigation(
     const spendMicroUsd = state.spendMicroUsd + reply.usage.spendMicroUsd;
     observedCounters.tokens = tokensUsed;
     observedCounters.spend = spendMicroUsd;
+    try { modelOutput = modelOutputSchema.parse(reply.output); }
+    catch { throw new InvalidModelOutputError(); }
     if (tokensUsed > limits.maxTokens || spendMicroUsd > limits.maxSpendMicroUsd) {
       return {
         modelCalls: nextCall,
