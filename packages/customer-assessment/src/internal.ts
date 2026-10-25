@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { customerSourceFileSchema, defaultLicensePolicy, type AssessmentAnalysis, type AssessmentFinding, type CustomerRunInput, type DependencyArtifactAnalysis, type DependencyArtifactFinding, type DependencyReachability } from '@gotchu/contracts';
 import { analysis, bounded, isScannerCleanupError, evidence, finding, finish } from './common.js';
 import type { ScannerAdapter, ScannerName, ToolResult } from './docker.js';
-import { parseLockfile, type AdvisoryAdapter } from './advisory.js';
+import { parseLockfile, type AdvisoryAdapter, type AdvisoryMatch } from './advisory.js';
 import type { OsvAdvisoryMetadata } from '@gotchu/contracts';
 import type { LockedPackage } from './lockfiles.js';
 import type { LicenseAdapter, LicenseLookup } from './licenses.js';
@@ -274,9 +274,16 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
     advisoryIncomplete = true;
     a.coverage.push({ capability: 'dependency_advisories', state: 'unavailable', detail: 'Optional OSV adapter is not configured. No clean dependency claim.' });
   } else try {
-    const advisoryPackages = uniquePackages.slice(0, 200);
-    const matches = await bounded(() => advisory.query(advisoryPackages.map(({ name, version }) => ({ name, version })), signal), signal);
-    if (matches.length !== advisoryPackages.length) throw new Error('advisory_count');
+    // Keep each adapter request bounded while covering ordinary npm projects
+    // that exceed one request. Larger inventories remain explicitly partial.
+    const advisoryPackages = uniquePackages.slice(0, 500);
+    const matches: AdvisoryMatch[] = [];
+    for (let offset = 0; offset < advisoryPackages.length; offset += 200) {
+      const batch = advisoryPackages.slice(offset, offset + 200);
+      const result = await bounded(() => advisory.query(batch.map(({ name, version }) => ({ name, version })), signal), signal);
+      if (result.length !== batch.length) throw new Error('advisory_count');
+      matches.push(...result);
+    }
     advisoryIncomplete = !locked.complete || uniquePackages.length > advisoryPackages.length || matches.some(match => !match.complete);
     for (let index = 0; index < matches.length; index++) {
       const match = matches[index]; const pkg = advisoryPackages[index]; if (!match || !pkg) continue;
