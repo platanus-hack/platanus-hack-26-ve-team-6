@@ -28,6 +28,7 @@ export const configureInvestigationModelSchema = z.object({
   // Room for a Codex auth.json; API keys and Claude Code tokens are far shorter.
   apiKey: z.string().min(1).max(16_384).optional(),
   consentToExternalProcessing: z.boolean(),
+  automaticSourceInvestigations: z.boolean().default(false),
   dataScopes: z.array(investigationDataScopeSchema).max(7),
   inputPriceMicroUsdPerMillionTokens: z.number().int().min(0).max(1_000_000_000),
   outputPriceMicroUsdPerMillionTokens: z.number().int().min(0).max(1_000_000_000),
@@ -47,6 +48,9 @@ export const configureInvestigationModelSchema = z.object({
   if (new Set(value.dataScopes).size !== value.dataScopes.length) {
     context.addIssue({ code: 'custom', path: ['dataScopes'], message: 'Data scopes must be unique' });
   }
+  if (value.automaticSourceInvestigations && (!value.consentToExternalProcessing || !value.dataScopes.includes('finding_details'))) {
+    context.addIssue({ code: 'custom', path: ['automaticSourceInvestigations'], message: 'Automatic source investigation requires consent to process finding details' });
+  }
   if (value.consentToExternalProcessing && value.dataScopes.length === 0) {
     context.addIssue({ code: 'custom', path: ['dataScopes'], message: 'Select the data categories allowed for model processing' });
   }
@@ -61,6 +65,7 @@ export const investigationModelSettingsSchema = z.object({
   modelId: z.string().max(200).nullable(),
   apiKeyConfigured: z.boolean(),
   consentToExternalProcessing: z.boolean(),
+  automaticSourceInvestigations: z.boolean().default(false),
   dataScopes: z.array(investigationDataScopeSchema).max(7),
   inputPriceMicroUsdPerMillionTokens: z.number().int().nonnegative(),
   outputPriceMicroUsdPerMillionTokens: z.number().int().nonnegative(),
@@ -86,7 +91,7 @@ export const investigationRunSchema = z.object({
   assessment: z.enum(['candidate_issue', 'no_issue_supported', 'inconclusive']).nullable(),
   citedEvidenceIds: z.array(z.uuid()).max(20),
   hypotheses: z.array(z.object({ statement: z.string().min(1).max(500), evidenceIds: z.array(z.uuid()).min(1).max(20) }).strict()).max(8),
-  candidateSuggestion: z.object({ kind: z.enum(['source_change', 'dependency_change', 'configuration_change']), summary: z.string().min(1).max(500), path: z.string().max(512).nullable(), evidenceIds: z.array(z.uuid()).min(1).max(20), validationRequired: z.literal('D05') }).strict().nullable(),
+  candidateSuggestion: z.object({ kind: z.enum(['source_change', 'dependency_change', 'configuration_change']), summary: z.string().min(1).max(500), path: z.string().max(512).nullable(), evidenceIds: z.array(z.uuid()).min(1).max(20), implications: z.array(z.string().min(1).max(500)).max(5).optional(), risks: z.array(z.string().min(1).max(500)).max(5).optional(), validationPlan: z.array(z.string().min(1).max(500)).max(5).optional(), validationRequired: z.literal('D05') }).strict().nullable(),
   tokensSpent: z.number().int().nonnegative(),
   costMicroUsd: z.number().int().nonnegative(),
   reservedCostMicroUsd: z.number().int().nonnegative(),

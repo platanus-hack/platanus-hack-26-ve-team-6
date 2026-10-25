@@ -95,6 +95,9 @@ export const modelOutputSchema = z.object({
     summary: z.string().min(1).max(500),
     path: z.string().max(512).nullable(),
     evidenceIds: evidenceIdsSchema,
+    implications: z.array(z.string().min(1).max(500)).max(5).optional(),
+    risks: z.array(z.string().min(1).max(500)).max(5).optional(),
+    validationPlan: z.array(z.string().min(1).max(500)).max(5).optional(),
     validationRequired: z.literal('D05').default('D05'),
   }).strict().nullable().default(null),
   requestedReads: z.array(modelToolRequestSchema).max(MAX_ADDITIONAL_READ_TOOL_CALLS),
@@ -122,6 +125,9 @@ export const investigationResultSchema = z.object({
     kind: z.enum(['source_change', 'dependency_change', 'configuration_change']),
     summary: z.string().min(1).max(500), path: z.string().max(512).nullable(),
     evidenceIds: evidenceIdsSchema,
+    implications: z.array(z.string().min(1).max(500)).max(5).optional(),
+    risks: z.array(z.string().min(1).max(500)).max(5).optional(),
+    validationPlan: z.array(z.string().min(1).max(500)).max(5).optional(),
     validationRequired: z.literal('D05'),
   }).strict().nullable(),
   reasonCode: z.enum([
@@ -631,7 +637,7 @@ export async function runBoundedInvestigation(
         summary: 'string <= 2000 chars',
         citedEvidenceIds: 'IDs from evidence already supplied',
         hypotheses: 'array of {statement, evidenceIds}',
-        candidateSuggestion: 'null or {kind, summary, path, evidenceIds, validationRequired:"D05"}; a private D05 candidate only',
+        candidateSuggestion: 'null or {kind, summary, path, evidenceIds, implications:string[], risks:string[], validationPlan:string[], validationRequired:"D05"}; explain behavior changes, tradeoffs and validation before human approval',
         requestedReads: 'array of {name, evidenceId}, max 8 total across the run',
       },
     });
