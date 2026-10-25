@@ -175,6 +175,14 @@ Para detener Gotchu sin borrar los datos, usa `./gotchu down`. Para eliminar sus
 
 ## Subscription model providers, live end to end — 2026-10-25
 
+### Reproducible source-investigation pipeline regression
+
+Run `node test/run-stack.mjs test/integration/pipeline.test.ts test/integration/source-model-investigation.test.ts` after building the workspace. The runner provisions disposable PostgreSQL and Redis containers on random loopback ports and removes them afterward.
+
+The source regression persists a synthetic assessment, admits its automatic investigation, delivers the durable outbox through BullMQ, and runs the actual HTTP worker, LangGraph, capability gateway and Codex subprocess adapter. Controlled provider responses first request finding details and a source excerpt, then return a suggestion with implications, risks and validation steps. Assertions cover saved results, excerpt redaction, exclusion of an unrelated file, settled token reservations, tenant isolation and no repeated model calls on job replay.
+
+This regression uses synthetic scan observations and a fixture executable in place of the Codex service. It proves pipeline integration, not a live provider response or customer-repository finding. A live Codex check requires a dedicated account connection through **Modelos de IA → Conectar ChatGPT**, followed by **Guardar y probar conexión** and an authorized investigation. When accessing a remote development environment, use its shared preview or a configured port forward; `localhost` in a browser on another computer refers to that computer. The public device-authorization page can be opened in the account owner's own browser while Gotchu waits for completion.
+
 Claude Code and Codex now run investigations on the Owner's own subscription. Everything below ran against a fresh `./gotchu up` in this worktree (isolated ports, disposable state) with this machine's real Claude Max and ChatGPT logins; no API keys were used. OpenRouter and the other API-key presets were **not** run live.
 
 | Check | Observed result |
