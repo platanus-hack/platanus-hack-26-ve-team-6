@@ -1,6 +1,6 @@
 # Gotchu customer application architecture
 
-Gotchu's current product combines authenticated source/public HTTPS assessments, scoped periodic monitoring, signed runtime alerts and exact private correction preparation. Customers manage their own workspaces and applications, submit source snapshots, verify authorized HTTPS origins, and review persisted evidence-backed reports. The fictional vulnerable/corrected application is a regression fixture only; customer assessments accept customer-provided snapshots and verified targets.
+Gotchu's current product combines authenticated source/public HTTPS assessments, scoped periodic monitoring, signed runtime alerts and exact private correction preparation. Customers manage their own workspaces and applications, submit source snapshots or request bounded assessments of canonical public HTTPS origins, and review persisted evidence-backed reports. The fictional vulnerable/corrected application is a regression fixture only; customer assessments accept customer-provided snapshots and requested HTTPS target scopes.
 
 The customer runtime is currently local development. AWS is the eventual primary hosting target, with portable contracts and replaceable adapters. The production-mode scanner and coordinator completed local TLS assessment and durable database-backed work after CA certificate canonicalization on Linux/amd64. This is not a cloud deployment or a production-service guarantee.
 
@@ -25,7 +25,7 @@ flowchart LR
   pg --> redis --> coordinator
   coordinator -->|exact durable request · HTTP/HMAC in loopback dev; HTTPS/HMAC in production| scanner --> engine
   engine -->|uploaded source only| tools
-  engine -->|independent consented HTTPS profile| target
+  engine -->|independent bounded HTTPS profile| target
   engine -->|validated report| scanner
   scanner -->|bounded result| coordinator
   coordinator -->|atomic report and job completion| backend
@@ -56,15 +56,15 @@ Owners and Operators can delete a snapshot. Deletion clears its stored body and 
 
 ### Authorized public HTTPS targets
 
-Enrollment accepts a canonical public HTTPS origin only: a DNS hostname, no credentials, path, query, fragment, or custom port. The customer must affirm authorization and prove DNS control by publishing the issued random TXT challenge at `_gotchu.<hostname>`. The challenge expires after 30 minutes. Successful verification records the actor and time and authorizes the target for seven days. Customers can revoke authorization sooner; enrolling again creates a new version. Only one target is active for an application.
+A signed-in Owner or Operator may enter a canonical public HTTPS origin as part of the Analyze request: a DNS hostname, no credentials, path, query, fragment, or custom port. There is no separate origin affirmation or DNS TXT check. The request itself creates a seven-day bounded target scope under the selected finite profile. The system records the requesting actor, requested origin/profile, and activation time as request provenance; this does not establish domain ownership. Customers can revoke the scope sooner; submitting a new request renews it with a new version. Only one target is active for an application.
 
-At scan time, the trusted HTTPS transport resolves the hostname again, rejects nonpublic or reserved answers, pins a validated public IP, verifies the certificate and original hostname, and honors the target's expiration deadline. It sends no customer credentials or cookies, does not follow redirects, and uses the exact consented profile. Root consent permits one GET to `/`; `public_surface` permits up to ten serial GETs to `/`, `/.well-known/security.txt`, `/security.txt`, `/robots.txt`, `/sitemap.xml`, and safe query-free same-origin links from readable HTML/robots/sitemap responses. It waits 250 ms between requests, reads at most 64 KiB total and 16 KiB per response. It does not execute JavaScript or discover subdomains. It may GET safe discovered same-origin public paths; it performs no authenticated or state-changing API exercise or API introspection. DNS, TLS, scope, cap or deadline failures remain unknown coverage. External assessment needs no source snapshot.
+At scan time, the trusted HTTPS transport resolves the hostname again, rejects nonpublic or reserved answers, pins a validated public IP, verifies the certificate and requested hostname, and honors the target's expiration deadline. It sends no customer credentials or cookies, does not follow redirects, and uses the exact selected profile. The root profile permits one GET to `/`; `public_surface` permits up to ten serial GETs to `/`, `/.well-known/security.txt`, `/security.txt`, `/robots.txt`, `/sitemap.xml`, and safe query-free same-origin links from readable HTML/robots/sitemap responses. It waits 250 ms between requests, reads at most 64 KiB total and 16 KiB per response. It does not execute JavaScript or discover subdomains. It may GET safe discovered same-origin public paths; it performs no authenticated or state-changing API exercise or API introspection. DNS, TLS, scope, cap or deadline failures remain unknown coverage. External assessment needs no source snapshot.
 
 ## Assessment modes and reports
 
 The request contract binds source and target inputs to the selected mode:
 
-| Mode | Source snapshot | Verified HTTPS target |
+| Mode | Source snapshot | Requested HTTPS target |
 | --- | --- | --- |
 | `internal` | Required | Not used |
 | `external` | Not used | Required |
@@ -104,7 +104,7 @@ The customer development launcher starts the web app on `127.0.0.1:3000`, the co
 
 Postgres, Redis, and their volumes are local development data. `pnpm dev:stop` stops only the recorded app processes; data services remain available until separately stopped. The launcher stores process records, logs, and the scanner credential under `.local/dev`. See [local development instructions](development.md) for the complete lifecycle.
 
-The scanner engine runs fixed, digest-pinned Docker parser images without network access, as a nonroot user, with bounded CPU, memory, process count, output, and wall time. These containers parse uploaded data; they are not a demonstrated VM-class isolation boundary. The scanner service can terminate TLS itself; the coordinator's optional private CA is scoped to that scanner client and requires an HTTPS scanner origin. The current local launcher still uses loopback HTTP. External assessment independently uses verified HTTPS to the enrolled target. The controlled DNS/TLS fixture validates this transport path; no live customer-owned domain DNS proof is claimed.
+The scanner engine runs fixed, digest-pinned Docker parser images without network access, as a nonroot user, with bounded CPU, memory, process count, output, and wall time. These containers parse uploaded data; they are not a demonstrated VM-class isolation boundary. The scanner service can terminate TLS itself; the coordinator's optional private CA is scoped to that scanner client and requires an HTTPS scanner origin. The current local launcher still uses loopback HTTP. External assessment independently uses TLS-verified HTTPS to the requested target origin. The controlled DNS/TLS fixture validates this transport path; no live ownership or domain-control proof is claimed.
 
 ## Portability and release gates
 
