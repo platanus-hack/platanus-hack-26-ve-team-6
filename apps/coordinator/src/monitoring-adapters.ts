@@ -16,20 +16,24 @@ export function createConfiguredMonitoringAdapters(options: { database: Database
   const github = options.githubAppFile ? createGitHubAppInstallationClient(options.githubAppFile) : null;
   return {
     async repository(input) {
+      const resolved = await options.database.tenant(input.organizationId, tx => tx.query<{ provenance: string; installation_id: string | null }>(
+        `SELECT gotchu.monitor_repository_provenance($1,$2,$3) AS provenance,
+          (SELECT installation_id FROM gotchu.monitor_github_repository($1,$2,$3)) AS installation_id`, [input.organizationId, input.applicationId, input.repositoryKey]));
+      const row = resolved.rows[0];
+      // A revoked App link must not fall back to an operator catalog entry with the same key.
+      if (!row || row.provenance === 'revoked') throw new Error('github_repository_link_unavailable');
       const appRepository = githubAppKey.exec(input.repositoryKey);
-      if (appRepository) {
+      if (row.provenance === 'github_app') {
         if (!github) throw new Error('github_app_not_configured');
-        const link = await options.database.tenant(input.organizationId, tx => tx.query<{ installation_id: string }>(
-          'SELECT installation_id FROM gotchu.monitor_github_repository($1,$2,$3)', [input.organizationId, input.applicationId, input.repositoryKey]));
-        const row = link.rows[0];
-        if (!row) throw new Error('github_repository_link_unavailable');
+        if (!appRepository || !row.installation_id) throw new Error('github_repository_link_unavailable');
+        const installationId = row.installation_id;
         // Membership and the default branch are re-read live, so removal from the installation or a branch switch is not missed.
-        const repository = await github.repository(row.installation_id, Number(appRepository[1]), input.signal);
+        const repository = await github.repository(installationId, Number(appRepository[1]), input.signal);
         const catalog = createMonitoringRepositoryCatalog({ repositoryRoot: '/nonexistent', repositories: [{
           organizationId: input.organizationId, applicationId: input.applicationId, repositoryKey: input.repositoryKey, displayName: repository.fullName,
           provider: 'github', owner: repository.owner, repository: repository.repository, ref: repository.defaultBranch,
         }] });
-        return createGitHubRepositoryReader(catalog, { installationTokenProvider: () => github.installationToken(row.installation_id, input.signal) }).read(input);
+        return createGitHubRepositoryReader(catalog, { installationTokenProvider: () => github.installationToken(installationId, input.signal) }).read(input);
       }
       if (!options.configFile) throw new Error('repository_registry_not_configured');
       const catalog = await loadMonitoringRepositoryCatalog(options.configFile);
