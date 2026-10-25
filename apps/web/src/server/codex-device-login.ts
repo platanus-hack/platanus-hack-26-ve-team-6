@@ -12,7 +12,8 @@ const envelopeSchema = z.object({ id: z.number().optional(), result: z.unknown()
   method: z.string().optional(), params: z.unknown().optional() });
 const completionSchema = z.object({ loginId: z.string(), success: z.boolean() });
 export interface DeviceLogin {
-  verificationUrl: 'https://auth.openai.com/codex/device'; userCode: string;
+  verificationUrl: string; userCode?: string;
+  submitCode?(code: string): void;
   credential: Promise<string | null>;
   cancel(): Promise<void>;
 }
