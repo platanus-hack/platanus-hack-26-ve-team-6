@@ -9,7 +9,7 @@ import { actionV2Schema, customerSourceSnapshotSchema, type ActionV2, type JobEn
 import { createCustomerAssessmentRunner, createNpmArtifactAdapter, createNpmArtifactScanner, createNpmLicenseAdapter, createOsvAdapter, type ScannerAdapter } from '@gotchu/customer-assessment';
 import { setRecoveryState } from '@gotchu/database';
 import { computeGitTreeSha, computeGitTreeShaAfterPatch, createGitHubAppAdapter, deterministicBranch, GitAdapterError, type PullRequestAdapter } from '@gotchu/git-adapters';
-import { actionPolicyVersion, canonicalJson, createActionVerifier, createBackend, createNpmRegistryAdapter, hashActionV2, readPinnedRootfsDigest, sha256, type VerifiedStepUp } from '@gotchu/backend';
+import { actionPolicyVersion, canonicalJson, createActionVerifier, createBackend, createNpmRegistryAdapter, hashActionV2, readPinnedRootfsDigest, sha256 } from '@gotchu/backend';
 import { createValidationWorker } from '@gotchu/validator';
 import { fixture, liveUrl, present } from '../../../packages/database/test/support.js';
 import { createBackendActionExecutionLedger, createExecutionJobProcessor, createGitHubActionProvider, loadGitHubWriterAppCredentials } from '../src/index.js';
@@ -32,7 +32,7 @@ const fixtureScanners: ScannerAdapter = {
   },
 };
 
-live('live GitHub writer App → approved stored artifact → durable executor; signed validation and WebAuthn proof fixtures', () => {
+live('live GitHub writer App → Owner-approved stored artifact → durable executor; signed validation fixtures', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
   let tempDirectory: string;
   let api: ReturnType<typeof createBackend>;
@@ -41,7 +41,6 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
   let catalogPath: string;
   let actionProvider: ReturnType<typeof createGitHubActionProvider>;
   const publications: { branch:string; pullRequestNumber?:number }[] = [];
-  const proofs = new Map<string, VerifiedStepUp>();
   let sandboxRepositoryLinkId: string | undefined;
   const now = new Date();
 
@@ -75,11 +74,6 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
           async inspectAutomation(input) { return adapter.inspectAutomation(input.baseCommit); },
         },
       }),
-      stepUpVerifier:{ verify:async ({ proof }: { proof:string }) => {
-        const issued=proofs.get(proof);
-        if (!issued) throw new Error('TEST ONLY: unissued WebAuthn fixture proof');
-        return issued;
-      } },
       repositoryWriteAccessVerifier:async (input:{organizationId:string;applicationId:string;repositoryLinkId:string;repositoryKey:string;branch:string}) => {
         const target=await adapter.resolveTarget(`${owner}/${repository}`);
         if (target.baseBranch!==input.branch) throw new Error('writer_base_branch_mismatch');
@@ -102,7 +96,7 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
         },
         async inspectAutomation(input) { return adapter.inspectAutomation(input.baseCommit); },
       },
-    }),stepUpVerifier:dependencies.stepUpVerifier });
+    }) });
     await setRecoveryState({ connectionString:present(liveUrl),mode:'reconciled',reconciliationReference:'TEST ONLY: authorized private sandbox repository' });
     await f.admin.query(`INSERT INTO gotchu.action_executor_instances(instance_id,capability_id)
       VALUES($1,'repository.source_patch_pr'),($1,'repository.dependency_pr')`, [randomUUID()]);
@@ -152,13 +146,8 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
 
   async function grantWriterAccess(repositoryLinkId:string) {
     const challenge=await api.context.getRepositoryWriteAccessChallenge({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,repositoryLinkId,grant:true});
-    const proofId=randomUUID();
-    const authenticatedAt=new Date();
-    const proof:VerifiedStepUp={proofId,userId:f.a.userId,organizationId:f.a.organizationId,actionHash:challenge.actionHash,
-      authenticatedAt,expiresAt:new Date(authenticatedAt.getTime()+300_000),method:'webauthn'};
-    const opaqueProof=randomUUID(); proofs.set(opaqueProof,proof);
     await api.context.setRepositoryWriteAccess({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,
-      repositoryLinkId,grant:true,actionHash:challenge.actionHash,stepUpProof:opaqueProof});
+      repositoryLinkId,grant:true,actionHash:challenge.actionHash});
   }
 
   async function executeApproval(input:{ approvalId:string; actionHash:string; action:PullRequestAction; candidateSourceId:string; branch:string }) {
@@ -307,10 +296,7 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
       candidateTreeSha,expectedTreeSha,snapshotSha256,patchSha256,Buffer.byteLength(path)+Buffer.byteLength(content),
     ]);
 
-    const stepUpProof=randomUUID();
-    const authenticatedAt=new Date();
-    proofs.set(stepUpProof,{proofId:stepUpProof,userId:f.a.userId,organizationId:f.a.organizationId,actionHash,authenticatedAt,expiresAt:new Date(authenticatedAt.getTime()+300_000),method:'webauthn'});
-    const approval=await api.actions.approve({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId,actionHash,stepUpProof});
+    const approval=await api.actions.approve({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId,actionHash});
     await executeApproval({approvalId:approval.approvalId,actionHash,action,candidateSourceId:sourceId,branch});
   },180_000);
 
@@ -390,12 +376,8 @@ live('live GitHub writer App → approved stored artifact → durable executor; 
     expect(eligibility,JSON.stringify(eligibility)).toMatchObject({status:'eligible'});
     const executorEligibility=await executor.actions.getEligibility({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposed.proposalId});
     expect(executorEligibility,JSON.stringify(executorEligibility)).toMatchObject({status:'eligible'});
-    const stepUpProof=randomUUID();
-    const authenticatedAt=new Date();
-    proofs.set(stepUpProof,{proofId:stepUpProof,userId:f.a.userId,organizationId:f.a.organizationId,actionHash:proposed.actionHash,
-      authenticatedAt,expiresAt:new Date(authenticatedAt.getTime()+300_000),method:'webauthn'});
     const approval=await api.actions.approve({userId:f.a.userId},{organizationId:f.a.organizationId,applicationId:f.a.applicationId,
-      proposalId:proposed.proposalId,actionHash:proposed.actionHash,stepUpProof});
+      proposalId:proposed.proposalId,actionHash:proposed.actionHash});
     const branch=deterministicBranch(proposed.actionHash);
     publications.push({branch});
     await executeApproval({approvalId:approval.approvalId,actionHash:proposed.actionHash,action,candidateSourceId:preparation.candidateSourceId,branch});
