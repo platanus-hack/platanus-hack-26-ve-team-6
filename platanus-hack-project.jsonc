@@ -3,7 +3,7 @@
   "project-name": "Gotchu",
 
   // Short one-line summary of your project (in Spanish).
-  "project-oneliner-spanish": "Encuentra riesgos de seguridad en tu app y descubre cómo solucionarlos.",
+  "project-oneliner-spanish": "Encuentra riesgos de seguridad en tu app y entiende cómo solucionarlos.",
 
   // Brief description of your project (in Spanish).
   "project-description-spanish": "Gotchu te ayuda a encontrar riesgos de seguridad en tu aplicación y entender qué hacer con ellos. Revisa código, dependencias y configuración web conectando GitHub, subiendo una carpeta o indicando una URL HTTPS autorizada. La revisión web funciona sin compartir tu código. Cada informe muestra los hallazgos, su gravedad, las pruebas y lo que quedó sin revisar. Puedes llevar cada hallazgo a tu asistente de código o configurar la IA de Gotchu para investigar y preparar correcciones privadas.",
