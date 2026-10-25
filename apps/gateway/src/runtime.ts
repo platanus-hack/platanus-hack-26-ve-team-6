@@ -4,8 +4,10 @@ import type { GatewayConfig } from './config.js';
 import { startGatewayServer } from './http.js';
 import { createModelPort } from './model-provider.js';
 import { createGatewayService } from './service.js';
+import { cleanupStaleSubscriptionCliScratchDirectories } from './subscription-cli.js';
 
 export async function startGateway(config: GatewayConfig) {
+  await cleanupStaleSubscriptionCliScratchDirectories();
   const database = createDatabase({ connectionString: config.databaseUrl, role: 'gotchu_coordinator', max: 4 });
   try {
     await database.checkHealth();

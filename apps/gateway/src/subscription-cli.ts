@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -25,6 +25,25 @@ export interface SubscriptionCliOptions {
 
 const MAX_STDOUT_BYTES = 1_048_576;
 const MAX_STDERR_BYTES = 8_192;
+const SCRATCH_DIRECTORY_PREFIX = 'gotchu-model-cli-';
+const SCRATCH_DIRECTORY_MAX_AGE_MS = 10 * 60 * 1_000;
+
+export async function cleanupStaleSubscriptionCliScratchDirectories(): Promise<void> {
+  try {
+    const owner = process.getuid?.();
+    if (owner === undefined) return;
+    const cutoff = Date.now() - SCRATCH_DIRECTORY_MAX_AGE_MS;
+    const entries = await readdir(tmpdir());
+    await Promise.all(entries.filter(name => name.startsWith(SCRATCH_DIRECTORY_PREFIX)).map(async name => {
+      const path = join(tmpdir(), name);
+      try {
+        const info = await lstat(path);
+        if (!info.isDirectory() || info.uid !== owner || info.mtimeMs >= cutoff) return;
+        await rm(path, { recursive: true, force: true });
+      } catch { /* Startup cleanup is best-effort; a failed removal must not prevent the gateway starting. */ }
+    }));
+  } catch { /* An unavailable temporary directory must not prevent the gateway starting. */ }
+}
 
 // Fail closed: Codex rejects unknown feature names, so a renamed tool cannot silently stay enabled.
 const codexDisabledFeatures = [
@@ -72,7 +91,7 @@ function runCli(binary: string, args: readonly string[], options: {
 }
 
 async function withScratchDirectory<T>(run: (directory: string) => Promise<T>): Promise<T> {
-  const directory = await mkdtemp(join(tmpdir(), 'gotchu-model-cli-'));
+  const directory = await mkdtemp(join(tmpdir(), SCRATCH_DIRECTORY_PREFIX));
   try { return await run(directory); }
   finally { await rm(directory, { recursive: true, force: true }); }
 }

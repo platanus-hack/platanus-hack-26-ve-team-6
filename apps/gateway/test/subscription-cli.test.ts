@@ -1,10 +1,10 @@
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { investigationModelProviderForPreset, investigationProviderCatalog } from '@gotchu/contracts';
 import { ModelProviderError, type ModelCompletionRequest } from '../src/model-port.js';
-import { createSubscriptionCliPorts } from '../src/subscription-cli.js';
+import { cleanupStaleSubscriptionCliScratchDirectories, createSubscriptionCliPorts } from '../src/subscription-cli.js';
 
 // Fake CLIs record what they received to a file baked into the script, because the adapter
 // deliberately hands the child nothing but PATH and the credential.
@@ -135,5 +135,29 @@ describe('Codex subscription adapter', () => {
     const port = createSubscriptionCliPorts({ codexBinary: binary }).codex;
     await expect(port.complete(request('codex', codexAuth, { endpoint: new URL('https://example.com/v1') })))
       .rejects.toMatchObject({ code: 'invalid_response' });
+  });
+});
+
+describe('subscription CLI scratch cleanup', () => {
+  it('removes only old real directories owned by the current user', async () => {
+    const scratchRoot = await mkdtemp(join(tmpdir(), 'gotchu-cleanup-test-'));
+    vi.stubEnv('TMPDIR', scratchRoot);
+    const stale = join(scratchRoot, 'gotchu-model-cli-stale');
+    const recent = join(scratchRoot, 'gotchu-model-cli-recent');
+    const link = join(scratchRoot, 'gotchu-model-cli-link');
+    const oldDate = new Date(Date.now() - 11 * 60 * 1_000);
+    await Promise.all([mkdir(stale), mkdir(recent)]);
+    await utimes(stale, oldDate, oldDate);
+    await symlink(recent, link, 'dir');
+
+    try {
+      await cleanupStaleSubscriptionCliScratchDirectories();
+      await expect(lstat(stale)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect((await stat(recent)).isDirectory()).toBe(true);
+      expect((await lstat(link)).isSymbolicLink()).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(scratchRoot, { recursive: true, force: true });
+    }
   });
 });
