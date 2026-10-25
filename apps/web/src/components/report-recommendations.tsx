@@ -207,6 +207,13 @@ function DependencyFixCard({ userId, organizationId, applicationId, reportId, re
     onSuccess: () => queryClient.invalidateQueries({ queryKey: reportKey }),
   });
   const candidateSourceId = prepare.data?.candidateSourceId ?? recommendation.candidateSourceId;
+  const retryValidation = useMutation({
+    mutationFn: (candidateId: string) => customerApi.retryDependencyValidation(organizationId, applicationId, candidateId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'dependency-validation', organizationId, applicationId, candidateSourceId] });
+      await queryClient.invalidateQueries({ queryKey: reportKey });
+    },
+  });
   const validation = useQuery({
     queryKey: ['customer-data', userId, 'dependency-validation', organizationId, applicationId, candidateSourceId],
     queryFn: () => customerApi.validationStatus(organizationId, applicationId, candidateSourceId ?? ''),
@@ -250,8 +257,14 @@ function DependencyFixCard({ userId, organizationId, applicationId, reportId, re
       {validation.isPending && <p role="status">Consultando el estado de la validación…</p>}
       {validation.error && <p className="customer-field-note" role="alert">No se pudo cargar el estado de la validación. <button className="customer-link-button" type="button" onClick={() => { validation.refetch().catch(() => undefined); }}>Reintentar</button></p>}
       {!validation.error && validationState && <p role="status">{validationStateLabels[validationState]}</p>}
-      {validationState === 'failed' && <p className="customer-field-note">No se creó una propuesta de PR porque la validación detectó una regresión.</p>}
+      {validationState === 'failed' && <p className="customer-field-note">La validación no pasó. Revisa la evidencia antes de volver a intentarlo; la propuesta de PR sigue bloqueada.</p>}
       {validationState === 'inconclusive' && <p className="customer-field-note">No se creó una propuesta de PR porque faltan pruebas independientes concluyentes.</p>}
+      {canPrepare && (validationState === 'failed' || validationState === 'inconclusive') && <>
+        <p className="customer-field-note">El reintento conserva el historial y valida la misma corrección con la configuración vigente.</p>
+        <button className="customer-button customer-button-secondary" type="button" disabled={retryValidation.isPending}
+          onClick={() => retryValidation.mutate(candidateSourceId)}>{retryValidation.isPending ? 'Solicitando validación…' : 'Reintentar validación'}</button>
+      </>}
+      {retryValidation.error && <p className="customer-field-note" role="alert">No se pudo reintentar: {recommendationError(retryValidation.error)}</p>}
       {proposal.isPending && <p role="status">Guardando la propuesta validada para su revisión…</p>}
       {proposal.data && <p role="status">La propuesta exacta quedó en «Propuestas de cambio» para revisión y aprobación del propietario.</p>}
       {proposal.error && <p className="customer-field-note" role="alert">No se pudo guardar la propuesta: {recommendationError(proposal.error)} <button className="customer-link-button" type="button" onClick={() => { proposal.reset(); attemptedCandidate.current = null; }}>Reintentar</button></p>}

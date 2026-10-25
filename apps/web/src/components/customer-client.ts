@@ -37,6 +37,7 @@ import {
   dependencyFixPreparationRequestSchema,
   dependencyFixPreparationResponseSchema,
   validationPublicProjectionSchema,
+  validationRetryResponseSchema,
   validationSuiteConfigSchema,
   validationSuiteDefinitionSchema,
   validationTestSelectionSchema,
@@ -390,6 +391,10 @@ export const customerApi = {
   validationStatus(organizationId: string, applicationId: string, candidateSourceId: string) {
     const sourceId = z.uuid().parse(candidateSourceId);
     return request(`${applicationPath(organizationId, applicationId)}/corrections/${encodeURIComponent(sourceId)}`, validationPublicProjectionSchema.nullable());
+  },
+  retryDependencyValidation(organizationId: string, applicationId: string, candidateSourceId: string) {
+    return request(`${applicationPath(organizationId, applicationId)}/corrections/${encodeURIComponent(z.uuid().parse(candidateSourceId))}/retry-validation`,
+      validationRetryResponseSchema, { method: 'POST', ...jsonBody({}) }, 201);
   },
   configureValidationSuite(input: {
     organizationId: string;
