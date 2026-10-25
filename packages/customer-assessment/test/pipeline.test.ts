@@ -13,7 +13,7 @@ function request(mode: 'internal' | 'external' | 'both', content = 'source snaps
   if (mode !== 'internal') {
     value.target = {
       id: randomUUID(), origin, version: 3,
-      verifiedAt: new Date(Date.now() - 1_000).toISOString(),
+      authorizedAt: new Date(Date.now() - 1_000).toISOString(),
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     };
   }

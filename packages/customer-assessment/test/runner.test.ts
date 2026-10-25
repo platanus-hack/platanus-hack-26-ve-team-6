@@ -38,7 +38,7 @@ describe('customer report boundaries',()=>{
     let releaseLookup=()=>{};const lookupGate=new Promise<void>(resolve=>{releaseLookup=resolve;});let lookupStarted=false;
     const cleanupError=new Error('scanner_cleanup_unavailable');
     const run=vi.fn(async()=>{throw cleanupError;});
-    const fixture=input();fixture.mode='both';fixture.target={id:fixture.jobId,origin:'https://customer.org',version:3,verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+10000).toISOString()};
+    const fixture=input();fixture.mode='both';fixture.target={id:fixture.jobId,origin:'https://customer.org',version:3,authorizedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+10000).toISOString()};
     const runner=createCustomerAssessmentRunner({deadlineMs:20,scanners:{...absentScanners,run},https:{lookup:async()=>{lookupStarted=true;await lookupGate;return[{address:'127.0.0.1',family:4}];}}});
     let settled=false;const work=runner.run(fixture);work.then(()=>{settled=true;},()=>{settled=true;});
     await vi.waitFor(()=>{expect(lookupStarted).toBe(true);expect(run).toHaveBeenCalledTimes(3);});
@@ -65,7 +65,7 @@ describe('customer report boundaries',()=>{
     await runner.readiness();expect(readiness).toHaveBeenCalledTimes(1);
   });
   it('keeps external-only runs independent of scanner and source access',async()=>{
-    const run=vi.fn(absentScanners.run);const fixture=input();fixture.mode='external';fixture.source=null;fixture.target={id:fixture.jobId,origin:'https://customer.org',version:3,verifiedAt:new Date(Date.now()-10000).toISOString(),expiresAt:new Date(Date.now()+10000).toISOString()};
+    const run=vi.fn(absentScanners.run);const fixture=input();fixture.mode='external';fixture.source=null;fixture.target={id:fixture.jobId,origin:'https://customer.org',version:3,authorizedAt:new Date(Date.now()-10000).toISOString(),expiresAt:new Date(Date.now()+10000).toISOString()};
     const report=await createCustomerAssessmentRunner({scanners:{...absentScanners,run},https:{lookup:async()=>[{address:'127.0.0.1',family:4}]}}).run(fixture);
     expect(run).not.toHaveBeenCalled();expect(report.internal).toBeNull();expect(report.external?.status).toBe('unavailable');expect(report.subject.targetVersion).toBe(3);
   });

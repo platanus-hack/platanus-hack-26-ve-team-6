@@ -32,7 +32,7 @@ describe('actual HTTPS sockets with scoped test CA and port',()=>{
     try{
       const lookup=vi.fn(async()=>[{address:'127.0.0.1',family:4}]);const options={lookup,testFixture:{hostname:'customer.org',port:target.port,ca:cert}};
       const probe=createHttpsProbe(options);expect((await probe('https://customer.org',AbortSignal.timeout(1000))).tlsVerified).toBe(true);await probe('https://customer.org',AbortSignal.timeout(1000));expect(lookup).toHaveBeenCalledTimes(2);
-      const request=input();request.mode='external';request.source=null;request.target={id:request.jobId,origin:'https://customer.org',version:7,verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()};
+      const request=input();request.mode='external';request.source=null;request.target={id:request.jobId,origin:'https://customer.org',version:7,authorizedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()};
       const report=await createCustomerAssessmentRunner({scanners:absentScanners,https:options}).run(request);expect(report.external?.status).toBe('completed');expect(report.external?.findings.find(f=>f.ruleId==='https.technology-banner')?.confidence).toBe('inferred');expect(report.external?.findings.find(f=>f.ruleId.includes('content-security-policy'))?.confidence).toBe('observed');expect(seen).toEqual(['GET /','GET /','GET /']);
     }finally{await target.close();}
   });
@@ -41,7 +41,7 @@ describe('actual HTTPS sockets with scoped test CA and port',()=>{
     const target=await fixture((_,res)=>{requests++;res.end('must not be requested');});
     // Count TCP connections too: an expired target must not reach TLS negotiation.
     const request=input();request.mode='external';request.source=null;
-    request.target={id:request.jobId,origin:'https://customer.org',version:1,verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+150).toISOString()};
+    request.target={id:request.jobId,origin:'https://customer.org',version:1,authorizedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+150).toISOString()};
     try {
       const report=await createCustomerAssessmentRunner({https:{testFixture:{hostname:'customer.org',port:target.port,ca:cert},lookup:async()=>{
         if(kind==='async DNS')await new Promise(resolve=>setTimeout(resolve,350));
@@ -105,9 +105,9 @@ describe('actual HTTPS sockets with scoped test CA and port',()=>{
     try {
       const inventory=await createPublicSurfaceProbe({lookup,testFixture:{hostname:'customer.org',port:target.port,ca:cert}})({
         id:'f46ecf37-613d-4bfd-9296-c521503f0bcc',origin:'https://customer.org',version:4,
-        verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+30000).toISOString(),scanProfile:'public_surface',
+        authorizedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+30000).toISOString(),scanProfile:'public_surface',
       },AbortSignal.timeout(10000));
-      expect(inventory.asset).toEqual({type:'verified_https_origin',targetId:'f46ecf37-613d-4bfd-9296-c521503f0bcc',targetVersion:4,origin:'https://customer.org'});
+      expect(inventory.asset).toEqual({type:'requested_https_origin',targetId:'f46ecf37-613d-4bfd-9296-c521503f0bcc',targetVersion:4,origin:'https://customer.org'});
       expect(inventory.requestAttempts).toBe(10);
       expect(inventory.maxRequests).toBe(10);
       expect(inventory.stoppedBecause).toBe('request_cap');
@@ -132,7 +132,7 @@ describe('actual HTTPS sockets with scoped test CA and port',()=>{
     try {
       const inventory=await createPublicSurfaceProbe({lookup,testFixture:{hostname:'customer.org',port:target.port,ca:cert}})({
         id:'e096af4a-a4a6-449d-a43d-467ce07e0a2a',origin:'https://customer.org',version:1,
-        verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+15000).toISOString(),scanProfile:'public_surface',
+        authorizedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+15000).toISOString(),scanProfile:'public_surface',
       },AbortSignal.timeout(10000));
       expect(inventory.responseBytes).toBe(65_536);
       expect(inventory.requestAttempts).toBe(4);
@@ -149,7 +149,7 @@ describe('actual HTTPS sockets with scoped test CA and port',()=>{
     try {
       const inventory=await createPublicSurfaceProbe({lookup,testFixture:{hostname:'customer.org',port:target.port,ca:cert}})({
         id:'a4b0319b-ce1b-4003-8fd2-4a5b326b8ce8',origin:'https://customer.org',version:1,
-        verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+180).toISOString(),scanProfile:'public_surface',
+        authorizedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+180).toISOString(),scanProfile:'public_surface',
       },AbortSignal.timeout(5000));
       expect(seen).toEqual(['GET /']);
       expect(target.connections()).toBe(1);
@@ -163,12 +163,13 @@ describe('actual HTTPS sockets with scoped test CA and port',()=>{
     const target=await fixture((req,res)=>{seen.push(`${req.method} ${req.url}`);res.writeHead(req.url==='/'?200:404,{'content-type':req.url==='/'?'text/html':'text/plain'}).end(req.url==='/'?'<p>hello</p>':'not found');});
     try {
       const request=input();request.mode='external';request.source=null;
-      const authorizedTarget={id:request.jobId,origin:'https://customer.org',version:2,verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+30000).toISOString(),scanProfile:'public_surface' as const};
+      const authorizedTarget={id:request.jobId,origin:'https://customer.org',version:2,authorizedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+30000).toISOString(),scanProfile:'public_surface' as const};
       request.target=authorizedTarget;
       const report=await createCustomerAssessmentRunner({scanners:absentScanners,https:{lookup:async()=>[{address:'127.0.0.1',family:4}],testFixture:{hostname:'customer.org',port:target.port,ca:cert}}}).run(request);
       expect(seen).toEqual(['GET /','GET /.well-known/security.txt','GET /security.txt','GET /robots.txt','GET /sitemap.xml']);
       expect(report.external?.coverage.find(item=>item.capability==='public_surface_known_paths')?.state).toBe('inspected');
       expect(report.external?.coverage.find(item=>item.capability==='authenticated_routes')?.state).toBe('unsupported');
+      expect(report.external?.limitations).toContain('The requested origin was not independently checked for domain control or ownership; the scope comes from the signed-in user’s Analyze request and does not establish ownership.');
       expect(report.external?.evidence).toHaveLength(5);
       expect(report.limitations[0]).toContain('public-surface HTTPS observations');
       expect(report.mode).toBe('external');

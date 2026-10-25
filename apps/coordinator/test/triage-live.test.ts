@@ -43,8 +43,7 @@ live('D03 telemetry/provider/HTTPS end-to-end on live Postgres and Redis', () =>
     f = await fixture({ max: 4 });
     redis = new Redis(present(redisUrl), { maxRetriesPerRequest: 1 });
     expect(await redis.ping()).toBe('PONG');
-    api = createBackend({ database: f.databases.gotchu_api, eventCredentials: credentials,
-      customerDnsVerifier: { resolveTxt: async () => [[challenge]] } });
+    api = createBackend({ database: f.databases.gotchu_api, eventCredentials: credentials });
     intake = createBackend({ database: f.databases.gotchu_ingest, credentials });
     coordinator = createBackend({ database: f.databases.gotchu_coordinator });
     directory = await mkdtemp(join(tmpdir(), 'gotchu-triage-live-tls-'));
@@ -71,7 +70,6 @@ live('D03 telemetry/provider/HTTPS end-to-end on live Postgres and Redis', () =>
     await f?.close();
   });
 
-  let challenge = '';
   async function setup(options: { target?: boolean; routes?: boolean; provider?: boolean } = {}) {
     const identity = { userId: `d03:${randomUUID()}` };
     const workspace = await api.customers.createWorkspace(identity, { name: `D03 ${randomUUID().slice(0, 8)}` });
@@ -84,9 +82,7 @@ live('D03 telemetry/provider/HTTPS end-to-end on live Postgres and Redis', () =>
     const connection = await api.telemetry.connect(identity, scope);
     let targetId: string | null = null;
     if (options.target) {
-      const enrollment = await api.customers.enrollTarget(identity, { ...scope, origin: 'https://customer.org', authorized: true, scanProfile: 'public_surface' });
-      challenge = enrollment.challenge.value;
-      await api.customers.verifyTarget(identity, { ...scope, targetId: enrollment.target.id });
+      const enrollment = await api.customers.enrollTarget(identity, { ...scope, origin: 'https://customer.org', scanProfile: 'public_surface' });
       targetId = enrollment.target.id;
     }
     let monitorClaim: { organizationId: string; applicationId: string; runId: string; leaseToken: string } | null = null;
@@ -122,7 +118,7 @@ live('D03 telemetry/provider/HTTPS end-to-end on live Postgres and Redis', () =>
     const adapter = createAuthorizedHttpsHealthAdapter({ https: { lookup: async () => [{ address: '127.0.0.1', family: 4 }],
       testFixture: { hostname: 'customer.org', port: tlsPort, ca: certificate } } });
     const target = { id: test.targetId, origin: 'https://customer.org', version: 1, scanProfile: 'public_surface' as const,
-      verifiedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
+      authorizedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
     for (const route of ['/', '/.well-known/security.txt']) {
       const result = await adapter.read(target, AbortSignal.timeout(2000), route);
       const probe = { route, service: 'checkout', dependsOnProvider: route === '/' ? 'cloudflare' : null,

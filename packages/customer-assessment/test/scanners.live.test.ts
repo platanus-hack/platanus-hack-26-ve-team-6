@@ -244,7 +244,7 @@ describe('actual local Docker scanners (no simulated findings)',()=>{
       const runFiles=async(files:{path:string;content:string}[])=>{
         const request=input(files);
         request.mode='both';
-        request.target={id:request.jobId,origin:'https://customer.org',version:1,verifiedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+300_000).toISOString()};
+        request.target={id:request.jobId,origin:'https://customer.org',version:1,authorizedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+300_000).toISOString()};
         return runner.run(request);
       };
       const run=async(disabled:boolean)=>runFiles([
