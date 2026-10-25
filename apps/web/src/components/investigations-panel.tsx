@@ -18,7 +18,7 @@ const scopeNames: Record<InvestigationDataScope, string> = {
   finding_details: 'Detalles de hallazgos e incidentes',
   source_excerpts: 'Fragmentos de código alrededor del hallazgo',
   assessment_diffs: 'Comparación entre evaluaciones',
-  validation_results: 'Resultados de validación D05',
+  validation_results: 'Resultados de validación',
   triage_summaries: 'Resúmenes de triaje',
   runtime_summaries: 'Resumen de eventos y alertas',
 };
@@ -81,6 +81,7 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
   const [modelId, setModelId] = useState<string>(investigationProviderCatalog[0].defaultModelId ?? '');
   const [apiKey, setApiKey] = useState('');
   const [clearApiKey, setClearApiKey] = useState(false);
+  const [automatic, setAutomatic] = useState(false);
   const [consent, setConsent] = useState(false);
   const [scopes, setScopes] = useState<InvestigationDataScope[]>([]);
   const [inputRate, setInputRate] = useState('0');
@@ -100,6 +101,7 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
     setCustomEndpoint(selectedPresetId === 'custom_openai_compatible' ? value.endpoint ?? '' : '');
     setModelId(value.modelId ?? selectedPreset?.defaultModelId ?? '');
     setConsent(value.consentToExternalProcessing);
+    setAutomatic(value.automaticSourceInvestigations);
     setScopes(value.dataScopes);
     setInputRate(String(value.inputPriceMicroUsdPerMillionTokens));
     setOutputRate(String(value.outputPriceMicroUsdPerMillionTokens));
@@ -113,7 +115,7 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
     mutationFn: () => customerApi.configureInvestigationModel(organizationId, {
       providerPresetId, ...(providerPresetId === 'custom_openai_compatible' ? { customEndpoint: customEndpoint.trim() } : {}), modelId: modelId.trim(),
       ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}), ...(clearApiKey ? { clearApiKey: true } : {}),
-      consentToExternalProcessing: consent, dataScopes: scopes,
+      consentToExternalProcessing: consent, automaticSourceInvestigations: automatic && consent && scopes.includes('finding_details'), dataScopes: scopes,
       // Subscriptions are not billed per token; the server rejects any price for them.
       inputPriceMicroUsdPerMillionTokens: subscription ? 0 : Number(inputRate), outputPriceMicroUsdPerMillionTokens: subscription ? 0 : Number(outputRate),
       organizationBudgetCents: Number(budgetCents), organizationTokenBudget: Number(tokenBudget),
@@ -148,13 +150,13 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
   });
 
   const credentialConfigured = settings.data?.providerPresetId === providerPresetId && settings.data.apiKeyConfigured;
-  const credentialFields = <>
+  const credentialFields = <div className="customer-provider-credential-fields">
     <label htmlFor="investigation-api-key">{subscription?.label ?? 'Clave API'}</label>
     {subscription && <p className="customer-field-note" id="investigation-credential-help">{subscription.steps}</p>}
     <input id="investigation-api-key" type="password" autoComplete="new-password" value={apiKey} onChange={event => { setApiKey(event.target.value); if (event.target.value) setClearApiKey(false); }} maxLength={16384} disabled={!isOwner || save.isPending || testConnection.isPending || connectingProvider} placeholder={credentialConfigured ? 'Credencial nueva (vacío conserva la configurada)' : subscription?.placeholder ?? 'Pega la clave API'} {...(subscription ? { 'aria-describedby': 'investigation-credential-help' } : {})} />
     {credentialConfigured && <p className="customer-field-note" aria-label="Credencial configurada">•••••••• configurada</p>}
     {isOwner && credentialConfigured && <label className="customer-investigation-consent"><input type="checkbox" checked={clearApiKey} onChange={event => setClearApiKey(event.target.checked)} disabled={save.isPending || testConnection.isPending || connectingProvider} />Eliminar la clave guardada al guardar</label>}
-  </>;
+  </div>;
   if (settings.isPending) return <section className="customer-card customer-panel"><p>Cargando configuración de investigación…</p></section>;
   const ready = settings.data?.status === 'ready' && settings.data.providerPresetId === providerPresetId;
   return <section className="customer-card customer-panel customer-investigation-settings">
@@ -198,6 +200,8 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
       </label>)}
     </fieldset>
     <label className="customer-investigation-consent"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={!isOwner || save.isPending || testConnection.isPending || connectingProvider} />Autorizo el procesamiento externo de las categorías seleccionadas</label>
+    <label className="customer-investigation-consent"><input type="checkbox" checked={automatic && consent && scopes.includes('finding_details')} onChange={event => setAutomatic(event.target.checked)} disabled={!isOwner || !consent || !scopes.includes('finding_details') || save.isPending || testConnection.isPending || connectingProvider} />Investigar automáticamente los hallazgos de código medios, altos y críticos al terminar cada análisis</label>
+    <p className="customer-field-note">Hasta tres hallazgos por informe, con un máximo de tres investigaciones pendientes por proyecto y dentro de tu presupuesto. Las sugerencias no autorizan cambios ni PRs.</p>
     {subscription && <p className="customer-field-note">Con suscripción, cada llamada se descuenta de los límites de tu plan y cuesta $0 en Gotchu. Aun así, el presupuesto en dinero del espacio debe quedar por encima de lo ya gastado con proveedores de clave API, o las investigaciones se bloquean.</p>}
     <div className="customer-investigation-budget-grid">
       {!subscription && <>
@@ -260,7 +264,17 @@ export function InvestigationsTimeline({ organizationId, applicationId, canManag
         {run.assessment && <span className="customer-status customer-status-muted">Evaluación del modelo: {run.assessment === 'candidate_issue' ? 'indicio candidato' : run.assessment === 'no_issue_supported' ? 'sin indicio respaldado' : 'inconclusa'}</span>}
         {run.citedEvidenceIds.length > 0 && <details><summary>Evidencia citada ({run.citedEvidenceIds.length})</summary><ul>{run.citedEvidenceIds.map(id => <li key={id}><code>{id}</code></li>)}</ul></details>}
         {run.hypotheses.length > 0 && <details><summary>Hipótesis</summary><ul>{run.hypotheses.map((item, index) => <li key={`${run.jobId}:${index}`}>{item.statement}<br /><small>Evidencias: {item.evidenceIds.join(', ')}</small></li>)}</ul></details>}
-        {run.candidateSuggestion && <div className="customer-investigation-suggestion"><strong>Sugerencia de cambio · requiere aprobación</strong><p>{run.candidateSuggestion.summary}</p>{run.candidateSuggestion.path && <code>{run.candidateSuggestion.path}</code>}<p className="customer-field-note">Evidencias: {run.candidateSuggestion.evidenceIds.join(', ')}</p></div>}
+        {run.candidateSuggestion && <div className="customer-investigation-suggestion">
+          <strong>Sugerencia de cambio · requiere validación y aprobación</strong>
+          <p>{run.candidateSuggestion.summary}</p>{run.candidateSuggestion.path && <code>{run.candidateSuggestion.path}</code>}
+          <h4>Qué cambiaría</h4>
+          {run.candidateSuggestion.implications?.length ? <ul>{run.candidateSuggestion.implications.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p>Esta investigación no detalló las implicaciones del cambio.</p>}
+          <h4>Riesgos y comprobaciones</h4>
+          {run.candidateSuggestion.risks?.length ? <ul>{run.candidateSuggestion.risks.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p>Los posibles efectos secundarios siguen sin evaluarse.</p>}
+          {run.candidateSuggestion.validationPlan?.length ? <ul>{run.candidateSuggestion.validationPlan.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p>Hace falta definir la validación independiente.</p>}
+          <p className="customer-field-note">Evidencias: {run.candidateSuggestion.evidenceIds.join(', ')}</p>
+          {run.subject.kind === 'finding' && <a className="customer-button" href={`/w/${organizationId}/p/${applicationId}/informes/${run.subject.reportId}`}>Ver opciones de corrección</a>}
+        </div>}
         <p className="customer-field-note">{run.tokensSpent.toLocaleString('es')} tokens · ${(run.costMicroUsd / 1_000_000).toFixed(6)} USD gastados · ${(run.reservedCostMicroUsd / 1_000_000).toFixed(6)} USD y {run.reservedTokens.toLocaleString('es')} tokens reservados.</p>
         {canManage && (run.state === 'queued' || run.state === 'running') && <button className="customer-button" type="button" disabled={cancel.isPending} onClick={() => cancel.mutate(run.jobId)}>Cancelar</button>}
         {canManage && (['delayed', 'inconclusive'].includes(run.status) || run.state === 'failed') && run.reservedCostMicroUsd === 0 && run.reservedTokens === 0 && <button className="customer-button" type="button" disabled={resume.isPending} onClick={() => resume.mutate(run.jobId)}>Reanudar</button>}
