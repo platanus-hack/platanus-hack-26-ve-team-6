@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { z } from 'zod';
-import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, HouseIcon, LogOutIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
+import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -44,12 +44,14 @@ import { ProjectSources } from './project-sources';
 import { ProjectReports } from './project-reports';
 import { ProjectVigilance } from './project-vigilance';
 import { DashboardShell } from './dashboard-shell';
+import { ProjectHttpsAudit } from './project-https-audit';
+import { ChoiceSelect } from './choice-select';
 import { DashboardSectionContext, routePageFromPath } from './dashboard-route-view';
 import './customer-shell.css';
 import './customer-report.css';
 import './customer-operations.css';
 
-export type DashboardPage = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
+export type DashboardPage = 'overview' | 'applications' | 'https-audit' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
 type Page = DashboardPage;
 type WorkspacePage = Extract<Page, 'members' | 'decision-records' | 'license-policy' | 'retention-policy'>;
 type ActiveJob = { organizationId: string; applicationId: string; jobId: string; purpose: 'assessment' | 'correction' };
@@ -66,6 +68,7 @@ function readLastProjectPath() {
 const pages: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'overview', label: 'Inicio', icon: HouseIcon },
   { id: 'applications', label: 'Fuentes', icon: AppWindowIcon },
+  { id: 'https-audit', label: 'Auditoría HTTPS', icon: GlobeIcon },
   { id: 'operations', label: 'Vigilancia', icon: RadarIcon },
   { id: 'reports', label: 'Informes', icon: FileTextIcon },
   { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
@@ -83,6 +86,7 @@ function DashboardNavLink({ page, organizationId, applicationId, onNavigate }: {
   switch (page) {
     case 'overview': return <Link {...common} to="/w/$workspaceId/p/$projectId" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'applications': return <Link {...common} to="/w/$workspaceId/p/$projectId/fuentes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
+    case 'https-audit': return <Link {...common} to="/w/$workspaceId/p/$projectId/https" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'operations': return <Link {...common} to="/w/$workspaceId/p/$projectId/vigilancia" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'reports': return <Link {...common} to="/w/$workspaceId/p/$projectId/informes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'license-policy': return <Link {...common} to="/w/$workspaceId/licencias" params={{ workspaceId: organizationId }}>{content}</Link>;
@@ -714,7 +718,9 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
       return parsed.success ? parsed.data : null;
     } catch { return null; }
   });
+  const [lastFinishedJob, setLastFinishedJob] = useState<(ActiveJob & { job: CustomerJob }) | null>(null);
   const setActiveJob = (value: typeof activeJob) => {
+    if (value) setLastFinishedJob(null);
     setActiveJobState(value);
     queryClient.setQueryData(activeJobKey, value);
     if (typeof window !== 'undefined') {
@@ -730,6 +736,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     else if (next === 'retention-policy') void navigate({ to: '/w/$workspaceId/retencion', params: { workspaceId: organizationId } });
     else if (applicationId && next === 'overview') void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: organizationId, projectId: applicationId } });
     else if (applicationId && next === 'applications') void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: organizationId, projectId: applicationId } });
+    else if (applicationId && next === 'https-audit') void navigate({ to: '/w/$workspaceId/p/$projectId/https', params: { workspaceId: organizationId, projectId: applicationId } });
     else if (applicationId && next === 'operations') void navigate({ to: '/w/$workspaceId/p/$projectId/vigilancia', params: { workspaceId: organizationId, projectId: applicationId } });
     else if (applicationId && next === 'reports') void navigate({ to: '/w/$workspaceId/p/$projectId/informes', params: { workspaceId: organizationId, projectId: applicationId } });
   };
@@ -820,7 +827,8 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
       const nextApplication = lastApplication ?? applications.data.find(item => !item.archived) ?? applications.data[0];
       if (!nextApplication) return;
       if (lastApplication && remembered) {
-        if (remembered.includes('/fuentes')) void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: organizationId, projectId: nextApplication.applicationId } });
+        if (remembered.includes('/https')) void navigate({ to: '/w/$workspaceId/p/$projectId/https', params: { workspaceId: organizationId, projectId: nextApplication.applicationId } });
+        else if (remembered.includes('/fuentes')) void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: organizationId, projectId: nextApplication.applicationId } });
         else if (remembered.includes('/vigilancia')) void navigate({ to: '/w/$workspaceId/p/$projectId/vigilancia', params: { workspaceId: organizationId, projectId: nextApplication.applicationId } });
         else if (remembered.includes('/informes/') && z.uuid().safeParse(remembered.split('/informes/')[1]?.split(/[?#]/)[0]).success) {
           const reportId = remembered.split('/informes/')[1]?.split(/[?#]/)[0];
@@ -845,11 +853,12 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
     return customerApi.targets(organizationId, applicationId);
   }, retry: false });
-  const sources = useQuery({ queryKey: ['customer-data', userId, 'sources', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
+  const needsSourceData = page !== 'https-audit';
+  const sources = useQuery({ queryKey: ['customer-data', userId, 'sources', organizationId, applicationId], enabled: needsSourceData && organizationId !== null && applicationId !== null, queryFn: () => {
     if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
     return customerApi.sources(organizationId, applicationId);
   }, retry: false });
-  const images = useQuery({ queryKey: ['customer-data', userId, 'container-images', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
+  const images = useQuery({ queryKey: ['customer-data', userId, 'container-images', organizationId, applicationId], enabled: needsSourceData && organizationId !== null && applicationId !== null, queryFn: () => {
     if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
     return customerApi.containerImages(organizationId, applicationId);
   }, retry: false });
@@ -915,9 +924,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   useEffect(() => {
     if (!activeJob || !jobResult) return;
     if (jobResult.state === 'succeeded') {
+      setLastFinishedJob({ ...activeJob, job: jobResult });
       setActiveJob(null);
       if (jobResult.reportId) {
-        void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: activeJob.organizationId, projectId: activeJob.applicationId, reportId: jobResult.reportId } });
+        if (page === 'overview' && organizationId === activeJob.organizationId && applicationId === activeJob.applicationId) void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: activeJob.organizationId, projectId: activeJob.applicationId, reportId: jobResult.reportId } });
         setNotice(activeJob.purpose === 'correction' ? 'El análisis interno independiente terminó y su informe ya está disponible.' : 'La evaluación terminó y su informe ya está disponible.');
       } else {
         setPageError(activeJob.purpose === 'correction'
@@ -926,6 +936,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
       }
       queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'reports', activeJob.organizationId, activeJob.applicationId] }).catch(caught => setPageError(readableError(caught)));
     } else if (jobResult.state === 'failed') {
+      setLastFinishedJob({ ...activeJob, job: jobResult });
       setActiveJob(null);
       setPageError(activeJob.purpose === 'correction'
         ? `El análisis independiente no finalizó${jobResult.reasonCode ? ` (${jobResult.reasonCode})` : ''}. La instantánea privada se preparó, pero no se validó.`
@@ -933,13 +944,13 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
         ? 'No se pudo confirmar que el escáner haya terminado. Una persona operadora debe comprobarlo antes de revocar o renovar el origen. La autorización sigue activa y no se repetirá este trabajo automáticamente.'
         : jobResult.reasonCode ? `La evaluación no finalizó (${jobResult.reasonCode}).` : 'La evaluación no finalizó. Los informes anteriores siguen disponibles.');
     }
-  }, [activeJob, jobResult, navigate, queryClient, userId]);
+  }, [activeJob, applicationId, jobResult, navigate, organizationId, page, queryClient, userId]);
 
   const operationError = pageError;
   const pageTitle = pages.find(item => item.id === page)?.label ?? 'Inicio';
   const applicationReports = reports.data ?? [];
   const selectedSummary = applicationReports.find(item => item.id === visibleReportId);
-  const needsReportData = page === 'overview' || page === 'reports';
+  const needsReportData = page === 'overview' || page === 'reports' || page === 'https-audit';
   const workspacePage = isWorkspacePage(page);
   if (workspaces.isPending) return <main className="gl customer-app-shell"><Loading label="Cargando tus espacios de trabajo…" /></main>;
   if (workspaces.error) return <main className="gl customer-app-shell"><ErrorNotice message={readableError(workspaces.error)} retry={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} /></main>;
@@ -947,7 +958,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const renderRouteSection = () => <>
     {invitationMessage && <div className="customer-success" role="status">{invitationMessage}</div>}
     {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}><XIcon aria-hidden="true" /></button></div>}
-    {activeJob && activeJob.organizationId === organizationId && <JobStatusBanner purpose={activeJob.purpose} job={jobResult} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} />}
+    {page !== 'https-audit' && activeJob && activeJob.organizationId === organizationId && <JobStatusBanner purpose={activeJob.purpose} job={jobResult} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} />}
     {operationError && <ErrorNotice message={operationError} retry={() => { setPageError(null); refreshApplicationData(); workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} />}
     {workspacePage && organizationId && workspace ? <WorkspacePages page={page} userId={userId} organizationId={organizationId} role={workspace.role} canManage={canManage} />
     : organizationId && applications.isPending ? <Loading label="Cargando proyectos…" />
@@ -955,7 +966,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     : !organizationId || !selectedApplication ? <FirstProjectEmptyState canManage={canManage || !organizationId} onCreateProject={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId } : {} }); }} onAnalyzeWeb={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId, fuente: 'web' } : { fuente: 'web' } }); }} />
     : <>
       <div className="customer-page-heading"><div><h1>{page === 'overview' ? selectedApplication.name : pageTitle}</h1></div>{selectedApplication.archived && <span className="customer-status customer-status-muted">Proyecto archivado</span>}</div>
-      {targets.isPending || sources.isPending || images.isPending || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance del proyecto…" /> : (targets.error || sources.error || images.error || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? images.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
+      {targets.isPending || (needsSourceData && (sources.isPending || images.isPending)) || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance del proyecto…" /> : (targets.error || (needsSourceData && (sources.error || images.error)) || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? images.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
         {page === 'overview' && <ProjectOverview
           snapshotCount={sources.data?.length ?? 0}
           activeDomainCount={targets.data?.filter(target => target.status === 'authorized').length ?? 0}
@@ -982,6 +993,19 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
           <ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('El proyecto se actualizó.'); }} />
           {canManage && <StepUpPanel key={`${userId}:${organizationId}`} organizationId={organizationId} />}
         </ProjectSources>}
+        {page === 'https-audit' && <ProjectHttpsAudit
+          key={`${organizationId}:${selectedApplication.applicationId}:https`}
+          organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} reports={applicationReports}
+          canManage={canManage} archived={selectedApplication.archived}
+          activeJob={activeJob?.organizationId === organizationId && activeJob.applicationId === selectedApplication.applicationId ? jobResult ?? null : null}
+          lastJob={lastFinishedJob?.organizationId === organizationId && lastFinishedJob.applicationId === selectedApplication.applicationId ? lastFinishedJob.job : null}
+          checkingJob={Boolean(activeJob?.organizationId === organizationId && activeJob.applicationId === selectedApplication.applicationId && job.isPending)}
+          jobError={Boolean(activeJob?.organizationId === organizationId && activeJob.applicationId === selectedApplication.applicationId && job.error)}
+          onRetryJob={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }}
+          onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPageError(null); }}
+          onChanged={refreshApplicationData}
+          onViewReport={reportId => { void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: selectedApplication.applicationId, reportId } }); }}
+        />}
         {page === 'operations' && <ProjectVigilance userId={userId} organizationId={organizationId} projectId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} />}
         {page === 'reports' && <ProjectReports title="Detalle del informe" reportCount={count(applicationReports.length, 'informe', 'informes')} reportList={applicationReports.length === 0 ? <div className="customer-empty-inline">Este proyecto aún no tiene informes.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} organizationId={organizationId} applicationId={selectedApplication.applicationId} />} detail={report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} activeReportTab={currentReportTab === 'dependencias' ? 'dependencies' : 'findings'} onReportTabChange={setReportTab} onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>} />}
       </>}
@@ -990,10 +1014,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
 
   return <DashboardSectionContext.Provider value={renderRouteSection}><DashboardShell brand={<Brand />} menuOpen={menuOpen} onToggleMenu={() => setMenuOpen(value => !value)} onCloseMenu={() => setMenuOpen(false)} sidebar={
     <>
-      <div className="customer-workspace-select"><label htmlFor="workspace-select">ESPACIO DE TRABAJO</label><select id="workspace-select" value={organizationId ?? ''} onChange={event => { setNotice(null); void navigate({ to: '/w/$workspaceId', params: { workspaceId: event.target.value } }); }}><option value="" disabled>Selecciona un espacio</option>{workspaces.data?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>{workspace && <span>{workspace.role === 'owner' ? 'Propietario' : workspace.role === 'operator' ? 'Operador' : 'Sólo lectura'}</span>}{workspace && <WorkspaceSettings key={workspace.id} organizationId={workspace.id} name={workspace.name} canManage={canManage} onSaved={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); setNotice('El espacio de trabajo se actualizó.'); }} />}</div>
-      {workspace && <div className="customer-application-select"><label htmlFor="application-select">PROYECTO</label><select id="application-select" value={applicationId ?? ''} onChange={event => { setNotice(null); void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: workspace.id, projectId: event.target.value } }); }}><option value="" disabled>Selecciona un proyecto</option>{applications.data?.map(item => <option key={item.applicationId} value={item.applicationId}>{item.name}{item.archived ? ' · archivada' : ''}</option>)}</select></div>}
-      <nav className="customer-nav" aria-label="Proyecto">{pages.slice(0, 4).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
-      <nav className="customer-nav" aria-label="Espacio de trabajo">{pages.slice(4).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
+      <div className="customer-workspace-select"><label htmlFor="workspace-select">ESPACIO DE TRABAJO</label><ChoiceSelect id="workspace-select" value={organizationId ?? ''} options={[{ value: '', label: 'Selecciona un espacio', disabled: true }, ...(workspaces.data ?? []).map(item => ({ value: item.id, label: item.name }))]} onChange={value => { setNotice(null); void navigate({ to: '/w/$workspaceId', params: { workspaceId: value } }); }} />{workspace && <span>{workspace.role === 'owner' ? 'Propietario' : workspace.role === 'operator' ? 'Operador' : 'Sólo lectura'}</span>}{workspace && <WorkspaceSettings key={workspace.id} organizationId={workspace.id} name={workspace.name} canManage={canManage} onSaved={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); setNotice('El espacio de trabajo se actualizó.'); }} />}</div>
+      {workspace && <div className="customer-application-select"><label htmlFor="application-select">PROYECTO</label><ChoiceSelect id="application-select" value={applicationId ?? ''} options={[{ value: '', label: 'Selecciona un proyecto', disabled: true }, ...(applications.data ?? []).map(item => ({ value: item.applicationId, label: `${item.name}${item.archived ? ' · archivada' : ''}` }))]} onChange={value => { setNotice(null); void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: workspace.id, projectId: value } }); }} /></div>}
+      <nav className="customer-nav" aria-label="Proyecto">{pages.slice(0, 5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
+      <nav className="customer-nav" aria-label="Espacio de trabajo">{pages.slice(5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
       <div className="customer-sidebar-bottom">
         {Boolean(workspaces.data?.length) && <WorkspaceCreate disabled={false} onCreated={created => { queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); void navigate({ to: '/w/$workspaceId', params: { workspaceId: created.id } }); }} />}
         <div className="customer-user-row"><span className="customer-user-avatar" aria-hidden="true">{(session.user?.displayName?.trim()[0] ?? 'U').toUpperCase()}</span><span title={session.user?.displayName}>{session.user?.displayName ?? 'Sesión activa'}</span><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOutIcon aria-hidden="true" /></button></div>

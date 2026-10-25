@@ -34,7 +34,7 @@ function FirstStepsRoute() {
       setCreatedWorkspaceId(workspace.id);
       void queryClient.invalidateQueries({ queryKey: ['customer-data', user.id, 'workspaces'] });
     }}
-    onDone={({ organizationId, applicationId, jobId }) => {
+    onDone={({ organizationId, applicationId, jobId, mode }) => {
       const key = ['customer-data', user.id, 'active-job'] as const;
       if (jobId) {
         const job = { organizationId, applicationId, jobId, purpose: 'assessment' as const };
@@ -44,7 +44,7 @@ function FirstStepsRoute() {
         queryClient.setQueryData(key, null);
         window.localStorage.removeItem(`gotchu.active-job.${user.id}`);
       }
-      void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: organizationId, projectId: applicationId } });
+      void navigate({ to: mode === 'external' ? '/w/$workspaceId/p/$projectId/https' : '/w/$workspaceId/p/$projectId', params: { workspaceId: organizationId, projectId: applicationId } });
     }}
     onSkip={() => {
       window.sessionStorage.removeItem('gotchu-onboarding-scope');
