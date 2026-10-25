@@ -30,8 +30,8 @@ export const modelRequestSchema = inputRequestSchema.extend({
   reservationId: uuid,
   systemInstruction: z.string().max(4_000),
   userContext: z.string().max(17_000),
-  maxOutputTokens: z.number().int().min(1).max(2_048),
-  remainingTokens: z.number().int().min(1).max(20_000),
+  maxOutputTokens: z.number().int().min(1).max(2_048).optional(),
+  remainingTokens: z.number().int().min(1).max(20_000).optional(),
   remainingSpendMicroUsd: z.number().int().min(1).max(250_000),
 });
 export const gatewayOperationSchema = z.enum(['input', 'read', 'checkpoint.load', 'checkpoint.save', 'model']);

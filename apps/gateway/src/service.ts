@@ -18,6 +18,10 @@ import { createModelPort, ModelProviderError, type ModelCompletion, type ModelCo
 import { buildInvestigationReadMenu, INVESTIGATION_SYSTEM_INSTRUCTION, investigationReadDataScope, MAX_ADDITIONAL_TOOL_CALLS } from './investigation-prompt.js';
 import { boundedInvestigationContext } from './investigation-context.js';
 import { recordValidatedModelReply, recoverTrustedCheckpoint } from './model-recovery.js';
+import { correctionReplyJsonSchema, investigationReplyJsonSchema, probeReplyJsonSchema } from './model-output-schema.js';
+import { recordObservedModelUsage } from './model-usage.js';
+
+const subscriptionPresetIds = investigationProviderCatalog.filter(preset => preset.billing === 'subscription').map(preset => preset.id);
 
 const runRowSchema = z.object({
   applicationId: z.uuid(), state: z.enum(['pending', 'running', 'succeeded', 'unavailable', 'failed']),
@@ -343,17 +347,21 @@ export function createGatewayService(options: {
 
       if (operation === 'input') {
         for (const id of job.evidenceIds) assertCapabilityAllowsRead(capability, 'evidence.read', id);
-        if ('version' in job && job.correctionId) return loadAiCorrectionInput(tx, { ...scope, correctionId: job.correctionId });
+        if ('version' in job && job.correctionId) {
+          const context = await loadAiCorrectionInput(tx, { ...scope, correctionId: job.correctionId });
+          const policy = await tx.query<{ subscription: boolean }>('SELECT provider_preset_id=ANY($2::text[]) AS subscription FROM gotchu.investigation_model_settings WHERE organization_id=$1', [organizationId, subscriptionPresetIds]);
+          return { ...context, ...(policy.rows[0]?.subscription ? { modelTokenLimit: null } : {}) };
+        }
         const passed = { result: 'passed', evidenceIds: job.evidenceIds };
         const deterministicCandidate = 'version' in job
           ? true
           : events.length > 0 && events.every(e => e.type === 'auth.login_failed' && e.outcome === 'failure');
         const requiredScope = 'version' in job && job.subject.kind === 'finding' ? 'finding_details' : 'runtime_summaries';
-        const modelSettings = await tx.query<{ ready: boolean; provider: string | null; secret_ref: string | null }>(`SELECT COALESCE(o.model_opt_in AND s.consent_to_external_processing
+        const modelSettings = await tx.query<{ ready: boolean; provider: string | null; secret_ref: string | null; subscription: boolean }>(`SELECT COALESCE(o.model_opt_in AND s.consent_to_external_processing
           AND s.data_scopes ? $2 AND o.model_budget_micros>o.model_spent_micros+o.model_reserved_micros
-          AND o.model_token_budget>o.model_tokens_spent+o.model_tokens_reserved
-          AND s.secret_ref IS NOT NULL,false) AS ready,s.provider,s.secret_ref
-          FROM gotchu.organizations o LEFT JOIN gotchu.investigation_model_settings s ON s.organization_id=o.id WHERE o.id=$1`, [organizationId, requiredScope]);
+          AND (s.provider_preset_id=ANY($3::text[]) OR o.model_token_budget>o.model_tokens_spent+o.model_tokens_reserved)
+          AND s.secret_ref IS NOT NULL,false) AS ready,s.provider,s.secret_ref,s.provider_preset_id=ANY($3::text[]) AS subscription
+          FROM gotchu.organizations o LEFT JOIN gotchu.investigation_model_settings s ON s.organization_id=o.id WHERE o.id=$1`, [organizationId, requiredScope, subscriptionPresetIds]);
         const modelSetting = modelSettings.rows[0];
         const modelEnabled = modelSetting?.ready === true
           && (modelSetting.secret_ref === null || Boolean(options.modelSecrets));
@@ -363,7 +371,7 @@ export function createGatewayService(options: {
             result: deterministicCandidate ? 'candidate' : 'unavailable',
             evidenceIds: job.evidenceIds,
           },
-        }, modelEnabled });
+        }, modelEnabled, ...(modelSetting?.subscription ? { modelTokenLimit: null } : {}) });
       }
       const input = readRequestSchema.parse(body);
       assertCapabilityAllowsRead(capability, input.name, input.evidenceId);
@@ -606,7 +614,7 @@ async function invokeModelProbe(options: {
     const spendAndReserve = BigInt(limits.data.model_spent_micros) + BigInt(limits.data.model_reserved_micros);
     const tokenBudget = BigInt(limits.data.model_token_budget);
     const tokensAndReserve = BigInt(limits.data.model_tokens_spent) + BigInt(limits.data.model_tokens_reserved);
-    if (tokenBudget - tokensAndReserve < BigInt(probeTokens)) return { kind: 'existing' as const, result: probeUnavailable('budget_exhausted') };
+    if (!subscriptionPresetIds.includes(current.data.provider_preset_id) && tokenBudget - tokensAndReserve < BigInt(probeTokens)) return { kind: 'existing' as const, result: probeUnavailable('budget_exhausted') };
     const inputRate = BigInt(current.data.input_price_micro_usd_per_million_tokens);
     const outputRate = BigInt(current.data.output_price_micro_usd_per_million_tokens);
     const reserveCost = Number((BigInt(probeTokens) * (inputRate > outputRate ? inputRate : outputRate) + 999_999n) / 1_000_000n) || 1;
@@ -652,10 +660,12 @@ async function invokeModelProbe(options: {
       provider: reservation.settings.provider, providerPresetId: reservation.settings.provider_preset_id,
       endpoint: new URL(reservation.settings.endpoint), modelId: reservation.settings.model_id,
       systemInstruction: 'Reply with exactly this JSON object and no other text: {"ok":true}',
+      outputSchema: probeReplyJsonSchema,
       userContext: 'Connection test. Return the requested JSON.', maxOutputTokens: 16, signal: requestController.signal,
     });
     const actualUsage = { inputTokens: completion.inputTokens, outputTokens: completion.outputTokens };
-    if (!Number.isSafeInteger(actualUsage.inputTokens + actualUsage.outputTokens) || actualUsage.inputTokens + actualUsage.outputTokens > probeTokens) {
+    if (!Number.isSafeInteger(actualUsage.inputTokens + actualUsage.outputTokens)
+      || !subscriptionPresetIds.includes(reservation.settings.provider_preset_id) && actualUsage.inputTokens + actualUsage.outputTokens > probeTokens) {
       throw new ModelProviderError('missing_usage');
     }
     const cost = pricedUsage(actualUsage.inputTokens, actualUsage.outputTokens, reservation.inputRate, reservation.outputRate);
@@ -707,7 +717,7 @@ async function invokeModel(
   const input = modelRequestSchema.parse(request.body);
   assertCapabilityScope(capability, { ...input, runId: scope.runId });
   if (input.reservationId !== request.idempotencyKey) throw new GatewayError('idempotency_key_mismatch', 400);
-  if (input.remainingTokens > 20_000 || input.remainingSpendMicroUsd > 250_000) throw new GatewayError('model_budget_exhausted', 429);
+  if (input.remainingSpendMicroUsd > 250_000) throw new GatewayError('model_budget_exhausted', 429);
 
   const authorized = await requestDatabaseRun(database, capability, scope);
   const settings = await authorized.database.tenant(scope.organizationId, async tx => {
@@ -763,13 +773,14 @@ async function invokeModel(
     dataScopes: settings.config.data_scopes,
     inputPriceMicroUsdPerMillionTokens: Number(inputRate), outputPriceMicroUsdPerMillionTokens: Number(outputRate),
   });
-  const reserveTokens = Math.min(input.remainingTokens, 20_000);
   const preset = investigationProviderCatalog.find(item => item.id === settings.config.provider_preset_id);
+  const subscription = preset?.billing === 'subscription';
+  const reserveTokens = subscription ? 0 : Math.min(input.remainingTokens ?? 20_000, 20_000);
   const estimatedInputTokens = (preset?.fixedPromptTokens ?? 0)
     + Math.ceil((settings.instruction.length + settings.userContext.length) / 3);
-  const maxOutputTokens = Math.min(input.maxOutputTokens, 2_048, reserveTokens - estimatedInputTokens);
+  const maxOutputTokens = subscription ? undefined : Math.min(input.maxOutputTokens ?? 2_048, 2_048, reserveTokens - estimatedInputTokens);
   // Three characters per token deliberately overestimates the prompt size for every provider.
-  if (maxOutputTokens < 64) throw new GatewayError('model_budget_exhausted', 429);
+  if (maxOutputTokens !== undefined && maxOutputTokens < 64) throw new GatewayError('model_budget_exhausted', 429);
   const worstRate = inputRate > outputRate ? inputRate : outputRate;
   const estimatedCost = Number((BigInt(reserveTokens) * worstRate + 999_999n) / 1_000_000n);
   const reserveCost = Math.max(1, Math.min(input.remainingSpendMicroUsd, estimatedCost));
@@ -830,13 +841,16 @@ async function invokeModel(
       endpoint: new URL(settings.config.endpoint),
       modelId: settings.config.model_id,
       systemInstruction: settings.instruction,
+      outputSchema: settings.correctionId ? correctionReplyJsonSchema : investigationReplyJsonSchema,
       userContext: settings.userContext,
       maxOutputTokens,
       signal: abortController.signal,
     });
     const totalTokens = completion.inputTokens + completion.outputTokens;
     providerUsageKnown = true;
-    if (!Number.isSafeInteger(totalTokens) || totalTokens > reserveTokens) throw new GatewayError('model_usage_exceeds_reservation', 409);
+    await authorized.database.tenant(scope.organizationId, tx => recordObservedModelUsage(tx, scope, input.reservationId, completion));
+    console.error(JSON.stringify({ event: 'model_usage_observed', runId: scope.runId, inputTokens: completion.inputTokens, outputTokens: completion.outputTokens }));
+    if (!Number.isSafeInteger(totalTokens) || !subscription && totalTokens > reserveTokens) throw new GatewayError('model_usage_exceeds_reservation', 409);
     const cost = pricedUsage(completion.inputTokens, completion.outputTokens, inputRate, outputRate);
     await runs.settleModel({ organizationId: scope.organizationId, reservationId: input.reservationId,
       actualCostMicros: cost, actualTokens: totalTokens, inputTokens: completion.inputTokens, outputTokens: completion.outputTokens });
