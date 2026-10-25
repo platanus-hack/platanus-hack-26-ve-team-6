@@ -361,7 +361,8 @@ start_app() {
       if github_single_app; then
         local writes_enabled=false
         if executor_enabled; then writes_enabled=true; fi
-        environment+=("GOTCHU_GITHUB_CONNECTION_MODE=single_app" "GOTCHU_GITHUB_SINGLE_APP_FILE=$(single_app_file)" "GOTCHU_EXECUTOR_WRITES_ENABLED=$writes_enabled")
+        environment+=("GOTCHU_GITHUB_CONNECTION_MODE=single_app" "GOTCHU_GITHUB_SINGLE_APP_FILE=$(single_app_file)" \
+          "GOTCHU_GITHUB_PUBLIC_APP_FILE=$state_dir/github-public-app.json" "GOTCHU_EXECUTOR_WRITES_ENABLED=$writes_enabled")
       else
         environment+=("GOTCHU_GITHUB_WRITER_APP_FILE=$state_dir/github-writer-app.json" \
           "GOTCHU_GITHUB_WRITER_INSTALLATION_ID=$(env_value GOTCHU_GITHUB_WRITER_INSTALLATION_ID)" \
