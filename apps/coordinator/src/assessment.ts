@@ -1,4 +1,4 @@
-import type { AssessmentReport, AssessmentRunInput, CustomerRunInput, CustomerAssessmentReport } from '@gotchu/contracts';
+import type { AssessmentReport, AssessmentRunInput, CustomerRunInput, CustomerAssessmentReport, CustomerScannerPhase } from '@gotchu/contracts';
 import { BackendError } from '@gotchu/backend';
 
 /** Trusted read-only adapter. All I/O must settle within the coordinator time bound. */
@@ -11,10 +11,10 @@ export const ASSESSMENT_TIMEOUT_MS = 60_000;
 // Its slot remains held until it settles, even after the durable job has timed out.
 const activeRunners = new WeakSet<object>();
 
-async function boundedRun<Input, Report>(runner: { run(input: Input): Promise<Report> }, input: Input): Promise<Report> {
+async function boundedRun<Report>(runner: object, run: () => Promise<Report>): Promise<Report> {
   if (activeRunners.has(runner)) throw new BackendError('assessment_runner_busy', 'The assessment adapter still has an active operation', 503);
   activeRunners.add(runner);
-  const result = Promise.resolve().then(() => runner.run(input)).finally(() => { activeRunners.delete(runner); });
+  const result = Promise.resolve().then(run).finally(() => { activeRunners.delete(runner); });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([result, new Promise<never>((_resolve, reject) => {
@@ -23,6 +23,8 @@ async function boundedRun<Input, Report>(runner: { run(input: Input): Promise<Re
   } finally { if (timer) clearTimeout(timer); }
 }
 
-export interface CustomerAssessmentRunner { run(input: CustomerRunInput): Promise<CustomerAssessmentReport> }
-export const runAssessment = (runner: AssessmentRunner, input: AssessmentRunInput) => boundedRun(runner, input);
-export const runCustomerAssessment = (runner: CustomerAssessmentRunner, input: CustomerRunInput) => boundedRun(runner, input);
+export interface CustomerRunOptions { onProgress?: (phase: CustomerScannerPhase) => void }
+export interface CustomerAssessmentRunner { run(input: CustomerRunInput, options?: CustomerRunOptions): Promise<CustomerAssessmentReport> }
+export const runAssessment = (runner: AssessmentRunner, input: AssessmentRunInput) => boundedRun(runner, () => runner.run(input));
+export const runCustomerAssessment = (runner: CustomerAssessmentRunner, input: CustomerRunInput, options?: CustomerRunOptions) =>
+  boundedRun(runner, () => options ? runner.run(input, options) : runner.run(input));

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { aggregateAuthFailures, investigationResultSchema, safeCheckpointSchema, type AuthFailureEvent, type InvestigationResult } from '@gotchu/agent';
 import { BackendError, completeJob, createRunService, enqueue, enqueueNotificationEvent, type Backend, type JobClaim } from '@gotchu/backend';
-import { jobEnvelopeSchema, securityEventSchema, type JobEnvelope } from '@gotchu/contracts';
+import { jobEnvelopeSchema, securityEventSchema, type CustomerScannerPhase, type JobEnvelope } from '@gotchu/contracts';
 import type { Database, Transaction } from '@gotchu/database';
 import { z } from 'zod';
 import { runAssessment, runCustomerAssessment, type AssessmentRunner, type CustomerAssessmentRunner } from './assessment.js';
@@ -182,9 +182,16 @@ async function assess(dependencies: CoordinatorDependencies, claim: JobClaim) {
       const input = await dependencies.backend.customers.getRequest({ organizationId, applicationId, jobId, leaseToken: claim.leaseToken });
       // Recorded before the scanner admits remote work, so a failed write never strands scanner effects.
       await dependencies.backend.jobs.progress({ ...lease, phase: 'analyzing' });
-      const report = await runCustomerAssessment(dependencies.customerAssessmentRunner, input).catch((cause: unknown) => {
+      // Branch progress is for the dashboard: a failed write is logged and never changes the outcome.
+      let progressWrites = Promise.resolve();
+      const onProgress = (phase: CustomerScannerPhase) => {
+        progressWrites = progressWrites.then(() => dependencies.backend.jobs.progress({ ...lease, phase })).catch((error: unknown) => {
+          console.error(JSON.stringify({ event: 'job_progress_failed', jobId, phase, type: error instanceof BackendError ? error.code : 'unknown' }));
+        });
+      };
+      const report = await runCustomerAssessment(dependencies.customerAssessmentRunner, input, { onProgress }).catch((cause: unknown) => {
         throw new BackendError('assessment_reconciliation_required', 'Scanner work must be reconciled before changing target authorization', 503, { cause });
-      });
+      }).finally(() => progressWrites);
       await dependencies.backend.customers.recordResult({ input, leaseToken: claim.leaseToken, report });
       return;
     }
