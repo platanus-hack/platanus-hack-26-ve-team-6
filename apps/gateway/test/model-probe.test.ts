@@ -5,12 +5,12 @@ import { describe, expect, it } from 'vitest';
 import { issueModelProbeToken } from '@gotchu/backend';
 import type { Database, Transaction } from '@gotchu/database';
 import { createGatewayService } from '../src/service.js';
-import type { ModelPort } from '../src/model-provider.js';
+import { ModelProviderError, type ModelPort } from '../src/model-provider.js';
 
 /** Answers the gateway's probe queries from fixed settings and records reservation and settlement writes. */
 function probeDatabase(requestId: string, modelSettings: Record<string, unknown>, organizationLimits: Record<string, unknown>) {
-  const probe: { savedProbeState: string | null; savedResult: unknown; reserveValues: unknown[]; settlementValues: unknown[] } = {
-    savedProbeState: null, savedResult: null, reserveValues: [], settlementValues: [],
+  const probe: { savedProbeState: string | null; savedResult: unknown; reserveValues: unknown[]; settlementValues: unknown[]; releaseValues: unknown[] } = {
+    savedProbeState: null, savedResult: null, reserveValues: [], settlementValues: [], releaseValues: [],
   };
   const query = async <R extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<QueryResult<R>> => {
     let rows: Record<string, unknown>[] = [];
@@ -28,7 +28,9 @@ function probeDatabase(requestId: string, modelSettings: Record<string, unknown>
     } else if (text.includes("SET state='settled'")) {
       probe.savedProbeState = 'settled';
       probe.settlementValues = values ?? [];
-      probe.savedResult = JSON.parse(String(values?.[5]));
+      probe.savedResult = JSON.parse(String(values?.at(-1)));
+    } else if (text.includes('model_reserved_micros=model_reserved_micros-$2') && !text.includes('model_spent_micros')) {
+      probe.releaseValues = values ?? [];
     }
     return { command: 'SELECT', rowCount: rows.length || (text.startsWith('UPDATE') ? 1 : 0), oid: 0, fields: [], rows: rows as R[] };
   };
@@ -119,5 +121,64 @@ describe('gateway model connection probe (injected provider and database fixture
     expect(state.reserveValues).toEqual([organizationId, 1, 20_000]);
     expect(state.settlementValues.slice(0, 5)).toEqual([organizationId, requestId, 5_095, 8, 0]);
     expect(replaced).toEqual(['{"auth_mode":"chatgpt","tokens":{"refresh_token":"r2"}}']);
+  });
+
+  it('releases the reservation when the subscription rejects the login before generating anything', async () => {
+    const organizationId = randomUUID();
+    const requestId = randomUUID();
+    const secret = randomBytes(32);
+    const modelSettings = {
+      provider: 'codex_cli', provider_preset_id: 'codex', endpoint: 'https://chatgpt.com/backend-api/codex',
+      model_id: 'gpt-6-luna', secret_ref: 'fixture-secret', consent_to_external_processing: true,
+      data_scopes: ['finding_details'], input_price_micro_usd_per_million_tokens: '0', output_price_micro_usd_per_million_tokens: '0',
+    };
+    const organizationLimits = {
+      model_budget_micros: '10000', model_spent_micros: '0', model_reserved_micros: '0',
+      model_token_budget: '100000', model_tokens_spent: '0', model_tokens_reserved: '0',
+    };
+    const { database, probe: state } = probeDatabase(requestId, modelSettings, organizationLimits);
+    const modelPort: ModelPort = { complete: async () => { throw new ModelProviderError('request_failed', 401); } };
+    const keyPair = generateKeyPairSync('ed25519');
+    const publicKey = await importSPKI(keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString(), 'EdDSA');
+    const gateway = createGatewayService({ database, capabilityPublicKey: publicKey, modelProbeSecret: secret, modelPort,
+      modelSecrets: { get: async () => Buffer.from('{}'), put: async () => undefined, replace: async () => undefined, delete: async () => undefined } });
+    const issuedAt = Math.floor(Date.now() / 1_000);
+    const token = issueModelProbeToken(secret, { version: 1, organizationId, requestId, issuedAt, expiresAt: issuedAt + 30 });
+
+    expect(await gateway.probe(token, { organizationId, requestId })).toEqual({ status: 'failed', reason: 'invalid_api_key', inputTokens: null, outputTokens: null });
+    expect(state.savedProbeState).toBe('settled');
+    expect(state.releaseValues).toEqual([organizationId, 1, 20_000]);
+  });
+
+  it('deletes a rotated login instead of restoring it when the Owner replaced it during the call', async () => {
+    const organizationId = randomUUID();
+    const requestId = randomUUID();
+    const secret = randomBytes(32);
+    const modelSettings = {
+      provider: 'codex_cli', provider_preset_id: 'codex', endpoint: 'https://chatgpt.com/backend-api/codex',
+      model_id: 'gpt-6-luna', secret_ref: 'fixture-secret', consent_to_external_processing: true,
+      data_scopes: ['finding_details'], input_price_micro_usd_per_million_tokens: '0', output_price_micro_usd_per_million_tokens: '0',
+    };
+    const organizationLimits = {
+      model_budget_micros: '10000', model_spent_micros: '0', model_reserved_micros: '0',
+      model_token_budget: '100000', model_tokens_spent: '0', model_tokens_reserved: '0',
+    };
+    const { database } = probeDatabase(requestId, modelSettings, organizationLimits);
+    const deleted: string[] = [];
+    const modelPort: ModelPort = { complete: async request => {
+      modelSettings.secret_ref = 'owner-pasted-a-new-login';
+      await request.persistCredential?.('{"auth_mode":"chatgpt","tokens":{"refresh_token":"r2"}}');
+      return { output: { ok: true }, inputTokens: 5_000, outputTokens: 8 };
+    } };
+    const keyPair = generateKeyPairSync('ed25519');
+    const publicKey = await importSPKI(keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString(), 'EdDSA');
+    const gateway = createGatewayService({ database, capabilityPublicKey: publicKey, modelProbeSecret: secret, modelPort,
+      modelSecrets: { get: async () => Buffer.from('{}'), put: async () => undefined, replace: async () => undefined,
+        delete: async reference => { deleted.push(reference); } } });
+    const issuedAt = Math.floor(Date.now() / 1_000);
+    const token = issueModelProbeToken(secret, { version: 1, organizationId, requestId, issuedAt, expiresAt: issuedAt + 30 });
+
+    await gateway.probe(token, { organizationId, requestId });
+    expect(deleted).toEqual(['fixture-secret']);
   });
 });

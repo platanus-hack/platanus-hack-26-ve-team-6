@@ -457,19 +457,39 @@ function probeTokenAllowance(presetId: z.infer<typeof investigationProviderPrese
   return investigationProviderCatalog.find(preset => preset.id === presetId)?.probeTokenAllowance ?? 64;
 }
 
+/**
+ * True only when the provider refused the request before generating anything (CLI missing, login
+ * rejected, model unknown), so releasing the reservation cannot hide real usage.
+ */
+function rejectedBeforeGeneration(error: unknown): boolean {
+  return error instanceof ModelProviderError && (error.code === 'cli_unavailable'
+    || (error.code === 'request_failed' && (error.status === 401 || error.status === 403 || error.status === 404)));
+}
+
 const credentialLocks = new Map<string, Promise<ModelCompletion>>();
 /**
  * Codex rotates its refresh token on use, so calls sharing one stored login run one at a time,
  * re-read the latest credential, and write any rotated tokens back. Other providers pass through.
  */
-async function completeWithStoredCredential(modelPort: ModelPort, secrets: ModelSecretStore, secretRef: string, apiKey: string,
-  request: Omit<ModelCompletionRequest, 'apiKey' | 'persistCredential'>): Promise<ModelCompletion> {
-  if (request.providerPresetId !== 'codex') return modelPort.complete({ ...request, apiKey });
+async function completeWithStoredCredential(options: {
+  modelPort: ModelPort; secrets: ModelSecretStore; database: Database; organizationId: string; secretRef: string; apiKey: string;
+}, request: Omit<ModelCompletionRequest, 'apiKey' | 'persistCredential'>): Promise<ModelCompletion> {
+  const { modelPort, secrets, database, organizationId, secretRef } = options;
+  if (request.providerPresetId !== 'codex') return modelPort.complete({ ...request, apiKey: options.apiKey });
+  async function persistCredential(next: string) {
+    let failure: unknown;
+    try { await secrets.replace(secretRef, Buffer.from(next, 'utf8')); }
+    catch (error) { failure = error; }
+    // The Owner may have replaced or removed this login while the call ran; never bring its file back.
+    const current = await database.tenant(organizationId, tx => tx.query<{ secret_ref: string | null }>(
+      'SELECT secret_ref FROM gotchu.investigation_model_settings WHERE organization_id=$1', [organizationId]));
+    if (current.rows[0]?.secret_ref !== secretRef) { await secrets.delete(secretRef); return; }
+    if (failure !== undefined) throw failure;
+  }
   const previous = credentialLocks.get(secretRef);
   const current = (previous ?? Promise.resolve()).catch(() => undefined).then(async () => {
     const latest = new TextDecoder('utf-8', { fatal: true }).decode(await secrets.get(secretRef));
-    return modelPort.complete({ ...request, apiKey: latest,
-      persistCredential: next => secrets.replace(secretRef, Buffer.from(next, 'utf8')) });
+    return modelPort.complete({ ...request, apiKey: latest, persistCredential });
   });
   credentialLocks.set(secretRef, current);
   try { return await current; }
@@ -632,7 +652,7 @@ async function invokeModelProbe(options: {
   cancelPoll.unref();
   let result: ModelProbeResult;
   try {
-    const completion = await completeWithStoredCredential(modelPort, modelSecrets, secretRef, apiKey, {
+    const completion = await completeWithStoredCredential({ modelPort, secrets: modelSecrets, database, organizationId, secretRef, apiKey }, {
       provider: reservation.settings.provider, providerPresetId: reservation.settings.provider_preset_id,
       endpoint: new URL(reservation.settings.endpoint), modelId: reservation.settings.model_id,
       systemInstruction: 'Reply with exactly this JSON object and no other text: {"ok":true}',
@@ -659,7 +679,18 @@ async function invokeModelProbe(options: {
     return result;
   } catch (error) {
     result = probeUnavailable(probeReason(error));
+    const released = rejectedBeforeGeneration(error);
     await database.tenant(organizationId, async tx => {
+      if (released) {
+        const settled = await tx.query(`UPDATE gotchu.investigation_model_probes SET state='settled',input_tokens=0,output_tokens=0,
+          charged_micros=0,result=$3::jsonb,settled_at=clock_timestamp()
+          WHERE organization_id=$1 AND request_id=$2 AND state='in_flight'`, [organizationId, requestId, JSON.stringify(result)]);
+        if (settled.rowCount) {
+          await tx.query(`UPDATE gotchu.organizations SET model_reserved_micros=model_reserved_micros-$2,
+            model_tokens_reserved=model_tokens_reserved-$3 WHERE id=$1`, [organizationId, reservation.reserveCost, probeTokens]);
+        }
+        return;
+      }
       await tx.query(`UPDATE gotchu.investigation_model_probes SET state='unknown',result=$3::jsonb
         WHERE organization_id=$1 AND request_id=$2 AND state='in_flight'`, [organizationId, requestId, JSON.stringify(result)]);
     });
@@ -742,6 +773,14 @@ async function invokeModel(
     inputPriceMicroUsdPerMillionTokens: Number(inputRate), outputPriceMicroUsdPerMillionTokens: Number(outputRate),
   });
   const reserveTokens = Math.min(input.remainingTokens, 20_000);
+  const maxOutputTokens = Math.min(input.maxOutputTokens, 2_048, reserveTokens);
+  // A subscription CLI cannot be capped mid-call; refuse up front rather than overrun the reservation
+  // and leave it for reconciliation. Three characters per token is a deliberately high estimate.
+  const preset = investigationProviderCatalog.find(item => item.id === settings.config.provider_preset_id);
+  if (preset?.billing === 'subscription') {
+    const estimatedTokens = preset.fixedPromptTokens + Math.ceil((gatewaySystemInstruction.length + settings.userContext.length) / 3) + maxOutputTokens;
+    if (reserveTokens < estimatedTokens) throw new GatewayError('model_budget_exhausted', 429);
+  }
   const worstRate = inputRate > outputRate ? inputRate : outputRate;
   const estimatedCost = Number((BigInt(reserveTokens) * worstRate + 999_999n) / 1_000_000n);
   const reserveCost = Math.max(1, Math.min(input.remainingSpendMicroUsd, estimatedCost));
@@ -793,14 +832,15 @@ async function invokeModel(
   }, 1_000);
   cancelPoll.unref();
   try {
-    const completion = await completeWithStoredCredential(modelPort, secrets, secretRef, apiKey, {
+    const completion = await completeWithStoredCredential({ modelPort, secrets, database: authorized.database,
+      organizationId: scope.organizationId, secretRef, apiKey }, {
       provider: settings.config.provider,
       providerPresetId: settings.config.provider_preset_id,
       endpoint: new URL(settings.config.endpoint),
       modelId: settings.config.model_id,
       systemInstruction: gatewaySystemInstruction,
       userContext: settings.userContext,
-      maxOutputTokens: Math.min(input.maxOutputTokens, 2_048, reserveTokens),
+      maxOutputTokens,
       signal: abortController.signal,
     });
     const totalTokens = completion.inputTokens + completion.outputTokens;
@@ -809,7 +849,13 @@ async function invokeModel(
     await runs.settleModel({ organizationId: scope.organizationId, reservationId: input.reservationId,
       actualCostMicros: cost, actualTokens: totalTokens, inputTokens: completion.inputTokens, outputTokens: completion.outputTokens });
     return { output: completion.output, usage: { inputTokens: completion.inputTokens, outputTokens: completion.outputTokens, totalTokens, spendMicroUsd: cost } };
-  } catch {
+  } catch (error) {
+    if (rejectedBeforeGeneration(error)) {
+      await runs.settleModel({ organizationId: scope.organizationId, reservationId: input.reservationId,
+        actualCostMicros: 0, actualTokens: 0, inputTokens: 0, outputTokens: 0 })
+        .catch(() => runs.markModelUnknown({ organizationId: scope.organizationId, reservationId: input.reservationId }).catch(() => undefined));
+      throw new GatewayError('model_provider_rejected', 502);
+    }
     await runs.markModelUnknown({ organizationId: scope.organizationId, reservationId: input.reservationId }).catch(() => undefined);
     throw new GatewayError(abortController.signal.aborted ? 'model_call_cancelled_or_timed_out' : 'model_call_unknown_cost', 503);
   } finally {
