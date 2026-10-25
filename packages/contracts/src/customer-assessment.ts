@@ -32,11 +32,11 @@ export const customerCreateApplicationSchema = z.object({ organizationId: uuid, 
 export const customerApplicationSchema = customerScopeSchema.extend({ name, archived: z.boolean(), createdAt: timestamp }).strict();
 export const customerUpdateApplicationSchema = customerScopeSchema.extend({ name: name.optional(), archived: z.boolean().optional() }).strict().refine(value => value.name !== undefined || value.archived !== undefined);
 export const customerScanProfileSchema = z.enum(['root', 'public_surface']);
-export const customerEnrollTargetSchema = customerScopeSchema.extend({ origin: customerOriginSchema, authorized: z.literal(true), scanProfile: customerScanProfileSchema.optional() }).strict();
+export const customerEnrollTargetSchema = customerScopeSchema.extend({ origin: customerOriginSchema, scanProfile: customerScanProfileSchema.optional() }).strict();
 export const customerTargetIdSchema = customerScopeSchema.extend({ targetId: uuid }).strict();
 export const customerTargetSchema = customerScopeSchema.extend({
   id: uuid, origin: customerOriginSchema, version: z.number().int().positive(),
-  status: z.enum(['authorized', 'revoked']), consentActor: z.string().min(1).max(256), consentAt: timestamp,
+  status: z.enum(['authorized', 'revoked']), requestedBy: z.string().min(1).max(256), requestedAt: timestamp,
   authorizedAt: timestamp.nullable(), expiresAt: timestamp.nullable(),
   scanProfile: customerScanProfileSchema.optional(),
 }).strict();
