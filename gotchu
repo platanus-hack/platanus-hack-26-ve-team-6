@@ -27,16 +27,6 @@ validate_state_location() {
   case "$root_real/" in
     "$state_real/"*) fail 'GOTCHU_STATE_DIR no puede ser el checkout ni uno de sus directorios padre.' 2 ;;
   esac
-  if [[ "$service" == web || "$service" == executor ]]; then
-    local validation_image
-    validation_image="$(optional_env_value GOTCHU_VALIDATION_DOCKER_IMAGE_SHA256)"
-    [[ -z "$validation_image" ]] || environment+=("GOTCHU_VALIDATION_DOCKER_IMAGE_SHA256=$validation_image")
-  fi
-  if [[ "$service" == web ]]; then
-    local validation_sandbox
-    validation_sandbox="$(optional_env_value GOTCHU_DEPENDENCY_VALIDATION_SANDBOX)"
-    [[ -z "$validation_sandbox" ]] || environment+=("GOTCHU_DEPENDENCY_VALIDATION_SANDBOX=$validation_sandbox")
-  fi
 }
 require_managed_state() {
   [[ -d "$state_dir" && ! -L "$state_dir" ]] || fail 'El directorio de estado debe ser real.' 2
@@ -418,6 +408,16 @@ start_app() {
       ;;
   esac
   node -e 'process.exit(Number(process.versions.node.split(".")[0])===24?0:1)' || fail 'Gotchu requiere Node.js 24.' 2
+  if [[ "$service" == web || "$service" == executor ]]; then
+    local validation_image
+    validation_image="$(optional_env_value GOTCHU_VALIDATION_DOCKER_IMAGE_SHA256)"
+    [[ -z "$validation_image" ]] || environment+=("GOTCHU_VALIDATION_DOCKER_IMAGE_SHA256=$validation_image")
+  fi
+  if [[ "$service" == web ]]; then
+    local validation_sandbox
+    validation_sandbox="$(optional_env_value GOTCHU_DEPENDENCY_VALIDATION_SANDBOX)"
+    [[ -z "$validation_sandbox" ]] || environment+=("GOTCHU_DEPENDENCY_VALIDATION_SANDBOX=$validation_sandbox")
+  fi
   if [[ -e "$service_env_file" || -L "$service_env_file" ]]; then
     [[ -f "$service_env_file" && ! -L "$service_env_file" ]] || fail 'El archivo de entorno del servicio debe ser un archivo regular privado.' 2
   fi
