@@ -37,11 +37,14 @@ async function createInputDisk(stage: string, input: Buffer, job: RunnerJob): Pr
 async function createNpmCacheDisk(stage: string, dependencies: FetchedNpmDependencies): Promise<string> {
   const cacheStage = join(stage, 'npm-cache');
   await mkdir(join(cacheStage, 'tarballs'), { recursive: true });
-  const entries = dependencies.tarballs.map((tarball) => ({ file: `${tarball.sha256}.tgz`, integrity: tarball.integrity }));
-  await Promise.all(dependencies.tarballs.map((tarball) => writeFile(join(cacheStage, 'tarballs', `${tarball.sha256}.tgz`), tarball.bytes, { mode: 0o444 })));
+  // Hoisted and nested lock entries can reference the same immutable tarball.
+  // Write each content-addressed file once; reopening its read-only copy fails.
+  const tarballs = [...new Map(dependencies.tarballs.map(tarball => [tarball.sha256, tarball])).values()];
+  const entries = tarballs.map((tarball) => ({ file: `${tarball.sha256}.tgz`, integrity: tarball.integrity }));
+  await Promise.all(tarballs.map((tarball) => writeFile(join(cacheStage, 'tarballs', `${tarball.sha256}.tgz`), tarball.bytes, { mode: 0o444, flag: 'wx' })));
   await writeFile(join(cacheStage, 'manifest.json'), JSON.stringify({ lockfileSha256: dependencies.lockfileSha256, tarballSetSha256: dependencies.tarballSetSha256, entries }), { mode: 0o444 });
   const image = join(stage, 'npm-cache.ext4');
-  const size = Math.max(16, Math.ceil((dependencies.tarballs.reduce((total, item) => total + item.bytes.length, 0) + 4096) / (1024 * 1024)) + 8);
+  const size = Math.max(16, Math.ceil((tarballs.reduce((total, item) => total + item.bytes.length, 0) + 4096) / (1024 * 1024)) + 8);
   await runBuildCommand('truncate', ['-s', `${size}M`, image]);
   await runBuildCommand('mkfs.ext4', ['-q', '-F', '-d', cacheStage, image]);
   return image;
