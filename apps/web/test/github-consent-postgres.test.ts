@@ -28,7 +28,7 @@ live('GitHub consent through customer routing and real backend state (mocked pro
     handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [], githubAppFile: appFile });
     const provider: typeof fetch = async input => {
       const url = String(input);
-      if (url === 'https://github.com/login/oauth/access_token') return Response.json({ access_token: 'fixture-token' });
+      if (url === 'https://github.com/login/oauth/access_token') return Response.json({ access_token: 'fixture-token', token_type: 'bearer' });
       if (url === 'https://api.github.com/user') return Response.json({ id: 101 });
       if (url.startsWith('https://api.github.com/user/installations')) return Response.json({ installations: ['111', '222'].map(id => ({ id: Number(id), account: { id: 101, login: 'fixture-owner', type: 'User' } })) });
       throw new Error('Unexpected provider request');
