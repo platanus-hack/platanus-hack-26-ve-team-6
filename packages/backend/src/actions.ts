@@ -4,7 +4,7 @@ import type { Transaction } from '@gotchu/database';
 import { computeGitTreeSha, type PatchFile, type WorkflowPolicyException } from '@gotchu/git-adapters';
 import { z } from 'zod';
 import { audit, authorize, BackendError, canonicalJson, parse, sha256, systemClock, type BaseDependencies, type Identity } from './core.js';
-import { APPROVAL_TTL_MS, STEP_UP_MAX_AGE_MS, assertStepUp, verifiedStepUpSchema, type StepUpVerifier } from './proposals.js';
+import { APPROVAL_TTL_MS, STEP_UP_MAX_AGE_MS, assertStepUp, verifiedStepUpSchema, type StepUpVerifier, type VerifiedStepUp } from './proposals.js';
 import { enqueue } from './jobs.js';
 import { dependencyCommitMessage, expectedDependencyCommitSha } from './git-commit.js';
 import { actionPolicyVersion } from './action-policies.js';
@@ -580,25 +580,28 @@ export function createActionService(deps: ActionDependencies) {
         const verification = deps.actionVerifier ? await deps.actionVerifier.verify(action, { phase: 'proposal' }) : undefined;
         if (verification?.baseChanged) reasons.push('base cambió desde la propuesta');
         if (verification && !verification.eligible) reasons.push(...(verification.blockingReasons.length ? verification.blockingReasons : ['validaciones pendientes']));
-        if (row.adapter_available && !deps.stepUpVerifier) reasons.push('MFA requerido');
+        if (action.kind !== 'source_patch_pull_request' && action.kind !== 'dependency_pull_request' && row.adapter_available && !deps.stepUpVerifier) reasons.push('MFA requerido');
         const eligible = reasons.length === 0;
         const invalidationReason = verification?.baseChanged ? 'base_changed' : verification?.policyCurrent === false ? 'policy_changed' : null;
         await tx.query('UPDATE gotchu.proposals SET state=$4,blocking_reasons=$5::jsonb,invalidated_at=CASE WHEN $6 THEN clock_timestamp() ELSE invalidated_at END,invalidation_reason=CASE WHEN $6 THEN $7 ELSE invalidation_reason END WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND state IN (\'proposed\',\'eligible\',\'ineligible\')', [value.organizationId,value.applicationId,value.proposalId,invalidationReason ? 'invalidated' : eligible ? 'eligible' : 'ineligible',JSON.stringify(reasons),Boolean(invalidationReason),invalidationReason]);
         return { status: eligible ? 'eligible' as const : 'ineligible' as const, blockingReasons: reasons };
       });
     },
-    async approve(identity: Identity, input: { organizationId: string; applicationId: string; proposalId: string; actionHash: string; stepUpProof: string }) {
-      const value = parse(z.object({ organizationId: z.uuid(), applicationId: z.uuid(), proposalId: z.uuid(), actionHash: actionHashSchema, stepUpProof: z.string().min(1).max(4096) }).strict(), input);
-      if (!deps.stepUpVerifier) throw new BackendError('step_up_unavailable', 'A trusted second-factor verifier must be configured', 503);
+    async approve(identity: Identity, input: { organizationId: string; applicationId: string; proposalId: string; actionHash: string; stepUpProof?: string }) {
+      const value = parse(z.object({ organizationId: z.uuid(), applicationId: z.uuid(), proposalId: z.uuid(), actionHash: actionHashSchema, stepUpProof: z.string().min(1).max(4096).optional() }).strict(), input);
       const result = await deps.database.tenant(value.organizationId, async tx => {
         const state = await tx.query<{ recovery_epoch: string; writes_frozen: boolean }>('SELECT * FROM gotchu.lock_authorization_state()');
         const current = state.rows[0];
         if (!current || current.writes_frozen) throw new BackendError('writes_frozen', 'Provider writes are frozen pending reconciliation', 409);
         await authorize(tx, value.organizationId, identity, ['owner'], value.applicationId);
+        const application = await tx.query('SELECT id FROM gotchu.applications WHERE organization_id=$1 AND id=$2 AND NOT archived FOR SHARE', [value.organizationId,value.applicationId]);
+        if (!application.rowCount) throw new BackendError('not_found', 'Active application not found', 404);
         const stored = await tx.query<{ body: unknown; action_hash: string; recovery_epoch: string; state: string; invalidated_at: Date | null; adapter_available: boolean }>(`SELECT p.body,p.action_hash,p.recovery_epoch,p.state,p.invalidated_at,c.adapter_available FROM gotchu.proposals p JOIN gotchu.action_capabilities c ON c.kind=p.kind WHERE p.organization_id=$1 AND p.application_id=$2 AND p.id=$3 AND p.version=2 FOR UPDATE OF p`, [value.organizationId,value.applicationId,value.proposalId]);
         const row = stored.rows[0];
         if (!row || row.invalidated_at) throw new BackendError('not_found', 'Action proposal not found or invalidated', 404);
         const action = parse(actionV2Schema, row.body);
+        const ownerSessionAllowed = action.kind === 'source_patch_pull_request' || action.kind === 'dependency_pull_request';
+        if (!ownerSessionAllowed && value.stepUpProof === undefined) throw new BackendError('step_up_required', 'This action requires a fresh second-factor proof', 403);
         const actionHash = hashActionV2(action, String(row.recovery_epoch));
         if (actionHash !== row.action_hash || actionHash !== value.actionHash) throw new BackendError('hash_mismatch', 'Approval must bind the exact stored action hash', 409);
         if (String(row.recovery_epoch) !== String(current.recovery_epoch)) {
@@ -615,14 +618,21 @@ export function createActionService(deps: ActionDependencies) {
         }
         if (!check.eligible || check.blockingReasons.length) throw new BackendError('proposal_ineligible', 'Action became ineligible before approval', 409);
         const expected = { userId: identity.userId, organizationId: value.organizationId, actionHash };
-        const proof = parse(verifiedStepUpSchema, await deps.stepUpVerifier!.verify({ ...expected, proof: value.stepUpProof }));
-        assertStepUp(proof, expected, clock.now());
-        const expiresAt = new Date(Math.min(clock.now().getTime() + APPROVAL_TTL_MS, proof.authenticatedAt.getTime() + STEP_UP_MAX_AGE_MS, proof.expiresAt.getTime()));
+        let proof: VerifiedStepUp | undefined;
+        if (value.stepUpProof !== undefined) {
+          if (!deps.stepUpVerifier) throw new BackendError('step_up_unavailable', 'The supplied second-factor proof cannot be verified', 503);
+          proof = parse(verifiedStepUpSchema, await deps.stepUpVerifier.verify({ ...expected, proof: value.stepUpProof }));
+          assertStepUp(proof, expected, clock.now());
+        }
+        const authorizationMethod = proof ? 'step_up' : 'owner_session';
+        const expiresAt = new Date(proof
+          ? Math.min(clock.now().getTime() + APPROVAL_TTL_MS, proof.authenticatedAt.getTime() + STEP_UP_MAX_AGE_MS, proof.expiresAt.getTime())
+          : clock.now().getTime() + APPROVAL_TTL_MS);
         const approvalId = randomUUID();
-        const inserted = await tx.query('INSERT INTO gotchu.approvals(organization_id,id,proposal_id,action_hash,user_id,proof_id,recovery_epoch,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(proof_id) DO NOTHING RETURNING id', [value.organizationId,approvalId,value.proposalId,actionHash,identity.userId,proof.proofId,current.recovery_epoch,expiresAt]);
+        const inserted = await tx.query('INSERT INTO gotchu.approvals(organization_id,id,proposal_id,action_hash,user_id,proof_id,recovery_epoch,expires_at,authorization_method) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(proof_id) DO NOTHING RETURNING id', [value.organizationId,approvalId,value.proposalId,actionHash,identity.userId,proof?.proofId ?? null,current.recovery_epoch,expiresAt,authorizationMethod]);
         if (!inserted.rowCount) throw new BackendError('proof_replayed', 'Second-factor proof has already been used', 409);
         await tx.query("UPDATE gotchu.proposals SET state='approved' WHERE organization_id=$1 AND id=$2", [value.organizationId,value.proposalId]);
-        await audit(tx, value.organizationId, identity.userId, 'action.approved', approvalId, { proposalId: value.proposalId, actionHash });
+        await audit(tx, value.organizationId, identity.userId, 'action.approved', approvalId, { proposalId: value.proposalId, actionHash, authorizationMethod });
         if (action.kind !== 'source_patch_pull_request' && action.kind !== 'dependency_pull_request') throw new BackendError('proposal_ineligible','This action kind has no executor queue adapter',409);
         await enqueue(tx, { id:randomUUID(),organizationId:value.organizationId,applicationId:value.applicationId,kind:'execution',idempotencyKey:`execution:${approvalId}`,payload:{approvalId,expectedActionHash:actionHash,expectedResourceVersion:action.baseCommit} });
         return { approvalId, expiresAt };

@@ -9,32 +9,36 @@ import {
   originCandidateSchema, type ContextInventory,
 } from '@gotchu/contracts';
 import { audit, authorize, BackendError, canonicalJson, parse, sha256, systemClock, type BaseDependencies, type Identity } from './core.js';
-import { assertStepUp, type StepUpVerifier } from './proposals.js';
+import { assertStepUp, verifiedStepUpSchema, type StepUpVerifier, type VerifiedStepUp } from './proposals.js';
 
 const writeRoles = ['owner', 'operator'] as const;
 const writeAccessInputSchema = contextScopeSchema.extend({ repositoryLinkId: z.uuid(), grant: z.boolean() }).strict();
-const writeAccessChangeSchema = writeAccessInputSchema.extend({ actionHash: z.string().regex(/^[a-f0-9]{64}$/), stepUpProof: z.string().min(1).max(512) }).strict();
+const writeAccessChangeSchema = writeAccessInputSchema.extend({ actionHash: z.string().regex(/^[a-f0-9]{64}$/), stepUpProof: z.string().min(1).max(512).optional() }).strict();
 const writerVerificationSchema = z.object({ installationId: z.string().regex(/^[0-9]{1,20}$/), baseCommit: z.string().regex(/^[a-f0-9]{40,64}$/) }).strict();
 type RepositoryWriteAccessVerifier = (input: { organizationId: string; applicationId: string; repositoryLinkId: string; repositoryKey: string; branch: string }) => Promise<unknown>;
 type RepositoryWriteAccessRow = {
   id: string; repository_key: string; default_branch: string; state: string; revoked: boolean; read_access: string;
   write_access: 'not_granted' | 'granted' | 'revoked'; installation_id: string | null;
   read_installation_state: string | null; writer_installation_id: string | null; writer_verified_commit: string | null;
+  write_access_revision: string;
 };
 
 function writeAccessActionHash(input: {
   organizationId: string; applicationId: string; repositoryLinkId: string; repositoryKey: string; branch: string;
   from: string; grant: boolean; writerInstallationId: string | null; baseCommit: string | null;
+  revision: string;
 }) {
   return sha256(`gotchu-repository-write-access-v1\n${canonicalJson(input)}`);
 }
 
 async function repositoryWriteAccessRow(tx: Transaction, organizationId: string, applicationId: string, repositoryLinkId: string, lock = false) {
   const result = await tx.query<RepositoryWriteAccessRow>(`SELECT l.id,l.repository_key,l.default_branch,l.state,l.revoked,l.read_access,l.write_access,
-      l.installation_id,g.state AS read_installation_state,l.writer_installation_id,l.writer_verified_commit
-    FROM gotchu.application_repository_links l LEFT JOIN gotchu.github_installations g
+      l.installation_id,g.state AS read_installation_state,l.writer_installation_id,l.writer_verified_commit,l.write_access_revision
+    FROM gotchu.application_repository_links l
+    JOIN gotchu.applications a ON a.organization_id=l.organization_id AND a.id=l.application_id AND NOT a.archived
+    LEFT JOIN gotchu.github_installations g
       ON g.organization_id=l.organization_id AND g.installation_id=l.installation_id
-    WHERE l.organization_id=$1 AND l.application_id=$2 AND l.id=$3${lock ? ' FOR UPDATE OF l' : ''}`,
+    WHERE l.organization_id=$1 AND l.application_id=$2 AND l.id=$3${lock ? ' FOR UPDATE OF l,a' : ''}`,
   [organizationId,applicationId,repositoryLinkId]);
   const row = result.rows[0];
   if (!row || row.revoked || row.state !== 'verified' || row.read_access !== 'granted'
@@ -45,7 +49,7 @@ async function repositoryWriteAccessRow(tx: Transaction, organizationId: string,
 }
 
 function assertSameRepositoryWriteState(before: RepositoryWriteAccessRow, current: RepositoryWriteAccessRow) {
-  if (before.id !== current.id || before.repository_key !== current.repository_key || before.default_branch !== current.default_branch
+  if (before.write_access_revision !== current.write_access_revision || before.id !== current.id || before.repository_key !== current.repository_key || before.default_branch !== current.default_branch
     || before.write_access !== current.write_access || before.writer_installation_id !== current.writer_installation_id
     || before.writer_verified_commit !== current.writer_verified_commit || before.installation_id !== current.installation_id
     || before.read_installation_state !== current.read_installation_state || before.state !== current.state
@@ -149,6 +153,7 @@ export function createContextService(deps: BaseDependencies & {
         repositoryKey:row.repository_key,branch:row.default_branch,from:row.write_access,grant:value.grant,
         writerInstallationId:writer?.installationId ?? row.writer_installation_id,
         baseCommit:writer?.baseCommit ?? row.writer_verified_commit,
+        revision:row.write_access_revision,
       }) };
     },
     async setRepositoryWriteAccess(identity: Identity, input: unknown) {
@@ -172,12 +177,16 @@ export function createContextService(deps: BaseDependencies & {
         repositoryKey:before.repository_key,branch:before.default_branch,from:before.write_access,grant:value.grant,
         writerInstallationId:writer?.installationId ?? before.writer_installation_id,
         baseCommit:writer?.baseCommit ?? before.writer_verified_commit,
+        revision:before.write_access_revision,
       });
       if (actionHash !== value.actionHash) throw new BackendError('stale_state','Repository state or Writer App coverage changed; request a fresh confirmation',409);
-      if (!deps.stepUpVerifier) throw new BackendError('step_up_required','Fresh WebAuthn verification is required',403);
-      const proof = await deps.stepUpVerifier.verify({ proof:value.stepUpProof,userId:identity.userId,organizationId:value.organizationId,actionHash });
-      assertStepUp(proof,{userId:identity.userId,organizationId:value.organizationId,actionHash},clock.now());
-      if (proof.method !== 'webauthn') throw new BackendError('step_up_required','A fresh WebAuthn assertion is required',403);
+      let proof: VerifiedStepUp | undefined;
+      if (value.stepUpProof !== undefined) {
+        if (!deps.stepUpVerifier) throw new BackendError('step_up_unavailable','The supplied second-factor proof cannot be verified',503);
+        proof = parse(verifiedStepUpSchema, await deps.stepUpVerifier.verify({ proof:value.stepUpProof,userId:identity.userId,organizationId:value.organizationId,actionHash }));
+        assertStepUp(proof,{userId:identity.userId,organizationId:value.organizationId,actionHash},clock.now());
+        if (proof.method !== 'webauthn') throw new BackendError('step_up_required','A supplied proof must be a fresh WebAuthn assertion',403);
+      }
 
       const writerVerifiedAt = writer ? clock.now() : null;
       await deps.database.tenant(value.organizationId,async tx=>{
@@ -194,7 +203,8 @@ export function createContextService(deps: BaseDependencies & {
         }
         await audit(tx,value.organizationId,identity.userId,value.grant?'context.repository_write_access_granted':'context.repository_write_access_revoked',
           value.repositoryLinkId,{applicationId:value.applicationId,repositoryKey:current.repository_key,branch:current.default_branch,
-            actionHash,proofId:proof.proofId,method:proof.method,writerInstallationId:writer?.installationId ?? null,
+            actionHash,authorizationMethod:proof ? 'step_up' : 'owner_session',proofId:proof?.proofId ?? null,
+            method:proof?.method ?? 'owner_session',writerInstallationId:writer?.installationId ?? null,
             writerVerifiedAt:writerVerifiedAt?.toISOString() ?? null,writerVerifiedCommit:writer?.baseCommit ?? null});
       });
       return (await this.list(identity,{organizationId:value.organizationId,applicationId:value.applicationId})).repositoryLinks.find(row=>row.id===value.repositoryLinkId);
