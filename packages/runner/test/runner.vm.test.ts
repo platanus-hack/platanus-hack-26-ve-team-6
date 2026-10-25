@@ -12,6 +12,33 @@ const cacheDir = process.env.GOTCHU_RUNNER_CACHE_DIR ?? join(process.env.HOME ??
 const organizationId = 'dc7dc303-1601-4d3e-ae5a-611839b33167';
 let root = '';
 
+// Unexecuted VM regression source; never run this fixture on the host.
+const loopbackTestBody = `
+  const test = require('node:test');
+  const assert = require('node:assert/strict');
+  const http = require('node:http');
+  const net = require('node:net');
+  test('local HTTP works while public egress stays unreachable', async () => {
+    const server = http.createServer((request, response) => response.end('vm-local'));
+    try {
+      await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', resolve);
+      });
+      const response = await fetch('http://127.0.0.1:' + server.address().port, { signal: AbortSignal.timeout(2000) });
+      assert.equal(await response.text(), 'vm-local');
+      await assert.rejects(new Promise((resolve, reject) => {
+        const socket = net.connect({ host: '1.1.1.1', port: 80 });
+        socket.setTimeout(500, () => socket.destroy(new Error('egress timed out')));
+        socket.once('connect', () => { socket.destroy(); resolve(); });
+        socket.once('error', reject);
+      }));
+    } finally {
+      if (server.listening) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+`;
+
 function projectArchive(testBody: string, options: { readonly dependencies?: Record<string, string>; readonly postinstall?: string } = {}): Buffer {
   const manifest = JSON.stringify({
     name: 'gotchu-vm-fixture', version: '1.0.0',
@@ -72,6 +99,13 @@ describe('real Firecracker microVM execution', () => {
     const failed = await run('process.exit(7)');
     expect(failed.result.status).toBe('completed');
     if (failed.result.status === 'completed') expect(failed.result.exitCode).toBe(7);
+  }, 90_000);
+
+  it('supports VM-local HTTP through the legacy npm profile while denying egress', async () => {
+    const result = await run(loopbackTestBody);
+    expect(result.result.status, JSON.stringify(result.result)).toBe('completed');
+    if (result.result.status === 'completed') expect(result.result.exitCode).toBe(0);
+    expect(result.cleanupVerified).toBe(true);
   }, 90_000);
 
   it('installs one pure-JS registry dependency offline and preserves its failing test exit code', async () => {
@@ -220,6 +254,15 @@ describe('real Firecracker selected Node profile', () => {
     if (!artifact) throw new Error('Runner-owned selected report is missing');
     return selectedNodeTestReportSchema.parse(JSON.parse(Buffer.from(artifact.contentBase64, 'base64').toString('utf8')));
   }
+
+  it('counts VM-local HTTP as executed coverage while denying public egress', async () => {
+    const result = await runSelected([{ path: 'tests/loopback.test.cjs', content: loopbackTestBody }],
+      { files: ['tests/loopback.test.cjs'] });
+    expect(report(result.result)).toMatchObject({ complete: true, success: true,
+      counts: { passed: 1, failed: 0, cancelled: 0, skipped: 0, total: 1 } });
+    expect(result.result.status === 'completed' && result.result.exitCode).toBe(0);
+    expect(result.cleanupVerified).toBe(true);
+  }, 90_000);
 
   it('uses pinned tsx, explicit files and a literal name filter without invoking package scripts', async () => {
     const result = await runSelected([
