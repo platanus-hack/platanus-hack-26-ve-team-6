@@ -4,7 +4,7 @@ import { GlobeIcon, ArrowUpRightIcon, PlayIcon } from 'lucide-react';
 import { customerOriginSchema, customerScanProfileSchema, type CustomerReportSummary, type CustomerTarget } from '@gotchu/contracts';
 import { customerApi, CustomerApiError, type CustomerJob } from './customer-client';
 import { ChoiceSelect } from './choice-select';
-import { HttpsAuditProgress, type HttpsAuditProgressStatus } from './https-audit-progress';
+import { AssessmentProgress } from './assessment-progress';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
@@ -34,9 +34,7 @@ export function ProjectHttpsAudit({ organizationId, applicationId, targets, repo
   const [retryTargetId, setRetryTargetId] = useState<string | null>(null);
   useEffect(() => { setRetryTargetId(null); }, [origin, profile]);
   const externalReports = reports.filter(report => report.mode !== 'internal');
-  const latest = externalReports[0];
   const observedJob = activeJob ?? lastJob;
-  const status: HttpsAuditProgressStatus = jobError ? 'unavailable' : observedJob?.state ?? (checkingJob ? 'loading' : latest ? 'succeeded' : 'idle');
   const unfinished = checkingJob || activeJob?.state === 'queued' || activeJob?.state === 'running';
   const parsedOrigin = customerOriginSchema.safeParse(/^[a-z][a-z0-9+.-]*:\/\//i.test(origin.trim()) ? origin.trim() : `https://${origin.trim()}`);
   const analyze = useMutation({
@@ -74,8 +72,12 @@ export function ProjectHttpsAudit({ organizationId, applicationId, targets, repo
       {archived && <p className="https-audit-note">Reactiva el proyecto para iniciar otra evaluación.</p>}
       {error && <p className="customer-form-error" role="alert">{error}</p>}
     </section>
-    <HttpsAuditProgress status={analyze.isPending ? 'submitting' : status} reportAvailable={!analyze.isPending && Boolean(observedJob ? observedJob.reportId : latest)} />
-    {jobError && <Button variant="outline" size="sm" onClick={onRetryJob}>Volver a consultar</Button>}
+    {/* A new request never reuses the previous job's completion. */}
+    <AssessmentProgress key={analyze.isPending ? 'submitting' : observedJob?.id ?? 'idle'} purpose="assessment" mode="external"
+      job={analyze.isPending ? undefined : observedJob ?? undefined}
+      waiting={analyze.isPending ? 'submitting' : checkingJob ? 'loading' : 'idle'}
+      failure={observedJob?.state === 'failed' ? `La evaluación no finalizó${observedJob.reasonCode ? ` (${observedJob.reasonCode})` : ''}. Un análisis interrumpido no confirma seguridad.` : null}
+      error={jobError ? 'No se pudo consultar el estado.' : null} retry={onRetryJob} />
     <section className="https-audit-results" aria-labelledby="https-results-title">
       <div className="https-section-heading"><h2 id="https-results-title">Informes externos</h2><span>{externalReports.length}</span></div>
       {externalReports.length === 0 ? <p className="https-audit-note">El informe aparecerá aquí cuando termine la primera evaluación.</p> : <ul>{externalReports.map(report => <li key={report.id}><div><strong>{report.subject.origin}</strong><small>{formatDate(report.finishedAt)} · {report.mode === 'both' ? 'Código + HTTPS' : 'HTTPS externo'}</small></div><span>{report.findingCount} observaciones{report.mode === 'both' ? ' en total' : ''}</span><Button variant="outline" size="sm" onClick={() => onViewReport(report.id)}>Ver informe<ArrowUpRightIcon aria-hidden="true" /></Button></li>)}</ul>}

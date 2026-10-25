@@ -1,40 +1,61 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { HttpsAuditProgress as AssessmentProgress } from '../src/components/https-audit-progress';
+import { AssessmentProgress } from '../src/components/assessment-progress';
+import type { CustomerJob } from '../src/components/customer-client';
 
-describe('assessment progress evidence', () => {
-  it('does not reuse the preceding report completion while a new request is being registered', () => {
-    const submitting = renderToStaticMarkup(createElement(AssessmentProgress, { status: 'submitting', reportAvailable: true }));
+const job = (state: CustomerJob['state'], overrides: Partial<CustomerJob> = {}): CustomerJob => ({
+  id: '6f1b9f0e-6d0c-4a59-9f43-2e1c6c4c2a10', applicationId: '0b8a3c6e-5a52-4e43-9c1d-7f0d1f3a2b11', kind: 'audit', state,
+  reportId: null, reasonCode: null, mode: 'external', inputKind: null, createdAt: '2026-10-25T10:00:00.000Z', completedAt: null,
+  progress: state === 'queued' ? [] : [{ phase: 'validating', at: '2026-10-25T10:00:01.000Z' }, { phase: 'analyzing', at: '2026-10-25T10:00:02.000Z' }],
+  ...overrides,
+});
+const render = (props: Partial<Parameters<typeof AssessmentProgress>[0]>) => renderToStaticMarkup(createElement(AssessmentProgress, {
+  purpose: 'assessment', job: undefined, mode: 'external', failure: null, error: null, retry: () => undefined, ...props,
+}));
+const count = (markup: string, state: string) => markup.match(new RegExp(`customer-progress-node is-${state}`, 'g'))?.length ?? 0;
+
+describe('assessment phase graph markup', () => {
+  it('does not reuse a previous completion while a new request is being registered', () => {
+    const submitting = render({ waiting: 'submitting' });
     expect(submitting).toContain('Registrando solicitud');
     expect(submitting).toContain('aria-busy="true"');
-    expect(submitting).not.toContain('data-state="done"');
-    expect(submitting).not.toContain('Informe disponible');
+    expect(count(submitting, 'done')).toBe(0);
   });
-  it('keeps evaluation and report pending until the worker confirms them', () => {
-    const queued = renderToStaticMarkup(createElement(AssessmentProgress, { status: 'queued' }));
-    expect(queued.match(/data-state="done"/g)).toHaveLength(1);
-    expect(queued.match(/data-state="pending"/g)).toHaveLength(2);
-    const running = renderToStaticMarkup(createElement(AssessmentProgress, { status: 'running' }));
+
+  it('draws a single HTTPS analysis as one line with nothing to correlate', () => {
+    const running = render({ job: job('running') });
+    expect(running).toContain('data-phase="external"');
+    expect(running).not.toContain('data-phase="internal"');
+    expect(running).not.toContain('data-phase="correlation"');
     expect(running).toContain('aria-current="step"');
-    expect(running).toContain('data-state="running"');
-    expect(running).not.toContain('Informe disponible');
+    const both = render({ job: job('running', { mode: 'both' }) });
+    expect(both).toContain('data-phase="internal"');
+    expect(both).toContain('data-phase="correlation"');
   });
-  it('does not claim a persisted report merely because execution succeeded', () => {
-    const withoutReport = renderToStaticMarkup(createElement(AssessmentProgress, { status: 'succeeded', reportAvailable: false }));
-    expect(withoutReport.match(/data-state="done"/g)).toHaveLength(2);
-    expect(withoutReport).toContain('Evaluación terminada');
-    const withReport = renderToStaticMarkup(createElement(AssessmentProgress, { status: 'succeeded', reportAvailable: true }));
-    expect(withReport.match(/data-state="done"/g)).toHaveLength(3);
-    expect(withReport).toContain('Informe disponible');
+
+  it('keeps later phases pending until the coordinator records them', () => {
+    const queued = render({ job: job('queued') });
+    expect(count(queued, 'running')).toBe(1);
+    expect(count(queued, 'pending')).toBe(3);
+    expect(count(queued, 'done')).toBe(0);
   });
-  it('preserves failure and uncertainty instead of advancing the graph', () => {
-    const failed = renderToStaticMarkup(createElement(AssessmentProgress, { status: 'failed' }));
-    expect(failed).toContain('data-state="failed"');
-    expect(failed).not.toContain('Informe disponible');
-    const unavailable = renderToStaticMarkup(createElement(AssessmentProgress, { status: 'unavailable' }));
+
+  it('does not claim a stored report merely because execution succeeded', () => {
+    const withoutReport = render({ job: job('succeeded', { completedAt: '2026-10-25T10:00:09.000Z' }) });
+    expect(withoutReport).toContain('Sin informe guardado');
+    expect(count(withoutReport, 'done')).toBe(3);
+    const withReport = render({ job: job('succeeded', { completedAt: '2026-10-25T10:00:09.000Z', reportId: '9d5c7f43-1b56-4f0a-8a35-6c2b47e1d8a2' }) });
+    expect(count(withReport, 'done')).toBe(4);
+  });
+
+  it('shows where a failure stopped and does not advance an unconfirmed status', () => {
+    const failed = render({ job: job('failed', { reasonCode: 'assessment_reconciliation_required' }), failure: 'La evaluación no finalizó.' });
+    expect(count(failed, 'failed')).toBe(1);
+    expect(failed).toContain('La evaluación no finalizó.');
+    const unavailable = render({ error: 'No se pudo consultar el estado.' });
     expect(unavailable).toContain('Estado sin confirmar');
-    expect(unavailable).not.toContain('data-state="done"');
-    expect(unavailable).not.toContain('data-state="failed"');
+    expect(count(unavailable, 'done')).toBe(0);
+    expect(count(unavailable, 'failed')).toBe(0);
   });
 });
