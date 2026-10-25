@@ -11,25 +11,26 @@
 - Use expanded Saira for display and Saira text for reading. The light ground is pure `#ffffff` with graphite ink; dark is pure `#000000` with porcelain ink. Keep brand magenta and silver unchanged; offer light, dark and system.
 - Restyle shadcn/ui controls on Base UI (base-nova): 8px buttons, 34px mobile controls and 48px desktop primary buttons, with a hard magenta offset on hover.
 - The header is 52px desktop / 48px mobile, tucks on downward scroll and keeps its mobile menu attached to the header.
-- Use type, hairlines, authored ASCII and living dot fields. No photos, realistic objects, 3D or helper/meta captions.
+- Use type and living dot fields. No photos, realistic objects, 3D or helper/meta captions.
 
 ## Content
 
-- The sequence is Mirada (hero), Código, Dominio (dot globe), Dos miradas (ASCII Venn), Evidencia, Alcance, Vigilancia, Equipo, Preguntas (shadcn accordion) and Cierre (dot GOTCHU wordmark).
+- The sequence is Mirada (hero), Por dentro (code field beside four benefits), Por fuera (globe field beside four benefits), Evidencia (report field and four highlighted terms), Preguntas (shadcn accordion) and Cierre (question, “we Gotchu.”, the dot GOTCHU wordmark, “Crea tu cuenta” and “Ya tengo cuenta”).
+- This is a marketing page: sell what each side gives the customer, not the user's whole flow or every feature. Each side ends in an action to `/registro`. Never promise complete protection; the FAQ says no findings is not proof of safety.
 - Show the real report JSON keys: `id`, `organizationId`, `applicationId`, `jobId`, `applicationName`, `mode`, `startedAt`, `finishedAt`, `internal`, `external`, `comparison`, `limitations`, `responseMode`, `actionsPerformed`, `version` and `revision`.
 - Re-checks run every 1–24 hours only when the customer enables them. They are not real time; alerts stay inside Gotchu, and an alert never confirms an attack. Signed runtime telemetry feeds triage, not proof of compromise.
 - Source analysis is bounded to JS/TS, JSON, YAML and TOML, with Semgrep, Gitleaks, Trivy and OSV where configured. Source is not executed.
 - HTTPS scope starts with a signed-in Owner or Operator requesting one public origin and a finite profile. The root profile makes one `GET /`; the public-surface profile makes up to ten GETs to that origin. TLS is verified; cookies, credentials and redirects are not used. The request records the selected scope; it is not presented as proof of ownership or a separate customer attestation. Exploitability remains unknown; severity may be unevaluated.
-- Some findings can produce a private corrected copy and independent re-analysis. Neither changes the repository or production.
+- Some findings can produce a private corrected copy and independent re-analysis. Neither changes the repository or production. After the Owner approves the exact change with a passkey, the independent executor can open a draft PR in a linked GitHub repository.
 
 ## Signature moment
 
 - The hero pairs a large uppercase headline with a living dot-field mark. Lines reveal; the field follows and ripples from the pointer, gathers on `data-catch` actions, and can be paused.
-- Carry the dot language into the domain globe and closing wordmark; use authored ASCII for the file and Venn plates.
+- Carry the dot language through the hero mark, the both-sides and report fields and the closing wordmark.
 
 ## Boundaries
 
-- Never claim customer-code execution, PR publishing, merging, deployment, rollback, automatic response, provider recovery, external notifications, AI investigation, AWS hosting or guaranteed security.
+- Never claim customer-code execution, PRs without exact approval, merging, deployment, rollback, automatic response, provider recovery, external notifications, AI investigation, AWS hosting or guaranteed security.
 - The public landing should describe only the product boundaries below. Do not restyle `/dashboard` or `/demo`, broaden authorization, or turn a visual reference into a product promise.
 
 ## Voice

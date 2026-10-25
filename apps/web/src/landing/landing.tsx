@@ -6,9 +6,8 @@ import { DotPlate } from '../components/dot-field/dot-plate';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { buttonVariants } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
-import { FolderPlate } from './ascii-plates';
-import { HOW_STEPS, QUESTIONS, REPORT_JSON } from './copy';
-import { Display, Mark } from './editorial';
+import { EVIDENCE, QUESTIONS, SIDES } from './copy';
+import { Display, Mark, useParallax } from './editorial';
 import { Header } from './header';
 
 /** True when motion is welcome; resolved after mount so server and first client render agree. */
@@ -33,9 +32,11 @@ function Action({ href, children, size = 'default' }: { href: string; children: 
   </a>;
 }
 
-function Section({ id, titleId, title, children, className = '', titleClass = '' }: { id?: string; titleId: string; title: ReactNode[]; children: ReactNode; className?: string; titleClass?: string }) {
-  return <section id={id} className={`gl-section ${className}`} aria-labelledby={titleId}>
-    <Display id={titleId} className={`gl-section-title ${titleClass}`} lines={title} />
+/** A page section; with motion its headline lines and `data-depth` children move with scroll (parallax). */
+function Section({ id, titleId, title, children, className = '', motion }: { id?: string; titleId: string; title: ReactNode[]; children: ReactNode; className?: string; motion: boolean }) {
+  const ref = useParallax<HTMLElement>(motion);
+  return <section ref={ref} id={id} className={`gl-section ${className}`} aria-labelledby={titleId}>
+    <Display id={titleId} className="gl-section-title" lines={title} />
     {children}
   </section>;
 }
@@ -45,8 +46,8 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
     <div className="gl-hero-copy">
       <Display as="h1" id="gl-titulo" eager className="gl-display--hero" lines={['Mira de cerca.', <Mark key="m" size="big" load>Decide con pruebas.</Mark>]} />
       <div className="gl-hero-action">
-        <p className="gl-lead">Sube código o analiza un origen HTTPS.</p>
-        <Action href="/dashboard" size="lg">Revisar una app</Action>
+        <p className="gl-lead">Todo tu proyecto bajo la lupa: tu código por dentro y tu web por fuera.</p>
+        <Action href="/registro" size="lg">Audita tu primer proyecto</Action>
       </div>
     </div>
     <div className="gl-hero-field">
@@ -64,40 +65,40 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
   </section>;
 }
 
-function HowItWorks() {
-  return <Section id="gl-funciona" titleId="gl-funciona-titulo" title={['Cómo funciona.']}>
-    <ol className="gl-steps">
-      {HOW_STEPS.map(([title, detail], index) => <li key={title}>
-        <span className="gl-step-number" aria-hidden="true">0{index + 1}</span>
-        <div><h3>{title}</h3><p>{detail}</p></div>
-      </li>)}
-    </ol>
-    <div className="gl-process-plate"><FolderPlate /></div>
+type Motion = { motion: boolean; paused: boolean };
+
+/** One side of the audit: its dot field (with a scan line that follows scroll) beside what you get. */
+function Side({ side, motion, paused }: Motion & { side: (typeof SIDES)[number] }) {
+  return <Section motion={motion} id={side.id} titleId={`${side.id}-titulo`} className="gl-side" title={[side.title, <Mark key="m" size="big">{side.mark}</Mark>]}>
+    <div className="gl-split">
+      <div className="gl-split-field" data-depth=""><DotPlate formation={side.formation} paused={paused} /><span className="gl-scan" aria-hidden="true" /></div>
+      <div className="gl-split-copy">
+        <p className="gl-section-lead">{side.lead}</p>
+        <ul className="gl-benefits">
+          {side.benefits.map(([title, text], index) => <li key={title} style={{ '--gl-i': index }}><strong>{title}</strong><span>{text}</span></li>)}
+        </ul>
+        <Action href="/registro">{side.action}</Action>
+      </div>
+    </div>
   </Section>;
 }
 
-function Evidence() {
-  return <Section id="gl-informe" titleId="gl-informe-titulo" className="gl-report-section" title={['Cada hallazgo.', <Mark key="m" size="big">Su evidencia.</Mark>]}>
-    <div className="gl-report-copy"><p>El informe muestra confianza y cobertura.</p><JsonExhibit /></div>
+function Evidence({ motion, paused }: Motion) {
+  return <Section motion={motion} id="gl-evidencia" titleId="gl-evidencia-titulo" title={['Cada hallazgo.', <Mark key="m" size="big">Con su prueba.</Mark>]}>
+    <div className="gl-evidence">
+      <div className="gl-evidence-field" data-depth=""><DotPlate formation="report" paused={paused} /></div>
+      <dl className="gl-terms">
+        {EVIDENCE.map(([term, definition], index) => <div key={term}>
+          <dt><Mark size="big" delay={index * 120}>{term}</Mark></dt>
+          <dd>{definition}</dd>
+        </div>)}
+      </dl>
+    </div>
   </Section>;
 }
 
-function Vigilance() {
-  return <Section id="gl-vigilancia" titleId="gl-vigilancia-titulo" className="gl-vigilance-section" title={['Programa evaluaciones', <Mark key="m" size="big">cada 1–24 h.</Mark>]}>
-    <p className="gl-vigilance-copy">No son evaluaciones en tiempo real.</p>
-  </Section>;
-}
-
-function JsonExhibit() {
-  return <figure className="gl-exhibit" aria-label="Estructura del reporte en JSON">
-    <pre tabIndex={0}><code>{REPORT_JSON.map((line, index) => <span className="gl-jl" key={index}>
-      {line.split(/("(?:[^"\\]|\\.)*"\s*:?)/).map((part, at) => part.endsWith(':') ? <span className="gl-jk" key={at}>{part}</span> : part.startsWith('"') ? <span className="gl-js" key={at}>{part}</span> : part)}
-    </span>)}</code></pre>
-  </figure>;
-}
-
-function Questions() {
-  return <Section id="gl-preguntas" titleId="gl-preguntas-titulo" title={['Preguntas.']}>
+function Questions({ motion }: { motion: boolean }) {
+  return <Section motion={motion} id="gl-preguntas" titleId="gl-preguntas-titulo" title={['Preguntas.']}>
     <Accordion className="gl-qa">
       {QUESTIONS.map(([question, answer]) => <AccordionItem key={question} value={question} className="gl-qa-item">
         <AccordionTrigger className="gl-qa-trigger py-[22px]">{question}</AccordionTrigger>
@@ -107,10 +108,13 @@ function Questions() {
   </Section>;
 }
 
-function Closing({ paused }: { paused: boolean }) {
-  return <Section id="gl-cierre" titleId="gl-paso-titulo" className="gl-closing" titleClass="gl-display--closing" title={['Revisa código', <Mark key="m" size="big">o un origen HTTPS.</Mark>]}>
+function Closing({ motion, paused }: Motion) {
+  return <Section motion={motion} id="gl-cierre" titleId="gl-paso-titulo" className="gl-closing" title={['¿Qué tan seguros', 'están tus proyectos?', 'No te preocupes,', <Mark key="m" size="big">we Gotchu.</Mark>]}>
     <div className="gl-wordmark"><DotPlate formation="wordmark" paused={paused} /></div>
-    <div className="gl-closing-actions"><Action href="/dashboard" size="lg">Revisar una app</Action></div>
+    <div className="gl-closing-actions">
+      <Action href="/registro" size="lg">Crea tu cuenta</Action>
+      <a href="/entrar" className="gl-text-link">Ya tengo cuenta</a>
+    </div>
   </Section>;
 }
 
@@ -124,7 +128,7 @@ function Footer() {
 }
 
 /**
- * The landing uses short product steps and report evidence alongside authored visual plates.
+ * The landing: a hero, the audit from inside and outside, evidence, questions and the invitation to start.
  */
 export function Landing() {
   const motionAllowed = useMotionAllowed();
@@ -134,11 +138,10 @@ export function Landing() {
     <Header />
     <main id="contenido" tabIndex={-1} className="gl-main">
       <Hero paused={paused} onPause={setPaused} motion={motionAllowed} />
-      <HowItWorks />
-      <Evidence />
-      <Vigilance />
-      <Questions />
-      <Closing paused={paused} />
+      {SIDES.map(side => <Side key={side.id} side={side} motion={motionAllowed} paused={paused} />)}
+      <Evidence motion={motionAllowed} paused={paused} />
+      <Questions motion={motionAllowed} />
+      <Closing motion={motionAllowed} paused={paused} />
     </main>
     <Footer />
   </div>;

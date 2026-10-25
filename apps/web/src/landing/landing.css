@@ -83,7 +83,6 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
   .gl .gl-main:focus-visible { border-top-color: var(--brand-ink); }
   .gl .gl-display { margin: 0; font-family: var(--display); font-weight: 700; font-size: clamp(36px, 5.6vw, 88px); line-height: .94; letter-spacing: -.015em; text-transform: uppercase; overflow-wrap: break-word; }
   .gl .gl-display--hero { font-size: clamp(46px, 7.4vw, 124px); line-height: .9; }
-  .gl .gl-display--closing { font-size: clamp(44px, 9.4vw, 148px); line-height: .9; }
   .gl .gl-line { display: block; }
   .gl .gl-line-in { display: block; clip-path: inset(-.3em -.1em); transition: clip-path 800ms var(--ease) calc(var(--gl-i, 0) * 90ms), transform 800ms var(--ease) calc(var(--gl-i, 0) * 90ms); }
   .gl[data-motion='on'] .gl-display:not(.gl-display--load):not([data-on]) .gl-line-in { clip-path: inset(0 0 100% 0); transform: translateY(.3em); }
@@ -97,9 +96,10 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
   /* Large phrases: a magenta band behind porcelain type. The band (outer span) and the type colour (inner span)
      are two single-layer backgrounds with the same hard-edged gradient sliding in lock-step, so the type is never
      transparent and no multi-value `background-clip` is needed (Firefox and Safari painted the unclipped layer as
-     a solid block). Position 100% = band not yet swept, 0% = swept. */
+     a solid block). Position 100% = band not yet swept, 0% = swept. Above and below the band (0.65em to 1.43em of the
+     padded ink box) a fixed layer keeps the ink colour, so accents and descenders never turn porcelain on a white ground. */
   .gl .gl-mark--big { margin: 0 -.06em; background: linear-gradient(90deg, var(--brand) 50%, transparent 50%) no-repeat 0% 52% / 200% .78em; transition: background-position 700ms var(--sweep) var(--gl-delay, 0ms); }
-  .gl .gl-mark-ink { padding: 0 .06em; -webkit-box-decoration-break: clone; box-decoration-break: clone; color: var(--foreground); background: linear-gradient(90deg, var(--on-brand) 50%, var(--foreground) 50%) no-repeat 0% 0 / 200% 100%; transition: background-position 700ms var(--sweep) var(--gl-delay, 0ms); }
+  .gl .gl-mark-ink { padding: .24em .06em .08em; -webkit-box-decoration-break: clone; box-decoration-break: clone; color: var(--foreground); background: linear-gradient(var(--foreground) .65em, transparent .65em 1.43em, var(--foreground) 1.43em) no-repeat 0 0 / 100% 100%, linear-gradient(90deg, var(--on-brand) 50%, var(--foreground) 50%) no-repeat 0% 0 / 200% 100%; transition: background-position 700ms var(--sweep) var(--gl-delay, 0ms); }
   @supports ((-webkit-background-clip: text) or (background-clip: text)) {
     .gl .gl-mark-ink { color: transparent; -webkit-background-clip: text; background-clip: text; }
   }
@@ -132,28 +132,47 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
     .gl .gl-hero-field { height: 100%; min-height: 520px; margin: 0 calc(-1 * var(--gutter)) 0 0; }
   }
 
-  /* ── ASCII and dot plates ─────────────────────────────────────────────────── */
-  .gl .gl-plate { margin: 0; color: var(--foreground); font: 500 clamp(8px, 2.4vw, 12.5px)/1.18 var(--mono); white-space: pre; user-select: none; }
-  .gl .gl-find { color: var(--brand-ink); font-weight: 700; }
-  .gl .gl-steps { display: grid; gap: 28px; margin: 0; padding: 0; list-style: none; }
-  .gl .gl-steps li { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 14px; align-items: start; }
-  .gl .gl-step-number { padding-top: 4px; color: var(--brand-ink); font: 700 13px/1 var(--mono); }
-  .gl .gl-steps h3 { margin: 0 0 8px; font: 700 clamp(22px, 2.3vw, 30px)/1.05 var(--display); text-transform: uppercase; }
-  .gl .gl-steps p { margin: 0; max-width: 42ch; font-size: 17px; line-height: 1.45; }
-  .gl .gl-process-plate { margin-top: clamp(40px, 6vw, 72px); overflow: hidden; }
-  @media (min-width: 900px) { .gl .gl-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; } }
+  /* ── Parallax ─────────────────────────────────────────────────────────────── */
+  /* Sections with motion carry `--gl-q` (-1 above the viewport centre → 1 below). Headline lines slide in from the
+     right at two speeds and settle at the centre; leads trail; `data-depth` art rises faster than the text. */
+  .gl .gl-section { --gl-q: 0; }
+  .gl [data-parallax] .gl-section-title .gl-line:nth-of-type(1) { transform: translateX(calc(max(0, var(--gl-q)) * 5vw)); }
+  .gl [data-parallax] .gl-section-title .gl-line:nth-of-type(2) { transform: translateX(calc(max(0, var(--gl-q)) * 12vw)); }
+  .gl [data-parallax] .gl-section-lead { transform: translateY(calc(var(--gl-q) * 40px)); }
+  .gl [data-parallax] [data-depth] { transform: translateY(calc(var(--gl-q) * 110px)); }
 
-  .gl .gl-report-copy { display: grid; gap: 24px; align-items: center; }
-  .gl .gl-report-copy > p { margin: 0; max-width: 24ch; font-size: clamp(20px, 2.4vw, 30px); line-height: 1.25; }
-  @media (min-width: 900px) { .gl .gl-report-copy { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(40px, 7vw, 96px); } }
-  .gl .gl-exhibit { margin: 0; max-width: 560px; border: 1px solid transparent; overflow: hidden; }
-  .gl .gl-exhibit pre { margin: 0; padding: 18px 0; overflow-x: auto; font: 400 clamp(13px, 1.1vw, 14.5px)/1.75 var(--mono); }
-  .gl .gl-exhibit:has(pre:focus-visible) { border-color: var(--brand-ink); }
-  .gl .gl-exhibit code { display: block; width: max-content; min-width: 100%; }
-  .gl .gl-jl { display: block; padding-right: 20px; white-space: pre; }
-  .gl .gl-jk { color: var(--brand-ink); }
-  .gl .gl-vigilance-copy { margin: 0; max-width: 32ch; font-size: clamp(19px, 2vw, 24px); line-height: 1.4; }
-  .gl .gl-vigilance-section .gl-section-title { max-width: none; }
+  /* ── Por dentro / Por fuera: a dot field beside what you get; the second side mirrors the first ── */
+  .gl .gl-section-lead { margin: 0; max-width: 40ch; font-size: clamp(19px, 2vw, 24px); line-height: 1.4; }
+  .gl .gl-split { display: grid; gap: clamp(32px, 5vw, 56px); align-items: center; }
+  .gl .gl-split-field { position: relative; height: clamp(280px, 48vw, 460px); margin: 0 calc(-1 * var(--gutter)); }
+  .gl .gl-split-copy { display: flex; flex-direction: column; align-items: flex-start; gap: clamp(24px, 3vw, 36px); }
+  @media (min-width: 900px) {
+    .gl .gl-split { grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: clamp(40px, 6vw, 96px); }
+    .gl .gl-split-field { height: clamp(420px, 42vw, 600px); margin: 0 0 0 calc(-1 * var(--gutter)); }
+    .gl .gl-side + .gl-side .gl-split-field { order: 2; margin: 0 calc(-1 * var(--gutter)) 0 0; }
+  }
+  .gl .gl-benefits { display: grid; gap: clamp(18px, 2.2vw, 26px); margin: 0; padding: 0; list-style: none; }
+  .gl .gl-benefits li { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 16px; row-gap: 4px; }
+  .gl .gl-benefits li::before { content: ''; grid-row: span 2; width: 8px; height: 8px; margin: 7px 2px 0; background: var(--brand); transform: rotate(45deg); }
+  .gl .gl-benefits strong { font: 700 clamp(18px, 1.7vw, 24px)/1.15 var(--display); text-transform: uppercase; }
+  .gl .gl-benefits span { color: var(--muted-foreground); font-size: 16.5px; line-height: 1.45; }
+  /* A magenta scan line sweeps the field top to bottom as the section crosses the viewport, with a faint wake. */
+  .gl .gl-scan { position: absolute; left: 4%; right: 4%; top: 50%; height: 64px; pointer-events: none; opacity: 0; background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--brand) 14%, transparent) 96%, var(--brand) 96%); }
+  .gl [data-parallax] .gl-scan { opacity: calc(1 - var(--gl-q) * var(--gl-q)); top: calc(46% - var(--gl-q) * 46%); transform: translateY(-100%); }
+  /* Benefits cascade in from the field's side, each from further out, and their diamonds turn into place. */
+  .gl .gl-side { --gl-dir: 1; }
+  .gl .gl-side + .gl-side { --gl-dir: -1; }
+  @media (max-width: 899px) { .gl .gl-side + .gl-side { --gl-dir: 1; } }
+  .gl [data-parallax] .gl-benefits li { opacity: calc(1 - max(0, var(--gl-q)) * (.7 + var(--gl-i) * .1)); transform: translateX(calc(max(0, var(--gl-q)) * var(--gl-dir) * (90px + var(--gl-i) * 70px))); }
+  .gl [data-parallax] .gl-benefits li::before { transform: rotate(calc(45deg + max(0, var(--gl-q)) * 270deg)); }
+
+  /* ── Evidence: the report beside what each finding carries ────────────────── */
+  .gl .gl-evidence { display: grid; gap: 40px; align-items: center; }
+  @media (min-width: 900px) { .gl .gl-evidence { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(40px, 7vw, 112px); } }
+  .gl .gl-evidence-field { height: clamp(300px, 40vw, 540px); }
+  .gl .gl-terms { display: grid; gap: clamp(24px, 3vw, 40px); margin: 0; }
+  .gl .gl-terms dt { font: 700 clamp(30px, 3.8vw, 56px)/1 var(--display); letter-spacing: -.015em; text-transform: uppercase; }
+  .gl .gl-terms dd { margin: 10px 0 0; color: var(--muted-foreground); font-size: clamp(17px, 1.5vw, 19px); line-height: 1.5; }
 
   /* ── Questions ────────────────────────────────────────────────────────────── */
   .gl .gl-qa { border-bottom: 1px solid var(--border); }
@@ -163,8 +182,11 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
 
   /* ── Closing ──────────────────────────────────────────────────────────────── */
   .gl .gl-closing .gl-section-title { max-width: none; margin-bottom: 0; }
+  .gl .gl-closing .gl-section-title .gl-line:nth-of-type(3) { margin-top: .45em; }
   .gl .gl-wordmark { height: clamp(140px, 24vw, 340px); margin: clamp(24px, 4vw, 56px) calc(-1 * var(--gutter)); }
-  .gl .gl-closing-actions { margin-top: 8px; }
+  .gl .gl-closing-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px; margin-top: 8px; }
+  .gl .gl-text-link { display: inline-flex; align-items: center; min-height: 34px; font-weight: 600; text-decoration: underline; text-decoration-thickness: 2px; text-decoration-color: var(--brand); }
+  @media (hover: hover) { .gl .gl-text-link:hover { color: var(--brand-ink); } }
 
   /* ── Footer ───────────────────────────────────────────────────────────────── */
   .gl .gl-footer { padding: 56px var(--gutter); background: var(--footer-bg); color: var(--footer-fg); }
