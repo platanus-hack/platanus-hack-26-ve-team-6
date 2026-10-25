@@ -1,21 +1,12 @@
 # Gotchu
 
-**Mira de cerca. Decide con pruebas.**
+Gotchu te ayuda a encontrar riesgos de seguridad en tu aplicación y entender qué hacer con ellos.
 
-¿Qué riesgos tiene tu aplicación, qué prueba cada uno y qué haces después?
+Revisa código, dependencias y configuración web conectando GitHub, subiendo una carpeta o indicando una URL HTTPS autorizada. La revisión web funciona sin compartir tu código. Cada informe muestra los hallazgos, su gravedad, las pruebas y lo que quedó sin revisar.
 
-Gotchu revisa el código fuente, el origen HTTPS o los dos. La revisión externa funciona sin acceso al código y se limita al alcance autorizado. Cada informe muestra los hallazgos, su evidencia, severidad, confianza y cobertura; lo que no se pudo revisar queda como desconocido.
+Puedes llevar cada hallazgo a tu asistente de código o configurar la IA de Gotchu para investigar y preparar correcciones privadas.
 
-Desde un espacio de trabajo privado puedes:
-
-- Subir una carpeta o conectar GitHub para revisar código y dependencias.
-- Evaluar un origen HTTPS autorizado con perfiles acotados.
-- Consultar informes e historial, programar revisiones y configurar notificaciones.
-- Investigar hallazgos y preparar correcciones con IA opcional. Publicar un PR en borrador requiere validar el candidato y la aprobación exacta del Owner.
-
-El escaneo determinista funciona sin IA y no ejecuta el código del cliente ni instala sus paquetes. Un paquete vulnerable no prueba explotación, y un informe sin hallazgos no garantiza seguridad.
-
-[Prueba Gotchu](https://gotchu.kevinbravo.com/dashboard) creando tu cuenta y tu primer espacio de trabajo. También puedes instalarlo en tu propia máquina siguiendo el [README](README.md).
+[Prueba Gotchu](https://gotchu.kevinbravo.com/dashboard) · [Instálalo en tu propia máquina](README.md)
 
 Proyecto del **team-6**, track **AI Security**, en **Platanus Hack 26: Caracas ft. Yummy**.
 
