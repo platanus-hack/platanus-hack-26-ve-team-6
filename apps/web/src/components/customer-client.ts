@@ -437,7 +437,7 @@ export const customerApi = {
   githubRepositories: (organizationId: string, applicationId: string, installationId: string) => request(`${applicationPath(organizationId, applicationId)}/github/installations/${encodeURIComponent(installationId)}/repositories`, z.array(githubRepositorySchema).max(1000)),
   githubSelectRepository: (input: { organizationId: string; applicationId: string; installationId: string; repositoryId: number; fullName: string; defaultBranch: string }) => request(
     `${applicationPath(input.organizationId, input.applicationId)}/github/installations/${encodeURIComponent(input.installationId)}/repositories/${input.repositoryId}/select`,
-    githubSelectSchema, { method: 'POST', ...jsonBody({ fullName: input.fullName, defaultBranch: input.defaultBranch }) }, 201,
+    githubSelectSchema, { method: 'POST', ...jsonBody({ fullName: input.fullName, defaultBranch: input.defaultBranch }) }, 201, 110_000,
   ),
   githubDisconnect: (organizationId: string, installationId: string) => request(`${organizationPath(organizationId)}/github/connections/${encodeURIComponent(installationId)}`, z.undefined(), { method: 'DELETE' }),
 };

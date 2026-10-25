@@ -58,6 +58,8 @@ export function createSingleAppGitHubBroker(options: {
   async function send(input: BrokerRequest): Promise<BrokerResponse> {
     const request = githubBrokerRequestSchema.safeParse(input);
     if (!request.success) throw new HttpError(400, 'github_broker_request_invalid', 'No se pudo preparar la solicitud de GitHub.');
+    // A supported source capture has its own 60-second reader deadline plus provider setup and token cleanup.
+    const timeoutMs = request.data.operation === 'readRepository' && request.data.read === 'snapshot' ? 90_000 : responseTimeoutMs;
 
     let response: Response;
     try {
@@ -65,7 +67,7 @@ export function createSingleAppGitHubBroker(options: {
         method: 'POST',
         redirect: 'error',
         cache: 'no-store',
-        signal: AbortSignal.timeout(responseTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
         headers: {
           authorization: `Bearer ${options.bearerToken}`,
           accept: 'application/json',
@@ -91,7 +93,7 @@ export function createSingleAppGitHubBroker(options: {
 
     let raw: unknown;
     try {
-      const body = await readBoundedBody(response, responseLimit, responseTimeoutMs);
+      const body = await readBoundedBody(response, responseLimit, timeoutMs);
       raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body));
     } catch {
       throw new HttpError(502, 'github_broker_response_invalid', 'El servicio de GitHub devolvió una respuesta inesperada.');
