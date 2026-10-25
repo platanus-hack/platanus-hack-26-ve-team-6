@@ -97,12 +97,16 @@ async function withScratchDirectory<T>(run: (directory: string) => Promise<T>): 
 }
 
 /** CLIs sometimes wrap the requested JSON in a Markdown fence; accept exactly one fenced block. */
-function parseJsonReply(text: string): unknown {
+function parseJsonReply(text: string | undefined): unknown {
+  if (!text) return null;
   const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n?```$/.exec(text.trim());
   try {
     const parsed: unknown = JSON.parse(fenced?.[1] ?? text);
     return parsed;
-  } catch { throw new ModelProviderError('invalid_response'); }
+  } catch {
+    // Payload validation must not discard authoritative usage; callers settle it before validation.
+    return null;
+  }
 }
 
 function assertPreset(request: ModelCompletionRequest, adapterKind: 'claude_code_cli' | 'codex_cli') {
@@ -155,12 +159,14 @@ function claudeCodeAdapter(binary: string, path: string): ModelPort {
         catch { throw new ModelProviderError(run.exitCode === 0 ? 'invalid_response' : 'request_failed'); }
         const result = claudeResultSchema.safeParse(raw);
         if (!result.success) throw new ModelProviderError('invalid_response');
-        if (result.data.is_error) throw new ModelProviderError('request_failed', result.data.api_error_status ?? undefined);
         const usage = result.data.usage;
+        if (result.data.is_error && (result.data.api_error_status != null || !usage)) {
+          throw new ModelProviderError('request_failed', result.data.api_error_status ?? undefined);
+        }
         if (!usage) throw new ModelProviderError('missing_usage');
-        if (!result.data.result) throw new ModelProviderError('invalid_response');
         return {
-          output: parseJsonReply(result.data.result),
+          // A terminal generation error can carry usage, but its result is never a usable reply.
+          output: result.data.is_error ? null : parseJsonReply(result.data.result),
           inputTokens: usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
           outputTokens: usage.output_tokens,
         } satisfies ModelCompletion;
@@ -245,7 +251,6 @@ function codexAdapter(binary: string, path: string): ModelPort {
         if (failure !== undefined) throw new ModelProviderError('request_failed', codexFailureStatus(failure));
         if (run.exitCode !== 0) throw new ModelProviderError('request_failed');
         if (completedTurns === 0) throw new ModelProviderError('missing_usage');
-        if (!reply) throw new ModelProviderError('invalid_response');
         return { output: parseJsonReply(reply), inputTokens, outputTokens } satisfies ModelCompletion;
       });
     },
