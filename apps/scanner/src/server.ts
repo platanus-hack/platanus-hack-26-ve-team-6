@@ -1,11 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { createSecureContext } from 'node:tls';
-import { customerAssessmentReportSchema, customerRunInputSchema, type CustomerRunInput, type CustomerAssessmentReport } from '@gotchu/contracts';
+import { customerAssessmentReportSchema, customerRunInputSchema, type CustomerRunInput, type CustomerAssessmentReport, type CustomerScannerPhase } from '@gotchu/contracts';
 import { createCustomerAssessmentRunner, assertReportBinding, isScannerCleanupError } from '@gotchu/customer-assessment';
-import { checkSecret, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, verifyScannerSignature } from './auth.js';
+import { checkSecret, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, SCANNER_PROGRESS_TYPE, verifyScannerSignature } from './auth.js';
 export interface ScannerRunner {
-  run(input: CustomerRunInput): Promise<CustomerAssessmentReport>;
+  run(input: CustomerRunInput, options?: { onProgress?: (phase: CustomerScannerPhase) => void }): Promise<CustomerAssessmentReport>;
   readiness(): Promise<{ready:boolean;tools:Array<{name:string;available:boolean}>}>;
 }
 export interface ScannerTlsIdentity { cert: Uint8Array; key: Uint8Array }
@@ -70,13 +70,24 @@ export function createScannerServer(options: {secret:Uint8Array;runner?:ScannerR
       let json: unknown;try{json=JSON.parse(bytes.toString('utf8'));}catch{send(res,400,{error:'invalid_json'});return;}
       const parsed=customerRunInputSchema.safeParse(json);
       if(!parsed.success){send(res,400,{error:'invalid_input'});return;}
-      const work=Promise.resolve().then(()=>runner.run(parsed.data)); workOwnsSlot=true;
+      // A client that accepts NDJSON hears each finished branch first, then one report or error line.
+      const streaming=req.headers.accept===SCANNER_PROGRESS_TYPE;
+      const line=(value: unknown)=>{
+        if(res.destroyed||res.writableEnded)return;
+        if(!res.headersSent)res.writeHead(200,{'content-type':SCANNER_PROGRESS_TYPE,'cache-control':'no-store','connection':'close'});
+        res.write(`${JSON.stringify(value)}\n`);
+      };
+      const work=Promise.resolve().then(()=>streaming?runner.run(parsed.data,{onProgress:phase=>line({type:'progress',phase})}):runner.run(parsed.data)); workOwnsSlot=true;
       work.then(()=>release(),error=>release(error));
       const result=await responseWithin(work,55000);
       const report=customerAssessmentReportSchema.parse(result);assertReportBinding(parsed.data,report);
       if(Buffer.byteLength(JSON.stringify(report))>MAX_RESPONSE_BYTES)throw new Error('report_limit');
-      send(res,200,report);
-    } catch {send(res,503,{error:'assessment_unavailable'});}
+      if(streaming){line({type:'report',report});res.end();}
+      else send(res,200,report);
+    } catch {
+      if(res.headersSent){if(!res.writableEnded&&!res.destroyed)res.end(`${JSON.stringify({type:'error',error:'assessment_unavailable'})}\n`);}
+      else send(res,503,{error:'assessment_unavailable'});
+    }
     finally {if(!workOwnsSlot)active=false;}
   }
   const handleRequest = (req:IncomingMessage,res:ServerResponse)=>{
