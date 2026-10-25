@@ -458,7 +458,8 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
         const findings = [...report.internal?.findings ?? [], ...report.external?.findings ?? []];
         expect(findings.every(finding => finding.exploitability === 'unknown')).toBe(true);
         expect(report.comparison.flatMap(row => [...row.internalFindingIds, ...row.externalFindingIds]).sort()).toEqual(findings.map(finding => finding.id).sort());
-        expect(report.limitations.join(' ')).toContain('not proven to match deployment');
+        if (mode === 'external') expect(report.limitations.join(' ')).not.toContain('Uploaded source');
+        else expect(report.limitations.join(' ')).toContain('not proven to match deployment');
       }
     }
     expect(reports).toHaveLength(6);
