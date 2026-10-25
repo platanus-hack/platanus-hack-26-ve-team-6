@@ -11,7 +11,7 @@ const defaultLimits = { vcpu: 1, memMiB: 1024, pids: 128, wallMs: 120_000, outpu
 function suiteNameForConfig(name: string, selection: { files: readonly string[] } | null): string {
   if (!selection) return name;
   const marker = selection.files.length === 1 ? ' [selected test: 1 file]' : ` [selected tests: ${selection.files.length} files]`;
-  return `${name.slice(0, 128 - marker.length).trimEnd()}${marker}`;
+  return `${Array.from(name).slice(0, 128 - marker.length).join('').trimEnd()}${marker}`;
 }
 
 export function scoreValidation(evidence: readonly ValidationEvidence[], mode: 'correction' | 'dependency' = 'correction'): { state: 'passed' | 'failed' | 'inconclusive'; reason: string | null } {
