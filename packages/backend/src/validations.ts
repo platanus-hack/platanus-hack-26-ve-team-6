@@ -8,6 +8,12 @@ const scopeSchema = z.object({ organizationId: z.uuid(), applicationId: z.uuid()
 const configureSchema = validationSuiteConfigSchema;
 const defaultLimits = { vcpu: 1, memMiB: 1024, pids: 128, wallMs: 120_000, outputBytes: 262_144, diskMiB: 2048 } as const;
 
+function suiteNameForConfig(name: string, selection: { files: readonly string[] } | null): string {
+  if (!selection) return name;
+  const marker = selection.files.length === 1 ? ' [selected test: 1 file]' : ` [selected tests: ${selection.files.length} files]`;
+  return `${name.slice(0, 128 - marker.length).trimEnd()}${marker}`;
+}
+
 export function scoreValidation(evidence: readonly ValidationEvidence[], mode: 'correction' | 'dependency' = 'correction'): { state: 'passed' | 'failed' | 'inconclusive'; reason: string | null } {
   const base = evidence.find(item => item.kind === 'base_reproduction');
   const regression = evidence.find(item => item.kind === 'candidate_regression');
@@ -37,7 +43,7 @@ export async function enqueueValidation(tx: Transaction, input: {
       AND ($3::uuid IS NULL OR id=$3) ORDER BY created_at,id LIMIT 2`, [input.organizationId, input.applicationId, input.repositoryLinkId ?? null, input.mode === 'dependency']);
   if (repository.rows.length > 1) throw new BackendError('repository_link_ambiguous', 'Independent validation requires one exact repository link', 409);
   const linkId = repository.rows[0]?.id;
-  const suite = linkId ? await tx.query<{ id: string; version: number; repository_link_id: string }>(`SELECT id,version,repository_link_id FROM gotchu.validation_suite_definitions
+  const suite = linkId ? await tx.query<{ id: string; version: number; repository_link_id: string; profile: string }>(`SELECT id,version,repository_link_id,profile FROM gotchu.validation_suite_definitions
     WHERE organization_id=$1 AND application_id=$2 AND repository_link_id=$3 ORDER BY version DESC LIMIT 1`, [input.organizationId, input.applicationId, linkId]) : null;
   const selectedSuite = suite?.rows[0];
   if (input.mode === 'dependency' && !selectedSuite) throw new BackendError('validation_suite_missing', 'A dependency candidate requires a configured validation suite', 409);
@@ -50,10 +56,10 @@ export async function enqueueValidation(tx: Transaction, input: {
   }
   await tx.query(`INSERT INTO gotchu.validation_runs(organization_id,application_id,id,action_ref,target_finding_id,target_finding_ids,validation_mode,dependency_allowlist,candidate_source_id,base_source_id,
     suite_repository_link_id,suite_definition_id,suite_version,base_snapshot_digest,candidate_tree_digest,patch_digest,state,reason,runner_profile,sandbox_kind,limits,finished_at)
-    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'node24-npm-test','bwrap+systemd-scope',$19::jsonb,CASE WHEN $17='inconclusive' THEN clock_timestamp() ELSE NULL END)`,
+    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'bwrap+systemd-scope',$20::jsonb,CASE WHEN $17='inconclusive' THEN clock_timestamp() ELSE NULL END)`,
   [input.organizationId, input.applicationId, id, input.candidateSourceId, input.targetFindingId, JSON.stringify(targetFindingIds), input.mode ?? 'correction', JSON.stringify(dependencyAllowlist), input.candidateSourceId, input.baseSourceId,
     selectedSuite?.repository_link_id ?? null, selectedSuite?.id ?? null, selectedSuite?.version ?? null, input.baseDigest, input.candidateDigest, input.patchDigest,
-    selectedSuite ? 'queued' : 'inconclusive', selectedSuite ? null : 'suite_not_configured', JSON.stringify(defaultLimits)]);
+    selectedSuite ? 'queued' : 'inconclusive', selectedSuite ? null : 'suite_not_configured', selectedSuite?.profile ?? 'node24-npm-test', JSON.stringify(defaultLimits)]);
   return id;
 }
 
@@ -62,6 +68,10 @@ export function createValidationService(deps: BaseDependencies) {
     async configureSuite(identity: Identity, raw: z.input<typeof configureSchema>) {
       const actor = parse(z.object({ userId: z.string().min(1).max(256) }).strict(), identity);
       const input = parse(configureSchema, raw);
+      if (input.profile === 'node24-tsx-selected-v1' ? input.scriptName !== 'test' || input.testSelection === null : input.testSelection !== null) {
+        throw new BackendError('validation_profile_config_invalid', 'The selected profile requires the test script and an explicit file selection; legacy profiles cannot include selected files');
+      }
+      const suiteName = suiteNameForConfig(input.suiteName, input.testSelection);
       return deps.database.tenant(input.organizationId, async tx => {
         await authorize(tx, input.organizationId, actor, ['owner', 'operator']);
         const link = await tx.query<{ revoked: boolean }>('SELECT revoked FROM gotchu.application_repository_links WHERE organization_id=$1 AND application_id=$2 AND id=$3', [input.organizationId, input.applicationId, input.repositoryLinkId]);
@@ -69,10 +79,10 @@ export function createValidationService(deps: BaseDependencies) {
         const prior = await tx.query<{ version: number }>('SELECT max(version)::int AS version FROM gotchu.validation_suite_definitions WHERE organization_id=$1 AND application_id=$2 AND repository_link_id=$3', [input.organizationId, input.applicationId, input.repositoryLinkId]);
         const version = (prior.rows[0]?.version ?? 0) + 1;
         const id = randomUUID();
-        await tx.query(`INSERT INTO gotchu.validation_suite_definitions(organization_id,application_id,repository_link_id,id,version,profile,script_name,suite_name,required_count,regression_test_path,created_by)
-          VALUES($1,$2,$3,$4,$5,'node24-npm-test',$6,$7,$8,$9,$10)`, [input.organizationId, input.applicationId, input.repositoryLinkId, id, version, input.scriptName, input.suiteName, input.requiredCount, input.regressionTestPath ?? null, actor.userId]);
-        await audit(tx, input.organizationId, actor.userId, 'validation.suite_configured', id, { applicationId: input.applicationId, repositoryLinkId: input.repositoryLinkId, version, suiteName: input.suiteName });
-        return validationSuiteDefinitionSchema.parse({ id, organizationId: input.organizationId, applicationId: input.applicationId, repositoryLinkId: input.repositoryLinkId, version, profile: 'node24-npm-test', scriptName: input.scriptName, suiteName: input.suiteName, requiredCount: input.requiredCount, regressionTestPath: input.regressionTestPath ?? null, createdAt: new Date().toISOString() });
+        await tx.query(`INSERT INTO gotchu.validation_suite_definitions(organization_id,application_id,repository_link_id,id,version,profile,script_name,suite_name,required_count,regression_test_path,test_selection,created_by)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12)`, [input.organizationId, input.applicationId, input.repositoryLinkId, id, version, input.profile, input.scriptName, suiteName, input.requiredCount, input.regressionTestPath ?? null, input.testSelection === null ? null : JSON.stringify(input.testSelection), actor.userId]);
+        await audit(tx, input.organizationId, actor.userId, 'validation.suite_configured', id, { applicationId: input.applicationId, repositoryLinkId: input.repositoryLinkId, version, profile: input.profile, suiteName });
+        return validationSuiteDefinitionSchema.parse({ id, organizationId: input.organizationId, applicationId: input.applicationId, repositoryLinkId: input.repositoryLinkId, version, profile: input.profile, scriptName: input.scriptName, suiteName, requiredCount: input.requiredCount, regressionTestPath: input.regressionTestPath ?? null, testSelection: input.testSelection, createdAt: new Date().toISOString() });
       });
     },
     async getStatus(identity: Identity, raw: { organizationId: string; applicationId: string; candidateSourceId: string }) {
