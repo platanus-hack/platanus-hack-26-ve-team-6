@@ -9,6 +9,7 @@ import { HttpError } from './http.js';
 import { bindDemoAssessmentServices, createDemoAssessmentApi } from './demo.js';
 import { createLocalAccounts } from './local-accounts.js';
 import { createCustomerApi } from './customer-api.js';
+import { githubMonitorRepositoryOptions } from './github-api.js';
 import { createFileEventCredentials } from './event-credentials.js';
 import { createNotificationWebhookValidator } from './notification-dns.js';
 import { resolve } from 'node:path';
@@ -260,9 +261,10 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
     validations: web.validations,
     repositoryCatalog: async (identity, scope) => {
       await web.operations.getConfig(identity, scope);
-      if (!env.GOTCHU_MONITORING_CONFIG_FILE) return [];
+      const connected = env.GOTCHU_GITHUB_READER_APP_FILE ? await githubMonitorRepositoryOptions(await web.github.listRepositoryLinks(identity, scope), env.GOTCHU_GITHUB_READER_APP_FILE) : [];
+      if (!env.GOTCHU_MONITORING_CONFIG_FILE) return connected;
       const catalog = await loadMonitoringRepositoryCatalog(env.GOTCHU_MONITORING_CONFIG_FILE);
-      return catalog.listAllowedRepositoryOptions(scope).map(entry => ({ key: entry.repositoryKey, label: entry.displayName }));
+      return [...connected, ...catalog.listAllowedRepositoryOptions(scope).map(entry => ({ key: entry.repositoryKey, label: entry.displayName }))];
     },
     job: (identity, value) => web.web.getJob(identity, value) } : null,
     ...(accounts ? { localAccounts: accounts } : {}),

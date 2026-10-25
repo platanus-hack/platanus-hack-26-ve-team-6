@@ -12,6 +12,8 @@ export interface MonitoringAdapters {
   dependencies(repository: RepositorySnapshotObservation, signal: AbortSignal): Promise<DependencyObservation>;
   provider(name: 'cloudflare' | 'railway', signal: AbortSignal): Promise<ProviderStatusObservation>;
   httpsHealth(target: TrustedCustomerTarget, route: string, signal: AbortSignal): Promise<AuthorizedHttpsHealthObservation>;
+  /** Absent when no exploited-vulnerability feed is configured. */
+  exploitedVulnerabilities?(advisories: DependencyObservation['advisories'], signal: AbortSignal): Promise<{ candidates: MonitoringCandidate[] }>;
 }
 export interface MonitoringDependencies { backend: Backend; database: Database; adapters: MonitoringAdapters }
 
@@ -84,6 +86,12 @@ export async function runMonitoringWork(deps: MonitoringDependencies, initial: M
             const dependencies = await deps.adapters.dependencies(repository, AbortSignal.any([signal, AbortSignal.timeout(30_000)]));
             for (const candidate of dependencies.candidates.slice(0, 20)) await record(candidate);
             if (!dependencies.complete) degraded = true;
+            if (deps.adapters.exploitedVulnerabilities && dependencies.advisories.length) {
+              try {
+                const exploited = await deps.adapters.exploitedVulnerabilities(dependencies.advisories, AbortSignal.any([signal, AbortSignal.timeout(20_000)]));
+                for (const candidate of exploited.candidates.slice(0, 20)) await record(candidate);
+              } catch { degraded = true; }
+            }
             if (!dependencies.candidates.length && dependencies.complete) await healthy('Queried supported exact dependency versions; dependency source repositories and runtime reachability are not established.', dependencies.evidence, repository.capturedAt);
           } catch { degraded = true; }
         } catch { degraded = true; }

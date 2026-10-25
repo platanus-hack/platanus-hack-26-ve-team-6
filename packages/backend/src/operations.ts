@@ -14,6 +14,8 @@ import { enqueueNotificationEvent } from './notifications.js';
 
 type Scope = z.infer<typeof customerScopeSchema>;
 const writes = ['owner', 'operator'] as const;
+/** Matches the dashboard's preselected frequency. */
+export const DEFAULT_MONITOR_INTERVAL_SECONDS = 21_600;
 const discoveryTenant = '00000000-0000-0000-0000-000000000000';
 const limitsSchema = z.object({ limit: z.number().int().min(1).max(50).default(20) });
 const listSchema = customerScopeSchema.extend(limitsSchema.shape).strict();
@@ -109,6 +111,25 @@ export function createOperationsService(deps: BaseDependencies) {
           [value.organizationId, value.applicationId, value.enabled, value.intervalSeconds, value.sourceSnapshotId, value.targetId, targetVersion, value.repositoryKey, JSON.stringify([...new Set(value.providers)]), identity.userId]);
           await audit(tx, value.organizationId, identity.userId, 'monitor.configured', value.applicationId, { enabled: value.enabled });
           return parse(monitorConfigSchema, await config(tx, value));
+        });
+      } catch (error) { translateFence(error); }
+    },
+    /**
+     * Turns on default monitoring for a newly connected repository, only when the application has never
+     * had a monitor; an existing configuration, including a deliberately disabled one, is left alone.
+     * The first check waits one interval because connecting already queued a scan.
+     */
+    async enableDefault(identity: Identity, input: Scope & { repositoryKey: string }): Promise<boolean> {
+      const value = parse(monitorConfigInputSchema, { organizationId: input.organizationId, applicationId: input.applicationId, enabled: true, intervalSeconds: DEFAULT_MONITOR_INTERVAL_SECONDS, repositoryKey: input.repositoryKey });
+      try {
+        return await deps.database.tenant(value.organizationId, async tx => {
+          await authorize(tx, value.organizationId, identity, writes); await application(tx, value, true);
+          const inserted = await tx.query(`INSERT INTO gotchu.operation_monitors(organization_id,application_id,enabled,interval_seconds,repository_key,author_id,next_due_at)
+            VALUES($1,$2,true,$3::integer,$4,$5,clock_timestamp()+$3::integer*interval '1 second') ON CONFLICT(organization_id,application_id) DO NOTHING`,
+          [value.organizationId, value.applicationId, value.intervalSeconds, value.repositoryKey, identity.userId]);
+          if (!inserted.rowCount) return false;
+          await audit(tx, value.organizationId, identity.userId, 'monitor.configured', value.applicationId, { enabled: true, default: true });
+          return true;
         });
       } catch (error) { translateFence(error); }
     },
@@ -261,7 +282,8 @@ export function createOperationsService(deps: BaseDependencies) {
         const authorization = await tx.query<{ valid: boolean }>(`SELECT
           EXISTS(SELECT 1 FROM gotchu.memberships u WHERE u.organization_id=m.organization_id AND u.user_id=m.author_id AND u.role IN ('owner','operator'))
           AND (m.source_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_sources s WHERE s.organization_id=m.organization_id AND s.application_id=m.application_id AND s.id=m.source_id AND s.deleted_at IS NULL))
-          AND (m.target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='authorized' AND t.expires_at>clock_timestamp())) AS valid
+          AND (m.target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='authorized' AND t.expires_at>clock_timestamp()))
+          AND gotchu.monitor_repository_current(m.organization_id,m.application_id,m.repository_key) AS valid
           FROM gotchu.operation_monitors m WHERE m.organization_id=$1 AND m.application_id=$2`, [value.organizationId, value.applicationId]);
         const scopeCurrent = authorization.rows[0]?.valid ?? false;
         const gaps = await tx.query<{ capability: string; reason: string }>(`SELECT capability,reason FROM gotchu.coverage WHERE organization_id=$1 AND application_id=$2

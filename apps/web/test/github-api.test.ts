@@ -33,7 +33,7 @@ async function callbackFixture(options: FixtureOptions = {}) {
       return { organizationId, installationId: options.target === undefined ? '174788349' : options.target, verifier: options.verifier === undefined ? verifier : options.verifier, purpose: options.purpose ?? 'authorize' };
     }),
     bind: vi.fn(async () => ({ installationId: '174788349', accountLogin: 'fixture-owner', state: 'active' as const, connectedAt: new Date().toISOString() })),
-    list: vi.fn(async () => []), revoke: vi.fn(async () => undefined),
+    list: vi.fn(async () => []), revoke: vi.fn(async () => undefined), listRepositoryLinks: vi.fn(async () => []),
     createRepositoryLink: vi.fn(async () => { throw new Error('No source read is expected'); }),
   } satisfies Backend['github'];
   const calls: string[] = [];
@@ -50,7 +50,7 @@ async function callbackFixture(options: FixtureOptions = {}) {
     if (url.startsWith('https://api.github.com/user/memberships/orgs/')) return Response.json({ role: options.role ?? 'admin', state: options.memberState ?? 'active', organization: { id: options.membershipAccountId ?? 101 }, user: { id: options.userId ?? 101 } });
     throw new Error('Unexpected fixture request');
   };
-  const handler = createGitHubApi({ origin: 'http://localhost:3000', appFile, appSlug: 'fixture-app', services: { github, uploadSource: async () => { throw new Error('No source upload expected'); }, queue: async () => { throw new Error('No scan expected'); } }, fetchImplementation });
+  const handler = createGitHubApi({ origin: 'http://localhost:3000', appFile, appSlug: 'fixture-app', services: { github, enableDefaultMonitoring: async () => { throw new Error('No monitor expected'); }, uploadSource: async () => { throw new Error('No source upload expected'); }, queue: async () => { throw new Error('No scan expected'); } }, fetchImplementation });
   const request = new Request(`http://localhost:3000/api/customer/github/callback?code=fixture-code&installation_id=174788349&setup_action=install&state=${state}`);
   const response = await handler(request, { userId });
   if (!response) throw new Error('Callback route did not match');

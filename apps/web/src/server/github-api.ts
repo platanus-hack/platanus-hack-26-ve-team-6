@@ -12,7 +12,7 @@ const appFileSchema = z.object({ id: z.preprocess(value => typeof value === 'num
 const repositoryListSchema = z.object({ repositories: z.array(z.object({ id: z.number().int().positive(), full_name: z.string().min(3).max(200), default_branch: z.string().min(1).max(200), private: z.boolean(), archived: z.boolean() }).passthrough()).max(1000), total_count: z.number().int().nonnegative() }).passthrough();
 const accessTokenSchema = z.object({ token: z.string().min(1), expires_at: z.iso.datetime() }).passthrough();
 const oauthTokenSchema = z.object({ access_token: z.string().min(1), token_type: z.literal('bearer'), scope: z.string().optional() }).passthrough();
-type GithubServices = { github: Backend['github'] } & Pick<NonNullable<CustomerServices>, 'uploadSource' | 'queue'>;
+type GithubServices = { github: Backend['github']; enableDefaultMonitoring: Backend['operations']['enableDefault'] } & Pick<NonNullable<CustomerServices>, 'uploadSource' | 'queue'>;
 type AppCredentials = z.infer<typeof appFileSchema>;
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
@@ -73,6 +73,21 @@ export async function listGitHubInstallationRepositories(token: string, fetcher:
   }
   if (repositories.length < totalCount || totalCount > 1000) throw new HttpError(413, 'github_repository_limit', 'La instalación contiene más de 1000 repositorios; reduce su alcance antes de conectarla.');
   return repositories;
+}
+
+/** Monitor picker options for App-connected repositories, named by their current GitHub full name. */
+export async function githubMonitorRepositoryOptions(links: readonly { repositoryKey: string; installationId: string }[], appFile: string) {
+  const names = new Map<string, string>();
+  for (const installationId of new Set(links.map(link => link.installationId))) {
+    try {
+      const repositories = await listGitHubInstallationRepositories(await mintGitHubInstallationToken(installationId, appFile));
+      for (const repository of repositories) names.set(`gh-${repository.id}`, repository.full_name);
+    } catch (error) {
+      // The key stays selectable; the coordinator re-checks access on every run and records the gap.
+      console.warn('github_monitor_repository_names_unavailable', error instanceof HttpError ? error.code : 'unexpected');
+    }
+  }
+  return links.map(link => ({ key: link.repositoryKey, label: names.get(link.repositoryKey) ?? link.repositoryKey }));
 }
 
 function authorizationUrl(origin: string, credentials: AppCredentials, handshake: { state: string; codeChallenge: string | null }) {
@@ -221,7 +236,8 @@ export function createGitHubApi(options: { origin: string; appFile?: string; app
           const source = await services.uploadSource(identity, { organizationId, applicationId, authorized: true, snapshot: observation.snapshot });
           const link = await services.github.createRepositoryLink(identity, { organizationId, applicationId, installationId, repositoryId, fullName: repository.full_name, defaultBranch: repository.default_branch });
           const queued = await services.queue(identity, { organizationId, applicationId, mode: 'internal', sourceSnapshotId: source.id, targetId: null, idempotencyKey: `github-first-scan:${installationId}:${repository.id}:${observation.commit.sha}` });
-          return send({ repository: githubRepositorySchema.parse({ id: repository.id, fullName: repository.full_name, defaultBranch: repository.default_branch, private: repository.private, archived: repository.archived }), link, source, jobId: queued.jobId }, 201);
+          const monitoringEnabled = await services.enableDefaultMonitoring(identity, { organizationId, applicationId, repositoryKey: link.repositoryKey });
+          return send({ repository: githubRepositorySchema.parse({ id: repository.id, fullName: repository.full_name, defaultBranch: repository.default_branch, private: repository.private, archived: repository.archived }), link, source, jobId: queued.jobId, monitoringEnabled }, 201);
         } catch (error) {
           if (error instanceof HttpError && [401, 403, 404].includes(error.status)) await services.github.revoke(identity, organizationId, installationId);
           throw error;

@@ -577,6 +577,9 @@ async function start() {
     const urls = databaseUrls(infra);
     const scannerSecretFile = join(directory, 'scanner.secret');
     const origin = `http://localhost:${ports.web}`;
+    // Optional: lets the web connect GitHub repositories and the coordinator monitor them.
+    const githubAppEnvironment = Object.fromEntries(['GOTCHU_GITHUB_READER_APP_FILE', 'GOTCHU_GITHUB_APP_SLUG']
+      .flatMap(name => process.env[name] ? [[name, process.env[name]]] : []));
 
     await launchService(state, 'scanner', ports.scanner, {
       GOTCHU_SCANNER_SECRET_FILE: scannerSecretFile,
@@ -592,6 +595,7 @@ async function start() {
       GOTCHU_MONITORING_ENABLED: 'true',
       GOTCHU_MONITORING_OSV: 'true',
       ...(process.env.GOTCHU_MONITORING_CONFIG_FILE ? { GOTCHU_MONITORING_CONFIG_FILE: process.env.GOTCHU_MONITORING_CONFIG_FILE } : {}),
+      ...githubAppEnvironment,
       GOTCHU_COORDINATOR_DATABASE_URL: urls.coordinator,
       GOTCHU_REDIS_URL: redisUrl(infra),
       GOTCHU_SCANNER_ORIGIN: `http://127.0.0.1:${ports.scanner}`,
@@ -608,6 +612,7 @@ async function start() {
       GOTCHU_INGEST_DATABASE_URL: urls.ingest,
       GOTCHU_LOCAL_AUTH_ENABLED: 'true',
       ...(process.env.GOTCHU_MONITORING_CONFIG_FILE ? { GOTCHU_MONITORING_CONFIG_FILE: process.env.GOTCHU_MONITORING_CONFIG_FILE } : {}),
+      ...githubAppEnvironment,
       GOTCHU_ALLOW_LOCAL_REGISTRATION: 'true',
       GOTCHU_EVENT_CREDENTIAL_DIRECTORY: join(directory, 'event-credentials'),
     });

@@ -12,6 +12,8 @@ export {
 } from './config.js';
 export { createLocalGitRepositoryReader, type LocalGitRepositoryReaderOptions, type RepositoryReadRequest } from './local-git.js';
 export { createGitHubRepositoryReader, type GitHubRepositoryReaderOptions } from './github.js';
+export { createGitHubAppInstallationClient, type GitHubAppInstallationClientOptions } from './github-app.js';
+export { createCisaKevAdapter, CISA_KEV_FEED_URL, type CisaKevAdapterOptions } from './kev.js';
 export { createOsvDependencyAdapter, type OsvDependencyAdapterOptions, type OsvReadRequest } from './osv.js';
 export {
   createCloudflareStatusAdapter,
