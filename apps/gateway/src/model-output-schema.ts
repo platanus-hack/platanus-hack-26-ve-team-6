@@ -14,13 +14,13 @@ function requireObjectProperties(value: unknown): unknown {
   if (result.type === 'object' && properties !== null && typeof properties === 'object' && !Array.isArray(properties)) {
     result.required = Object.keys(properties);
   }
-  return Object.fromEntries(Object.entries(result));
+  return result;
 }
 
 function responseSchema(schema: z.ZodType): Readonly<Record<string, unknown>> {
   const result = requireObjectProperties(z.toJSONSchema(schema, { target: 'draft-7' }));
   if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Model response schema must be an object');
-  return result;
+  return Object.fromEntries(Object.entries(result));
 }
 
 export const investigationReplyJsonSchema = responseSchema(modelOutputSchema);
