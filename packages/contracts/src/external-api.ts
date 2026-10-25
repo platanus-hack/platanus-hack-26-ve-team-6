@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const API_CHECKS_VERSION = '1.0.0';
+export const API_CHECKS_VERSION = '1.1.0';
 export const API_CHECKS_MAX_REQUESTS = 16;
 export const API_CHECKS_MAX_RESPONSE_BYTES = 98_304;
 export const apiScenarioIdSchema = z.enum(['schema_discovery', 'cors_preflight', 'method_policy', 'error_handling', 'auth_boundary']);
@@ -21,12 +21,13 @@ export const apiOperationSchema = z.object({
 
 /** Response bodies and arbitrary schema descriptions never enter persisted evidence. */
 export const apiCheckEvidenceSchema = z.object({
-  profile: z.literal('api_checks'), catalogVersion: z.literal(API_CHECKS_VERSION),
+  profile: z.literal('api_checks'), catalogVersion: z.enum(['1.0.0', API_CHECKS_VERSION]),
   scenarioId: apiScenarioIdSchema,
   method: z.enum(['GET', 'HEAD', 'OPTIONS']), path: z.string().min(1).max(512),
   status: z.number().int().min(100).max(599).nullable(), tlsVerified: z.boolean(),
   headers: z.record(z.string(), z.string()), bodyBytes: z.number().int().nonnegative(),
   incomplete: z.string().nullable(),
+  bodyPolicy: z.enum(['headers_only', 'bounded_body']).optional(),
   signals: z.object({
     schema: z.boolean().optional(), documentedOperationCount: z.number().int().nonnegative().optional(),
     operationsTruncated: z.boolean().optional(), operations: z.array(apiOperationSchema).max(8).optional(),
