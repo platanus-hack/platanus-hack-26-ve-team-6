@@ -8,6 +8,7 @@ import { parseGuestFrame, validateGuestPayload } from './protocol.js';
 import { readArchiveFiles, validateInputArchive } from './archive.js';
 import { fetchNpmDependencies } from './npm-cache.js';
 import { isolationEvidence, readImageLock, sha256 } from './images.js';
+import { validateSelectedTestFiles } from './profile.js';
 import { prepareVmBootFiles } from './vm-config.js';
 import { collectCapped, emptyOutput, finalResult, killProcessGroup, MAX_SERIAL_BYTES, parseResult, waitForExit, type VmOutcome } from './vm-output.js';
 import { readLocalInputObject } from './input-store.js';
@@ -129,8 +130,10 @@ async function inspectSandboxScope(unit: string, expected: { memoryMiB: number; 
 
 async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signal?: AbortSignal, onSpawn?: (unit: string) => Promise<HostSandboxProbe>): Promise<VmOutcome & { readonly hostProbe?: HostSandboxProbe }> {
   const archive = validateInputArchive(input);
-  const packageLock = readArchiveFiles(archive.tarBytes).get('package-lock.json');
-  if (!packageLock) throw new Error('node24-npm-test requires package-lock.json');
+  const files = readArchiveFiles(archive.tarBytes);
+  validateSelectedTestFiles(job, files);
+  const packageLock = files.get('package-lock.json');
+  if (!packageLock) throw new Error(`${job.profile} requires package-lock.json`);
   const npmDependencies = await fetchNpmDependencies(packageLock);
   const dependencyEvidence = { lockfileSha256: npmDependencies.lockfileSha256, tarballSetSha256: npmDependencies.tarballSetSha256 };
   const lock = await readImageLock();

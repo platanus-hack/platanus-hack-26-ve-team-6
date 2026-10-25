@@ -26,7 +26,7 @@ async function runBuildCommand(command: string, args: string[]): Promise<void> {
 async function createInputDisk(stage: string, input: Buffer, job: RunnerJob): Promise<string> {
   await mkdir(stage, { recursive: true });
   await writeFile(join(stage, 'project.tar'), input, { mode: 0o400 });
-  await writeFile(join(stage, 'job.json'), JSON.stringify({ profile: job.profile, limits: job.limits }), { mode: 0o400 });
+  await writeFile(join(stage, 'job.json'), JSON.stringify({ profile: job.profile, limits: job.limits, ...(job.profile === 'node24-tsx-selected-v1' ? { testSelection: job.testSelection } : {}) }), { mode: 0o400 });
   const image = join(stage, '..', 'input.ext4');
   const size = Math.max(16, Math.ceil((input.length + 4096) / (1024 * 1024)) + 8);
   await runBuildCommand('truncate', ['-s', `${size}M`, image]);

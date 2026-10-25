@@ -116,7 +116,7 @@ export function readArchiveFiles(tarBytes: Buffer): ReadonlyMap<string, Buffer> 
     const path = prefix.length === 0 ? name : `${prefix}/${name}`;
     const size = readOctal(header, 124, 136);
     const bodyStart = offset + 512;
-    if ((header[156] === 0 || header[156] === 48) && size > 0) files.set(path, tarBytes.subarray(bodyStart, bodyStart + size));
+    if (header[156] === 0 || header[156] === 48) files.set(path, tarBytes.subarray(bodyStart, bodyStart + size));
     offset = bodyStart + Math.ceil(size / 512) * 512;
   }
   return files;
