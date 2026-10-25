@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { customerAssessmentReportSchema, customerRunInputSchema, customerSourceSnapshotSchema, scoreIndependentRescan, suiteBindingSchema, validationEvidenceSchema, validationLimitsSchema, validationSuiteDefinitionSchema, type ValidationEvidence, type ValidationRun } from '@gotchu/contracts';
 import { createCustomerAssessmentRunner, createDockerScanners, createNpmArtifactAdapter, createNpmArtifactScanner, createNpmLicenseAdapter, createOsvAdapter } from '@gotchu/customer-assessment';
-import { createFirecrackerRunner, checkRunnerGate, runnerJobSchema, runnerPackageRoot, runnerProfileSchema, runnerResultSchema, runnerTestSelectionSchema, type RunnerResult } from '@gotchu/runner';
+import { createDockerRunner, checkDockerRunnerGate, createFirecrackerRunner, checkRunnerGate, runnerJobSchema, runnerPackageRoot, runnerProfileSchema, runnerResultSchema, runnerTestSelectionSchema, type RunnerResult } from '@gotchu/runner';
 import type { Database } from '@gotchu/database';
 import { canonicalJson, scoreValidation } from '@gotchu/backend';
 import { sourceArchive } from './archive.js';
@@ -56,6 +56,7 @@ export interface ValidationWorkerOptions {
   readonly database: Database;
   readonly key: ValidatorKey;
   readonly runnerCacheDir?: string;
+  readonly dockerImageDigest?: string;
   readonly runnerGate?: typeof checkRunnerGate;
   readonly scanner?: typeof scanner;
   readonly runnerJobAdapter?: (
@@ -76,7 +77,9 @@ export async function runValidatedRunnerJob(adapter: (job: z.infer<typeof runner
 export function createValidationWorker(options: ValidationWorkerOptions) {
   const inputRegistry = createValidationInputRegistry();
   const vmRunner = createFirecrackerRunner({ maxConcurrent: options.concurrency ?? 1, resolveInput: inputRegistry.resolveInput, cacheDir: options.runnerCacheDir });
-  const runnerDigests = readFile(join(runnerPackageRoot, 'images.lock.json'), 'utf8').then(async raw => {
+  const dockerRunner = options.dockerImageDigest ? createDockerRunner({ imageDigest: options.dockerImageDigest,
+    maxConcurrent: options.concurrency ?? 1, resolveInput: inputRegistry.resolveInput, cacheDir: options.runnerCacheDir }) : null;
+  const runnerDigests = () => readFile(join(runnerPackageRoot, 'images.lock.json'), 'utf8').then(async raw => {
     const lockValue: unknown = JSON.parse(raw);
     const lock = imageLockSchema.parse(lockValue);
     const implementation = await Promise.all(['firecracker.js', 'vm-config.js', 'contracts.js'].map(name => readFile(join(runnerPackageRoot, 'dist', name))));
@@ -98,7 +101,11 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
   async function finish(run: ValidationRun, leaseToken: string, evidence: ValidationEvidence[], state: string, reason: string | null, results: RunnerResult[]) {
     const now = new Date().toISOString();
     const attestations = evidence.map(evidenceItem => signAttestation({ id: randomUUID(), organizationId: run.organizationId, applicationId: run.applicationId, runId: run.id, actionRef: run.actionRef, evidence: validationEvidenceSchema.parse(evidenceItem), createdAt: now, expiresAt: run.expiresAt }, options.key));
-    const digests = await runnerDigests;
+    const docker = run.sandboxKind === 'docker';
+    const digests = docker ? {
+      runner: createHash('sha256').update(Buffer.concat(await Promise.all(['docker.js', 'contracts.js'].map(name => readFile(join(runnerPackageRoot, 'dist', name)))))).digest('hex'),
+      firecracker: null, kernel: null, rootfs: null,
+    } : await runnerDigests();
     await options.database.tenant(run.organizationId, async tx => {
       const current = await tx.query<{ state: string }>(`SELECT state FROM gotchu.validation_runs WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND lease_token=$4 AND lease_until>clock_timestamp() FOR UPDATE`, [run.organizationId, run.applicationId, run.id, leaseToken]);
       if (!current.rowCount) throw new Error('validation_lease_lost');
@@ -106,10 +113,10 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
       for (const item of attestations) await tx.query(`INSERT INTO gotchu.validation_attestations(organization_id,application_id,run_id,id,kind,body,key_id,signature,expires_at)
         VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [run.organizationId, run.applicationId, run.id, item.payload.id, item.payload.evidence.kind, JSON.stringify(item.payload), item.keyId, item.signature, item.payload.expiresAt]);
       await tx.query(`UPDATE gotchu.validation_runs SET state=$5,reason=$6,finished_at=clock_timestamp(),lease_token=NULL,lease_until=NULL,
-        runner_digest=$7,firecracker_digest=$8,kernel_digest=$9,rootfs_digest=$10,cleanup_verified=$11 WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND lease_token=$4`,
+        runner_digest=$7,firecracker_digest=$8,kernel_digest=$9,rootfs_digest=$10,cleanup_verified=$11,container_image_digest=$12 WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND lease_token=$4`,
       [run.organizationId, run.applicationId, run.id, leaseToken, state, reason, results.length ? digests.runner : null,
         results.length ? digests.firecracker : null, results.length ? digests.kernel : null, results.length ? digests.rootfs : null,
-        results.length > 0 && results.every(result => result.isolation.cleanupVerified)]);
+        results.length > 0 && results.every(result => result.isolation.cleanupVerified), docker && results.length ? options.dockerImageDigest ?? null : null]);
     });
   }
 
@@ -123,7 +130,8 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     const run: ValidationRun = {
       id: String(row.id), organizationId: claim.organizationId, applicationId: claim.applicationId, actionRef: String(row.action_ref), targetFindingId: String(row.target_finding_id), candidateSourceId: String(row.candidate_source_id), baseSourceId: String(row.base_source_id),
       baseSnapshotDigest: String(row.base_snapshot_digest), candidateTreeDigest: String(row.candidate_tree_digest), patchDigest: String(row.patch_digest), suiteRepositoryLinkId: row.suite_repository_link_id ? String(row.suite_repository_link_id) : null, suiteDefinitionId: row.suite_definition_id ? String(row.suite_definition_id) : null, suiteVersion: row.suite_version ? Number(row.suite_version) : null,
-      runnerProfile: runnerProfileSchema.parse(row.runner_profile), runnerDigest: null, firecrackerDigest: null, kernelDigest: null, rootfsDigest: null, sandboxKind: 'bwrap+systemd-scope', limits: validationLimitsSchema.parse(row.limits), state: 'running', reason: null,
+      runnerProfile: runnerProfileSchema.parse(row.runner_profile), runnerDigest: null, firecrackerDigest: null, kernelDigest: null, rootfsDigest: null, containerImageDigest: null,
+      sandboxKind: row.sandbox_kind === 'docker' ? 'docker' : 'bwrap+systemd-scope', limits: validationLimitsSchema.parse(row.limits), state: 'running', reason: null,
       queuedAt: new Date(String(row.queued_at)).toISOString(), startedAt: row.started_at ? new Date(String(row.started_at)).toISOString() : null, finishedAt: null, expiresAt: new Date(String(row.expires_at)).toISOString(),
     };
     const inconclusive = async (why: string, results: RunnerResult[] = []) => finish(run, claim.leaseToken, [
@@ -136,7 +144,10 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     const admission = { suiteConfigured: Boolean(run.suiteDefinitionId && row.suite_name && row.script_name && row.required_count), baseDigestMatches: row.base_source_digest === run.baseSnapshotDigest, candidateDigestMatches: row.candidate_source_digest === run.candidateTreeDigest, scriptName: typeof row.script_name === 'string' ? row.script_name : null, gateOpen: true };
     const preflightReason = validationAdmissionReason(admission);
     if (preflightReason) return inconclusive(preflightReason);
-    const gate = await (options.runnerGate ?? checkRunnerGate)({ cacheDir: options.runnerCacheDir });
+    if (run.sandboxKind === 'docker' && (validationMode !== 'dependency' || run.runnerProfile !== 'node24-tsx-selected-v1' || !options.dockerImageDigest || !dockerRunner)) return inconclusive('runner_configuration_unavailable');
+    const gate = run.sandboxKind === 'docker'
+      ? await checkDockerRunnerGate({ imageDigest: options.dockerImageDigest ?? '' })
+      : await (options.runnerGate ?? checkRunnerGate)({ cacheDir: options.runnerCacheDir });
     const gateReason = validationAdmissionReason({ ...admission, gateOpen: gate.status === 'open' });
     if (gateReason) return inconclusive(gateReason);
     const base = customerSourceSnapshotSchema.parse(row.base_body); const candidate = customerSourceSnapshotSchema.parse(row.candidate_body);
@@ -161,8 +172,12 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
       const adapter = options.runnerJobAdapter;
       const runJob = adapter
         ? (runnerJob: z.infer<typeof runnerJobSchema>, runOptions?: { signal?: AbortSignal }) => adapter(runnerJob, runOptions, inputRegistry.resolveInput)
-        : (runnerJob: z.infer<typeof runnerJobSchema>, runOptions?: { signal?: AbortSignal }) => vmRunner.runJob(runnerJob, runOptions);
-      return inputRegistry.withInput(run.organizationId, objectId, bytes, () => runValidatedRunnerJob(runJob, job, runnerOptions));
+        : (runnerJob: z.infer<typeof runnerJobSchema>, runOptions?: { signal?: AbortSignal }) => run.sandboxKind === 'docker' && dockerRunner
+          ? dockerRunner.runJob(runnerJob, runOptions) : vmRunner.runJob(runnerJob, runOptions);
+      const result = await inputRegistry.withInput(run.organizationId, objectId, bytes, () => runValidatedRunnerJob(runJob, job, runnerOptions));
+      if (result.isolation.sandbox.kind !== run.sandboxKind
+        || result.isolation.sandbox.kind === 'docker' && (!('containerImageDigest' in result.isolation) || result.isolation.containerImageDigest !== options.dockerImageDigest)) throw new Error('runner_identity_mismatch');
+      return result;
     };
     const results: RunnerResult[] = [];
     let cleanupUncertainObserved = false;
