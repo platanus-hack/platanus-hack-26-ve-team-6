@@ -16,6 +16,18 @@ Claude Code and Codex now run investigations on the Owner's own subscription. Ev
 
 The live run found two defects that fixtures had hidden, both fixed: the probe locked the settings row with `FOR UPDATE`, which the gateway role is not granted (every UI probe answered "no disponible"), and the gateway's fixed instruction never described the reply shape the worker enforces (the first live investigation ended `invalid_model_output`). Not measured: a real Codex token rotation, OpenRouter or any API-key provider live, the AWS runtime, and explanation quality beyond this single `eval` fixture.
 
+### Adversarial review — 2026-10-25
+
+My own review pass plus two independent read-only reviews (Codex `gpt-6-luna`, high effort) of the gateway path and the self-host wiring. Fixed:
+
+- Provably unbilled failures (CLI missing, rejected login, unknown model) left reservations stuck; a few Codex probes with an expired login could exhaust a 100k token budget. They now settle at zero.
+- Output caps now subtract a conservative input estimate (three characters per token; measured ≈3.7) for every provider, so a late call is refused cleanly instead of overrunning its reservation. Codex 0.163 ignores `model_max_output_tokens`, so its replies rely on that estimate.
+- A rotated Codex login written back after the Owner replaced or disabled it could recreate the deleted file; leftover CLI scratch directories after a crash are now swept at gateway start.
+- The money budget stays visible for subscriptions, since earlier API-key spending can still block them.
+- Existing installs get free gateway and worker ports on upgrade, and every service now receives its environment through a private `--env-file` instead of process arguments (previously `AUTH_SECRET`, database passwords and the new keys were readable in `/proc/<pid>/cmdline`).
+
+Re-verified live after the fixes: all services started through the new launcher, no secret appeared in any process's arguments, the Claude Code probe and a new investigation succeeded (Spanish explanation, both calls settled, 0 tokens left reserved), and the gateway (51) and backend investigation/budget (8) suites passed. Open: the Codex lock covers one gateway process only (see pendientes).
+
 ## Real-app triage measurement — 2026-10-24
 
 This is a local evaluation of the deterministic evidence path, not a production-accuracy or capacity claim. The separate `apps/demo-target` process uses the Gotchu SDK and runtime guard; it sends signed events to the HTTP intake and coordinator backed by disposable PostgreSQL and Redis/BullMQ. Provider availability and target HTTPS results come from explicitly marked local fixtures.
