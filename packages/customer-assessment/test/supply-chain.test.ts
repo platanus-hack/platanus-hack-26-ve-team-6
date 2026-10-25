@@ -217,6 +217,19 @@ describe('license declarations and workspace policy', () => {
     expect(second.internal?.findings.find(finding => finding.ruleId === 'osv.GHSA-2222-2222-2222')?.dependencyAssessment?.reachability.state).toBe('not_found_static');
   });
 
+  it.each([false, true])('preserves advisory findings and exposes report truncation with many packages (all matched: %s)', async allMatched => {
+    const names = Array.from({ length: 105 }, (_, index) => `package-${index}`);
+    const packages = Object.fromEntries(names.map(name => [`node_modules/${name}`, { version: '1.0.0', ...(allMatched ? { license: 'MIT' } : {}) }]));
+    const report = await createCustomerAssessmentRunner({
+      scanners: absentScanners,
+      advisory: { query: async packages => packages.map(pkg => ({ ids: allMatched || pkg.name === 'package-0' ? ['GHSA-1111-1111-1111'] : [], complete: true })) },
+    }).run(input([{ path: 'package-lock.json', content: JSON.stringify({ lockfileVersion: 3, packages: { '': {}, ...packages } }) }]));
+    expect(report.internal?.findings.some(finding => finding.ruleId === 'osv.GHSA-1111-1111-1111')).toBe(true);
+    expect(report.internal?.findings.length).toBeLessThanOrEqual(100);
+    const capability = allMatched ? 'dependency_advisories' : 'license_metadata';
+    expect(report.internal?.coverage.find(item => item.capability === capability)?.state).toBe('unavailable');
+  });
+
   it('keeps an affected transitive dependency unknown unless a direct lockfile path is recorded', async () => {
     const run = input([
       { path: 'src/app.ts', content: "import { parse } from 'beta/subpath';\nparse('value');" },

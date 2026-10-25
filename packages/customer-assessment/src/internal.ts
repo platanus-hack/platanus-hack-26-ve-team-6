@@ -268,46 +268,6 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
         : `Resolved ${locked.inventory.length} exact package versions with ${locked.unknownCount} unsupported, malformed or capped lockfile entries. The remaining inventory coverage is unknown.`,
   });
 
-  let licenseFindingsIncomplete = false;
-  for (const component of inventoryComponents) {
-    if (component.policyStatus === 'allowed') continue;
-    if (a.findings.length >= 100 || a.evidence.length >= 200) { licenseFindingsIncomplete = true; break; }
-    const evidenceId = evidence(a, 'dependency', component.location.slice(0, 1_024), {
-      package: { name: component.name, version: component.version, purl: component.purl },
-      declaredLicense: component.declaredLicense,
-      normalizedLicense: component.licenseExpression,
-      licenseSource: component.licenseSource,
-      sourceFile: component.sourceFile,
-      sourceDigest: source.digest,
-      policyStatus: component.policyStatus,
-    }, { name: component.licenseSource === 'registry' ? 'npm-registry-version-metadata' : 'lockfile-license-metadata', version: 'v1' });
-    const denied = component.policyStatus === 'denied';
-    finding(a, {
-      ruleId: denied ? 'license.policy.denied' : 'license.policy.review',
-      correlationKey: `license:${component.name}:${component.version}`.slice(0, 512),
-      title: denied ? `Licencia no permitida: ${component.name}` : `Revisar licencia: ${component.name}`,
-      location: component.location,
-      description: component.licenseExpression
-        ? `La licencia declarada ${component.licenseExpression} para ${component.name}@${component.version} se clasificó como ${denied ? 'denegada' : 'requiere revisión'} según la política del espacio de trabajo.`
-        : `No se encontró una expresión SPDX declarada para ${component.name}@${component.version}; la política del espacio de trabajo la mantiene en revisión.`,
-      severity: 'unknown',
-      confidence: 'observed',
-      impact: 'La clasificación describe metadatos de licencia declarados. Gotchu no verificó el texto de licencia incluido en el paquete.',
-      recommendation: 'Revisa la licencia y la política del espacio de trabajo antes de aprobar el uso de este paquete.',
-      limitations: ['La licencia procede de metadatos declarados y no está verificada contra el contenido del paquete.', 'No se instalaron paquetes ni se ejecutó código del cliente.'],
-      evidenceIds: [evidenceId],
-    });
-  }
-  a.coverage.push({
-    capability: 'license_metadata',
-    state: locked.found && licenseLookupComplete && !licenseFindingsIncomplete ? 'inspected' : 'unavailable',
-    detail: !locked.found
-      ? 'No dependency inventory was available for license evaluation.'
-      : licenseLookupComplete && !licenseFindingsIncomplete
-        ? `Evaluated declared license metadata for ${inventoryComponents.length} exact package versions. Missing or unrecognized licenses remain in review; declarations are not verified.`
-        : `License registry lookups or policy findings were capped or unavailable. ${inventoryComponents.filter(component => component.licenseConfidence === 'unknown').length} packages have unknown declared license metadata.`,
-  });
-
   const advisoryByPackage = new Map<string, { ids: string[]; symbols: string[]; complete: boolean; metadata: Map<string, OsvAdvisoryMetadata> }>();
   let advisoryIncomplete = false;
   if (!advisory) {
@@ -428,6 +388,7 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
         : 'Exact npm artifact adapter is not configured. Package contents, registry substitution and source-profile findings remain unknown.',
   });
 
+  let advisoryFindingsIncomplete = false;
   for (const pkg of vulnerablePackages) {
     const key = `${pkg.name}\0${pkg.version}`;
     const packageReachability = reachability.get(pkg.purl) ?? {
@@ -437,7 +398,7 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
     const packageArtifact = artifactByPackage.get(key)?.analysis;
     const integrityMismatchCount = vulnerablePackages.filter(item => artifactState(item) === 'checksum_mismatch').length;
     for (const id of advisoryByPackage.get(key)?.ids ?? []) {
-      if (a.findings.length >= 100 - integrityMismatchCount || a.evidence.length >= 200) break;
+      if (a.findings.length >= 100 - integrityMismatchCount || a.evidence.length >= 200) { advisoryFindingsIncomplete = true; break; }
       const record = advisoryByPackage.get(key)?.metadata.get(id);
       const metadata = record ? { id, withdrawn: record.withdrawn ?? null, affected: record.affected.filter(item => item.package.ecosystem === 'npm' && item.package.name === pkg.name) } : null;
       const metadataIsBounded = metadata !== null && JSON.stringify(metadata).length <= 3_500;
@@ -471,5 +432,53 @@ export async function assessInternal(input: CustomerRunInput, signal: AbortSigna
       evidenceIds: [evidenceId], dependencyAssessment: { name: pkg.name, version: pkg.version, purl: pkg.purl, reachability: packageReachability, artifactStatus: artifact.status },
     });
   }
+  if (advisoryFindingsIncomplete) {
+    const coverage = a.coverage.find(item => item.capability === 'dependency_advisories');
+    if (coverage) {
+      coverage.state = 'unavailable';
+      coverage.detail += ' Advisory findings exceeded the report bound; omitted matches remain unknown.';
+    }
+  }
+  // Advisory and integrity observations take precedence over license review notices.
+  let licenseFindingsIncomplete = false;
+  for (const component of inventoryComponents) {
+    if (component.policyStatus === 'allowed') continue;
+    if (a.findings.length >= 100 || a.evidence.length >= 200) { licenseFindingsIncomplete = true; break; }
+    const evidenceId = evidence(a, 'dependency', component.location.slice(0, 1_024), {
+      package: { name: component.name, version: component.version, purl: component.purl },
+      declaredLicense: component.declaredLicense,
+      normalizedLicense: component.licenseExpression,
+      licenseSource: component.licenseSource,
+      sourceFile: component.sourceFile,
+      sourceDigest: source.digest,
+      policyStatus: component.policyStatus,
+    }, { name: component.licenseSource === 'registry' ? 'npm-registry-version-metadata' : 'lockfile-license-metadata', version: 'v1' });
+    const denied = component.policyStatus === 'denied';
+    finding(a, {
+      ruleId: denied ? 'license.policy.denied' : 'license.policy.review',
+      correlationKey: `license:${component.name}:${component.version}`.slice(0, 512),
+      title: denied ? `Licencia no permitida: ${component.name}` : `Revisar licencia: ${component.name}`,
+      location: component.location,
+      description: component.licenseExpression
+        ? `La licencia declarada ${component.licenseExpression} para ${component.name}@${component.version} se clasificó como ${denied ? 'denegada' : 'requiere revisión'} según la política del espacio de trabajo.`
+        : `No se encontró una expresión SPDX declarada para ${component.name}@${component.version}; la política del espacio de trabajo la mantiene en revisión.`,
+      severity: 'unknown',
+      confidence: 'observed',
+      impact: 'La clasificación describe metadatos de licencia declarados. Gotchu no verificó el texto de licencia incluido en el paquete.',
+      recommendation: 'Revisa la licencia y la política del espacio de trabajo antes de aprobar el uso de este paquete.',
+      limitations: ['La licencia procede de metadatos declarados y no está verificada contra el contenido del paquete.', 'No se instalaron paquetes ni se ejecutó código del cliente.'],
+      evidenceIds: [evidenceId],
+    });
+  }
+  a.coverage.push({
+    capability: 'license_metadata',
+    state: locked.found && licenseLookupComplete && !licenseFindingsIncomplete ? 'inspected' : 'unavailable',
+    detail: !locked.found
+      ? 'No dependency inventory was available for license evaluation.'
+      : licenseLookupComplete && !licenseFindingsIncomplete
+        ? `Evaluated declared license metadata for ${inventoryComponents.length} exact package versions. Missing or unrecognized licenses remain in review; declarations are not verified.`
+        : `License registry lookups or policy findings were capped or unavailable. ${inventoryComponents.filter(component => component.licenseConfidence === 'unknown').length} packages have unknown declared license metadata.`,
+  });
+
   return finish(a);
 }
