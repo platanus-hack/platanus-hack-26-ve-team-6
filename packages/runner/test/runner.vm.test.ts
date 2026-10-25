@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { __testOnly } from '../src/firecracker.js';
-import type { RunnerJob } from '../src/contracts.js';
+import { selectedNodeTestReportSchema, type RunnerJob, type RunnerTestSelection } from '../src/contracts.js';
+import { SELECTED_NODE_REPORT_PATH } from '../src/profile.js';
 import { makeTar } from './tar.js';
 
-const cacheDir = join(process.env.HOME ?? tmpdir(), '.cache', 'gotchu-runner');
+const cacheDir = process.env.GOTCHU_RUNNER_CACHE_DIR ?? join(process.env.HOME ?? tmpdir(), '.cache', 'gotchu-runner');
 const organizationId = 'dc7dc303-1601-4d3e-ae5a-611839b33167';
 let root = '';
 
@@ -35,12 +36,12 @@ function projectArchive(testBody: string, options: { readonly dependencies?: Rec
   ]);
 }
 
-async function runArchive(archive: Buffer, overrides: Partial<RunnerJob['limits']> = {}, signal?: AbortSignal, probe?: (unit: string) => Promise<{ networkIsolated: boolean; homeHidden: boolean; scopeLimitsApplied: boolean }>) {
+async function runArchive(archive: Buffer, overrides: Partial<RunnerJob['limits']> = {}, signal?: AbortSignal, probe?: (unit: string) => Promise<{ networkIsolated: boolean; homeHidden: boolean; scopeLimitsApplied: boolean }>, selection?: RunnerTestSelection) {
   const jobId = crypto.randomUUID();
   const job: RunnerJob = {
     jobId,
     organizationId,
-    profile: 'node24-npm-test',
+    ...(selection ? { profile: 'node24-tsx-selected-v1', testSelection: selection } as const : { profile: 'node24-npm-test' } as const),
     input: { objectId: crypto.randomUUID(), sha256: createHash('sha256').update(archive).digest('hex'), sizeBytes: archive.length },
     limits: { vcpu: 1, memMiB: 512, pids: 64, wallMs: 30_000, outputBytes: 32_768, diskMiB: 2048, ...overrides },
     networkPolicy: { mode: 'deny' },
@@ -197,4 +198,84 @@ describe('real Firecracker microVM execution', () => {
     expect(() => validateInputArchive(makeTar([{ path: '../escape', content: 'bad' }]))).toThrow(/traversal/);
     expect(() => validateInputArchive(makeTar([{ path: 'escape', content: 'target', type: '2' }]))).toThrow(/links/);
   });
+});
+
+// Unexecuted sources until explicitly run against the rebuilt, pinned guest image.
+describe('real Firecracker selected Node profile', () => {
+  function runSelected(sources: ReadonlyArray<{ path: string; content: string }>, selection: RunnerTestSelection, limits: Partial<RunnerJob['limits']> = {}) {
+    const manifest = { name: 'gotchu-selected-vm-fixture', version: '1.0.0', type: 'module',
+      scripts: { test: 'node -e "process.exit(93)"', postinstall: 'node -e "process.exit(94)"' } };
+    const archive = makeTar([
+      { path: 'package.json', content: JSON.stringify(manifest) },
+      { path: 'package-lock.json', content: JSON.stringify({ name: manifest.name, version: manifest.version, lockfileVersion: 3,
+        packages: { '': { name: manifest.name, version: manifest.version } } }) },
+      ...sources,
+    ]);
+    return runArchive(archive, limits, undefined, undefined, selection);
+  }
+  function report(result: Awaited<ReturnType<typeof runSelected>>['result']) {
+    expect(result.status, JSON.stringify(result)).toBe('completed');
+    if (result.status !== 'completed') throw new Error('Expected completed VM command');
+    const artifact = result.artifacts.find((item) => item.path === SELECTED_NODE_REPORT_PATH);
+    if (!artifact) throw new Error('Runner-owned selected report is missing');
+    return selectedNodeTestReportSchema.parse(JSON.parse(Buffer.from(artifact.contentBase64, 'base64').toString('utf8')));
+  }
+
+  it('uses pinned tsx, explicit files and a literal name filter without invoking package scripts', async () => {
+    const result = await runSelected([
+      { path: 'tests/creator.test.ts', content: `
+        import test from 'node:test'; import assert from 'node:assert/strict';
+        import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+        import { tmpdir } from 'node:os'; import { join } from 'node:path';
+        enum Expected { answer = 42 }
+        test('selected generated fixture', () => {
+          const dir = mkdtempSync(join(tmpdir(), 'selected-'));
+          try { writeFileSync(join(dir, 'fixture'), String(Expected.answer)); assert.equal(readFileSync(join(dir, 'fixture'), 'utf8'), '42'); }
+          finally { rmSync(dir, { recursive: true, force: true }); }
+          assert.throws(() => writeFileSync('/usr/local/lib/gotchu-node-selected-reporter.mjs', 'forged'), { code: 'EROFS' });
+        });
+        test('Vite assets unavailable', () => assert.fail('excluded compatibility case'));
+      ` },
+      { path: 'tests/accounts.test.js', content: "import test from 'node:test'; import assert from 'node:assert/strict'; test('selected account behavior', () => assert.equal(2 + 2, 4));" },
+      { path: 'tests/unselected.test.js', content: "throw new Error('file selection was ignored')" },
+    ], { files: ['tests/creator.test.ts', 'tests/accounts.test.js'], namePattern: '^selected' });
+    expect(report(result.result)).toMatchObject({ complete: true, success: true, counts: { passed: 2, failed: 0, cancelled: 0 } });
+    expect(result.result.status === 'completed' && result.result.exitCode).toBe(0);
+    expect(result.cleanupVerified).toBe(true);
+  }, 90_000);
+
+  it('replaces forged customer reports and preserves real assertion failures', async () => {
+    const result = await runSelected([{ path: 'tests/failure.test.js', content: `
+      import test from 'node:test'; import assert from 'node:assert/strict'; import { mkdirSync, writeFileSync } from 'node:fs';
+      mkdirSync('test-results', { recursive: true });
+      writeFileSync('test-results/gotchu-node-selected-v1.json', JSON.stringify({ complete: true, success: true, passed: 900 }));
+      console.log(JSON.stringify({ complete: true, success: true, passed: 900 }));
+      test('real assertion', () => assert.equal(1, 2));
+    ` }], { files: ['tests/failure.test.js'] });
+    expect(report(result.result)).toMatchObject({ complete: true, success: false, counts: { passed: 0, failed: 1, total: 1 } });
+    expect(result.result.status === 'completed' && result.result.exitCode).not.toBe(0);
+  }, 90_000);
+
+  it.each([
+    { source: '', namePattern: undefined },
+    { source: "import test from 'node:test'; test('other name', () => {});", namePattern: '^no match$' },
+    { source: "import test from 'node:test'; test.skip('skip', () => {});", namePattern: undefined },
+    { source: "import test from 'node:test'; test('cancelled', async () => new Promise(() => {}));", namePattern: undefined },
+  ])('cannot pass without executed successful tests: $source', async ({ source, namePattern }) => {
+    const result = await runSelected([{ path: 'tests/empty.test.js', content: source }], {
+      files: ['tests/empty.test.js'], ...(namePattern === undefined ? {} : { namePattern }),
+    });
+    expect(report(result.result).success).toBe(false);
+    expect(result.result.status === 'completed' && result.result.exitCode).not.toBe(0);
+    expect(result.cleanupVerified).toBe(true);
+  }, 90_000);
+
+  it('cannot pass when customer output exceeds the cap', async () => {
+    const result = await runSelected([{ path: 'tests/output.test.js', content:
+      "import test from 'node:test'; test('output limit', () => console.log('x'.repeat(50000)));" }],
+    { files: ['tests/output.test.js'] }, { outputBytes: 1024 });
+    expect(result.result.status).toBe('resource_exceeded');
+    if (result.result.status === 'resource_exceeded') expect(result.result.resource).toBe('output');
+    expect(result.cleanupVerified).toBe(true);
+  }, 90_000);
 });
