@@ -21,7 +21,7 @@ import { recordValidatedModelReply, recoverTrustedCheckpoint } from './model-rec
 import { correctionReplyJsonSchema, investigationReplyJsonSchema, probeReplyJsonSchema } from './model-output-schema.js';
 import { recordObservedModelUsage } from './model-usage.js';
 
-const subscriptionPresetIds = investigationProviderCatalog.filter(preset => preset.billing === 'subscription').map(preset => preset.id);
+const subscriptionPresetIds: readonly string[] = investigationProviderCatalog.filter(preset => preset.billing === 'subscription').map(preset => preset.id);
 
 const runRowSchema = z.object({
   applicationId: z.uuid(), state: z.enum(['pending', 'running', 'succeeded', 'unavailable', 'failed']),
@@ -843,7 +843,7 @@ async function invokeModel(
       systemInstruction: settings.instruction,
       outputSchema: settings.correctionId ? correctionReplyJsonSchema : investigationReplyJsonSchema,
       userContext: settings.userContext,
-      maxOutputTokens,
+      ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
       signal: abortController.signal,
     });
     const totalTokens = completion.inputTokens + completion.outputTokens;

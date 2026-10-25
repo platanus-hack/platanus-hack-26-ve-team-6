@@ -14,7 +14,7 @@ function requireObjectProperties(value: unknown): unknown {
   if (result.type === 'object' && properties !== null && typeof properties === 'object' && !Array.isArray(properties)) {
     result.required = Object.keys(properties);
   }
-  return result;
+  return Object.fromEntries(Object.entries(result));
 }
 
 function responseSchema(schema: z.ZodType): Readonly<Record<string, unknown>> {
