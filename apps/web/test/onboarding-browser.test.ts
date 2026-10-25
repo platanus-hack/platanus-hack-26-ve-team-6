@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -15,6 +15,8 @@ const enabled = process.env.GOTCHU_TEST_BROWSER === '1' && Boolean(liveUrl);
 const browserSuite = enabled ? describe : describe.skip;
 const root = new URL('../../../', import.meta.url).pathname;
 const buildEntry = join(root, 'apps/web/.output/server/index.mjs');
+const githubFixtureSource = 'export const fixture = true;\n';
+const githubFixtureBlob = createHash('sha1').update(`blob ${Buffer.byteLength(githubFixtureSource)}\0`).update(githubFixtureSource).digest('hex');
 
 async function freePort() {
   const start = Math.floor(Math.random() * 100);
@@ -105,8 +107,8 @@ globalThis.fetch = async (input, init) => {
     if (url.pathname === '/installation/repositories') return Response.json({ total_count: 1, repositories: [{ id: 42, full_name: 'fixture-owner/vulnerable-app', default_branch: 'main', private: true, archived: false }] });
     if (url.pathname === '/repos/fixture-owner/vulnerable-app') return Response.json({ default_branch: 'main' });
     if (url.pathname === '/repos/fixture-owner/vulnerable-app/commits/main') return Response.json({ sha: '${'a'.repeat(40)}', commit: { committer: { date: '2026-01-01T00:00:00.000Z' }, tree: { sha: '${'b'.repeat(40)}' } } });
-    if (url.pathname === '/repos/fixture-owner/vulnerable-app/git/trees/${'b'.repeat(40)}') return Response.json({ sha: '${'b'.repeat(40)}', truncated: false, tree: [{ path: 'src/index.js', mode: '100644', type: 'blob', sha: '${'c'.repeat(40)}', size: 29 }] });
-    if (url.pathname === '/repos/fixture-owner/vulnerable-app/git/blobs/${'c'.repeat(40)}') return Response.json({ sha: '${'c'.repeat(40)}', size: 29, encoding: 'base64', content: Buffer.from('export const fixture = true;\\n').toString('base64') });
+    if (url.pathname === '/repos/fixture-owner/vulnerable-app/git/trees/${'b'.repeat(40)}') return Response.json({ sha: '${'b'.repeat(40)}', truncated: false, tree: [{ path: 'src/index.js', mode: '100644', type: 'blob', sha: '${githubFixtureBlob}', size: ${Buffer.byteLength(githubFixtureSource)} }] });
+    if (url.pathname === '/repos/fixture-owner/vulnerable-app/git/blobs/${githubFixtureBlob}') return Response.json({ sha: '${githubFixtureBlob}', size: ${Buffer.byteLength(githubFixtureSource)}, encoding: 'base64', content: '${Buffer.from(githubFixtureSource).toString('base64')}' });
     return Response.json({ message: 'unexpected fixture request' }, { status: 500 });
   }
   return originalFetch(input, init);
@@ -408,6 +410,8 @@ globalThis.fetch = async (input, init) => {
       const response = await fetch('/api/auth/signout', { method: 'POST', headers: { 'X-Auth-Return-Redirect': '1' }, body: new URLSearchParams({ csrfToken: payload.csrfToken, callbackUrl: '/entrar', json: 'true' }) });
       if (!response.ok) throw new Error('Local fixture sign-out failed.');
     });
+    // Unmount the signed-out page before measuring requests from the next identity.
+    await page.goto(`${origin}/entrar`);
     const failuresBefore = customerApiFailures.length;
     await signIn(page, origin, `scope-new-user-${randomUUID()}@example.test`);
     await page.getByRole('heading', { name: 'Tu primera revisión' }).waitFor({ timeout: 5_000 });
