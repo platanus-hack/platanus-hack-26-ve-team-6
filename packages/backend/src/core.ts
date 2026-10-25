@@ -43,6 +43,6 @@ export async function authorize(tx: Transaction, organizationId: string, identit
   if (!role || !allowed.includes(role)) throw new BackendError('forbidden', 'Organization membership does not authorize this operation', 403);
   return role;
 }
-export interface BaseDependencies { database: Database; clock?: Clock }
+export interface BaseDependencies { database: Database; clock?: Clock; dependencyValidationSandbox?: 'docker' | 'bwrap+systemd-scope' }
 export const organizationIdSchema = z.uuid();
 export const scopedIdSchema = z.object({ organizationId: z.uuid(), applicationId: z.uuid() }).strict();

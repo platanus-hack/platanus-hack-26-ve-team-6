@@ -263,6 +263,7 @@ export function createCorrectionService(deps: BaseDependencies & { npmRegistry?:
         baseSourceId: candidate.base_source_id, targetFindingId: candidate.finding_id, targetFindingIds: candidate.finding_ids,
         baseDigest: candidate.base_digest, candidateDigest: candidate.candidate_digest, patchDigest: candidate.patch_sha256,
         repositoryLinkId: candidate.repository_link_id, mode: 'dependency', dependencyAllowlist,
+        sandboxKind: deps.dependencyValidationSandbox ?? 'bwrap+systemd-scope',
       });
       await tx.query(`UPDATE gotchu.dependency_fix_candidates SET validation_run_id=$4
         WHERE organization_id=$1 AND application_id=$2 AND candidate_source_id=$3`, [scope.organizationId, scope.applicationId, candidate.candidate_source_id, validationRunId]);
@@ -422,6 +423,7 @@ export function createCorrectionService(deps: BaseDependencies & { npmRegistry?:
         baseSourceId: currentSource.id, targetFindingId: currentGroup.findingIds[0]!, targetFindingIds: currentGroup.findingIds,
         baseDigest: currentSource.digest, candidateDigest: candidate.digest, patchDigest: currentResolution.patchSha256,
         repositoryLinkId: current.binding.repository_link_id, mode: 'dependency',
+        sandboxKind: deps.dependencyValidationSandbox ?? 'bwrap+systemd-scope',
         dependencyAllowlist: [{ name: currentGroup.packageName, section: currentResolution.section, version: currentResolution.toVersion }],
       });
       await tx.query(`INSERT INTO gotchu.dependency_fix_candidates(organization_id,application_id,candidate_source_id,report_id,finding_id,finding_ids,base_source_id,repository_link_id,base_commit,
