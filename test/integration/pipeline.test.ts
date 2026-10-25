@@ -154,8 +154,10 @@ live('signed intake through durable delivery and isolated HTTP investigation', (
     expect(run.checkpoint).not.toBeNull();
     const denied = await api(new Request(`${origin}/api/v1/organizations/${f.b.organizationId}/applications`, { headers: { cookie, 'x-user-id': f.b.userId } }));
     expect(denied.status).toBe(403);
-    const approval = await api(new Request(`${origin}/api/v1/organizations/${f.a.organizationId}/proposals/${randomUUID()}/approvals`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: JSON.stringify({ actionHash: 'a'.repeat(64), stepUpProof: 'untrusted-fixture-proof' }) }));
-    expect(approval.status).toBe(503);
+    const approval = await api(new Request(`${origin}/api/v1/organizations/${f.a.organizationId}/proposals/${randomUUID()}/approvals`, { method: 'POST', headers: { cookie, origin, 'content-type': 'application/json' }, body: JSON.stringify({ actionHash: 'a'.repeat(64) }) }));
+    // Provider writes stay frozen, so no approval can be recorded for an unknown proposal.
+    expect(approval.status).toBe(409);
+    expect(await approval.json()).toMatchObject({ error: { code: 'writes_frozen' } });
   });
 
   it.each(['outbox', 'reconciliation'] as const)('keeps deterministic delivery independent of two blocked investigations via %s', async (delivery) => {

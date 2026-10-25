@@ -76,7 +76,12 @@ live('monitor claim settlement with real PostgreSQL roles (no adapter I/O)', () 
     if (change === 'expired_target') await f.admin.query("UPDATE gotchu.customer_targets SET authorized_at=clock_timestamp()-interval '8 days',expires_at=clock_timestamp()-interval '1 day' WHERE id=$1", [c.targetId]);
     if (change === 'renewed_target') await f.admin.query('UPDATE gotchu.customer_targets SET version=version+1 WHERE id=$1', [c.targetId]);
     if (change === 'revoked_target') await f.admin.query("UPDATE gotchu.customer_targets SET status='revoked',authorized_at=NULL,expires_at=NULL WHERE id=$1", [c.targetId]);
-    if (change === 'deleted_source') await f.admin.query('UPDATE gotchu.customer_sources SET body=NULL,deleted_at=clock_timestamp() WHERE id=$1', [c.source.id]);
+    if (change === 'deleted_source') {
+      // Source erasure triggers run under the source's tenant.
+      await f.admin.query("SELECT set_config('gotchu.organization_id',$1,false)", [c.scope.organizationId]);
+      try { await f.admin.query('UPDATE gotchu.customer_sources SET body=NULL,deleted_at=clock_timestamp() WHERE id=$1', [c.source.id]); }
+      finally { await f.admin.query("SELECT set_config('gotchu.organization_id','',false)"); }
+    }
     expect(await coordinator.jobs.claim(c.job)).toBeNull();
     expect(await stored(c)).toMatchObject({ state: 'failed', attempts: 0, result: { reasonCode: 'monitor_authorization_changed' }, run_status: 'degraded' });
     await expect(api.customers.revokeTarget(c.owner, { ...c.scope, targetId: present(c.targetId) })).resolves.toMatchObject({ status: 'revoked' });

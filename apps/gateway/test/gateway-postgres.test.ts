@@ -224,12 +224,18 @@ live('gateway with real signed intake, Postgres, HTTP worker and LangGraph', () 
     expect(stored.checkpointVersion).toBe(1);
     expect(JSON.stringify(stored.checkpoint)).not.toContain(sensitiveText);
     expect(JSON.stringify(stored.checkpoint)).not.toContain(run.token);
-    expect(stored.checkpoint).toMatchObject({ modelCalls: 0, result: { counters: { modelCalls: 0, additionalReadToolCalls: 0, tokensUsed: 0, spendMicroUsd: 0 } } });
+    // Running progress keeps only server-owned counters; the worker's result and inflated counters are dropped.
+    expect(stored.checkpoint).toMatchObject({ modelCalls: 0, additionalReadToolCalls: 0, tokensUsed: 0, spendMicroUsd: 0 });
+    expect(stored.checkpoint).not.toHaveProperty('result');
     expect((await call(run, 'checkpoint', 'PUT', { ...body, checkpoint: { ...safe, rawEvidence: sensitiveText } })).status).toBe(400);
     expect((await call(run, 'checkpoint', 'PUT', { ...body, checkpoint: { ...safe, scope: { ...run.scope, applicationId: f.b.applicationId } } })).status).toBe(403);
-    expect((await call(run, 'checkpoint', 'PUT', { ...body, checkpoint: { ...safe, result: { ...safe.result, citedEvidenceIds: [randomUUID()] } } })).status).toBe(403);
+    // Worker citations are never trusted: an unauthorized one is dropped rather than stored.
+    const forged = randomUUID();
+    expect((await call(run, 'checkpoint', 'PUT', { ...body, expectedVersion: 1,
+      checkpoint: { ...safe, sequence: 2, result: { ...safe.result, citedEvidenceIds: [forged] } } })).status).toBe(200);
+    expect(JSON.stringify((await counters(run)).checkpoint)).not.toContain(forged);
     await gateway.close(); await openGateway();
-    expect((await call(run, 'checkpoint', 'GET')).payload).toMatchObject({ version: 1, checkpoint: { sequence: 1 } });
+    expect((await call(run, 'checkpoint', 'GET')).payload).toMatchObject({ version: 2, checkpoint: { sequence: 2 } });
   });
 
   it('rejects expired, oversized-lifetime, wrong-audience and revoked grants on all operations', async () => {

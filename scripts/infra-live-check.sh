@@ -209,7 +209,6 @@ assert.equal(webBody.dependencies.apiDatabase, true, 'web API database runtime l
 assert.equal(webBody.dependencies.intakeDatabase, true, 'web ingestion runtime login did not connect');
 assert.equal(webBody.dependencies.signIn, false, 'live check unexpectedly configured GitHub OAuth');
 assert.equal(webBody.capabilities.eventSigningKeys, false, 'empty local signing map must remain unavailable');
-assert.equal(webBody.capabilities.freshSecondFactorApproval, true, 'configured WebAuthn service capability must be visible without an enrolled factor');
 assert.equal(webBody.capabilities.githubWrites, false, 'provider writes must remain disabled');
 assert.equal(webBody.capabilities.customerCodeExecution, false, 'customer-code execution must remain disabled');
 const coordinatorReady = await fetch(`http://127.0.0.1:${coordinatorPort}/health/ready`);
@@ -218,7 +217,7 @@ assert.equal(coordinatorReady.status, 503, 'coordinator should remain unready wi
 assert.equal(coordinatorBody.status, 'unassigned');
 assert.equal(coordinatorBody.assignedOrganizations, 0);
 assert.equal(coordinatorBody.investigatorConfigured, false, 'worker profile must remain intentionally disabled');
-process.stdout.write('Built app routes stayed unready without OAuth or organization assignment; WebAuthn capability was configured while provider writes, customer-code execution, and investigator execution remained unavailable.\n');
+process.stdout.write('Built app routes stayed unready without OAuth or organization assignment; provider writes, customer-code execution, and investigator execution remained unavailable.\n');
 NODE
 
 web_container="$(docker compose -p "$project" --env-file "$env_file" -f "$compose_file" ps -q web)"

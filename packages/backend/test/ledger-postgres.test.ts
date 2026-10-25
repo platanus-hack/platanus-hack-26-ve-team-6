@@ -197,10 +197,14 @@ live('real Postgres approval/execution ledger; injected test-only eligibility ve
     const input = {organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId:proposal.proposalId,actionHash:proposal.actionHash};
     actionFacts = {eligible:false,blockingReasons:['validation_tampered']};
     await expect(sessionApi().actions.approve(identity(),input)).rejects.toMatchObject({code:'proposal_ineligible'});
-    actionFacts = {eligible:false,blockingReasons:['base changed'],baseChanged:true};
-    await expect(sessionApi().actions.approve(identity(),input)).rejects.toMatchObject({code:'stale_state'});
+    // An ineligible proposal is refused before reverification, so base freshness needs an eligible one.
     actionFacts = {eligible:true,blockingReasons:[]};
-    await expect(sessionApi().actions.approve(identity(),input)).rejects.toMatchObject({code:'not_found'});
+    const fresh = await createV2(dependencyActionFixture());
+    const freshInput = {...input,proposalId:fresh.proposalId,actionHash:fresh.actionHash};
+    actionFacts = {eligible:false,blockingReasons:['base changed'],baseChanged:true};
+    await expect(sessionApi().actions.approve(identity(),freshInput)).rejects.toMatchObject({code:'stale_state'});
+    actionFacts = {eligible:true,blockingReasons:[]};
+    await expect(sessionApi().actions.approve(identity(),freshInput)).rejects.toMatchObject({code:'not_found'});
     const cancelled = await createV2(dependencyActionFixture());
     await sessionApi().actions.cancel(identity(),{organizationId:input.organizationId,applicationId:input.applicationId,proposalId:cancelled.proposalId,reason:'cancelled'});
     await expect(sessionApi().actions.approve(identity(),{...input,proposalId:cancelled.proposalId,actionHash:cancelled.actionHash})).rejects.toMatchObject({code:'not_found'});
