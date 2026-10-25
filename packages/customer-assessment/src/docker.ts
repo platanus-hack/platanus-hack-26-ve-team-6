@@ -151,7 +151,7 @@ export function createDockerScanners(): ScannerAdapter {
         // Only remove source bytes after the exact container has been confirmed removed.
         // On uncertainty, retain the directory for operator reconciliation and latch the adapter.
         try {
-          await command(['rm','--force','--volumes',id],AbortSignal.timeout(3000),65536,'container');
+          await command(['rm','--force','--volumes',id],AbortSignal.timeout(10000),65536,'container');
           await rm(directory,{recursive:true,force:true});
         } catch (cause) {
           cached=undefined;
@@ -211,7 +211,7 @@ export function createDockerScanners(): ScannerAdapter {
         throw error;
       } finally {
         try {
-          await command(['rm','--force','--volumes',id],AbortSignal.timeout(3000),65536,'container');
+          await command(['rm','--force','--volumes',id],AbortSignal.timeout(10000),65536,'container');
           await rm(directory,{recursive:true,force:true});
           if (pulledImage && image.kind === 'registry') await command(['image','rm','--no-prune',image.reference],AbortSignal.timeout(5000),65536,'image');
         } catch (cause) {
