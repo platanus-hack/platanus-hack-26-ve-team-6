@@ -66,8 +66,8 @@ try {
   assert.equal(await readFile(join(conflictDir, '.env')).catch(() => null), null);
 
   const stateDir = join(temp, 'state');
-  const [webPort, coordinatorPort, scannerPort, postgresPort, redisPort] = await freePorts(5);
-  const configuredPorts = { GOTCHU_STATE_DIR: stateDir, GOTCHU_WEB_PORT: webPort, GOTCHU_COORDINATOR_PORT: coordinatorPort, GOTCHU_SCANNER_PORT: scannerPort, GOTCHU_POSTGRES_PORT: postgresPort, GOTCHU_REDIS_PORT: redisPort };
+  const [webPort, coordinatorPort, scannerPort, postgresPort, redisPort, gatewayPort, workerPort] = await freePorts(7);
+  const configuredPorts = { GOTCHU_STATE_DIR: stateDir, GOTCHU_WEB_PORT: webPort, GOTCHU_COORDINATOR_PORT: coordinatorPort, GOTCHU_SCANNER_PORT: scannerPort, GOTCHU_POSTGRES_PORT: postgresPort, GOTCHU_REDIS_PORT: redisPort, GOTCHU_GATEWAY_PORT: gatewayPort, GOTCHU_WORKER_PORT: workerPort };
   const first = run(['up'], configuredPorts);
   assert.notEqual(first.status, 0);
   assert.match(first.stderr, /pnpm 11/);

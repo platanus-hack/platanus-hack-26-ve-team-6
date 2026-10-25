@@ -29,6 +29,8 @@ trap 'rm -f "$tmp_file"' EXIT
   printf 'COORDINATOR_HOST_PORT=%s\n' "${GOTCHU_COORDINATOR_PORT:-3003}"
   printf 'SCANNER_HOST_PORT=%s\n' "${GOTCHU_SCANNER_PORT:-4400}"
   printf 'EXECUTOR_HOST_PORT=%s\n' "${GOTCHU_EXECUTOR_PORT:-3004}"
+  printf 'GATEWAY_HOST_PORT=%s\n' "${GOTCHU_GATEWAY_PORT:-3002}"
+  printf 'WORKER_HOST_PORT=%s\n' "${GOTCHU_WORKER_PORT:-3001}"
   printf 'PUBLIC_APP_URL=%s\n' "${GOTCHU_PUBLIC_URL:-http://localhost:${GOTCHU_WEB_PORT:-3000}}"
   printf 'GOTCHU_AUTH_MODE=%s\n' "${GOTCHU_AUTH_MODE:-development}"
   printf 'GOTCHU_CUSTOMER_DISCOVERY=%s\n' "${GOTCHU_CUSTOMER_DISCOVERY:-false}"

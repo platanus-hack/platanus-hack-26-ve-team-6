@@ -9,6 +9,7 @@ import {
   investigationProviderCatalog,
   investigationProviderPresetIdSchema,
   modelProviderSchema,
+  parseSubscriptionCredential,
 } from '@gotchu/contracts';
 import type { Database, Transaction } from '@gotchu/database';
 import { z } from 'zod';
@@ -18,6 +19,8 @@ import type { ModelEndpointValidator } from './investigation-model-endpoint.js';
 export interface ModelSecretStore {
   get(reference: string): Promise<Uint8Array>;
   put(reference: string, secret: Uint8Array): Promise<void>;
+  /** Overwrites an existing reference atomically, e.g. when a CLI login refreshes its own tokens. */
+  replace(reference: string, secret: Uint8Array): Promise<void>;
   delete(reference: string): Promise<void>;
 }
 
@@ -136,9 +139,18 @@ export function createInvestigationModelService(options: {
           throw new BackendError('model_endpoint_dns_unavailable', 'Custom provider DNS could not be validated safely', 503, { cause });
         }
       }
-      const newSecretRef = value.apiKey ? `local-model:${randomUUID()}` : null;
+      let apiKey = value.apiKey;
+      if (apiKey !== undefined && preset.billing === 'subscription') {
+        const credential = parseSubscriptionCredential(preset.id, apiKey);
+        if (credential === null) {
+          throw new BackendError('model_credential_invalid', preset.id === 'codex'
+            ? 'Paste the full auth.json written by `codex login` with a ChatGPT account'
+            : 'Paste the token printed by `claude setup-token`', 400);
+        }
+        apiKey = credential;
+      }
+      const newSecretRef = apiKey ? `local-model:${randomUUID()}` : null;
       if (newSecretRef && secrets) {
-        const apiKey = value.apiKey;
         if (apiKey === undefined) throw new BackendError('model_secret_required', 'Model credential is required', 400);
         try { await secrets.put(newSecretRef, Buffer.from(apiKey, 'utf8')); }
         catch (cause) { throw new BackendError('model_secret_store_unavailable', 'Model credential could not be stored', 503, { cause }); }

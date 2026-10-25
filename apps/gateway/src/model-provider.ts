@@ -4,27 +4,11 @@ import {
   investigationModelProviderForPreset,
   investigationModelEndpointSchema,
   investigationProviderCatalog,
-  investigationProviderPresetIdSchema,
-  modelProviderSchema,
 } from '@gotchu/contracts';
+import { ModelProviderError, type ModelCompletionRequest, type ModelPort } from './model-port.js';
+import { createSubscriptionCliPorts, type SubscriptionCliOptions } from './subscription-cli.js';
 
-export interface ModelCompletionRequest {
-  readonly provider: z.infer<typeof modelProviderSchema>;
-  readonly providerPresetId: z.infer<typeof investigationProviderPresetIdSchema>;
-  readonly endpoint: URL;
-  readonly modelId: string;
-  readonly apiKey?: string;
-  readonly systemInstruction: string;
-  readonly userContext: string;
-  readonly maxOutputTokens: number;
-  readonly signal: AbortSignal;
-}
-export interface ModelCompletion {
-  readonly output: unknown;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-}
-export interface ModelPort { complete(request: ModelCompletionRequest): Promise<ModelCompletion> }
+export { ModelProviderError, type ModelCompletion, type ModelCompletionRequest, type ModelPort } from './model-port.js';
 
 const MAX_RESPONSE_BYTES = 65_536;
 const openAiResponseSchema = z.object({
@@ -39,12 +23,6 @@ const anthropicResponseSchema = z.object({
   usage: z.object({ input_tokens: z.number().int().nonnegative(), output_tokens: z.number().int().nonnegative() }).passthrough(),
 }).passthrough();
 
-export class ModelProviderError extends Error {
-  constructor(readonly code: 'request_failed' | 'invalid_response' | 'missing_usage' | 'aborted', readonly status?: number) {
-    super(code);
-    this.name = 'ModelProviderError';
-  }
-}
 
 async function readBoundedJson(response: Response): Promise<unknown> {
   if (!response.ok) { await response.body?.cancel(); throw new ModelProviderError('request_failed', response.status); }
@@ -99,7 +77,7 @@ function openAiAdapter(fetchImpl: typeof fetch): ModelPort {
   return {
     async complete(request) {
       const preset = investigationProviderCatalog.find(item => item.id === request.providerPresetId);
-      if (!preset || preset.adapterKind !== 'openai_compatible' || preset.authHeaderStyle !== 'bearer'
+      if (!preset || preset.billing !== 'per_token' || preset.adapterKind !== 'openai_compatible' || preset.authHeaderStyle !== 'bearer'
         || request.provider !== investigationModelProviderForPreset(preset) || !endpointMatchesPreset(request, preset)) {
         throw new ModelProviderError('invalid_response');
       }
@@ -133,7 +111,7 @@ function anthropicAdapter(fetchImpl: typeof fetch): ModelPort {
   return {
     async complete(request) {
       const preset = investigationProviderCatalog.find(item => item.id === request.providerPresetId);
-      if (!preset || preset.adapterKind !== 'anthropic' || preset.authHeaderStyle !== 'anthropic_messages'
+      if (!preset || preset.billing !== 'per_token' || preset.adapterKind !== 'anthropic' || preset.authHeaderStyle !== 'anthropic_messages'
         || request.provider !== investigationModelProviderForPreset(preset) || !endpointMatchesPreset(request, preset)) {
         throw new ModelProviderError('invalid_response');
       }
@@ -156,14 +134,18 @@ function anthropicAdapter(fetchImpl: typeof fetch): ModelPort {
   };
 }
 
-export function createModelPort(options: { fetchImpl?: typeof fetch } = {}): ModelPort {
+export function createModelPort(options: { fetchImpl?: typeof fetch; cli?: SubscriptionCliOptions } = {}): ModelPort {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const cli = createSubscriptionCliPorts(options.cli);
   return {
     complete(request) {
       const preset = investigationProviderCatalog.find(item => item.id === request.providerPresetId);
-      return preset?.adapterKind === 'anthropic'
-        ? anthropicAdapter(fetchImpl).complete(request)
-        : openAiAdapter(fetchImpl).complete(request);
+      switch (preset?.adapterKind) {
+        case 'anthropic': return anthropicAdapter(fetchImpl).complete(request);
+        case 'claude_code_cli': return cli.claudeCode.complete(request);
+        case 'codex_cli': return cli.codex.complete(request);
+        default: return openAiAdapter(fetchImpl).complete(request);
+      }
     },
   };
 }
