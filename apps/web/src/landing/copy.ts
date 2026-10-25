@@ -33,12 +33,3 @@ export const EVIDENCE = [
   ['Confianza', 'Observada, inferida o incierta.'],
   ['Cobertura', 'Qué se revisó y qué quedó fuera.'],
 ] as const;
-
-export const QUESTIONS = [
-  ['¿Puedo revisar cualquier sitio?', 'Solo orígenes que tengas autorización para evaluar.'],
-  ['¿Cómo llevo un hallazgo a un PR?', 'Prepara una corrección compatible en una copia privada. Tras la validación y el permiso de publicación, el Owner aprueba el cambio exacto y un executor independiente abre el PR en borrador. Necesita estar configurado en tu instalación.'],
-  ['¿Puedo usar mi asistente de código?', 'Cada hallazgo tiene un prompt con su evidencia y sus límites para copiar a tu asistente. También puedes configurar un modelo en Gotchu para investigar y preparar correcciones privadas, con tu consentimiento.'],
-  ['¿Gotchu evalúa en tiempo real?', 'No. Puedes activar evaluaciones periódicas cada 1–24 h.'],
-  ['¿Cómo recibo las notificaciones?', 'Además de las alertas en Gotchu, puedes configurar email y webhooks HTTPS por espacio de trabajo, elegir la severidad mínima y consultar el estado de entrega.'],
-  ['¿Sin hallazgos significa que estoy a salvo?', 'No. El informe cubre lo observado y deja claros sus límites.'],
-] as const;

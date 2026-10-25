@@ -174,12 +174,6 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
   .gl .gl-terms dt { font: 700 clamp(30px, 3.8vw, 56px)/1 var(--display); letter-spacing: -.015em; text-transform: uppercase; }
   .gl .gl-terms dd { margin: 10px 0 0; color: var(--muted-foreground); font-size: clamp(17px, 1.5vw, 19px); line-height: 1.5; }
 
-  /* ── Questions ────────────────────────────────────────────────────────────── */
-  .gl .gl-qa { border-bottom: 1px solid var(--border); }
-  .gl .gl-qa-item { border-top: 1px solid var(--border); }
-  .gl .gl-qa-trigger { border: 1px solid transparent; font-family: var(--display); font-size: clamp(20px, 2.3vw, 30px); line-height: 1.1; letter-spacing: -.01em; text-transform: uppercase; }
-  .gl .gl-qa-answer p { margin: 0; max-width: 60ch; font-size: 17.5px; line-height: 1.6; }
-
   /* ── Closing ──────────────────────────────────────────────────────────────── */
   .gl .gl-closing .gl-section-title { max-width: none; margin-bottom: 0; }
   .gl .gl-closing .gl-section-title .gl-line:nth-of-type(3) { margin-top: .45em; }

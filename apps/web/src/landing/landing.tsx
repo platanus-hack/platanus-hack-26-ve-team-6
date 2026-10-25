@@ -3,10 +3,9 @@ import { ArrowRightIcon, PauseIcon, PlayIcon } from 'lucide-react';
 import './landing.css';
 import { GotchuMark } from '../components/gotchu-mark';
 import { DotPlate } from '../components/dot-field/dot-plate';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { buttonVariants } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
-import { EVIDENCE, QUESTIONS, SIDES } from './copy';
+import { EVIDENCE, SIDES } from './copy';
 import { Display, Mark, useParallax } from './editorial';
 import { Header } from './header';
 
@@ -97,17 +96,6 @@ function Evidence({ motion, paused }: Motion) {
   </Section>;
 }
 
-function Questions({ motion }: { motion: boolean }) {
-  return <Section motion={motion} id="gl-preguntas" titleId="gl-preguntas-titulo" title={['Preguntas.']}>
-    <Accordion className="gl-qa">
-      {QUESTIONS.map(([question, answer]) => <AccordionItem key={question} value={question} className="gl-qa-item">
-        <AccordionTrigger className="gl-qa-trigger py-[22px]">{question}</AccordionTrigger>
-        <AccordionContent className="gl-qa-answer"><p>{answer}</p></AccordionContent>
-      </AccordionItem>)}
-    </Accordion>
-  </Section>;
-}
-
 function Closing({ motion, paused }: Motion) {
   return <Section motion={motion} id="gl-cierre" titleId="gl-paso-titulo" className="gl-closing" title={['¿Qué tan seguros', 'están tus proyectos?', 'No te preocupes,', <Mark key="m" size="big">we Gotchu.</Mark>]}>
     <div className="gl-wordmark"><DotPlate formation="wordmark" paused={paused} /></div>
@@ -128,7 +116,7 @@ function Footer() {
 }
 
 /**
- * The landing: a hero, the audit from inside and outside, evidence, questions and the invitation to start.
+ * The landing: a hero, the audit from inside and outside, evidence and the invitation to start.
  */
 export function Landing() {
   const motionAllowed = useMotionAllowed();
@@ -140,7 +128,6 @@ export function Landing() {
       <Hero paused={paused} onPause={setPaused} motion={motionAllowed} />
       {SIDES.map(side => <Side key={side.id} side={side} motion={motionAllowed} paused={paused} />)}
       <Evidence motion={motionAllowed} paused={paused} />
-      <Questions motion={motionAllowed} />
       <Closing motion={motionAllowed} paused={paused} />
     </main>
     <Footer />

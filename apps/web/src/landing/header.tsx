@@ -9,7 +9,6 @@ import { ThemeSwitch } from '../components/theme-switch';
 const LINKS = [
   { href: '#gl-dentro', label: 'Por dentro' },
   { href: '#gl-fuera', label: 'Por fuera' },
-  { href: '#gl-preguntas', label: 'Preguntas' },
 ] as const;
 
 /** Tucks the header away while scrolling down and returns it on any scroll up. */
