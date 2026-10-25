@@ -30,7 +30,7 @@ ALTER TABLE gotchu.model_reservations
 ALTER TABLE gotchu.organizations DROP CONSTRAINT organization_model_token_budget;
 
 CREATE FUNCTION gotchu.reject_model_token_limit_change() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 BEGIN
   IF NEW.token_limit_enforced IS DISTINCT FROM OLD.token_limit_enforced THEN
     RAISE EXCEPTION 'Model reservation token enforcement is immutable';
@@ -38,6 +38,7 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+REVOKE ALL ON FUNCTION gotchu.reject_model_token_limit_change() FROM PUBLIC;
 
 CREATE TRIGGER model_reservation_token_limit_immutable
   BEFORE UPDATE OF token_limit_enforced ON gotchu.model_reservations
