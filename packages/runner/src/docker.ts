@@ -18,7 +18,7 @@ const exec = promisify(execFile);
 const digestPattern = /^[a-f0-9]{64}$/;
 const unavailable = '0'.repeat(64);
 const imageSchema = z.object({ Id: z.string(), Os: z.literal('linux'), Architecture: z.literal('amd64'),
-  Config: z.object({ User: z.literal('1000:1000'), Entrypoint: z.tuple([z.literal('/usr/local/bin/node'), z.literal('/usr/local/lib/gotchu-docker-agent.mjs')]) }) });
+  Config: z.object({ User: z.literal('1000:1000'), Entrypoint: z.tuple([z.literal('/usr/local/bin/node'), z.literal('--disable-sigusr1'), z.literal('/usr/local/lib/gotchu-docker-agent.mjs')]) }) });
 
 async function command(args: string[], timeout = 10_000): Promise<string> {
   try {

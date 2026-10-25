@@ -10,7 +10,7 @@ export function emptySelectedReport() {
 }
 
 export function selectedNodeArgs(selection) {
-  return ['/usr/local/bin/node', '--import', '/usr/local/lib/gotchu-node-selected/node_modules/tsx/dist/loader.mjs', '--test',
+  return ['/usr/local/bin/node', '--disable-sigusr1', '--import', '/usr/local/lib/gotchu-node-selected/node_modules/tsx/dist/loader.mjs', '--test',
     ...(selection.namePattern === undefined ? [] : ['--test-name-pattern', selection.namePattern]),
     '--test-reporter=spec', '--test-reporter-destination=stdout',
     '--test-reporter=/usr/local/lib/gotchu-node-selected-reporter.mjs', '--test-reporter-destination=stdout',

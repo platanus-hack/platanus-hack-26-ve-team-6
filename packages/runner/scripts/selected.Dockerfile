@@ -11,4 +11,4 @@ COPY guest/docker-agent.mjs /usr/local/lib/gotchu-docker-agent.mjs
 ENV HOME=/scratch/home TMPDIR=/scratch/tmp
 WORKDIR /scratch
 USER 1000:1000
-ENTRYPOINT ["/usr/local/bin/node", "/usr/local/lib/gotchu-docker-agent.mjs"]
+ENTRYPOINT ["/usr/local/bin/node", "--disable-sigusr1", "/usr/local/lib/gotchu-docker-agent.mjs"]
