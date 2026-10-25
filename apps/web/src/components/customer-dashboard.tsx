@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
+import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { z } from 'zod';
 import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, HouseIcon, LogOutIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
@@ -696,7 +696,8 @@ function AssessmentForm({ organizationId, applicationId, sources, images, target
 function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMessage, routePage, routeOrganizationId, routeApplicationId, routeReportId, routeReportTab, routeEntry = true }: { session: CustomerSession; userId: string; acceptedInvitationId: string | null; invitationMessage: string | null; routePage?: Page; routeOrganizationId?: string; routeApplicationId?: string; routeReportId?: string; routeReportTab?: 'dependencias'; routeEntry?: boolean }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const location = useLocation();
+  // Keep the form in the committed outlet; a pending destination can otherwise show it twice and lose input.
+  const location = useRouterState({ select: state => state.resolvedLocation ?? state.location });
   const locationRoute = routePageFromPath(location.pathname);
   const page = routePage ?? locationRoute.page;
   const currentApplicationId = routeApplicationId ?? locationRoute.applicationId;
@@ -772,7 +773,6 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     if (!routeEntry || location.pathname !== '/dashboard') return;
     const onboardingScope = readSavedCustomerScope(sessionStorage, 'gotchu-onboarding-scope', userId);
     if (onboardingScope) {
-      sessionStorage.removeItem('gotchu-onboarding-scope');
       void navigate({ to: '/primeros-pasos', search: { espacio: onboardingScope.organizationId, fuente: 'github' } });
       return;
     }

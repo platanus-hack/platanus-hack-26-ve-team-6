@@ -47,6 +47,7 @@ function FirstStepsRoute() {
       void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: organizationId, projectId: applicationId } });
     }}
     onSkip={() => {
+      window.sessionStorage.removeItem('gotchu-onboarding-scope');
       window.localStorage.setItem(`gotchu.onboarding-skipped.${user.id}`, 'true');
       const workspaceId = search.espacio ?? createdWorkspaceId ?? queryClient.getQueryData<CustomerWorkspace[]>(['customer-data', user.id, 'workspaces'])?.[0]?.id;
       if (workspaceId) void navigate({ to: '/w/$workspaceId', params: { workspaceId } });

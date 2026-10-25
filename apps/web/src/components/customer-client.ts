@@ -105,7 +105,7 @@ const errorMessages: Record<string, string> = {
   application_limit: 'Este espacio alcanzó su límite de aplicaciones.',
   application_archived: 'Reactiva la aplicación para continuar.',
   assessment_capacity_exceeded: 'Hay demasiadas evaluaciones en curso. Inténtalo de nuevo en unos minutos.',
-  assessment_target_changed: 'La autorización del dominio caducó o se revocó. Verifícalo de nuevo.',
+  assessment_target_changed: 'El alcance HTTPS venció, cambió o se revocó. Renueva el origen antes de analizarlo.',
   source_limit: 'Esta aplicación alcanzó su límite de instantáneas. Elimina una para subir otra.',
   source_daily_limit: 'Este espacio alcanzó el límite diario de instantáneas.',
   source_in_use: 'Espera a que terminen las evaluaciones en curso para eliminar esta instantánea.',

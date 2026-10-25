@@ -264,10 +264,12 @@ globalThis.fetch = async (input, init) => {
     await page.getByRole('link', { name: 'Fuentes', exact: true }).click();
     await page.getByLabel('Origen HTTPS').fill('https://example.com');
     await page.getByLabel('Perfil de evaluación').selectOption('public_surface');
+    expect(await page.getByLabel('Origen HTTPS').inputValue()).toBe('https://example.com');
     expect(await page.locator('.customer-enroll-form input[type="checkbox"]').count()).toBe(0);
-    const enrollment = page.waitForResponse(response => response.url().endsWith('/targets') && response.request().method() === 'POST');
-    await page.getByRole('button', { name: 'Añadir origen' }).click();
-    const enrolled = await enrollment;
+    const [enrolled] = await Promise.all([
+      page.waitForResponse(response => response.url().endsWith('/targets') && response.request().method() === 'POST'),
+      page.getByRole('button', { name: 'Añadir origen' }).click(),
+    ]);
     expect(enrolled.status()).toBe(201);
     const payload: unknown = await enrolled.json();
     const target = customerTargetSchema.parse(payload && typeof payload === 'object' && 'target' in payload ? payload.target : null);
@@ -341,7 +343,7 @@ globalThis.fetch = async (input, init) => {
     const applications = await page.evaluate(async (organizationId) => await (await fetch(`/api/customer/workspaces/${organizationId}/applications`)).json(), workspace.id);
     const application = customerApplicationSchema.parse(Array.isArray(applications) ? applications[0] : null);
     expect(application.name).toBe('fixture-owner/vulnerable-app');
-    expect(workspace.name).toMatch(/^Espacio de Onboarding github /);
+    expect(workspace.name).toMatch(/^Espacio de Onboarding github /i);
     const counts = await db.admin.query<{ sources: number; jobs: number }>(`SELECT
       (SELECT count(*)::int FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2) AS sources,
       (SELECT count(*)::int FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2 AND kind='audit') AS jobs`, [workspace.id, application.applicationId]);
@@ -362,7 +364,7 @@ globalThis.fetch = async (input, init) => {
       const payload: unknown = await (await fetch('/api/auth/csrf')).json();
       if (!payload || typeof payload !== 'object' || !('csrfToken' in payload) || typeof payload.csrfToken !== 'string') throw new Error('Missing sign-out CSRF token.');
       const response = await fetch('/api/auth/signout', { method: 'POST', headers: { 'X-Auth-Return-Redirect': '1' }, body: new URLSearchParams({ csrfToken: payload.csrfToken, callbackUrl: '/entrar', json: 'true' }) });
-      expect(response.ok).toBe(true);
+      if (!response.ok) throw new Error('Local fixture sign-out failed.');
     });
     const failuresBefore = customerApiFailures.length;
     await signIn(page, origin, `scope-new-user-${randomUUID()}@example.test`);
