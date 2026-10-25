@@ -65,5 +65,9 @@ describe('selected validation contracts', () => {
       expiresAt: '2026-11-01T00:00:00.000Z',
     };
     expect(validationRunSchema.parse(run).runnerProfile).toBe('node24-tsx-selected-v1');
+    expect(validationRunSchema.parse(run).containerImageDigest).toBeNull();
+    expect(validationRunSchema.parse({ ...run, sandboxKind: 'docker', containerImageDigest: 'd'.repeat(64) }))
+      .toMatchObject({ sandboxKind: 'docker', containerImageDigest: 'd'.repeat(64), rootfsDigest: null });
+    expect(validationRunSchema.safeParse({ ...run, sandboxKind: 'docker', containerImageDigest: 'sha256:' + 'd'.repeat(64) }).success).toBe(false);
   });
 });

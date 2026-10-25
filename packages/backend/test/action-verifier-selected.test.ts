@@ -29,7 +29,7 @@ function scopeFixture(): DependencyRescanScope {
   };
 }
 
-function fixture() {
+function fixture(options: { docker?: boolean; pinnedDockerImageDigest?: string } = {}) {
   const organizationId = randomUUID(); const applicationId = randomUUID(); const candidateId = randomUUID();
   const repositoryLinkId = randomUUID(); const runId = randomUUID(); const suiteId = randomUUID();
   const expiresAt = new Date(Date.now() + 60_000); const treeSha = 'c'.repeat(40); const baseCommit = 'a'.repeat(40);
@@ -54,7 +54,9 @@ function fixture() {
     patch_digest: 'd'.repeat(64), candidate_tree_digest: 'b'.repeat(64), base_snapshot_digest: 'a'.repeat(64),
     validation_mode: 'dependency', state: 'passed', runner_profile: profile,
     suite_repository_link_id: repositoryLinkId, suite_definition_id: suiteId, suite_version: 1,
-    sandbox_kind: 'jailer', rootfs_digest: 'e'.repeat(64), cleanup_verified: true, expires_at: expiresAt,
+    sandbox_kind: options.docker ? 'docker' : 'jailer', rootfs_digest: options.docker ? null : 'e'.repeat(64),
+    firecracker_digest: options.docker ? null : '1'.repeat(64), kernel_digest: options.docker ? null : '2'.repeat(64),
+    container_image_digest: options.docker ? '3'.repeat(64) : null, cleanup_verified: true, expires_at: expiresAt,
   };
   const definition = {
     organization_id: organizationId, application_id: applicationId, repository_link_id: repositoryLinkId, id: suiteId, version: 1,
@@ -88,6 +90,7 @@ function fixture() {
   const keyId = sha256(key.publicKey.export({ type: 'spki', format: 'der' }));
   const facts: ValidationFacts = { actionRef: candidateId, runId, state: 'passed', attestations: [], keys: [{ keyId, publicKey: key.publicKey.export({ type: 'spki', format: 'pem' }).toString() }] };
   const verifier = createActionVerifier({ database, pinnedRootfsDigest: 'e'.repeat(64), validationFacts: { getFacts: async () => facts },
+    ...(options.pinnedDockerImageDigest === undefined ? {} : { pinnedDockerImageDigest: options.pinnedDockerImageDigest }),
     repository: { readHead: async () => baseCommit, isPolicyCurrent: async () => true, inspectAutomation: async () => [] } });
   const rows = (values: Record<string, unknown>[]) => query.mockResolvedValueOnce({ rows: values, rowCount: values.length, command: 'SELECT', oid: 0, fields: [] });
   return { action, run, metadata, definition, suite, rescan, evidence, facts, query,
@@ -114,6 +117,43 @@ function fixture() {
 }
 
 describe('selected action validation (mocked database; real signatures, no infrastructure or customer execution)', () => {
+  it('accepts explicitly pinned Docker dependency evidence without VM identity', async () => {
+    const f = fixture({ docker: true, pinnedDockerImageDigest: '3'.repeat(64) });
+    expect(await f.verify()).toMatchObject({ eligible: true, blockingReasons: [] });
+  });
+
+  it.each([undefined, '4'.repeat(64)])('rejects a missing or different configured Docker pin: %s', async pin => {
+    const f = fixture({ docker: true, ...(pin === undefined ? {} : { pinnedDockerImageDigest: pin }) });
+    expect((await f.verify()).blockingReasons).toContain('runner_isolation_unverified');
+  });
+
+  it.each(['firecracker_digest', 'kernel_digest', 'rootfs_digest'] as const)('rejects Docker evidence carrying a fake VM %s', async field => {
+    const f = fixture({ docker: true, pinnedDockerImageDigest: '3'.repeat(64) });
+    f.run[field] = 'e'.repeat(64);
+    expect((await f.verify()).blockingReasons).toContain('runner_isolation_unverified');
+  });
+
+  it.each([null, '4'.repeat(64), 'sha256:' + '3'.repeat(64)])('rejects an absent or mismatched persisted image identity: %s', async image => {
+    const f = fixture({ docker: true, pinnedDockerImageDigest: '3'.repeat(64) });
+    f.run.container_image_digest = image;
+    Object.assign(f.facts, { runnerIsolationEvidence: { sandbox: { kind: 'docker' }, containerImageDigest: '3'.repeat(64), cleanupVerified: true } });
+    expect((await f.verify()).blockingReasons).toContain('runner_isolation_unverified');
+  });
+
+  it('rejects Docker evidence without verified cleanup', async () => {
+    const f = fixture({ docker: true, pinnedDockerImageDigest: '3'.repeat(64) });
+    f.run.cleanup_verified = false;
+    expect((await f.verify()).blockingReasons).toContain('runner_isolation_unverified');
+  });
+
+  it('rejects Docker for the legacy dependency profile even with complete coverage', async () => {
+    const f = fixture({ docker: true, pinnedDockerImageDigest: '3'.repeat(64) });
+    f.run.runner_profile = 'node24-npm-test';
+    delete f.suite.suiteBinding; delete f.rescan.dependencyScope;
+    f.rescan.before.coverage = f.rescan.after.coverage = 'complete';
+    expect((await f.verify()).blockingReasons).toContain('runner_isolation_unverified');
+  });
+
   it('accepts the bound suite and dependency scope without promoting global coverage', async () => {
     const f = fixture();
     expect(await f.verify()).toMatchObject({ eligible: true, blockingReasons: [] });
