@@ -17,7 +17,7 @@ export function boundedInvestigationContext(
     contextCoverage: { omittedRecords, shortenedExcerpts, complete: omittedRecords === 0 && shortenedExcerpts === 0 && loaded.every(item => !item.record.truncated) },
   });
   // Later reads contain the information requested to resolve the latest uncertainty.
-  for (const item of loaded.toReversed()) {
+  for (const item of [...loaded].reverse()) {
     const { evidenceId, source, collectedAt, excerpt, truncated } = item.record;
     const next = { tool: item.tool, record: { evidenceId, source, collectedAt, excerpt, truncated } };
     evidence.push(next);
