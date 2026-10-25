@@ -131,7 +131,7 @@ export function createGitHubConnectionService(deps: BaseDependencies) {
           throw new BackendError('github_source_scope_mismatch', 'La captura no corresponde al repositorio autorizado.', 409);
         }
         const result = await tx.query<{ body: unknown; digest: string; deleted_at: Date | null }>(
-          'SELECT body,digest,deleted_at FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND id=$3 FOR UPDATE',
+          'SELECT body,digest,deleted_at FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND id=$3',
           [value.organizationId, value.applicationId, value.sourceSnapshotId]);
         const source = result.rows[0];
         const snapshot = customerSourceSnapshotSchema.safeParse(source?.body);
