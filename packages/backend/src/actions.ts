@@ -33,7 +33,7 @@ export function hashActionV2(action: ActionV2, recoveryEpoch: string): string {
   return sha256('gotchu-action-v2\n' + canonicalJson({ action: parse(actionV2Schema, action), recoveryEpoch: parse(z.string().regex(/^[1-9][0-9]*$/), recoveryEpoch) }));
 }
 
-type DependencyValidationResults = { rescan: 'pending' | 'passed' | 'failed' | 'inconclusive'; suite: 'pending' | 'passed' | 'failed' | 'inconclusive' };
+type DependencyValidationResults = { rescan: 'pending' | 'passed' | 'failed' | 'unknown'; suite: 'pending' | 'passed' | 'failed' | 'unknown' };
 
 async function loadDependencyValidationResults(tx: Transaction, scope: { organizationId: string; applicationId: string }, actions: readonly ActionV2[]) {
   const attestationIds = actions.flatMap(action => action.kind === 'dependency_pull_request' ? [action.rescanAttestationId, action.suiteAttestationId] : []);
@@ -76,7 +76,7 @@ async function loadDependencyValidationResults(tx: Transaction, scope: { organiz
         || !verifyValidationAttestation({ payload: payload.data, keyId: item.key_id, signature: item.signature }, item.public_key)) continue;
       const evidence = payload.data.evidence;
       // Display the signed result; freshness and approval eligibility remain verifier decisions.
-      if (evidence.kind === 'independent_rescan' || evidence.kind === 'functional_suite') result[field] = evidence.result;
+      if (evidence.kind === 'independent_rescan' || evidence.kind === 'functional_suite') result[field] = evidence.result === 'inconclusive' ? 'unknown' : evidence.result;
     }
     results.set(action, result);
   }
