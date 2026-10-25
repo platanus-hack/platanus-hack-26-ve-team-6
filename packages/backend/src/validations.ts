@@ -24,7 +24,8 @@ export function scoreValidation(evidence: readonly ValidationEvidence[], mode: '
   if (suite.result === 'failed' || suite.counts.passed < suite.requiredCounts || suite.counts.skipped > 0 && suite.counts.passed === 0) return { state: 'failed', reason: 'functional_suite_failed' };
   if (regression.result === 'failed') return { state: 'failed', reason: 'candidate_regression_failed' };
   if (rescan.result === 'failed') return { state: 'failed', reason: 'rescan_findings_changed' };
-  const rescanScore = scoreIndependentRescan(rescan);
+  if (rescan.dependencyScope && (mode !== 'dependency' || !suite.suiteBinding || !suite.baseCounts)) return { state: 'inconclusive', reason: 'dependency_scope_binding_missing' };
+  const rescanScore = scoreIndependentRescan(rescan, mode);
   if (rescanScore.result === 'failed') return { state: 'failed', reason: rescanScore.reason };
   if (rescan.result !== 'passed' || rescanScore.result !== 'passed') return { state: 'inconclusive', reason: rescanScore.reason ?? 'rescan_coverage_unknown' };
   if (mode === 'correction' && base?.result !== 'failed_for_target') return { state: 'inconclusive', reason: 'base_reproduction_not_confirmed' };
