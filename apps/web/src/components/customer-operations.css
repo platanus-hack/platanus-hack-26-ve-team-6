@@ -1,4 +1,4 @@
-/* Operations: ops, protection, context, notifications, investigations, members, step-up, approvals, workflow exceptions, onboarding and incidents.
+/* Operations: ops, protection, context, notifications, investigations, members, approvals, workflow exceptions, onboarding and incidents.
    Structure comes from spacing and type; subtle dividers are reserved for repeated lists. */
 
 /* ---- Shared panel base: type and controls for bare markup inside operations cards ---- */
@@ -245,19 +245,6 @@
 .customer-context-badge { width: fit-content; margin: 4px 0 0; border: 1px solid var(--border); border-radius: 6px; color: var(--muted-foreground); padding: 2px 8px; font-family: var(--mono); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
 .customer-context-badge.is-matches { color: var(--foreground); }
 .customer-context-badge.is-differs { border-color: var(--destructive); color: var(--destructive); }
-
-/* ---- Step-up (WebAuthn) and recovery ---- */
-.customer-stepup-factors { display: grid; gap: 14px; margin: 0; padding: 0 !important; list-style: none; }
-.customer-stepup-factor { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 12px; padding: 0; }
-.customer-stepup-factor > label { display: grid; flex: 1 1 220px; gap: 6px; }
-.customer-stepup-form { display: grid; gap: 12px; max-width: 520px; padding-top: 4px; }
-.customer-stepup-form > label { display: grid; gap: 6px; }
-.customer-stepup-form .customer-button { justify-self: start; }
-.customer-stepup-recovery { display: grid; gap: 12px; padding: 0; }
-.customer-stepup-recovery ul { display: grid; gap: 6px; padding: 0; list-style: none; }
-.customer-stepup-recovery li { padding: 0; }
-.customer-stepup-recovery code { font-size: 14px; letter-spacing: .06em; user-select: all; }
-.customer-stepup-recovery .customer-button { justify-self: start; }
 
 /* ---- Exact-action approvals ---- */
 .customer-approval { display: grid; gap: 12px; min-width: 0; padding: 0; }
