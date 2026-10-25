@@ -26,8 +26,8 @@ live('triage customer authorization on real PostgreSQL',()=>{
   const service=await api.context.createService(identity,{...scope,environmentId:environment.id,name:'checkout',kind:'web'});if(!service)throw new Error('Service fixture was not created');
   const dependency=await api.context.createDependency(identity,{...scope,environmentId:environment.id,serviceId:service.id,kind:'provider_component',provider:'cloudflare',component:'Workers API',region:null});if(!dependency)throw new Error('Dependency fixture was not created');
   const targetId=randomUUID();
-  await f.admin.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at,verified_at,expires_at,scan_profile)
-    VALUES($1,$2,$3,'https://example.com',1,'verified',$4,repeat('a',64),clock_timestamp()+interval '30 minutes',clock_timestamp(),clock_timestamp()+interval '1 hour','public_surface')`,[scope.organizationId,scope.applicationId,targetId,identity.userId]);
+  await f.admin.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,requested_by,authorized_at,expires_at,scan_profile)
+    VALUES($1,$2,$3,'https://example.com',1,'authorized',$4,clock_timestamp(),clock_timestamp()+interval '1 hour','public_surface')`,[scope.organizationId,scope.applicationId,targetId,identity.userId]);
   await f.admin.query(`INSERT INTO gotchu.operation_monitors(organization_id,application_id,enabled,interval_seconds,target_id,target_version,providers,author_id)
     VALUES($1,$2,true,3600,$3,1,'[]'::jsonb,$4)`,[scope.organizationId,scope.applicationId,targetId,identity.userId]);
 

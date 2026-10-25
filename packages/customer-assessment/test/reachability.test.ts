@@ -87,4 +87,50 @@ describe('dependency import reachability', () => {
       expect(analyzeDependencyReachability(source, [direct], [direct], new Map(), true).get(direct.purl)?.state).toBe('unknown');
     }
   });
+
+  it.each([
+    "import type { vulnerable } from 'alpha';\nexport type Result = ReturnType<typeof vulnerable>;",
+    "import { type vulnerable } from 'alpha';\nexport type Result = ReturnType<typeof vulnerable>;",
+    "export type { vulnerable } from 'alpha';",
+    "export { type vulnerable } from 'alpha';",
+    "import type alpha = require('alpha');\nexport type Result = typeof alpha;",
+  ])('excludes erased type-only package references from runtime evidence: %s', content => {
+    const dependency = pkg('alpha', 'direct');
+    const source = input([{ path: 'src/app.ts', content }]).source;
+    if (!source) throw new Error('fixture_source_missing');
+    const result = analyzeDependencyReachability(source, [dependency], [dependency], new Map([['alpha\u00001.2.3', ['vulnerable']]]), true).get(dependency.purl);
+    expect(result).toMatchObject({ state: 'not_found_static', importEvidence: [], symbolEvidence: [] });
+  });
+
+  it.each([
+    "import { type Shape, vulnerable } from 'alpha'; vulnerable();",
+    "export { type Shape, vulnerable } from 'alpha';",
+  ])('retains value bindings in mixed type/value references: %s', content => {
+    const dependency = pkg('alpha', 'direct');
+    const source = input([{ path: 'src/app.ts', content }]).source;
+    if (!source) throw new Error('fixture_source_missing');
+    expect(analyzeDependencyReachability(source, [dependency], [dependency], new Map([['alpha\u00001.2.3', ['vulnerable']]]), true).get(dependency.purl)?.state).toBe('reachable');
+  });
+
+  it('keeps an import version unknown when multiple exact versions share the package name', () => {
+    const direct = pkg('alpha', 'direct');
+    const other = { ...direct, version: '2.0.0', purl: 'pkg:npm/alpha@2.0.0', sourceFile: 'other/package-lock.json' };
+    const source = input([{ path: 'src/app.ts', content: "import { vulnerable } from 'alpha'; vulnerable();" }]).source;
+    if (!source) throw new Error('fixture_source_missing');
+    const results = analyzeDependencyReachability(source, [direct, other], [direct, other], new Map([
+      ['alpha\u00001.2.3', ['vulnerable']], ['alpha\u00002.0.0', ['vulnerable']],
+    ]), true);
+    for (const dependency of [direct, other]) expect(results.get(dependency.purl)?.state).toBe('unknown');
+  });
+
+  it.each(['.d.ts', '.d.mts', '.d.cts'])('does not treat declaration-only TypeScript files (%s) as runtime dependency evidence', extension => {
+    const dependency = pkg('alpha', 'direct');
+    const run = input([{ path: `types/vue-shim${extension}`, content: "import type { Component } from 'alpha';\ndeclare module '*.vue' { const component: Component; export default component; }" }]);
+    const source = run.source;
+    if (!source) throw new Error('fixture_source_missing');
+
+    const result = analyzeDependencyReachability(source, [dependency], [dependency], new Map(), true).get(dependency.purl);
+
+    expect(result).toMatchObject({ state: 'unknown', importEvidence: [] });
+  });
 });

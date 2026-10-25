@@ -31,16 +31,16 @@ export const customerUpdateWorkspaceSchema = z.object({ organizationId: uuid, na
 export const customerCreateApplicationSchema = z.object({ organizationId: uuid, name }).strict();
 export const customerApplicationSchema = customerScopeSchema.extend({ name, archived: z.boolean(), createdAt: timestamp }).strict();
 export const customerUpdateApplicationSchema = customerScopeSchema.extend({ name: name.optional(), archived: z.boolean().optional() }).strict().refine(value => value.name !== undefined || value.archived !== undefined);
-export const customerScanProfileSchema = z.enum(['root', 'public_surface']);
-export const customerEnrollTargetSchema = customerScopeSchema.extend({ origin: customerOriginSchema, authorized: z.literal(true), scanProfile: customerScanProfileSchema.optional() }).strict();
+export const customerScanProfileSchema = z.enum(['root', 'public_surface', 'api_checks']);
+export const customerEnrollTargetSchema = customerScopeSchema.extend({ origin: customerOriginSchema, scanProfile: customerScanProfileSchema.optional() }).strict();
 export const customerTargetIdSchema = customerScopeSchema.extend({ targetId: uuid }).strict();
 export const customerTargetSchema = customerScopeSchema.extend({
   id: uuid, origin: customerOriginSchema, version: z.number().int().positive(),
-  status: z.enum(['pending', 'verified', 'revoked']), consentActor: z.string().min(1).max(256), consentAt: timestamp,
-  challengeExpiresAt: timestamp, verifiedAt: timestamp.nullable(), expiresAt: timestamp.nullable(),
+  status: z.enum(['authorized', 'revoked']), requestedBy: z.string().min(1).max(256), requestedAt: timestamp,
+  authorizedAt: timestamp.nullable(), expiresAt: timestamp.nullable(),
   scanProfile: customerScanProfileSchema.optional(),
 }).strict();
-export const customerEnrollmentSchema = z.object({ target: customerTargetSchema, challenge: z.object({ name: z.string(), value: z.string(), expiresAt: timestamp }).strict() }).strict();
+export const customerEnrollmentSchema = z.object({ target: customerTargetSchema }).strict();
 export const customerSourceFileSchema = z.object({
   path: z.string().min(1).max(512).refine(path => {
     const parts = path.split('/');
@@ -110,7 +110,7 @@ export const customerRunInputSchema = customerScopeSchema.extend({
   inputKind: z.enum(['source_snapshot', 'container_image']).optional(),
   source: customerSourceSnapshotSchema.safeExtend({ id: uuid, digest }).nullable(),
   containerImage: customerRunContainerImageSchema.nullable().optional(),
-  target: z.object({ id: uuid, origin: customerOriginSchema, version: z.number().int().positive(), verifiedAt: timestamp, expiresAt: timestamp, scanProfile: customerScanProfileSchema.optional() }).strict().nullable(),
+  target: z.object({ id: uuid, origin: customerOriginSchema, version: z.number().int().positive(), authorizedAt: timestamp, expiresAt: timestamp, scanProfile: customerScanProfileSchema.optional() }).strict().nullable(),
   licensePolicy: licensePolicySchema.optional(),
 }).strict().superRefine((value, context) => {
   const inputKind = value.inputKind ?? 'source_snapshot';
@@ -172,6 +172,7 @@ export const customerReportSummarySchema = z.object({ id: uuid, jobId: uuid, app
 export type CustomerWorkspace = z.infer<typeof customerWorkspaceSchema>;
 export type CustomerApplication = z.infer<typeof customerApplicationSchema>;
 export type CustomerTarget = z.infer<typeof customerTargetSchema>;
+export type CustomerScanProfile = z.infer<typeof customerScanProfileSchema>;
 export type CustomerEnrollment = z.infer<typeof customerEnrollmentSchema>;
 export type CustomerSourceSnapshot = z.infer<typeof customerSourceSnapshotSchema>;
 export type CustomerSourceSummary = z.infer<typeof customerSourceSummarySchema>;

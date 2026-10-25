@@ -9,7 +9,8 @@ import { investigationModelProviderForPreset, investigationProviderCatalog } fro
 import { createModelPort } from '../src/model-provider.js';
 import { redactEvidenceExcerpt } from '../src/service.js';
 
-const providerHosts = investigationProviderCatalog.flatMap(preset => preset.baseUrl ? [new URL(preset.baseUrl).hostname] : ['custom.example']);
+const perTokenPresets = investigationProviderCatalog.filter(preset => preset.billing === 'per_token');
+const providerHosts = perTokenPresets.flatMap(preset => preset.baseUrl ? [new URL(preset.baseUrl).hostname] : ['custom.example']);
 const fixtureBody = { choices: [{ message: { content: '{}' } }], usage: { prompt_tokens: 9, completion_tokens: 2 } };
 const recorded: Array<{ url: string; method: string; headers: Headers; body: string }> = [];
 let server: ReturnType<typeof createHttpsServer>;
@@ -88,9 +89,9 @@ function localTlsFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Re
 }
 
 // One fixture per request shape; presets sharing every wire-format field differ only in catalog data.
-const wireFormat = (preset: (typeof investigationProviderCatalog)[number]) =>
+const wireFormat = (preset: (typeof perTokenPresets)[number]) =>
   [preset.adapterKind, preset.authHeaderStyle, preset.maxTokensField, preset.supportsJsonObjectMode, preset.baseUrl === null].join(':');
-const onePresetPerWireFormat = investigationProviderCatalog.filter((preset, index, all) =>
+const onePresetPerWireFormat = perTokenPresets.filter((preset, index, all) =>
   all.findIndex(other => wireFormat(other) === wireFormat(preset)) === index);
 
 describe('hosted investigator provider adapters (local HTTPS fixtures; not live-provider evidence)', () => {

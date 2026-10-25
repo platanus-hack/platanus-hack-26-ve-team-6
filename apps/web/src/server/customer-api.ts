@@ -71,7 +71,6 @@ export interface CustomerServices {
   updateApplication(identity: Identity, value: z.infer<typeof customerUpdateApplicationSchema>): Promise<CustomerApplication>;
   listTargets(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerTarget[]>;
   enrollTarget(identity: Identity, value: z.infer<typeof customerEnrollTargetSchema>): Promise<CustomerEnrollment>;
-  verifyTarget(identity: Identity, value: z.infer<typeof customerTargetIdSchema>): Promise<CustomerTarget>;
   revokeTarget(identity: Identity, value: z.infer<typeof customerTargetIdSchema>): Promise<CustomerTarget>;
   listSources(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerSourceSummary[]>;
   uploadSource(identity: Identity, value: z.infer<typeof customerUploadSourceSchema>): Promise<CustomerSourceSummary>;
@@ -463,11 +462,10 @@ export function createCustomerApi(options: {
         await services.deleteSource(identity, { ...scope, sourceSnapshotId: parse(uuid, parts[7]) });
         return send({ deleted: true });
       }
-      if (parts.length === 9 && parts[6] === 'targets' && request.method === 'POST') {
+      if (parts.length === 9 && parts[6] === 'targets' && parts[8] === 'revoke' && request.method === 'POST') {
         parse(z.object({}).strict(), await body(request));
         const value = { ...scope, targetId: parse(uuid, parts[7]) };
-        if (parts[8] === 'verify') return send(customerTargetSchema.parse(await services.verifyTarget(identity, value)));
-        if (parts[8] === 'revoke') return send(customerTargetSchema.parse(await services.revokeTarget(identity, value)));
+        return send(customerTargetSchema.parse(await services.revokeTarget(identity, value)));
       }
       throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
     } catch (error) {

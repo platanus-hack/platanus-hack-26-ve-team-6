@@ -67,7 +67,7 @@ describe('authorized HTTPS health read', () => {
         id: randomUUID(),
         origin: 'https://customer.org',
         version: 3,
-        verifiedAt: new Date(Date.now() - 1000).toISOString(),
+        authorizedAt: new Date(Date.now() - 1000).toISOString(),
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
       }, AbortSignal.timeout(2000));
       expect(seen).toEqual([{ method: 'GET', url: '/', authorization: undefined, cookie: undefined }]);
@@ -95,7 +95,7 @@ describe('authorized HTTPS health read', () => {
         id: randomUUID(),
         origin: 'https://customer.org',
         version: 1,
-        verifiedAt: new Date(Date.now() - 10_000).toISOString(),
+        authorizedAt: new Date(Date.now() - 10_000).toISOString(),
         expiresAt: new Date(Date.now() - 1000).toISOString(),
       }, AbortSignal.timeout(1000))).rejects.toThrow('authorized_target_expired');
       expect(fixture.connections()).toBe(0);
@@ -119,7 +119,7 @@ describe('authorized HTTPS health read', () => {
         id: randomUUID(),
         origin: 'https://customer.org',
         version: 3,
-        verifiedAt: new Date(now.getTime() - 1000).toISOString(),
+        authorizedAt: new Date(now.getTime() - 1000).toISOString(),
         expiresAt: new Date(now.getTime() + 60_000).toISOString(),
       }, AbortSignal.timeout(2000));
       expect(observation.status).toBe(204);
@@ -132,7 +132,7 @@ describe('authorized HTTPS health read', () => {
 
   it('probes only the fixed public-surface paths when that consent profile is active',async()=>{
     const seen:string[]=[];const fixture=await tlsFixture((request,response)=>{seen.push(request.url??'');response.writeHead(204).end();});
-    const target={id:randomUUID(),origin:'https://customer.org',version:1,verifiedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+60_000).toISOString(),scanProfile:'public_surface' as const};
+    const target={id:randomUUID(),origin:'https://customer.org',version:1,authorizedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+60_000).toISOString(),scanProfile:'public_surface' as const};
     try {
       const adapter=createAuthorizedHttpsHealthAdapter({https:{lookup:async()=>[{address:'127.0.0.1',family:4}],testFixture:{hostname:'customer.org',port:fixture.port,ca:cert}}});
       const result=await adapter.read(target,AbortSignal.timeout(2000),'/robots.txt');

@@ -98,8 +98,8 @@ export function createOperationsService(deps: BaseDependencies) {
           }
           let targetVersion: number | null = null;
           if (value.enabled && value.targetId) {
-            const target = await tx.query<{ version: number }>("SELECT version FROM gotchu.customer_targets WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND status='verified' AND expires_at>clock_timestamp()", [value.organizationId, value.applicationId, value.targetId]);
-            if (!target.rows[0]) throw new BackendError('target_not_verified', 'Verify the current target before monitoring it', 409);
+            const target = await tx.query<{ version: number }>("SELECT version FROM gotchu.customer_targets WHERE organization_id=$1 AND application_id=$2 AND id=$3 AND status='authorized' AND expires_at>clock_timestamp()", [value.organizationId, value.applicationId, value.targetId]);
+            if (!target.rows[0]) throw new BackendError('target_not_authorized', 'Enter a target origin before monitoring it', 409);
             targetVersion = target.rows[0].version;
           }
           await tx.query(`INSERT INTO gotchu.operation_monitors(organization_id,application_id,enabled,interval_seconds,source_id,target_id,target_version,repository_key,providers,author_id)
@@ -261,7 +261,7 @@ export function createOperationsService(deps: BaseDependencies) {
         const authorization = await tx.query<{ valid: boolean }>(`SELECT
           EXISTS(SELECT 1 FROM gotchu.memberships u WHERE u.organization_id=m.organization_id AND u.user_id=m.author_id AND u.role IN ('owner','operator'))
           AND (m.source_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_sources s WHERE s.organization_id=m.organization_id AND s.application_id=m.application_id AND s.id=m.source_id AND s.deleted_at IS NULL))
-          AND (m.target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='verified' AND t.expires_at>clock_timestamp())) AS valid
+          AND (m.target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='authorized' AND t.expires_at>clock_timestamp())) AS valid
           FROM gotchu.operation_monitors m WHERE m.organization_id=$1 AND m.application_id=$2`, [value.organizationId, value.applicationId]);
         const scopeCurrent = authorization.rows[0]?.valid ?? false;
         const gaps = await tx.query<{ capability: string; reason: string }>(`SELECT capability,reason FROM gotchu.coverage WHERE organization_id=$1 AND application_id=$2

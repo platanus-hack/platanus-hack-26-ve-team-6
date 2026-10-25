@@ -340,7 +340,7 @@ function containsForbiddenSecret(value: unknown, active = new WeakSet<object>())
   return false;
 }
 
-async function git(cwd: string, args: readonly string[], options: { env?: NodeJS.ProcessEnv; stdin?: string } = {}): Promise<string> {
+async function git(cwd: string, args: readonly string[], options: { env?: NodeJS.ProcessEnv; stdin?: string; trimOutput?: boolean } = {}): Promise<string> {
   return await new Promise((resolvePromise, reject) => {
     const child = spawn('git', [...args], { cwd, env: options.env, stdio: [options.stdin === undefined ? 'ignore' : 'pipe','pipe','pipe'], shell: false });
     const out: Buffer[] = []; const err: Buffer[] = [];
@@ -348,7 +348,7 @@ async function git(cwd: string, args: readonly string[], options: { env?: NodeJS
     child.stderr?.on('data', chunk => err.push(Buffer.from(chunk)));
     child.stdin?.on('error', reject);
     child.once('error', reject);
-    child.once('close', code => code === 0 ? resolvePromise(Buffer.concat(out).toString('utf8').trim()) : reject(new Error(`git_failed:${Buffer.concat(err).toString('utf8').slice(0,300)}`)));
+    child.once('close', code => code === 0 ? resolvePromise(options.trimOutput === false ? Buffer.concat(out).toString('utf8') : Buffer.concat(out).toString('utf8').trim()) : reject(new Error(`git_failed:${Buffer.concat(err).toString('utf8').slice(0,300)}`)));
     if (options.stdin !== undefined) child.stdin?.end(options.stdin);
   });
 }
@@ -376,7 +376,7 @@ export async function createLocalGitAdapter(repositoryPath: string): Promise<Pul
     async resolveTarget(repositoryKey) { const branch = await git(root,['--git-dir',bare,'symbolic-ref','HEAD']).catch(()=> 'refs/heads/main'); return { repositoryKey, baseBranch: branch.replace('refs/heads/','') }; },
     async readHead(branch) { return sha.parse(await git(root,['--git-dir',bare,'rev-parse',`refs/heads/${branch}`])); },
     async listDir(path, ref) { const files=await git(root,['--git-dir',bare,'ls-tree','-r','--name-only',sha.parse(ref),pathSchema.parse(path)]); return files.split('\n').filter(Boolean).map(value=>({path:value,type:'file' as const})); },
-    async readFile(path, ref) { return await git(root,['--git-dir',bare,'show',`${sha.parse(ref)}:${pathSchema.parse(path)}`]); },
+    async readFile(path, ref) { return await git(root,['--git-dir',bare,'show',`${sha.parse(ref)}:${pathSchema.parse(path)}`],{trimOutput:false}); },
     async readTree(commitSha) {
       const checked = sha.parse(commitSha);
       const treeSha = sha.parse(await git(root,['--git-dir',bare,'rev-parse',`${checked}^{tree}`]));
@@ -495,14 +495,14 @@ export function createGitHubAppAdapter(options: GitHubAppOptions): PullRequestAd
     try{return schema.parse(await json(response));}catch{throw new GitAdapterError('malformed_response');}
   }
   async function listDirAt(path: string, ref: string) {
-    const response=await request('GET',`/contents/${pathSchema.parse(path)}?ref=${sha.parse(ref)}`);
+    const response=await request('GET',`/contents/${pathSchema.parse(path).split('/').map(encodeURIComponent).join('/')}?ref=${sha.parse(ref)}`);
     if(!response.ok){if([401,403].includes(response.status))throw new GitAdapterError('provider_access_revoked');if(response.status===404)return [];throw new GitAdapterError('unknown_outcome');}
     try{return z.array(contentEntrySchema).max(1000).parse(await json(response)).map(entry=>({path:entry.path,type:entry.type}));}catch{throw new GitAdapterError('malformed_response');}
   }
   async function readFileAt(path: string, ref: string) {
-    const response=await request('GET',`/contents/${pathSchema.parse(path)}?ref=${sha.parse(ref)}`);
+    const response=await request('GET',`/contents/${pathSchema.parse(path).split('/').map(encodeURIComponent).join('/')}?ref=${sha.parse(ref)}`);
     if(!response.ok){if([401,403].includes(response.status))throw new GitAdapterError('provider_access_revoked');if(response.status===404)throw new GitAdapterError('not_found');throw new GitAdapterError('unknown_outcome');}
-    try{const file=contentFileSchema.parse(await json(response));if(file.encoding!=='base64'||!file.content)throw new Error('invalid_content');return Buffer.from(file.content,'base64').toString('utf8');}catch{throw new GitAdapterError('malformed_response');}
+    try{const file=contentFileSchema.parse(await json(response));if(file.path!==path||file.encoding!=='base64'||file.content===undefined)throw new Error('invalid_content');return Buffer.from(file.content,'base64').toString('utf8');}catch{throw new GitAdapterError('malformed_response');}
   }
   const toPr=(pr:z.infer<typeof prSchema>):PullRequest=>({number:pr.number,url:pr.html_url,state:pr.state,draft:pr.draft ?? false,headSha:pr.head.sha,headBranch:pr.head.ref,baseSha:pr.base.sha,baseBranch:pr.base.ref});
   const readWorkflowFiles = async (baseSha: string) => {

@@ -5,6 +5,7 @@ import {
   investigationProviderCatalog,
   investigationProviderPresetIdSchema,
   type InvestigationDataScope,
+  type InvestigationProviderPreset,
   type InvestigationProviderPresetId,
   type InvestigationSubject,
 } from '@gotchu/contracts';
@@ -23,19 +24,46 @@ const modelKey = (organizationId: string) => ['customer-data', organizationId, '
 const runsKey = (organizationId: string, applicationId: string) => ['customer-data', organizationId, applicationId, 'investigations'] as const;
 const probeReasons = {
   invalid_api_key: 'La clave API no es válida.', access_denied: 'La clave no tiene acceso al modelo solicitado.',
+  cli_unavailable: 'El servidor de Gotchu no encuentra el CLI de este proveedor (claude o codex) o su versión no es compatible.',
   billing_or_credits: 'El proveedor rechazó la solicitud por facturación o créditos.',
   model_or_endpoint_not_found: 'No se encontró el modelo o endpoint.', rate_limited: 'El proveedor limitó la velocidad de solicitudes.',
   request_rejected: 'El proveedor rechazó la solicitud.', provider_unavailable: 'El proveedor no está disponible ahora.',
   network_error: 'No se pudo conectar con el proveedor.', invalid_response: 'El proveedor devolvió una respuesta no válida.',
   missing_usage: 'El proveedor no informó el uso de tokens; la reserva se conserva para conciliación.',
   model_output_invalid: 'El proveedor respondió, pero no respetó el formato de prueba.',
-  budget_exhausted: 'No queda presupuesto suficiente para una prueba de 64 tokens.',
   unsafe_endpoint: 'El endpoint personalizado no es HTTPS público y seguro.',
   probe_unavailable: 'La prueba de conexión no está disponible.',
 } as const;
 
+type ProbeResult = Awaited<ReturnType<typeof customerApi.testInvestigationModel>>;
+
+function probeText(result: ProbeResult, preset: InvestigationProviderPreset | undefined) {
+  const reason = result.reason ?? 'probe_unavailable';
+  if (reason === 'budget_exhausted') return `No queda presupuesto suficiente para una prueba de ${(preset?.probeTokenAllowance ?? 64).toLocaleString('es')} tokens.`;
+  if (preset?.billing === 'subscription' && (reason === 'invalid_api_key' || reason === 'access_denied')) {
+    return 'La suscripción rechazó la sesión: el token o el auth.json caducó, se revocó o no incluye este modelo. Genera uno nuevo y pégalo.';
+  }
+  if (preset?.billing === 'subscription' && reason === 'rate_limited') return 'Alcanzaste el límite de uso de tu suscripción. Espera a que se renueve o elige otro modelo.';
+  return probeReasons[reason];
+}
+
+/** How to obtain each subscription login; the gateway host also needs the matching CLI installed. */
+const subscriptionCredentialHelp = {
+  claude_code: {
+    label: 'Token de Claude Code',
+    placeholder: 'sk-ant-oat01-…',
+    steps: <>En una terminal con Claude Code instalado ejecuta <code>claude setup-token</code>, inicia sesión con tu cuenta Claude Pro o Max y pega el token que empieza por <code>sk-ant-oat01-</code>. Dura un año y puedes revocarlo desde claude.ai.</>,
+  },
+  codex: {
+    label: 'auth.json de Codex',
+    placeholder: '{"auth_mode":"chatgpt","tokens":{…}}',
+    steps: <>Inicia una sesión sólo para Gotchu con <code>CODEX_HOME=~/.codex-gotchu codex login</code> (o <code>codex login --device-auth</code> en un servidor sin navegador) y pega el contenido de <code>~/.codex-gotchu/auth.json</code>. No reutilices la sesión de tu terminal: Codex renueva sus tokens y dos copias de la misma sesión se invalidan entre sí.</>,
+  },
+} as const;
+
 function errorText(error: unknown) {
   if (error instanceof CustomerApiError) {
+    if (error.code === 'model_credential_invalid') return 'La credencial no tiene el formato esperado. Pega el token de claude setup-token o el auth.json completo de codex login con una cuenta ChatGPT.';
     if (error.code === 'investigation_disabled') return 'Investigación deshabilitada. Configura un modelo y concede permiso para los datos que quieras compartir.';
     if (error.code === 'model_budget_below_usage') return 'El presupuesto no puede quedar por debajo del gasto o las reservas existentes.';
     return error.message;
@@ -75,12 +103,15 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
     setTokenBudget(String(value.organizationTokenBudget || 100_000));
   }, [settings.data]);
 
+  const preset = investigationProviderCatalog.find(item => item.id === providerPresetId);
+  const subscription = preset?.billing === 'subscription' ? subscriptionCredentialHelp[preset.id] : null;
   const save = useMutation({
     mutationFn: () => customerApi.configureInvestigationModel(organizationId, {
       providerPresetId, ...(providerPresetId === 'custom_openai_compatible' ? { customEndpoint: customEndpoint.trim() } : {}), modelId: modelId.trim(),
       ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}), ...(clearApiKey ? { clearApiKey: true } : {}),
       consentToExternalProcessing: consent, dataScopes: scopes,
-      inputPriceMicroUsdPerMillionTokens: Number(inputRate), outputPriceMicroUsdPerMillionTokens: Number(outputRate),
+      // Subscriptions are not billed per token; the server rejects any price for them.
+      inputPriceMicroUsdPerMillionTokens: subscription ? 0 : Number(inputRate), outputPriceMicroUsdPerMillionTokens: subscription ? 0 : Number(outputRate),
       organizationBudgetCents: Number(budgetCents), organizationTokenBudget: Number(tokenBudget),
     }),
     onSuccess: value => {
@@ -97,7 +128,7 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
     onSuccess: result => {
       setNotice(result.status === 'succeeded'
         ? `Conexión correcta · ${result.inputTokens ?? 0} tokens de entrada y ${result.outputTokens ?? 0} de salida.`
-        : probeReasons[result.reason ?? 'probe_unavailable']);
+        : probeText(result, preset));
       void queryClient.invalidateQueries({ queryKey: modelKey(organizationId) });
     },
   });
@@ -117,12 +148,17 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
       const parsed = investigationProviderPresetIdSchema.safeParse(event.target.value);
       if (!parsed.success) return;
       const next = parsed.data;
-      const preset = investigationProviderCatalog.find(item => item.id === next);
+      const nextPreset = investigationProviderCatalog.find(item => item.id === next);
       setProviderPresetId(next);
       setCustomEndpoint(next === 'custom_openai_compatible' ? customEndpoint : '');
-      setModelId(preset?.defaultModelId ?? '');
+      setModelId(nextPreset?.defaultModelId ?? '');
     }} disabled={!isOwner || save.isPending || testConnection.isPending}>
-      {investigationProviderCatalog.map(preset => <option value={preset.id} key={preset.id}>{preset.displayName}</option>)}
+      <optgroup label="Con tu suscripción">
+        {investigationProviderCatalog.filter(item => item.billing === 'subscription').map(item => <option value={item.id} key={item.id}>{item.displayName}</option>)}
+      </optgroup>
+      <optgroup label="Con clave API">
+        {investigationProviderCatalog.filter(item => item.billing === 'per_token').map(item => <option value={item.id} key={item.id}>{item.displayName}</option>)}
+      </optgroup>
     </select>
     {providerPresetId === 'custom_openai_compatible' && <>
       <label htmlFor="investigation-endpoint">Endpoint HTTPS personalizado</label>
@@ -130,10 +166,11 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
     </>}
     <label htmlFor="investigation-model-id">Modelo</label>
     <input id="investigation-model-id" list="investigation-model-suggestions" value={modelId} onChange={event => setModelId(event.target.value)} maxLength={200} disabled={!isOwner || save.isPending || testConnection.isPending} placeholder="Escribe un ID de modelo" />
-    <datalist id="investigation-model-suggestions">{investigationProviderCatalog.find(preset => preset.id === providerPresetId)?.suggestedModelIds.map(model => <option value={model} key={model} />)}</datalist>
-    <label htmlFor="investigation-api-key">Clave API</label>
-    <input id="investigation-api-key" type="password" autoComplete="new-password" value={apiKey} onChange={event => { setApiKey(event.target.value); if (event.target.value) setClearApiKey(false); }} maxLength={4096} disabled={!isOwner || save.isPending || testConnection.isPending} placeholder={settings.data?.apiKeyConfigured ? 'Clave nueva (vacío conserva la configurada)' : 'Pega la clave API'} />
-    {settings.data?.apiKeyConfigured && <p className="customer-field-note" aria-label="Clave API configurada">•••••••• configurada</p>}
+    <datalist id="investigation-model-suggestions">{preset?.suggestedModelIds.map(model => <option value={model} key={model} />)}</datalist>
+    <label htmlFor="investigation-api-key">{subscription?.label ?? 'Clave API'}</label>
+    {subscription && <p className="customer-field-note" id="investigation-credential-help">{subscription.steps}</p>}
+    <input id="investigation-api-key" type="password" autoComplete="new-password" value={apiKey} onChange={event => { setApiKey(event.target.value); if (event.target.value) setClearApiKey(false); }} maxLength={16384} disabled={!isOwner || save.isPending || testConnection.isPending} placeholder={settings.data?.apiKeyConfigured ? 'Credencial nueva (vacío conserva la configurada)' : subscription?.placeholder ?? 'Pega la clave API'} {...(subscription ? { 'aria-describedby': 'investigation-credential-help' } : {})} />
+    {settings.data?.apiKeyConfigured && <p className="customer-field-note" aria-label="Credencial configurada">•••••••• configurada</p>}
     {isOwner && settings.data?.apiKeyConfigured && <label className="customer-investigation-consent"><input type="checkbox" checked={clearApiKey} onChange={event => setClearApiKey(event.target.checked)} disabled={save.isPending || testConnection.isPending} />Eliminar la clave guardada al guardar</label>}
     <fieldset disabled={!isOwner || save.isPending || testConnection.isPending}>
       <legend>Datos que autorizas enviar al modelo</legend>
@@ -143,13 +180,18 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
       </label>)}
     </fieldset>
     <label className="customer-investigation-consent"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={!isOwner || save.isPending || testConnection.isPending} />Autorizo el procesamiento externo de las categorías seleccionadas</label>
+    {subscription && <p className="customer-field-note">Con suscripción, cada llamada se descuenta de los límites de tu plan y cuesta $0 en Gotchu. Aun así, el presupuesto en dinero del espacio debe quedar por encima de lo ya gastado con proveedores de clave API, o las investigaciones se bloquean.</p>}
     <div className="customer-investigation-budget-grid">
+      {!subscription && <>
       <label htmlFor="investigation-input-rate">Entrada · micro USD por millón de tokens<input id="investigation-input-rate" type="number" min="0" max="1000000000" step="1" value={inputRate} onChange={event => setInputRate(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
       <label htmlFor="investigation-output-rate">Salida · micro USD por millón de tokens<input id="investigation-output-rate" type="number" min="0" max="1000000000" step="1" value={outputRate} onChange={event => setOutputRate(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
+      </>}
       <label htmlFor="investigation-budget">Presupuesto del espacio · centavos<input id="investigation-budget" type="number" min="0" max="100000000" step="1" value={budgetCents} onChange={event => setBudgetCents(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
       <label htmlFor="investigation-token-budget">Presupuesto de tokens<input id="investigation-token-budget" type="number" min="0" max="100000000" step="1000" value={tokenBudget} onChange={event => setTokenBudget(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
     </div>
-    {settings.data && <p className="customer-field-note">Uso: {settings.data.tokensSpent.toLocaleString('es')} tokens · ${(settings.data.spentMicroUsd / 1_000_000).toFixed(6)} USD gastados · ${(settings.data.reservedMicroUsd / 1_000_000).toFixed(6)} USD reservados.</p>}
+    {settings.data && (subscription
+      ? <p className="customer-field-note">Uso del espacio: {settings.data.tokensSpent.toLocaleString('es')} tokens · {settings.data.tokensReserved.toLocaleString('es')} reservados{settings.data.spentMicroUsd !== 0 && <> · ${(settings.data.spentMicroUsd / 1_000_000).toFixed(6)} USD gastados</>}{settings.data.reservedMicroUsd !== 0 && <> · ${(settings.data.reservedMicroUsd / 1_000_000).toFixed(6)} USD reservados</>}.</p>
+      : <p className="customer-field-note">Uso: {settings.data.tokensSpent.toLocaleString('es')} tokens · ${(settings.data.spentMicroUsd / 1_000_000).toFixed(6)} USD gastados · ${(settings.data.reservedMicroUsd / 1_000_000).toFixed(6)} USD reservados.</p>)}
     {(save.error || disable.error || testConnection.error) && <p className="customer-form-error" role="alert">{errorText(save.error ?? disable.error ?? testConnection.error)}</p>}
     {notice && <p role="status">{notice}</p>}
     <div className="customer-ops-alert-actions">

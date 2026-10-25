@@ -38,7 +38,18 @@ Semgrep está fijado en 1.182.0 por digest. La validación local Linux/amd64 cub
 
 ## Investigación con IA
 
-En un despliegue con el investigador y el gateway D11 habilitados, una persona Owner abre la configuración de investigación del workspace, elige un proveedor, pega su clave API y guarda. El modelo sugerido puede cambiarse o escribirse como texto libre. La clave se almacena sólo en el servidor; Gotchu exige consentimiento explícito por categoría y conserva los límites de gasto y tokens. **Probar conexión** envía una solicitud mínima de hasta 64 tokens por el gateway y muestra un resultado breve.
+`./gotchu up` arranca el gateway y el worker de investigación junto al resto de servicios. Una persona Owner abre **Aplicaciones → Modelo y consentimiento**, elige un proveedor, pega su credencial, marca las categorías de datos que autoriza y guarda. El modelo sugerido puede cambiarse o escribirse como texto libre. La credencial se almacena sólo en el servidor (`.gotchu/model-secrets`); Gotchu exige consentimiento explícito por categoría y conserva los límites de gasto y tokens. **Probar conexión** envía una solicitud mínima por el gateway y muestra un resultado breve.
+
+### Con tu suscripción de Claude o ChatGPT
+
+Claude Code y Codex usan tu suscripción en lugar de una clave API: el gateway ejecuta el CLI oficial sin herramientas, en un directorio temporal vacío y con un `HOME` propio. El host que ejecuta `./gotchu up` necesita el CLI instalado y en el `PATH` (o `GOTCHU_CLAUDE_CODE_BIN` / `GOTCHU_CODEX_BIN` en `.gotchu/.env`); `./gotchu doctor` indica si los encuentra.
+
+- **Claude Code (Pro o Max).** Ejecuta `claude setup-token`, inicia sesión y pega el token `sk-ant-oat01-…`. Dura un año y se revoca desde claude.ai.
+- **Codex (ChatGPT).** Crea una sesión sólo para Gotchu con `CODEX_HOME=~/.codex-gotchu codex login` (o `codex login --device-auth` sin navegador) y pega el contenido de `~/.codex-gotchu/auth.json`. No reutilices la sesión de tu terminal: Codex rota su token de renovación y dos copias de la misma sesión se invalidan entre sí. El gateway guarda la sesión renovada en el mismo almacén.
+
+No hay precio por token: el uso se descuenta de los límites de tu suscripción y Gotchu sólo aplica el presupuesto de tokens. La prueba de conexión reserva más tokens que con una clave API porque cada CLI añade su propio prompt (unos 0,4 k en Claude Code y unos 6 k en Codex); una investigación con Codex suele usar unos 14 k de los 20 k permitidos por ejecución.
+
+### Con clave API
 
 | Proveedor | Modelo inicial o sugerencias | Documentación oficial |
 | --- | --- | --- |
@@ -51,12 +62,12 @@ En un despliegue con el investigador y el gateway D11 habilitados, una persona O
 | Mistral | `mistral-large-latest`, `mistral-small-latest` | [chat](https://docs.mistral.ai/api/endpoint/chat) · [modelos](https://docs.mistral.ai/api/endpoint/models) |
 | xAI Grok | `grok-4.7` | [API](https://docs.x.ai/developers/rest-api-reference/inference) · [modelo](https://docs.x.ai/developers/models/grok-4.7) |
 | Groq | `openai/gpt-oss-120b`, `openai/gpt-oss-20b` | [API](https://console.groq.com/docs/overview) · [modelos](https://console.groq.com/docs/models) |
-| OpenRouter | Escribe un ID del catálogo de OpenRouter | [API](https://openrouter.ai/docs/api_reference/overview) · [catálogo](https://openrouter.ai/models) |
+| OpenRouter | `anthropic/claude-sonnet-5.5`, `openai/gpt-6.1-sol`, `google/gemini-3.8-flash`, `deepseek/deepseek-v4.1-flash`, `moonshotai/kimi-k3.1-pro`, `z-ai/glm-5.3`, o cualquier ID del catálogo; indica sus precios por token | [API](https://openrouter.ai/docs/api_reference/overview) · [catálogo](https://openrouter.ai/models) |
 | Custom OpenAI-compatible | Escribe el ID y endpoint | [formato de chat](https://developers.openai.com/api/reference/chat/completions/overview) |
 
 Los proveedores alojados usan sus endpoints HTTPS oficiales. Custom OpenAI-compatible requiere HTTPS y DNS público; para permitir un endpoint autohospedado, el operador debe establecer `GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT=true` tanto en Web como en Gateway. En despliegues separados, configura `GOTCHU_GATEWAY_URL` en Web, comparte el mismo secreto aleatorio base64url de al menos 32 bytes mediante `GOTCHU_GATEWAY_MODEL_PROBE_SECRET` entre Web y Gateway, y proporciona al Gateway acceso al almacén de claves de modelo configurado. No pongas claves de proveedor en variables del navegador ni en logs.
 
-El arranque local de esta guía mantiene Agent y Gateway deshabilitados; en esa topología, la prueba de conexión informa que no está disponible. Los proveedores quedan utilizables cuando el operador habilita y configura esos servicios con sus credenciales y transporte privado.
+En el arranque local, Web, coordinator, worker y gateway se comunican por loopback con TLS (`.gotchu/internal.crt`), y el coordinator firma las capacidades de cada ejecución con `.gotchu/run-capability.key`. Las credenciales de modelo no forman parte de `./gotchu backup`; tras restaurar, vuelve a pegarlas.
 
 ## Comandos
 
@@ -156,3 +167,32 @@ El validator VM aún no se inicia desde Compose. Requiere Linux, `/dev/kvm`, `bw
 `./gotchu upgrade` no modifica el checkout ni ejecuta `git pull`: reconstruye desde los archivos locales, aplica migraciones y reinicia conservando volúmenes y configuración. Actualiza el repositorio después de revisar sus cambios y luego ejecuta el comando. No hay rollback automatizado: toma una copia de datos antes de actualizar.
 
 Para detener Gotchu sin borrar los datos, usa `./gotchu down`. Para eliminar sus contenedores, volúmenes y secretos de ese estado local, confirma `./gotchu reset`; luego puedes borrar el checkout. `reset` conserva la carpeta hermana `.gotchu.backups/`; borra sus respaldos cifrados manualmente cuando ya no deban conservarse. Mantén fuera del directorio de estado la única copia que necesites para restaurar después de una pérdida del host.
+
+
+## Subscription model providers, live end to end — 2026-10-25
+
+Claude Code and Codex now run investigations on the Owner's own subscription. Everything below ran against a fresh `./gotchu up` in this worktree (isolated ports, disposable state) with this machine's real Claude Max and ChatGPT logins; no API keys were used. OpenRouter and the other API-key presets were **not** run live.
+
+| Check | Observed result |
+| --- | --- |
+| Self-host startup | `./gotchu up` applied gateway migrations and started web, coordinator, worker, gateway and scanner; `./gotchu status` reported all running. |
+| UI connection test, Claude Code (`claude-sonnet-5-5`) | Owner pasted the OAuth token in **Aplicaciones → Modelo y consentimiento**; "Conexión correcta · 416 tokens de entrada y 9 de salida". |
+| UI connection test, Codex (`gpt-6-luna`) | Owner pasted a Codex `auth.json`; "Conexión correcta · 5795 tokens de entrada y 9 de salida". |
+| Investigation from the report, Claude Code | Coordinator → worker → gateway → `claude -p`: `investigated`, `candidate_issue`, cited the uploaded `eval` evidence, 2 model calls + 2 additional reads, reservations settled (1,539/400 and 2,461/674 tokens), $0 charged. |
+| Investigation from the report, Codex | Same path through `codex exec`: `investigated`, `candidate_issue`, 2 model calls, 14,051 tokens settled, $0 charged. The terminal's own `auth.json` was unchanged (`last_refresh` 2026-10-19). |
+| Contract check | With the gateway's instruction, both CLIs returned replies that pass the worker's `modelOutputSchema`, in Spanish. |
+| Automated | Gateway suite 46 passed (Postgres-backed suite on a disposable PostgreSQL 17.11), backend investigation and budget suites 8 passed, worker 6 passed, `scripts/gotchu.test.mjs` passed, typecheck clean for gateway and worker. |
+
+The live run found two defects that fixtures had hidden, both fixed: the probe locked the settings row with `FOR UPDATE`, which the gateway role is not granted (every UI probe answered "no disponible"), and the gateway's fixed instruction never described the reply shape the worker enforces (the first live investigation ended `invalid_model_output`). Not measured: a real Codex token rotation, OpenRouter or any API-key provider live, the AWS runtime, and explanation quality beyond this single `eval` fixture.
+
+### Adversarial review — 2026-10-25
+
+My own review pass plus two independent read-only reviews (Codex `gpt-6-luna`, high effort) of the gateway path and the self-host wiring. Fixed:
+
+- Provably unbilled failures (CLI missing, rejected login, unknown model) left reservations stuck; a few Codex probes with an expired login could exhaust a 100k token budget. They now settle at zero.
+- Output caps now subtract a conservative input estimate (three characters per token; measured ≈3.7) for every provider, so a late call is refused cleanly instead of overrunning its reservation. Codex 0.163 ignores `model_max_output_tokens`, so its replies rely on that estimate.
+- A rotated Codex login written back after the Owner replaced or disabled it could recreate the deleted file; leftover CLI scratch directories after a crash are now swept at gateway start.
+- The money budget stays visible for subscriptions, since earlier API-key spending can still block them.
+- Existing installs get free gateway and worker ports on upgrade, and every service now receives its environment through a private `--env-file` instead of process arguments (previously `AUTH_SECRET`, database passwords and the new keys were readable in `/proc/<pid>/cmdline`).
+
+Re-verified live after the fixes: all services started through the new launcher, no secret appeared in any process's arguments, the Claude Code probe and a new investigation succeeded (Spanish explanation, both calls settled, 0 tokens left reserved), and the gateway (51) and backend investigation/budget (8) suites passed. Open: the Codex lock covers one gateway process only (see pendientes).

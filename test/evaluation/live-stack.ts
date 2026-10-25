@@ -10,7 +10,7 @@ import { persistHttpsProbeInput, persistProviderTriageInputs } from '../../apps/
 import { createCloudflareStatusAdapter, createAuthorizedHttpsHealthAdapter } from '@gotchu/monitoring';
 import type { MonitorClaim } from '@gotchu/contracts';
 import type { TrustedCustomerTarget } from '@gotchu/monitoring';
-import { fixture, present } from '../../packages/database/test/support.js';
+import { fixture } from '../../packages/database/test/support.js';
 import type { ScenarioCase } from './triage-matrix.js';
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -68,9 +68,7 @@ export async function createLiveTriageStack() {
     },
     async deleteSigningSecret(reference) { signingSecrets.delete(reference); },
   };
-  let dnsChallenge = '';
-  const api = createBackend({ database: f.databases.gotchu_api, eventCredentials: credentials,
-    customerDnsVerifier: { resolveTxt: async () => [[dnsChallenge]] } });
+  const api = createBackend({ database: f.databases.gotchu_api, eventCredentials: credentials });
   const intake = createBackend({ database: f.databases.gotchu_ingest, credentials });
   const coordinator = createBackend({ database: f.databases.gotchu_coordinator });
   let apiOrigin = '';
@@ -143,13 +141,15 @@ export async function createLiveTriageStack() {
     let monitorClaim: MonitorClaim | null = null;
     let trustedTarget: TrustedCustomerTarget | null = null;
     if (scenario.provider || scenario.faults.includes('missing_telemetry')) {
-      const enrollment = await api.customers.enrollTarget(identity, { ...scope, origin: 'https://customer.org', authorized: true, scanProfile: 'public_surface' });
-      dnsChallenge = enrollment.challenge.value;
-      const verified = await api.customers.verifyTarget(identity, { ...scope, targetId: enrollment.target.id });
-      trustedTarget = { id: verified.id, origin: verified.origin, version: verified.version, scanProfile: verified.scanProfile,
-        verifiedAt: present(verified.verifiedAt), expiresAt: present(verified.expiresAt) };
+      const enrollment = await api.customers.enrollTarget(identity, { ...scope, origin: 'https://customer.org', scanProfile: 'public_surface' });
+      const target = enrollment.target;
+      if (target.status !== 'authorized' || target.authorizedAt === null || target.expiresAt === null) {
+        throw new Error('evaluation_target_scope_not_authorized');
+      }
+      trustedTarget = { id: target.id, origin: target.origin, version: target.version, scanProfile: target.scanProfile,
+        authorizedAt: target.authorizedAt, expiresAt: target.expiresAt };
       await api.operations.configure(identity, { ...scope, enabled: true, intervalSeconds: 3600,
-        providers: scenario.provider ? [scenario.provider.name] : [], targetId: verified.id, sourceSnapshotId: null, repositoryKey: null });
+        providers: scenario.provider ? [scenario.provider.name] : [], targetId: target.id, sourceSnapshotId: null, repositoryKey: null });
       await api.triage.declareProbeRoute(identity, { ...scope, route: '/', serviceId: service.id, dependencyId, role: 'application' });
       await api.triage.declareProbeRoute(identity, { ...scope, route: '/.well-known/security.txt', serviceId: service.id, dependencyId: null, role: 'control' });
       const work = (await coordinator.operations.claimDue({ limit: 50 })).find(item => item.applicationId === scope.applicationId);

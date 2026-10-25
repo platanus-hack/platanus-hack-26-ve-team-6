@@ -28,7 +28,11 @@ Acordado el 24 de octubre de 2026: no bloquean el cierre del núcleo.
 Se encontraron durante la integración del 24 de octubre de 2026 y quedan para resolver después.
 
 - **WebAuthn en vivo.** El circuito "Aprobar PR" se probó con aserciones WebAuthn de fixture. Falta registrar una llave real y aprobar con ella.
-- **Proveedores LLM.** Los presets sólo se verificaron con un servidor HTTPS simulado; falta una ejecución en vivo por proveedor. xAI documenta Chat Completions como legado y la capa OpenAI-compatible de Gemini sigue en beta.
+- **Proveedores LLM con clave API.** Claude Code y Codex con suscripción ya funcionan en vivo de punta a punta (ver [validación](validation.md)). Los presets con clave API, OpenRouter incluido, sólo se verificaron con un servidor HTTPS simulado. xAI documenta Chat Completions como legado y la capa OpenAI-compatible de Gemini sigue en beta.
+- **Renovación de la sesión de Codex.** El gateway guarda el `auth.json` que Codex rota y serializa las llamadas que comparten sesión; está cubierto con un CLI simulado, pero aún no se observó una rotación real (Codex renueva cada ~8 días).
+- **Sesión de Codex con varias réplicas.** Si varias réplicas del gateway comparten un login de Codex, necesitan un bloqueo entre procesos o escrituras de secretos con compare-and-swap; el bloqueo actual sólo serializa dentro de un proceso.
+- **Credenciales de modelo en copias.** `./gotchu backup` no incluye `.gotchu/model-secrets`; tras restaurar, la configuración queda "Disponible" pero cada llamada falla hasta volver a pegar la credencial.
+- **Investigación en AWS.** El runtime desplegado no ejecuta todavía gateway ni worker, ni tiene instalados los CLI `claude` y `codex`.
 - **Atestaciones del validator y scanners de la prueba D06.** En la prueba en vivo del PR de dependencia, las atestaciones de validación del parche de código y los scanners que no son npm fueron fixtures.
 - **Readiness del scanner.** La falta de la base de Trivy para imágenes bloqueaba la readiness completa. Ya se refresca en cada `./gotchu up`. Queda por decidir si la falta de un perfil opcional debe degradar la cobertura en lugar de bloquear el arranque.
 - **Integración de streams paralelos.** Al integrar quedaron imports duplicados y fixtures desactualizados; ya están corregidos. Conviene que cada agente compile la rama integrada antes de entregar.
@@ -51,7 +55,6 @@ Se encontraron durante la integración del 24 de octubre de 2026 y quedan para r
 - **D10 — Merge, deploy y rollback** como capacidades separadas, empezando por un entorno de desarrollo aislado.
 - **D11 — Agente investigador.**
   - Llevar los candidatos sugeridos por la IA a la validación D05 y a la política humana; hoy quedan inertes.
-  - Ejecutar en vivo con al menos un proveedor; los presets sólo se verificaron con un servidor simulado.
 - **D13 — Endurecimiento, capacidad y recuperación.** Casi todo depende de una nube real; preparar los contratos sin crear recursos.
 - **D15 — Evaluación.**
   - Medir el tiempo hasta una reparación verificada.

@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
   CUSTOMER_MAX_REPORT_BYTES, CUSTOMER_MAX_SOURCE_BYTES, CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -12,7 +12,7 @@ import {
   type CustomerApplication, type CustomerAssessmentIntent, type CustomerAssessmentReport, type CustomerClaim, type CustomerEnrollment,
   type CustomerQueueInput, type CustomerRunInput, type CustomerSourceSummary, type CustomerTarget,
   type CustomerContainerImageSummary, type LicensePolicy,
-  type DependencyArtifactAnalysis,
+  type DependencyArtifactAnalysis, type CustomerScanProfile,
 } from '@gotchu/contracts';
 import { evaluateLicensePolicy, normalizeLicenseExpression, normalizeLicensePolicy } from '@gotchu/customer-assessment/supply-chain';
 import { buildCycloneDx } from '@gotchu/customer-assessment/sbom';
@@ -21,9 +21,7 @@ import { audit, authorize, BackendError, canonicalJson, identitySchema, parse, s
 import { DEMO_ASSESSMENT_SCOPE } from './demo.js';
 import { completeJob, enqueue } from './jobs.js';
 
-/** Trusted server adapter; enforce a bounded DNS deadline, never take answers from HTTP callers. */
-export interface CustomerDnsVerifier { resolveTxt(name: string): Promise<string[][]> }
-export interface CustomerDependencies extends BaseDependencies { customerDnsVerifier?: CustomerDnsVerifier }
+export type CustomerDependencies = BaseDependencies;
 export const CUSTOMER_MAX_UNFINISHED = 3;
 export const CUSTOMER_MAX_DAILY_RUNS = 20;
 export const CUSTOMER_MAX_SOURCES = 10;
@@ -58,22 +56,21 @@ async function readApplication(tx: Transaction, scope: Scope): Promise<CustomerA
   return parse(customerApplicationSchema, { organizationId: scope.organizationId, applicationId: scope.applicationId, name: row.name, archived: row.archived, createdAt: row.created_at.toISOString() });
 }
 type TargetRow = {
-  id: string; origin: string; version: number; status: string; consent_actor: string; consent_at: Date;
-  challenge_hash: string; challenge_expires_at: Date; verified_at: Date | null; expires_at: Date | null;
-  challenge_current: boolean; authorization_current: boolean;
-  scan_profile: 'root' | 'public_surface';
+  id: string; origin: string; version: number; status: string; requested_by: string; requested_at: Date;
+  authorized_at: Date | null; expires_at: Date | null; authorization_current: boolean;
+  scan_profile: CustomerScanProfile;
 };
 async function targetRow(tx: Transaction, scope: Scope, targetId?: string): Promise<TargetRow | null> {
-  const result = await tx.query<TargetRow>(`SELECT *,challenge_expires_at>clock_timestamp() AS challenge_current,
-    status='verified' AND expires_at>clock_timestamp() AS authorization_current
+  const result = await tx.query<TargetRow>(`SELECT *,
+    status='authorized' AND expires_at>clock_timestamp() AS authorization_current
     FROM gotchu.customer_targets WHERE organization_id=$1 AND application_id=$2 AND ($3::uuid IS NULL OR id=$3)`,
   [scope.organizationId, scope.applicationId, targetId ?? null]);
   return result.rows[0] ?? null;
 }
 function targetView(scope: Scope, row: TargetRow): CustomerTarget {
   return parse(customerTargetSchema, { organizationId: scope.organizationId, applicationId: scope.applicationId, id: row.id, origin: row.origin, version: row.version, status: row.status,
-    consentActor: row.consent_actor, consentAt: row.consent_at.toISOString(), challengeExpiresAt: row.challenge_expires_at.toISOString(),
-    verifiedAt: row.verified_at?.toISOString() ?? null, expiresAt: row.expires_at?.toISOString() ?? null, scanProfile: row.scan_profile });
+    requestedBy: row.requested_by, requestedAt: row.requested_at.toISOString(),
+    authorizedAt: row.authorized_at?.toISOString() ?? null, expiresAt: row.expires_at?.toISOString() ?? null, scanProfile: row.scan_profile });
 }
 function requireTarget(row: TargetRow | null): TargetRow {
   if (!row) throw new BackendError('not_found', 'Target not found', 404);
@@ -93,14 +90,23 @@ async function checkJsonSize(tx: Transaction, serialized: string, limit: number)
   const size = await tx.query<{ bytes: number }>('SELECT octet_length($1::jsonb::text) AS bytes', [serialized]);
   if (!size.rows[0] || size.rows[0].bytes > limit) throw new BackendError('payload_too_large', 'JSON exceeds the storage bound', 413);
 }
+function parseStoredIntent(value: unknown): CustomerAssessmentIntent {
+  const legacy = z.object({ target: z.record(z.string(), z.unknown()).nullable() }).passthrough().safeParse(value);
+  if (legacy.success && legacy.data.target && 'verifiedAt' in legacy.data.target && !('authorizedAt' in legacy.data.target)) {
+    const { verifiedAt, ...target } = legacy.data.target;
+    return parse(customerAssessmentIntentSchema, { ...legacy.data, target: { ...target, authorizedAt: verifiedAt } });
+  }
+  return parse(customerAssessmentIntentSchema, value);
+}
 async function loadIntent(tx: Transaction, scope: Scope & { jobId: string }): Promise<CustomerAssessmentIntent> {
   const result = await tx.query<{ input: unknown; payload: unknown; kind: string }>(`SELECT r.input,j.payload,j.kind
     FROM gotchu.customer_requests r JOIN gotchu.jobs j ON j.organization_id=r.organization_id AND j.application_id=r.application_id AND j.id=r.job_id
     WHERE r.organization_id=$1 AND r.application_id=$2 AND r.job_id=$3`, [scope.organizationId, scope.applicationId, scope.jobId]);
   const row = result.rows[0];
   if (!row) throw new BackendError('customer_request_not_found', 'Customer assessment request not found', 409);
-  const input = parse(customerAssessmentIntentSchema, row.input);
-  if (row.kind !== 'audit' || canonicalJson(input) !== canonicalJson(row.payload)) throw new BackendError('assessment_scope_mismatch', 'Job payload differs from durable request', 409);
+  const input = parseStoredIntent(row.input);
+  const payload = parseStoredIntent(row.payload);
+  if (row.kind !== 'audit' || canonicalJson(input) !== canonicalJson(payload)) throw new BackendError('assessment_scope_mismatch', 'Job payload differs from durable request', 409);
   return input;
 }
 async function currentRequest(tx: Transaction, claim: CustomerClaim): Promise<CustomerRunInput> {
@@ -136,7 +142,7 @@ async function currentRequest(tx: Transaction, claim: CustomerClaim): Promise<Cu
   if (input.target) {
     const target = await targetRow(tx, claim, input.target.id);
     if (!target?.authorization_current || target.version !== input.target.version || target.origin !== input.target.origin || target.scan_profile !== (input.target.scanProfile ?? 'root')
-      || target.verified_at?.toISOString() !== input.target.verifiedAt || target.expires_at?.toISOString() !== input.target.expiresAt) {
+      || target.authorized_at?.toISOString() !== input.target.authorizedAt || target.expires_at?.toISOString() !== input.target.expiresAt) {
       throw new BackendError('assessment_target_changed', 'Target authorization expired, changed or was revoked', 409);
     }
   }
@@ -260,16 +266,14 @@ export function createCustomerService(deps: CustomerDependencies) {
         await authorize(tx, value.organizationId, actor, writeRoles); await lockApplication(tx, value);
         const current = await targetRow(tx, value);
         if (current) await requireTargetIdle(tx, value, current.id);
-        const token = randomBytes(32).toString('base64url');
-        await tx.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at,scan_profile)
-          VALUES ($1,$2,$3,$4,1,'pending',$5,$6,clock_timestamp()+interval '30 minutes',$7)
-          ON CONFLICT (organization_id,application_id) DO UPDATE SET origin=EXCLUDED.origin,version=customer_targets.version+1,status='pending',
-            consent_actor=EXCLUDED.consent_actor,consent_at=clock_timestamp(),challenge_hash=EXCLUDED.challenge_hash,
-            challenge_expires_at=EXCLUDED.challenge_expires_at,verified_at=NULL,expires_at=NULL,scan_profile=EXCLUDED.scan_profile`,
-        [value.organizationId, value.applicationId, randomUUID(), value.origin, actor.userId, sha256(token), value.scanProfile ?? 'root']);
+        await tx.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,requested_by,authorized_at,expires_at,scan_profile)
+          VALUES ($1,$2,$3,$4,1,'authorized',$5,clock_timestamp(),clock_timestamp()+interval '7 days',$6)
+          ON CONFLICT (organization_id,application_id) DO UPDATE SET origin=EXCLUDED.origin,version=customer_targets.version+1,status='authorized',
+            requested_by=EXCLUDED.requested_by,requested_at=clock_timestamp(),authorized_at=clock_timestamp(),expires_at=clock_timestamp()+interval '7 days',scan_profile=EXCLUDED.scan_profile`,
+        [value.organizationId, value.applicationId, randomUUID(), value.origin, actor.userId, value.scanProfile ?? 'root']);
         const row = requireTarget(await targetRow(tx, value));
         await audit(tx, value.organizationId, actor.userId, 'target.enrolled', row.id, { origin: value.origin, version: row.version, scanProfile: row.scan_profile });
-        return { target: targetView(value, row), challenge: { name: `_gotchu.${new URL(row.origin).hostname}`, value: `gotchu-verification=${token}`, expiresAt: row.challenge_expires_at.toISOString() } };
+        return { target: targetView(value, row) };
       });
     },
     async listTargets(identity: Identity, input: Scope): Promise<CustomerTarget[]> {
@@ -279,39 +283,13 @@ export function createCustomerService(deps: CustomerDependencies) {
         const row = await targetRow(tx, scope); return row ? [targetView(scope, row)] : [];
       });
     },
-    async verifyTarget(identity: Identity, input: z.input<typeof customerTargetIdSchema>): Promise<CustomerTarget> {
-      const actor = principal(identity); const value = parse(customerTargetIdSchema, input);
-      const before = await deps.database.tenant(value.organizationId, async tx => {
-        await authorize(tx, value.organizationId, actor, writeRoles); await lockApplication(tx, value);
-        const row = requireTarget(await targetRow(tx, value, value.targetId));
-        if (row.status !== 'pending' || !row.challenge_current) throw new BackendError('challenge_expired', 'Enroll again to generate a current verification challenge', 409);
-        return row;
-      });
-      if (!deps.customerDnsVerifier) throw new BackendError('dns_verification_unavailable', 'DNS verification is not configured', 503);
-      let answers: string[][];
-      try { answers = await deps.customerDnsVerifier.resolveTxt(`_gotchu.${new URL(before.origin).hostname}`); }
-      catch (cause) { throw new BackendError('dns_verification_unavailable', 'DNS verification is temporarily unavailable', 503, { cause }); }
-      const verified = answers.some(chunks => {
-        const match = /^gotchu-verification=([A-Za-z0-9_-]{43})$/.exec(chunks.join(''));
-        return match?.[1] !== undefined && sha256(match[1]) === before.challenge_hash;
-      });
-      if (!verified) throw new BackendError('dns_verification_failed', 'The expected DNS TXT challenge was not found', 409);
-      return deps.database.tenant(value.organizationId, async tx => {
-        await authorize(tx, value.organizationId, actor, writeRoles); await lockApplication(tx, value);
-        const current = requireTarget(await targetRow(tx, value, value.targetId));
-        if (current.status !== 'pending' || !current.challenge_current || current.version !== before.version || current.challenge_hash !== before.challenge_hash) throw new BackendError('challenge_changed', 'Target challenge changed or expired during verification', 409);
-        await tx.query("UPDATE gotchu.customer_targets SET status='verified',verified_at=clock_timestamp(),expires_at=clock_timestamp()+interval '7 days' WHERE organization_id=$1 AND application_id=$2 AND id=$3", [value.organizationId, value.applicationId, value.targetId]);
-        await audit(tx, value.organizationId, actor.userId, 'target.verified', value.targetId, { version: current.version });
-        return targetView(value, requireTarget(await targetRow(tx, value, value.targetId)));
-      });
-    },
     async revokeTarget(identity: Identity, input: z.input<typeof customerTargetIdSchema>): Promise<CustomerTarget> {
       const actor = principal(identity); const value = parse(customerTargetIdSchema, input);
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, actor, writeRoles); await lockApplication(tx, value, true);
         requireTarget(await targetRow(tx, value, value.targetId));
         await requireTargetIdle(tx, value, value.targetId);
-        await tx.query("UPDATE gotchu.customer_targets SET status='revoked',version=version+1,verified_at=NULL,expires_at=NULL WHERE organization_id=$1 AND application_id=$2 AND id=$3", [value.organizationId, value.applicationId, value.targetId]);
+        await tx.query("UPDATE gotchu.customer_targets SET status='revoked',version=version+1,authorized_at=NULL,expires_at=NULL WHERE organization_id=$1 AND application_id=$2 AND id=$3", [value.organizationId, value.applicationId, value.targetId]);
         await audit(tx, value.organizationId, actor.userId, 'target.revoked', value.targetId);
         return targetView(value, requireTarget(await targetRow(tx, value, value.targetId)));
       });
@@ -447,8 +425,8 @@ export function createCustomerService(deps: CustomerDependencies) {
         let target: CustomerRunInput['target'] = null;
         if (value.targetId) {
           const row = requireTarget(await targetRow(tx, value, value.targetId));
-          if (!row.authorization_current || !row.verified_at || !row.expires_at) throw new BackendError('target_not_verified', 'Verify a current target before requesting external assessment', 409);
-          target = { id: row.id, origin: row.origin, version: row.version, verifiedAt: row.verified_at.toISOString(), expiresAt: row.expires_at.toISOString(), scanProfile: row.scan_profile };
+          if (!row.authorization_current || !row.authorized_at || !row.expires_at) throw new BackendError('target_not_authorized', 'Enter a target origin before requesting external assessment', 409);
+          target = { id: row.id, origin: row.origin, version: row.version, authorizedAt: row.authorized_at.toISOString(), expiresAt: row.expires_at.toISOString(), scanProfile: row.scan_profile };
         }
         const licensePolicy = (await currentLicensePolicy(tx, value.organizationId)).policy;
         let containerImage: CustomerAssessmentIntent['containerImage'] = null;

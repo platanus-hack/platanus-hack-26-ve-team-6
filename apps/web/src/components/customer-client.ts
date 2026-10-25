@@ -107,16 +107,12 @@ export class CustomerApiError extends Error {
 
 /** Spanish text for backend errors people meet in everyday flows; other codes keep the server message. */
 const errorMessages: Record<string, string> = {
-  dns_verification_failed: 'Todavía no encontramos el registro TXT. Espera a que el DNS se propague e inténtalo de nuevo.',
-  dns_verification_unavailable: 'La verificación DNS no está disponible en este momento. Inténtalo más tarde.',
-  challenge_expired: 'La verificación caducó. Renueva la verificación y publica el nuevo valor.',
-  challenge_changed: 'La verificación cambió mientras se comprobaba. Renueva la verificación e inténtalo de nuevo.',
-  target_not_verified: 'Verifica el dominio antes de analizarlo.',
+  target_not_authorized: 'Añade o renueva el origen HTTPS antes de analizarlo.',
   application_name_conflict: 'Ya existe una aplicación con ese nombre.',
   application_limit: 'Este espacio alcanzó su límite de aplicaciones.',
   application_archived: 'Reactiva la aplicación para continuar.',
   assessment_capacity_exceeded: 'Hay demasiadas evaluaciones en curso. Inténtalo de nuevo en unos minutos.',
-  assessment_target_changed: 'La autorización del dominio caducó o se revocó. Verifícalo de nuevo.',
+  assessment_target_changed: 'El alcance HTTPS venció, cambió o se revocó. Renueva el origen antes de analizarlo.',
   source_limit: 'Esta aplicación alcanzó su límite de instantáneas. Elimina una para subir otra.',
   source_daily_limit: 'Este espacio alcanzó el límite diario de instantáneas.',
   source_in_use: 'Espera a que terminen las evaluaciones en curso para eliminar esta instantánea.',
@@ -291,16 +287,12 @@ export const customerApi = {
   retentionPolicy: (organizationId: string) => request(`${organizationPath(organizationId)}/retention`, workspaceRetentionPolicySchema),
   updateRetentionPolicy: (organizationId: string, policy: unknown) => request(`${organizationPath(organizationId)}/retention`, workspaceRetentionPolicySchema, { method: 'PUT', ...jsonBody(workspaceRetentionPolicyInputSchema.parse(policy)) }),
   targets: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/targets`, targetListSchema),
-  enrollTarget: (input: { organizationId: string; applicationId: string; origin: string; authorized: true; scanProfile?: CustomerScanProfile }) => {
-    const { organizationId, applicationId, origin, authorized, scanProfile } = input;
-    const validated = customerEnrollTargetSchema.parse({ organizationId, applicationId, origin, authorized, ...(scanProfile === undefined ? {} : { scanProfile }) });
+  enrollTarget: (input: { organizationId: string; applicationId: string; origin: string; scanProfile?: CustomerScanProfile }) => {
+    const { organizationId, applicationId, origin, scanProfile } = input;
+    const validated = customerEnrollTargetSchema.parse({ organizationId, applicationId, origin, ...(scanProfile === undefined ? {} : { scanProfile }) });
     return request(`${applicationPath(organizationId, applicationId)}/targets`, customerEnrollmentSchema, {
-      method: 'POST', ...jsonBody({ origin: validated.origin, authorized: validated.authorized, ...(validated.scanProfile === undefined ? {} : { scanProfile: validated.scanProfile }) }),
+      method: 'POST', ...jsonBody({ origin: validated.origin, ...(validated.scanProfile === undefined ? {} : { scanProfile: validated.scanProfile }) }),
     });
-  },
-  verifyTarget: (organizationId: string, applicationId: string, targetId: string) => {
-    const input = customerTargetSchema.pick({ organizationId: true, applicationId: true, id: true }).parse({ organizationId, applicationId, id: targetId });
-    return request(`${applicationPath(input.organizationId, input.applicationId)}/targets/${encodeURIComponent(input.id)}/verify`, customerTargetSchema, { method: 'POST', ...jsonBody({}) });
   },
   revokeTarget: (organizationId: string, applicationId: string, targetId: string) => {
     const input = customerTargetSchema.pick({ organizationId: true, applicationId: true, id: true }).parse({ organizationId, applicationId, id: targetId });

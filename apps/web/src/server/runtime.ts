@@ -9,7 +9,6 @@ import { HttpError } from './http.js';
 import { bindDemoAssessmentServices, createDemoAssessmentApi } from './demo.js';
 import { createLocalAccounts } from './local-accounts.js';
 import { createCustomerApi } from './customer-api.js';
-import { createCustomerDnsVerifier } from './customer-dns.js';
 import { createFileEventCredentials } from './event-credentials.js';
 import { createNotificationWebhookValidator } from './notification-dns.js';
 import { resolve } from 'node:path';
@@ -238,7 +237,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   }, validationFacts: {
     getFacts: input => validationService?.getValidationFacts(input) ?? Promise.resolve(null),
   } }) : undefined;
-  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), customerDnsVerifier: createCustomerDnsVerifier(dnsServers), webhookValidator: createNotificationWebhookValidator(dnsServers), modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true' }), ...(notificationSecrets ? { notificationSecrets } : {}), ...(modelSecrets ? { modelSecrets } : {}), ...(modelProbeClient ? { modelProbeClient } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(verifyRepositoryWriteAccess ? { repositoryWriteAccessVerifier: verifyRepositoryWriteAccess } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), webhookValidator: createNotificationWebhookValidator(dnsServers), modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true' }), ...(notificationSecrets ? { notificationSecrets } : {}), ...(modelSecrets ? { modelSecrets } : {}), ...(modelProbeClient ? { modelProbeClient } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(verifyRepositoryWriteAccess ? { repositoryWriteAccessVerifier: verifyRepositoryWriteAccess } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
   const stepUp = web?.stepUp;
   const settings = authSettings(env, accounts, stepUp ? userId => stepUp.invalidateSession(userId) : undefined);
   const auth = createAuthService(settings);

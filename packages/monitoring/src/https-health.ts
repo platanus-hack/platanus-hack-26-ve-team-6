@@ -77,7 +77,7 @@ export function createAuthorizedHttpsHealthAdapter(options: AuthorizedHttpsHealt
         evidence,
         candidate,
         limitations: [
-          'One bounded GET to the verified public HTTPS origin; no credentials, cookies, redirects, private addresses, or response body are retained.',
+          'One bounded GET to the requested public HTTPS origin; no credentials, cookies, redirects, private addresses, or response body are retained.',
           `A successful response from ${route} does not establish application correctness or full service health.`,
         ],
       };
@@ -87,7 +87,7 @@ export function createAuthorizedHttpsHealthAdapter(options: AuthorizedHttpsHealt
 
 function assertTrustedTarget(target: TrustedCustomerTarget, now: number): void {
   if (!target || typeof target !== 'object' || !target.id || !Number.isInteger(target.version) || target.version < 1
-      || !target.verifiedAt || !target.expiresAt || !Number.isFinite(Date.parse(target.verifiedAt))
+      || !target.authorizedAt || !target.expiresAt || !Number.isFinite(Date.parse(target.authorizedAt))
       || !Number.isFinite(Date.parse(target.expiresAt))) throw new Error('authorized_target_invalid');
   if (Date.parse(target.expiresAt) <= now) throw new Error('authorized_target_expired');
 }
@@ -162,7 +162,7 @@ function healthCandidate(
   }
   return {
     kind: 'public_surface',
-    summary: `The verified public HTTPS route ${route} returned HTTP ${result.status} during one bounded GET. This is a direct response observation, not proof of duration or cause.`,
+    summary: `The requested public HTTPS route ${route} returned HTTP ${result.status} during one bounded GET. This is a direct response observation, not proof of duration or cause.`,
     severity: result.status >= 500 ? 'high' : 'medium',
     confidence: 'medium',
     observedAt,

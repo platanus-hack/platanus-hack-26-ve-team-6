@@ -36,7 +36,7 @@ async function requireInvestigationConsent(tx: Transaction, organizationId: stri
   const row = rows.rows[0];
   const scopes = row ? investigationModelSettingsSchema.shape.dataScopes.safeParse(row.data_scopes ?? []) : null;
   if (!row || !row.model_opt_in || !row.consent || !scopes?.success || !requiredScopes.every(scope => scopes.data.includes(scope))
-    || row.provider === null || row.provider === 'anthropic_messages' && !row.secret_ref
+    || row.provider === null || row.provider !== 'openai_compatible' && !row.secret_ref
     || BigInt(row.model_budget_micros) <= 0n || BigInt(row.model_token_budget) <= 0n) {
     throw new BackendError('investigation_disabled', 'Model investigation is not configured and consented for this data category', 409);
   }

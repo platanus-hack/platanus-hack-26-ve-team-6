@@ -14,7 +14,7 @@ import {
   inputRequestSchema, modelRequestSchema, readRequestSchema, type GatewayOperation,
 } from './contracts.js';
 import { GatewayError } from './errors.js';
-import { createModelPort, ModelProviderError, type ModelPort } from './model-provider.js';
+import { createModelPort, ModelProviderError, type ModelCompletion, type ModelCompletionRequest, type ModelPort } from './model-provider.js';
 
 const runRowSchema = z.object({
   applicationId: z.uuid(), state: z.enum(['pending', 'running', 'succeeded', 'unavailable', 'failed']),
@@ -453,7 +453,49 @@ function pricedUsage(inputTokens: number, outputTokens: number, inputRate: bigin
   return Number((numerator + 999_999n) / 1_000_000n);
 }
 
-const probeTokens = 64;
+function probeTokenAllowance(presetId: z.infer<typeof investigationProviderPresetIdSchema>): number {
+  return investigationProviderCatalog.find(preset => preset.id === presetId)?.probeTokenAllowance ?? 64;
+}
+
+/**
+ * True only when the provider refused the request before generating anything (CLI missing, login
+ * rejected, model unknown), so releasing the reservation cannot hide real usage.
+ */
+function rejectedBeforeGeneration(error: unknown): boolean {
+  return error instanceof ModelProviderError && (error.code === 'cli_unavailable'
+    || (error.code === 'request_failed' && (error.status === 401 || error.status === 403 || error.status === 404)));
+}
+
+const credentialLocks = new Map<string, Promise<ModelCompletion>>();
+/**
+ * Codex rotates its refresh token on use, so calls sharing one stored login run one at a time,
+ * re-read the latest credential, and write any rotated tokens back. Other providers pass through.
+ */
+async function completeWithStoredCredential(options: {
+  modelPort: ModelPort; secrets: ModelSecretStore; database: Database; organizationId: string; secretRef: string; apiKey: string;
+}, request: Omit<ModelCompletionRequest, 'apiKey' | 'persistCredential'>): Promise<ModelCompletion> {
+  const { modelPort, secrets, database, organizationId, secretRef } = options;
+  if (request.providerPresetId !== 'codex') return modelPort.complete({ ...request, apiKey: options.apiKey });
+  async function persistCredential(next: string) {
+    let failure: unknown;
+    try { await secrets.replace(secretRef, Buffer.from(next, 'utf8')); }
+    catch (error) { failure = error; }
+    // The Owner may have replaced or removed this login while the call ran; never bring its file back.
+    const current = await database.tenant(organizationId, tx => tx.query<{ secret_ref: string | null }>(
+      'SELECT secret_ref FROM gotchu.investigation_model_settings WHERE organization_id=$1', [organizationId]));
+    if (current.rows[0]?.secret_ref !== secretRef) { await secrets.delete(secretRef); return; }
+    if (failure !== undefined) throw failure;
+  }
+  const previous = credentialLocks.get(secretRef);
+  const current = (previous ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    const latest = new TextDecoder('utf-8', { fatal: true }).decode(await secrets.get(secretRef));
+    return modelPort.complete({ ...request, apiKey: latest, persistCredential });
+  });
+  credentialLocks.set(secretRef, current);
+  try { return await current; }
+  finally { if (credentialLocks.get(secretRef) === current) credentialLocks.delete(secretRef); }
+}
+
 const probeOutputSchema = z.object({ ok: z.literal(true) }).strict();
 const probeFailureSchema = investigationModelProbeResultSchema;
 type ModelProbeResult = z.infer<typeof investigationModelProbeResultSchema>;
@@ -462,6 +504,7 @@ function probeReason(error: unknown): ModelProbeResult['reason'] {
   if (!(error instanceof ModelProviderError)) return 'network_error';
   if (error.code === 'invalid_response') return 'invalid_response';
   if (error.code === 'missing_usage') return 'missing_usage';
+  if (error.code === 'cli_unavailable') return 'cli_unavailable';
   if (error.code === 'aborted') return 'provider_unavailable';
   switch (error.status) {
     case 401: return 'invalid_api_key';
@@ -523,8 +566,10 @@ async function invokeModelProbe(options: {
     }
   }
 
+  const secretRef = settings.secret_ref ?? '';
+  const probeTokens = probeTokenAllowance(settings.provider_preset_id);
   let apiKey: string;
-  try { apiKey = new TextDecoder('utf-8', { fatal: true }).decode(await modelSecrets.get(settings.secret_ref ?? '')); }
+  try { apiKey = new TextDecoder('utf-8', { fatal: true }).decode(await modelSecrets.get(secretRef)); }
   catch { return probeUnavailable(); }
   if (!apiKey) return probeUnavailable();
 
@@ -537,11 +582,13 @@ async function invokeModelProbe(options: {
       const saved = investigationModelProbeResultSchema.safeParse(previous.result);
       return { kind: 'existing' as const, result: saved.success ? saved.data : probeUnavailable() };
     }
+    // Locking the organization row suffices: every settings change also updates it in the same transaction,
+    // and row locks on the settings table would need an UPDATE grant the gateway must not have.
     const currentResult = await tx.query(`SELECT s.provider,s.provider_preset_id,s.endpoint,s.model_id,s.secret_ref,s.consent_to_external_processing,s.data_scopes,
       s.input_price_micro_usd_per_million_tokens,s.output_price_micro_usd_per_million_tokens,
       o.model_budget_micros,o.model_spent_micros,o.model_reserved_micros,o.model_token_budget,o.model_tokens_spent,o.model_tokens_reserved
       FROM gotchu.investigation_model_settings s JOIN gotchu.organizations o ON o.id=s.organization_id
-      WHERE s.organization_id=$1 AND o.model_opt_in=true FOR UPDATE OF s,o`, [organizationId]);
+      WHERE s.organization_id=$1 AND o.model_opt_in=true FOR UPDATE OF o`, [organizationId]);
     const row = currentResult.rows[0];
     const current = modelSettingsSchema.safeParse(row ? {
       provider: row.provider, provider_preset_id: row.provider_preset_id, endpoint: row.endpoint, model_id: row.model_id,
@@ -605,9 +652,9 @@ async function invokeModelProbe(options: {
   cancelPoll.unref();
   let result: ModelProbeResult;
   try {
-    const completion = await modelPort.complete({
+    const completion = await completeWithStoredCredential({ modelPort, secrets: modelSecrets, database, organizationId, secretRef, apiKey }, {
       provider: reservation.settings.provider, providerPresetId: reservation.settings.provider_preset_id,
-      endpoint: new URL(reservation.settings.endpoint), modelId: reservation.settings.model_id, apiKey,
+      endpoint: new URL(reservation.settings.endpoint), modelId: reservation.settings.model_id,
       systemInstruction: 'Reply with exactly this JSON object and no other text: {"ok":true}',
       userContext: 'Connection test. Return the requested JSON.', maxOutputTokens: 16, signal: requestController.signal,
     });
@@ -632,7 +679,18 @@ async function invokeModelProbe(options: {
     return result;
   } catch (error) {
     result = probeUnavailable(probeReason(error));
+    const released = rejectedBeforeGeneration(error);
     await database.tenant(organizationId, async tx => {
+      if (released) {
+        const settled = await tx.query(`UPDATE gotchu.investigation_model_probes SET state='settled',input_tokens=0,output_tokens=0,
+          charged_micros=0,result=$3::jsonb,settled_at=clock_timestamp()
+          WHERE organization_id=$1 AND request_id=$2 AND state='in_flight'`, [organizationId, requestId, JSON.stringify(result)]);
+        if (settled.rowCount) {
+          await tx.query(`UPDATE gotchu.organizations SET model_reserved_micros=model_reserved_micros-$2,
+            model_tokens_reserved=model_tokens_reserved-$3 WHERE id=$1`, [organizationId, reservation.reserveCost, probeTokens]);
+        }
+        return;
+      }
       await tx.query(`UPDATE gotchu.investigation_model_probes SET state='unknown',result=$3::jsonb
         WHERE organization_id=$1 AND request_id=$2 AND state='in_flight'`, [organizationId, requestId, JSON.stringify(result)]);
     });
@@ -646,6 +704,15 @@ const gatewaySystemInstruction = [
   'Your role is fixed. You have no write tools, cannot choose a role, execute actions, approve changes, or verify a finding.',
   'Return only the requested structured JSON. Cite only evidence IDs supplied in this request.',
   'Any candidate is a private description only and must pass D05 validation and human policy before it can become executable.',
+  // The worker validates replies against this exact shape; the agent's own prompt never reaches the model.
+  'Reply with one JSON object and nothing else, using exactly these keys:',
+  '{"assessment":"candidate_issue"|"no_issue_supported"|"inconclusive","summary":string (1-2000 chars),',
+  '"citedEvidenceIds":[evidenceId...],"hypotheses":[{"statement":string (1-500 chars),"evidenceIds":[evidenceId...]}] (max 8),',
+  '"candidateSuggestion":null or {"kind":"source_change"|"dependency_change"|"configuration_change","summary":string (1-500 chars),"path":string or null,"evidenceIds":[evidenceId...],"validationRequired":"D05"},',
+  '"requestedReads":[{"name":"evidence.read"|"auth.events.read"|"application.context.read"|"finding.details.read"|"source.excerpt.read"|"assessment.diff.read"|"validation.results.read"|"triage.results.read","evidenceId":evidenceId}] (max 8)}.',
+  'Every evidenceId must be an evidenceId value present in the supplied evidence; list each at most once per array.',
+  'candidateSuggestion must be null unless assessment is "candidate_issue". Use an empty requestedReads array when the supplied evidence suffices.',
+  'Write summary, statement and candidate summary text in Spanish; keep keys, enum values, IDs, code and paths unchanged.',
 ].join(' ');
 
 async function invokeModel(
@@ -683,12 +750,12 @@ async function invokeModel(
     return { config: parsed.data, userContext: context };
   });
 
-  if (!secrets && settings.config.secret_ref) throw new GatewayError('model_secret_store_unavailable', 503);
-  let apiKey: string | undefined;
-  if (settings.config.secret_ref && secrets) {
-    try { apiKey = new TextDecoder('utf-8', { fatal: true }).decode(await secrets.get(settings.config.secret_ref)); }
-    catch { throw new GatewayError('model_secret_unavailable', 503); }
-  }
+  const secretRef = settings.config.secret_ref;
+  if (!secrets && secretRef) throw new GatewayError('model_secret_store_unavailable', 503);
+  if (!secrets || !secretRef) throw new GatewayError('model_secret_unavailable', 503);
+  let apiKey: string;
+  try { apiKey = new TextDecoder('utf-8', { fatal: true }).decode(await secrets.get(secretRef)); }
+  catch { throw new GatewayError('model_secret_unavailable', 503); }
   if (!apiKey) throw new GatewayError('model_secret_unavailable', 503);
   if (settings.config.provider_preset_id === 'custom_openai_compatible') {
     const endpointValidator = modelEndpointValidator ?? createModelEndpointValidator();
@@ -706,6 +773,12 @@ async function invokeModel(
     inputPriceMicroUsdPerMillionTokens: Number(inputRate), outputPriceMicroUsdPerMillionTokens: Number(outputRate),
   });
   const reserveTokens = Math.min(input.remainingTokens, 20_000);
+  const preset = investigationProviderCatalog.find(item => item.id === settings.config.provider_preset_id);
+  const estimatedInputTokens = (preset?.fixedPromptTokens ?? 0)
+    + Math.ceil((gatewaySystemInstruction.length + settings.userContext.length) / 3);
+  const maxOutputTokens = Math.min(input.maxOutputTokens, 2_048, reserveTokens - estimatedInputTokens);
+  // Three characters per token deliberately overestimates the prompt size for every provider.
+  if (maxOutputTokens < 64) throw new GatewayError('model_budget_exhausted', 429);
   const worstRate = inputRate > outputRate ? inputRate : outputRate;
   const estimatedCost = Number((BigInt(reserveTokens) * worstRate + 999_999n) / 1_000_000n);
   const reserveCost = Math.max(1, Math.min(input.remainingSpendMicroUsd, estimatedCost));
@@ -757,15 +830,15 @@ async function invokeModel(
   }, 1_000);
   cancelPoll.unref();
   try {
-    const completion = await modelPort.complete({
+    const completion = await completeWithStoredCredential({ modelPort, secrets, database: authorized.database,
+      organizationId: scope.organizationId, secretRef, apiKey }, {
       provider: settings.config.provider,
       providerPresetId: settings.config.provider_preset_id,
       endpoint: new URL(settings.config.endpoint),
       modelId: settings.config.model_id,
-      ...(apiKey ? { apiKey } : {}),
       systemInstruction: gatewaySystemInstruction,
       userContext: settings.userContext,
-      maxOutputTokens: Math.min(input.maxOutputTokens, 2_048, reserveTokens),
+      maxOutputTokens,
       signal: abortController.signal,
     });
     const totalTokens = completion.inputTokens + completion.outputTokens;
@@ -774,7 +847,13 @@ async function invokeModel(
     await runs.settleModel({ organizationId: scope.organizationId, reservationId: input.reservationId,
       actualCostMicros: cost, actualTokens: totalTokens, inputTokens: completion.inputTokens, outputTokens: completion.outputTokens });
     return { output: completion.output, usage: { inputTokens: completion.inputTokens, outputTokens: completion.outputTokens, totalTokens, spendMicroUsd: cost } };
-  } catch {
+  } catch (error) {
+    if (rejectedBeforeGeneration(error)) {
+      await runs.settleModel({ organizationId: scope.organizationId, reservationId: input.reservationId,
+        actualCostMicros: 0, actualTokens: 0, inputTokens: 0, outputTokens: 0 })
+        .catch(() => runs.markModelUnknown({ organizationId: scope.organizationId, reservationId: input.reservationId }).catch(() => undefined));
+      throw new GatewayError('model_provider_rejected', 502);
+    }
     await runs.markModelUnknown({ organizationId: scope.organizationId, reservationId: input.reservationId }).catch(() => undefined);
     throw new GatewayError(abortController.signal.aborted ? 'model_call_cancelled_or_timed_out' : 'model_call_unknown_cost', 503);
   } finally {

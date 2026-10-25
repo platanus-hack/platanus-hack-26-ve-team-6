@@ -36,15 +36,12 @@ live('live Postgres/Redis assessment delivery', () => {
   const jobState = async (id: string) => (await f.admin.query<{ state: string }>('SELECT state FROM gotchu.jobs WHERE id=$1', [id])).rows[0]?.state;
 
   async function customerTargetJob() {
-    let proof = '';
-    const customerApi = createBackend({ database: f.databases.gotchu_api, customerDnsVerifier: { resolveTxt: async () => [[proof]] } });
+    const customerApi = createBackend({ database: f.databases.gotchu_api });
     const identity = { userId: `credentials:${randomUUID()}` };
     const workspace = await customerApi.customers.createWorkspace(identity, { name: 'Uncertain scanner test' });
     const application = await customerApi.customers.createApplication(identity, { organizationId: workspace.id, name: 'Authorized target' });
     const customerScope = { organizationId: workspace.id, applicationId: application.applicationId };
-    const enrollment = await customerApi.customers.enrollTarget(identity, { ...customerScope, origin: 'https://customer.example.com', authorized: true });
-    proof = enrollment.challenge.value;
-    await customerApi.customers.verifyTarget(identity, { ...customerScope, targetId: enrollment.target.id });
+    const enrollment = await customerApi.customers.enrollTarget(identity, { ...customerScope, origin: 'https://customer.example.com' });
     const { jobId } = await customerApi.customers.queue(identity, { ...customerScope, mode: 'external', sourceSnapshotId: null, targetId: enrollment.target.id, idempotencyKey: randomUUID() });
     return { customerApi, identity, customerScope, targetId: enrollment.target.id, envelope: { version: 1 as const, id: jobId, ...customerScope, kind: 'audit' as const } };
   }
@@ -83,7 +80,7 @@ live('live Postgres/Redis assessment delivery', () => {
     await processDurableJob(dependencies(), unconfigured.envelope);
     expect(await unconfigured.customerApi.web.getJob(unconfigured.identity, { organizationId: unconfigured.customerScope.organizationId, jobId: unconfigured.envelope.id })).toMatchObject({ state: 'failed', reasonCode: 'assessment_reconciliation_required' });
     await expect(unconfigured.customerApi.customers.revokeTarget(unconfigured.identity, { ...unconfigured.customerScope, targetId: unconfigured.targetId })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
-    await expect(unconfigured.customerApi.customers.enrollTarget(unconfigured.identity, { ...unconfigured.customerScope, origin: 'https://customer.example.com', authorized: true })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
+    await expect(unconfigured.customerApi.customers.enrollTarget(unconfigured.identity, { ...unconfigured.customerScope, origin: 'https://customer.example.com' })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
   });
 
   it('fails unconfigured and malformed adapters visibly without storing a successful report', async () => {

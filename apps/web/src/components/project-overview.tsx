@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 
-export function ProjectOverview({ snapshotCount, verifiedDomainCount, reportCount, onAddSource, onViewReports, assessmentForm, recentReports, activeJobBanner }: {
+export function ProjectOverview({ snapshotCount, activeDomainCount, reportCount, onAddSource, onViewReports, assessmentForm, recentReports, activeJobBanner }: {
   snapshotCount: number;
-  verifiedDomainCount: number;
+  activeDomainCount: number;
   reportCount: number;
   onAddSource: () => void;
   onViewReports: () => void;
@@ -17,7 +17,7 @@ export function ProjectOverview({ snapshotCount, verifiedDomainCount, reportCoun
         <h2>Fuentes e informes</h2>
         <div className="customer-overview-stats">
           <div><strong>{snapshotCount}</strong><span>Instantáneas</span></div>
-          <div><strong>{verifiedDomainCount}</strong><span>Dominios</span></div>
+          <div><strong>{activeDomainCount}</strong><span>Dominios</span></div>
           <div><strong>{reportCount}</strong><span>Informes</span></div>
         </div>
         <button className="customer-button customer-button-secondary" onClick={onAddSource}>Añadir código, dominio o imagen</button>

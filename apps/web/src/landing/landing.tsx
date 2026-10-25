@@ -45,7 +45,7 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
     <div className="gl-hero-copy">
       <Display as="h1" id="gl-titulo" eager className="gl-display--hero" lines={['Mira de cerca.', <Mark key="m" size="big" load>Decide con pruebas.</Mark>]} />
       <div className="gl-hero-action">
-        <p className="gl-lead">Sube código o verifica un dominio con DNS TXT.</p>
+        <p className="gl-lead">Sube código o analiza un origen HTTPS.</p>
         <Action href="/dashboard" size="lg">Revisar una app</Action>
       </div>
     </div>

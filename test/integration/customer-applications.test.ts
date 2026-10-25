@@ -1,6 +1,5 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { createSocket } from 'node:dgram';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
@@ -16,10 +15,10 @@ import { createScannerServer, signScannerBody } from '@gotchu/scanner';
 import { httpRequestEvent, signEventBatch } from '@gotchu/sdk';
 import { prepareCorrectionResponseSchema, reportRecommendationsResponseSchema } from '@gotchu/scenarios/contracts';
 import {
-  customerApplicationSchema, customerAssessmentReportSchema, customerEnrollmentSchema,
+  apiCheckEvidenceSchema, customerApplicationSchema, customerAssessmentReportSchema, customerEnrollmentSchema,
   customerReportSummarySchema, customerSourceSummarySchema, customerTargetSchema, customerWorkspaceSchema,
   telemetryConnectionSchema, operationAlertSchema, operationCoverageSchema, monitorConfigSchema,
-  type CustomerAssessmentReport, type CustomerSourceSnapshot,
+  type CustomerAssessmentReport, type CustomerSourceSnapshot, type CustomerScanProfile,
 } from '../../packages/contracts/src/index.js';
 import { fixture, liveUrl, present } from '../../packages/database/test/support.js';
 
@@ -94,48 +93,16 @@ function cookieClient(origin: string) {
   };
 }
 
-// A minimal authoritative UDP fixture: only TXT/IN questions for the exact enrolled name.
-// No resolver or network fallback exists, and records start empty.
-async function dnsFixture() {
-  const socket = createSocket('udp4');
-  const records = new Map<string, string>(); const questions: string[] = []; const failures: Error[] = [];
-  socket.on('error', error => failures.push(error));
-  socket.on('message', (packet, peer) => {
-    if (packet.length < 17 || packet.readUInt16BE(4) !== 1) return;
-    let offset = 12; const labels: string[] = [];
-    while (offset < packet.length && packet[offset] !== 0) {
-      const length = packet[offset];
-      if (!length || length > 63 || offset + length + 1 >= packet.length) return;
-      labels.push(packet.subarray(offset + 1, offset + 1 + length).toString('ascii'));
-      offset += length + 1;
-    }
-    offset++;
-    if (offset + 4 > packet.length) return;
-    const name = labels.join('.'); questions.push(name);
-    const txt = packet.readUInt16BE(offset) === 16 && packet.readUInt16BE(offset + 2) === 1 && name === '_gotchu.customer.org' ? records.get(name) : undefined;
-    const header = Buffer.alloc(12);
-    packet.copy(header, 0, 0, 2); header.writeUInt16BE(0x8500, 2); header.writeUInt16BE(1, 4); header.writeUInt16BE(txt ? 1 : 0, 6);
-    const answer = Buffer.alloc(txt ? 13 + Buffer.byteLength(txt) : 0);
-    if (txt) {
-      answer.writeUInt16BE(0xc00c, 0); answer.writeUInt16BE(16, 2); answer.writeUInt16BE(1, 4);
-      answer.writeUInt16BE(Buffer.byteLength(txt) + 1, 10); answer[12] = Buffer.byteLength(txt); answer.write(txt, 13);
-    }
-    socket.send(Buffer.concat([header, packet.subarray(12, offset + 4), answer]), peer.port, peer.address, error => { if (error) failures.push(error); });
-  });
-  await new Promise<void>(resolve => socket.bind(0, '127.0.0.1', resolve));
-  return { records, questions, failures, nameserver: `127.0.0.1:${socket.address().port}`, close: () => new Promise<void>(resolve => socket.close(resolve)) };
-}
-
 live('customer applications through built Nitro, coordinator main, HMAC scanner and real data services', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
   let directory: string; let origin: string; let scannerOrigin: string; let secret: Buffer;
-  let dns: Awaited<ReturnType<typeof dnsFixture>>;
   let owner: ReturnType<typeof cookieClient>; let stranger: ReturnType<typeof cookieClient>;
   let coordinator: ChildProcess;
   let engine = createCustomerAssessmentRunner({ scanners: unavailableScanners });
   let realEngine: ReturnType<typeof createCustomerAssessmentRunner>;
   let corrected = false;
   let publicSurfaceFixture = false;
+  let apiChecksFixture = false;
   let holdHttpsLookup: (() => Promise<void>) | undefined;
   const httpsRequests: Array<{ method: string | undefined; path: string | undefined; hostname: string | undefined; hasCredentials: boolean }> = [];
   const lookups: string[] = [];
@@ -194,12 +161,18 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     cleanup.push(() => rm(directory, { recursive: true, force: true }));
     secret = randomBytes(32); const secretFile = join(directory, 'scanner.secret');
     await writeFile(secretFile, secret, { mode: 0o600, flag: 'wx' });
-    dns = await dnsFixture(); cleanup.push(dns.close);
     await promisify(execFile)('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', join(directory, 'key.pem'), '-out', join(directory, 'cert.pem'), '-days', '1', '-subj', '/CN=customer.org', '-addext', 'subjectAltName=DNS:customer.org'], { timeout: 10_000, maxBuffer: 65_536 });
     const cert = await readFile(join(directory, 'cert.pem'), 'utf8'); const key = await readFile(join(directory, 'key.pem'), 'utf8');
     const tls = createTlsServer({ cert, key }, (request, response) => {
       httpsRequests.push({ method: request.method, path: request.url, hostname: request.headers.host, hasCredentials: Boolean(request.headers.cookie || request.headers.authorization) });
       const path = request.url ?? '/';
+      if (apiChecksFixture) {
+        const cors = { 'access-control-allow-origin': 'https://gotchu.invalid', 'access-control-allow-credentials': 'true' };
+        if (request.method === 'OPTIONS') return response.writeHead(204, { ...cors, allow: 'GET, HEAD, OPTIONS', 'access-control-allow-methods': 'GET', 'access-control-allow-headers': 'authorization' }).end();
+        if (request.method === 'HEAD') return response.writeHead(path === '/api/account' ? 401 : 200, cors).end();
+        if (path === '/openapi.json') return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ openapi: '3.0.3', info: { title: 'Controlled API', version: '1' }, security: [{ bearer: [] }], paths: { '/api/account': { get: { description: 'API_BODY_MUST_NOT_PERSIST', responses: { '200': { description: 'Fixture response' } } } } } }));
+        return response.writeHead(404).end('API_BODY_MUST_NOT_PERSIST');
+      }
       const headers = corrected ? { 'content-security-policy': "default-src 'none'", 'strict-transport-security': 'max-age=31536000', 'x-content-type-options': 'nosniff' } : { server: 'Untrusted-Fixture/1.0' };
       if (publicSurfaceFixture) {
         if (path === '/') return response.writeHead(200, { ...headers, 'content-type': 'text/html' }).end('<a href="/public-app">App</a><a href="/redirect">Redirect</a><a href="/search?token=BODY_MUST_NOT_PERSIST">Search</a><a href="https://other.example/private">External</a>');
@@ -220,7 +193,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     const web = childProcess('Nitro web', 'apps/web/.output/server/index.mjs', webPort, {
       NODE_ENV: 'production', GOTCHU_AUTH_MODE: 'public', HOST: '127.0.0.1', NITRO_HOST: '127.0.0.1', PUBLIC_APP_URL: origin,
       GOTCHU_API_DATABASE_URL: f.runtimeConnectionString('gotchu_api'), GOTCHU_INGEST_DATABASE_URL: f.runtimeConnectionString('gotchu_ingest'),
-      AUTH_SECRET: randomBytes(48).toString('base64url'), GOTCHU_DNS_SERVERS_JSON: JSON.stringify([dns.nameserver]),
+      AUTH_SECRET: randomBytes(48).toString('base64url'),
       GOTCHU_EVENT_CREDENTIAL_DIRECTORY: join(directory, 'event-credentials'),
     });
     const worker = childProcess('coordinator', 'apps/coordinator/dist/main.js', await unusedPort(), {
@@ -241,7 +214,6 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     const errors: unknown[] = [];
     for (const close of cleanup.reverse()) { try { await close(); } catch (error) { errors.push(error); } }
     try { await f?.close(); } catch (error) { errors.push(error); }
-    expect(dns?.failures ?? []).toEqual([]);
     expect(errors).toEqual([]);
   }, 30_000);
 
@@ -254,17 +226,18 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
   async function upload(path: string, snapshot = minimalSource(), client = owner) {
     return json(await client.api(`${path}/sources`, 'POST', { snapshot, authorized: true }), 201, customerSourceSummarySchema);
   }
-  async function target(path: string, scanProfile: 'root' | 'public_surface' = 'root') {
-    dns.records.clear();
-    const enrollment = await json(await owner.api(`${path}/targets`, 'POST', { origin: 'https://customer.org', authorized: true, ...(scanProfile === 'public_surface' ? { scanProfile } : {}) }), 201, customerEnrollmentSchema);
-    const verify = `${path}/targets/${enrollment.target.id}/verify`;
-    await rejected(await owner.api(verify, 'POST', {}), 409, 'dns_verification_failed');
-    expect(enrollment.challenge.name).toBe('_gotchu.customer.org');
-    dns.records.set(enrollment.challenge.name, enrollment.challenge.value);
-    const verified = await json(await owner.api(verify, 'POST', {}), 200, customerTargetSchema);
-    expect(verified.status).toBe('verified'); expect(verified.verifiedAt).not.toBeNull(); expect(verified.scanProfile ?? 'root').toBe(scanProfile);
-    expect(dns.questions.slice(-2)).toEqual(['_gotchu.customer.org', '_gotchu.customer.org']);
-    return verified;
+  async function target(path: string, scanProfile: CustomerScanProfile = 'root') {
+    const targetPath = `${path}/targets`;
+    await rejected(await owner.api(targetPath, 'POST', { origin: 'https://customer.org', authorized: true }), 400, 'invalid_input');
+    const enrollment = await json(await owner.api(targetPath, 'POST', { origin: 'https://customer.org', scanProfile }), 201, customerEnrollmentSchema);
+    const requested = enrollment.target;
+    expect(requested.status).toBe('authorized');
+    expect(requested.requestedBy).toMatch(/^credentials:/);
+    expect(Date.parse(requested.requestedAt)).toBeLessThanOrEqual(Date.now());
+    expect(Date.parse(requested.expiresAt ?? '')).toBeGreaterThan(Date.now());
+    expect(requested.authorizedAt).not.toBeNull();
+    expect(requested.scanProfile ?? 'root').toBe(scanProfile);
+    return requested;
   }
   async function queue(path: string, body: { mode: 'internal' | 'external' | 'both'; sourceSnapshotId: string | null; targetId: string | null }, key = randomUUID()) {
     return json(await owner.api(`${path}/assessments`, 'POST', body, key), 202, queuedSchema);
@@ -370,10 +343,10 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     expect((await json(await owner.api(`${first.path}/reports/${report.id}`), 200, customerAssessmentReportSchema)).id).toBe(report.id);
   }, 30_000);
 
-  it('uses real DNS verification, revokes target authorization, and restores archived applications', async () => {
+  it('authorizes a bounded Analyze request, revokes target scope, and restores archived applications', async () => {
     const app = await application('Authorization lifecycle');
-    const verified = await target(app.path);
-    const body = { mode: 'external', sourceSnapshotId: null, targetId: verified.id } as const;
+    const requested = await target(app.path);
+    const body = { mode: 'external', sourceSnapshotId: null, targetId: requested.id } as const;
     let releaseLookup = () => {};
     let lookupEntered = false;
     const pausedLookup = new Promise<void>(resolve => { releaseLookup = resolve; });
@@ -383,15 +356,15 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     try {
       await eventually(async () => lookupEntered, 'scanner DNS admission');
       expect(httpsRequests).toHaveLength(beforeProbe);
-      await rejected(await owner.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 409, 'target_assessment_in_progress');
-      await rejected(await owner.api(`${app.path}/targets`, 'POST', { origin: verified.origin, authorized: true }), 409, 'target_assessment_in_progress');
+      await rejected(await owner.api(`${app.path}/targets/${requested.id}/revoke`, 'POST', {}), 409, 'target_assessment_in_progress');
+      await rejected(await owner.api(`${app.path}/targets`, 'POST', { origin: requested.origin }), 409, 'target_assessment_in_progress');
     } finally { holdHttpsLookup = undefined; releaseLookup(); }
     const report = present(await finished(app.base, app.path, queued.jobId));
     expect(report.internal).toBeNull(); expect(report.external?.coverage).toContainEqual(expect.objectContaining({ capability: 'tls_https', state: 'inspected' }));
-    await rejected(await stranger.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 403, 'forbidden');
-    const revoked = await json(await owner.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 200, customerTargetSchema);
-    expect(revoked).toMatchObject({ status: 'revoked', version: verified.version + 1, verifiedAt: null });
-    await rejected(await owner.api(`${app.path}/assessments`, 'POST', body, randomUUID()), 409, 'target_not_verified');
+    await rejected(await stranger.api(`${app.path}/targets/${requested.id}/revoke`, 'POST', {}), 403, 'forbidden');
+    const revoked = await json(await owner.api(`${app.path}/targets/${requested.id}/revoke`, 'POST', {}), 200, customerTargetSchema);
+    expect(revoked).toMatchObject({ status: 'revoked', version: requested.version + 1, authorizedAt: null });
+    await rejected(await owner.api(`${app.path}/assessments`, 'POST', body, randomUUID()), 409, 'target_not_authorized');
     await rejected(await owner.api(`${app.path}/assessments`, 'POST', body, key), 409, 'idempotency_conflict');
     const renewed = await target(app.path); expect(renewed.version).toBeGreaterThan(revoked.version);
     await json(await owner.api(app.path, 'PATCH', { archived: true }), 200, customerApplicationSchema);
@@ -408,8 +381,8 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     const source = present(sources[0]); expect(await upload(app.path, minimalSource('snapshot-0'))).toEqual(source);
     await rejected(await owner.api(`${app.path}/sources`, 'POST', { snapshot: { revision: 'bad-path', files: [{ path: '../escape.ts', content: '' }] }, authorized: true }), 400, 'invalid_input');
     await rejected(await owner.api(`${app.path}/sources`, 'POST', { snapshot: { revision: 'oversized', files: [{ path: 'large.ts', content: 'x'.repeat(1_048_577) }] }, authorized: true }), 400, 'invalid_input');
-    const verified = await target(app.path);
-    const body = { mode: 'both', sourceSnapshotId: source.id, targetId: verified.id } as const;
+    const requested = await target(app.path);
+    const body = { mode: 'both', sourceSnapshotId: source.id, targetId: requested.id } as const;
     const requestsBefore = httpsRequests.length;
     expect(coordinator.kill('SIGSTOP')).toBe(true);
     const jobs: string[] = [];
@@ -417,13 +390,13 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
       for (let index = 0; index < 3; index++) jobs.push((await queue(app.path, body)).jobId);
       await rejected(await owner.api(`${app.path}/assessments`, 'POST', body, randomUUID()), 429, 'assessment_capacity_exceeded');
       await rejected(await owner.api(`${app.path}/sources/${source.id}`, 'DELETE'), 409, 'source_in_use');
-      await rejected(await owner.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 409, 'target_assessment_in_progress');
+      await rejected(await owner.api(`${app.path}/targets/${requested.id}/revoke`, 'POST', {}), 409, 'target_assessment_in_progress');
       // Archival stops admission and makes queued work fail its fresh-state check.
       await json(await owner.api(app.path, 'PATCH', { archived: true }), 200, customerApplicationSchema);
     } finally { coordinator.kill('SIGCONT'); }
     for (const job of jobs) await finished(app.base, app.path, job, 'failed');
     expect(httpsRequests).toHaveLength(requestsBefore);
-    await json(await owner.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 200, customerTargetSchema);
+    await json(await owner.api(`${app.path}/targets/${requested.id}/revoke`, 'POST', {}), 200, customerTargetSchema);
     await json(await owner.api(app.path, 'PATCH', { archived: false }), 200, customerApplicationSchema);
     await json(await owner.api(`${app.path}/sources/${source.id}/delete`, 'POST', {}), 200, z.object({ deleted: z.literal(true) }));
     expect((await upload(app.path, minimalSource('replacement-after-delete'))).id).not.toBe(source.id);
@@ -433,7 +406,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
   it.skipIf(process.env.GOTCHU_TEST_SCANNERS !== '1')('persists real Docker/OSV mode reports and a combined public_surface report with local TLS', async () => {
     engine = realEngine;
     expect(await realEngine.readiness()).toEqual({ ready: true, tools: expect.arrayContaining(['semgrep', 'gitleaks', 'trivy', 'npm_advisories'].map(name => ({ name, available: true }))) });
-    const app = await application('Real customer scans'); const verified = await target(app.path);
+    const app = await application('Real customer scans'); const requestedTarget = await target(app.path);
     const reports: CustomerAssessmentReport[] = [];
     const fakeSecret = 'b47c9f28e3d16a0c5b79f2e4d8a63c10';
     const fakePrivateKey = `-----BEGIN PRIVATE KEY-----\n${'test-only-placeholder-'.repeat(4)}\n-----END PRIVATE KEY-----`;
@@ -455,11 +428,11 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
       if (revision === 'before') baselineSourceId = source.id;
       for (const mode of ['internal', 'external', 'both'] as const) {
         const requestsBefore = httpsRequests.length;
-        const body = { mode, sourceSnapshotId: mode === 'external' ? null : source.id, targetId: mode === 'internal' ? null : verified.id };
+        const body = { mode, sourceSnapshotId: mode === 'external' ? null : source.id, targetId: mode === 'internal' ? null : requestedTarget.id };
         const key = randomUUID(); const queued = await queue(app.path, body, key);
         expect(await queue(app.path, body, key)).toEqual(queued);
         const report = present(await finished(app.base, app.path, queued.jobId)); reports.push(report);
-        expect(report).toMatchObject({ organizationId: app.workspace.id, applicationId: app.app.applicationId, mode, responseMode: 'observation', actionsPerformed: [], subject: { sourceSnapshotId: body.sourceSnapshotId, sourceDigest: mode === 'external' ? null : source.digest, targetId: body.targetId, targetVersion: mode === 'internal' ? null : verified.version, origin: mode === 'internal' ? null : 'https://customer.org' } });
+        expect(report).toMatchObject({ organizationId: app.workspace.id, applicationId: app.app.applicationId, mode, responseMode: 'observation', actionsPerformed: [], subject: { sourceSnapshotId: body.sourceSnapshotId, sourceDigest: mode === 'external' ? null : source.digest, targetId: body.targetId, targetVersion: mode === 'internal' ? null : requestedTarget.version, origin: mode === 'internal' ? null : 'https://customer.org' } });
         expect(report.internal === null).toBe(mode === 'external'); expect(report.external === null).toBe(mode === 'internal');
         if (report.internal) {
           for (const capability of ['semgrep', 'gitleaks', 'dependency_advisories']) expect(report.internal.coverage).toContainEqual(expect.objectContaining({ capability, state: 'inspected' }));
@@ -493,7 +466,8 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
         const findings = [...report.internal?.findings ?? [], ...report.external?.findings ?? []];
         expect(findings.every(finding => finding.exploitability === 'unknown')).toBe(true);
         expect(report.comparison.flatMap(row => [...row.internalFindingIds, ...row.externalFindingIds]).sort()).toEqual(findings.map(finding => finding.id).sort());
-        expect(report.limitations.join(' ')).toContain('not proven to match deployment');
+        if (mode === 'external') expect(report.limitations.join(' ')).not.toContain('Uploaded source');
+        else expect(report.limitations.join(' ')).toContain('not proven to match deployment');
       }
     }
     expect(reports).toHaveLength(6);
@@ -541,7 +515,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     const writes = await f.admin.query<{ count: number }>('SELECT ((SELECT count(*) FROM gotchu.proposals WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.approvals WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.executions WHERE organization_id=$1) + (SELECT count(*) FROM gotchu.agent_runs WHERE organization_id=$1))::int AS count', [app.workspace.id]);
     expect(writes.rows[0]?.count).toBe(0);
 
-    await json(await owner.api(`${app.path}/targets/${verified.id}/revoke`, 'POST', {}), 200, customerTargetSchema);
+    await json(await owner.api(`${app.path}/targets/${requestedTarget.id}/revoke`, 'POST', {}), 200, customerTargetSchema);
     const surfaceTarget = await target(app.path, 'public_surface');
     corrected = false;
     publicSurfaceFixture = true;
@@ -557,15 +531,15 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
 
   it('runs external-only public_surface through authenticated enrollment, scanner HTTP and the durable report pipeline', async () => {
     const app = await application('Public surface only');
-    const verified = await target(app.path, 'public_surface');
+    const requestedTarget = await target(app.path, 'public_surface');
     publicSurfaceFixture = true;
     try {
       const requestStart = httpsRequests.length;
       const lookupStart = lookups.length;
-      const queued = await queue(app.path, { mode: 'external', sourceSnapshotId: null, targetId: verified.id });
+      const queued = await queue(app.path, { mode: 'external', sourceSnapshotId: null, targetId: requestedTarget.id });
       const report = present(await finished(app.base, app.path, queued.jobId));
       const requests = httpsRequests.slice(requestStart);
-      expect(report).toMatchObject({ mode: 'external', subject: { sourceSnapshotId: null, sourceDigest: null, targetId: verified.id, origin: 'https://customer.org' }, internal: null });
+      expect(report).toMatchObject({ mode: 'external', subject: { sourceSnapshotId: null, sourceDigest: null, targetId: requestedTarget.id, origin: 'https://customer.org' }, internal: null });
       expect(report.external?.snapshotRef).toContain(':public_surface');
       expect(report.external?.coverage).toContainEqual(expect.objectContaining({ capability: 'public_surface_known_paths', state: 'inspected' }));
       expect(report.external?.coverage).toContainEqual(expect.objectContaining({ capability: 'same_origin_link_discovery', state: 'inspected' }));
@@ -600,4 +574,44 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
       await rejected(await stranger.api(`${app.base}/jobs/${queued.jobId}`), 403, 'forbidden');
     } finally { publicSurfaceFixture = false; }
   }, 60_000);
+  it('executes and persists API scenarios for manual and scheduled external jobs without source access', async () => {
+    apiChecksFixture = true;
+    try {
+      const app = await application('API protocol checks');
+      const requested = await target(app.path, 'api_checks');
+      const start = httpsRequests.length;
+      const queued = await queue(app.path, { mode: 'external', sourceSnapshotId: null, targetId: requested.id });
+      const report = present(await finished(app.base, app.path, queued.jobId));
+      const observed = present(report.external);
+      const checks = observed.evidence.map(item => {
+        expect(item.checksum).toBe(hash(item.excerpt));
+        return apiCheckEvidenceSchema.parse(JSON.parse(item.excerpt));
+      });
+      expect(checks).toHaveLength(8);
+      expect(checks.find(item => item.path === '/openapi.json')?.signals.operations).toContainEqual({ path: '/api/account', method: 'GET', authentication: 'declared', probeEligible: true });
+      expect(httpsRequests.slice(start)).toHaveLength(8);
+      expect(httpsRequests.slice(start).every(item => !item.hasCredentials && item.hostname === 'customer.org')).toBe(true);
+      expect(httpsRequests.slice(start)).not.toContainEqual(expect.objectContaining({ method: 'GET', path: '/api/account' }));
+      expect(observed.findings.map(item => item.ruleId)).toEqual(['api.credentialed-probe-origin']);
+      expect(observed.snapshotRef).toContain(':api_checks');
+      expect(JSON.stringify(report)).not.toContain('API_BODY_MUST_NOT_PERSIST');
+      await rejected(await stranger.api(`${app.path}/reports/${report.id}`), 403, 'forbidden');
+      const settings = { enabled: true, intervalSeconds: 21600, sourceSnapshotId: null, targetId: requested.id, repositoryKey: null, providers: [] };
+      try {
+        await json(await owner.api(`${app.path}/monitoring`, 'PUT', settings), 200, monitorConfigSchema);
+        await eventually(async () => {
+          const coverage = await json(await owner.api(`${app.path}/monitoring`), 200, operationCoverageSchema);
+          return coverage.lastRun?.jobId != null && coverage.lastRun.finishedAt !== null;
+        }, 'scheduled API profile assessment', 60_000);
+        const coverage = await json(await owner.api(`${app.path}/monitoring`), 200, operationCoverageSchema);
+        const scheduledJobId = coverage.lastRun?.jobId;
+        if (!scheduledJobId) throw new Error('scheduled_api_job_missing');
+        const scheduled = present(await finished(app.base, app.path, scheduledJobId));
+        expect(scheduled.external?.snapshotRef).toBe(observed.snapshotRef);
+        expect(scheduled.external?.evidence.map(item => apiCheckEvidenceSchema.parse(JSON.parse(item.excerpt)))).toHaveLength(8);
+      } finally {
+        await json(await owner.api(`${app.path}/monitoring`, 'PUT', { ...settings, enabled: false }), 200, monitorConfigSchema);
+      }
+    } finally { apiChecksFixture = false; }
+  }, 90_000);
 });

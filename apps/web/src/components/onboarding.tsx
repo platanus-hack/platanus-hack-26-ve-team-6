@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { FolderIcon, GlobeIcon, GitBranchIcon } from 'lucide-react';
 import { CUSTOMER_MAX_SOURCE_BYTES, customerOriginSchema, customerSourceFileSchema, customerSourceSnapshotSchema, customerScanProfileSchema, type CustomerWorkspace } from '@gotchu/contracts';
@@ -11,7 +11,7 @@ type SourceFile = { file: File; path: string; valid: boolean };
 type Scope = { organizationId: string; applicationId: string };
 type Source = 'github' | 'carpeta' | 'web';
 /** The one action in flight; every control is disabled while it runs, but only its own button changes label. */
-type BusyAction = 'github' | 'folder' | 'domain' | 'verify' | 'queue-domain' | `repository:${number}`;
+type BusyAction = 'github' | 'folder' | 'domain' | `repository:${number}`;
 const onboardingStorageKey = 'gotchu-onboarding-scope';
 
 async function readFiles(files: readonly SourceFile[]) {
@@ -42,26 +42,21 @@ function httpsOrigin(value: string) {
 export function Onboarding({ userId, displayName, organizationId, initialSource = 'carpeta', canManage = true, onWorkspaceCreated, onDone, onSkip }: {
   userId: string; displayName?: string; organizationId?: string; initialSource?: 'github' | 'carpeta' | 'web'; canManage?: boolean;
   onWorkspaceCreated: (workspace: CustomerWorkspace) => void;
-  onDone: (result: { organizationId: string; applicationId: string; jobId: string | null }) => void;
+  onDone: (result: { organizationId: string; applicationId: string; jobId: string | null; mode?: 'external' }) => void;
   onSkip: () => void;
 }) {
-  const stepHeading = useRef<HTMLHeadingElement>(null);
   const name = suggestedName(displayName);
   const [scope, setScope] = useState<Scope | null>(null);
   const [createdOrganizationId, setCreatedOrganizationId] = useState<string | null>(null);
-  const [step, setStep] = useState<'source' | 'dns'>('source');
   const [source, setSource] = useState<Source>(initialSource);
   const [projectName, setProjectName] = useState(name ? `Proyecto de ${name}` : 'Mi primer proyecto');
   const [projectNameEdited, setProjectNameEdited] = useState(false);
   const [autoNameApplication, setAutoNameApplication] = useState(false);
   const [files, setFiles] = useState<SourceFile[]>([]);
-  const [targetId, setTargetId] = useState<string | null>(null);
-  const [domainVerified, setDomainVerified] = useState(false);
   const [domain, setDomain] = useState('');
-  const [challenge, setChallenge] = useState<{ name: string; value: string } | null>(null);
+  const [domainScanProfile, setDomainScanProfile] = useState(customerScanProfileSchema.parse('api_checks'));
   const [error, setError] = useState<{ source: Source; message: string } | null>(null);
   const [busy, setBusy] = useState<BusyAction | null>(null);
-  const [copied, setCopied] = useState(false);
   const [installationId, setInstallationId] = useState('');
   const locked = !canManage || busy !== null;
 
@@ -90,7 +85,6 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
     }
     return () => { current = false; };
   }, [organizationId, userId]);
-  useEffect(() => { if (step === 'dns') stepHeading.current?.focus(); }, [step]);
 
   const connections = useQuery({ queryKey: ['github-connections', userId, scope?.organizationId], enabled: Boolean(scope), queryFn: () => {
     if (!scope) throw new Error('Selecciona un espacio de trabajo.');
@@ -160,27 +154,15 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
     sessionStorage.removeItem(onboardingStorageKey);
     onDone({ ...currentScope, jobId: result.jobId });
   });
-  const enrollDomain = () => run('domain', 'web', 'No se pudo preparar la verificación del dominio.', async () => {
+  const enrollDomain = () => run('domain', 'web', 'No se pudo iniciar el análisis de la web.', async () => {
     const origin = httpsOrigin(domain);
     if (!origin) throw new Error('Escribe un dominio HTTPS público, sin ruta ni puerto. Por ejemplo: https://ejemplo.com');
     setDomain(origin);
     const currentScope = await ensureScope();
-    const enrollment = await customerApi.enrollTarget({ ...currentScope, origin, authorized: true, scanProfile: customerScanProfileSchema.parse('public_surface') });
-    setChallenge({ name: enrollment.challenge.name, value: enrollment.challenge.value });
-    setTargetId(enrollment.target.id);
-    setDomainVerified(false);
-    setStep('dns');
-  });
-  const verifyDomain = () => run('verify', 'web', 'Todavía no encontramos el registro DNS. Espera a que se propague e inténtalo de nuevo.', async () => {
-    if (!scope || !targetId) return;
-    await customerApi.verifyTarget(scope.organizationId, scope.applicationId, targetId);
-    setDomainVerified(true);
-  });
-  const queueDomainAssessment = () => run('queue-domain', 'web', 'No se pudo iniciar el análisis de la web.', async () => {
-    if (!scope || !targetId || !domainVerified) return;
-    const result = await customerApi.queue({ ...scope, mode: 'external', sourceSnapshotId: null, targetId });
+    const enrollment = await customerApi.enrollTarget({ ...currentScope, origin, scanProfile: domainScanProfile });
+    const result = await customerApi.queue({ ...currentScope, mode: 'external', sourceSnapshotId: null, targetId: enrollment.target.id });
     sessionStorage.removeItem(onboardingStorageKey);
-    onDone({ ...scope, jobId: result.jobId });
+    onDone({ ...currentScope, jobId: result.jobId, mode: 'external' });
   });
   const selectRepository = (repository: NonNullable<typeof repositories.data>[number]) => run(`repository:${repository.id}`, 'github', 'No se pudo analizar el repositorio.', async () => {
     if (!scope || !installation || repository.archived) return;
@@ -211,7 +193,7 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
   return <section className="customer-onboarding" aria-labelledby="onboarding-title">
     <div className="customer-onboarding-header"><h1 id="onboarding-title">Tu primera revisión</h1></div>
     {!canManage && <p className="customer-inline-error" role="status">Solo una persona propietaria u operadora puede añadir fuentes y lanzar revisiones.</p>}
-    {step === 'source' ? <form className="customer-onboarding-card" onSubmit={event => { event.preventDefault(); if (source === 'web') void enrollDomain(); }}>
+    <form className="customer-onboarding-card" onSubmit={event => { event.preventDefault(); if (source === 'web') void enrollDomain(); }}>
       <label className="customer-project-name"><span>Nombre del proyecto</span><input id="onboarding-project" value={projectName} onChange={event => { setProjectName(event.target.value); setProjectNameEdited(true); }} required maxLength={200} disabled={locked} /></label>
       <fieldset className="customer-source-choice" disabled={locked}>
         <legend>¿Desde dónde quieres revisarlo?</legend>
@@ -236,27 +218,19 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
         </div>}
         {source === 'web' && <div className="customer-source-option-body">
           <label className="customer-web-url" htmlFor="onboarding-domain"><span>URL de la web</span><input id="onboarding-domain" type="text" inputMode="url" autoComplete="url" spellCheck={false} value={domain} onChange={event => setDomain(event.target.value)} placeholder="ejemplo.com" required disabled={locked} /></label>
-          <p>Primero confirmarás que controlas el dominio con un registro DNS.</p>
+          <label htmlFor="onboarding-scan-profile">Perfil de evaluación</label>
+          <select id="onboarding-scan-profile" value={domainScanProfile} onChange={event => setDomainScanProfile(customerScanProfileSchema.parse(event.target.value))} disabled={locked}>
+            <option value="root">Raíz del sitio · una solicitud GET a /</option>
+            <option value="public_surface">Superficie pública limitada · hasta 10 solicitudes GET</option>
+            <option value="api_checks">Web y API · hasta 16 GET/HEAD/OPTIONS</option>
+          </select>
+          <p>La evaluación se limita al origen y al perfil elegido.</p>
           {sourceError('web') && <p className="customer-form-error" role="alert">{sourceError('web')}</p>}
-          <button className="customer-button customer-button-primary" disabled={locked || !domain.trim()}>{busy === 'domain' ? 'Preparando registro TXT…' : 'Continuar'}</button>
+          <button className="customer-button customer-button-primary" disabled={locked || !domain.trim()}>{busy === 'domain' ? 'Encolando evaluación…' : 'Analizar origen'}</button>
         </div>}
       </div>
       <button className="customer-link-button customer-onboarding-skip" type="button" onClick={onSkip} disabled={busy !== null}>Saltar por ahora</button>
     </form>
-    : <div className="customer-onboarding-card customer-onboarding-dns">
-      <h2 ref={stepHeading} tabIndex={-1}>Confirma que controlas el dominio</h2>
-      <p>Añade este registro TXT al DNS de {domain} para autorizar la revisión.</p>
-      {challenge && <div className="customer-challenge"><dl><div><dt>Nombre</dt><dd>{challenge.name}</dd></div><div><dt>Valor</dt><dd><code>{challenge.value}</code></dd></div></dl>
-        <button className="customer-link-button" onClick={() => navigator.clipboard.writeText(`${challenge.name}\t${challenge.value}`).then(() => setCopied(true), () => setError({ source: 'web', message: 'No se pudo copiar. Selecciona el registro para copiarlo.' }))}>{copied ? 'Copiado' : 'Copiar registro'}</button></div>}
-      {sourceError('web') && <p className="customer-form-error" role="alert">{sourceError('web')}</p>}
-      <div className="customer-onboarding-actions">
-        {domainVerified
-          ? <button className="customer-button customer-button-primary" onClick={() => void queueDomainAssessment()} disabled={locked}>{busy === 'queue-domain' ? 'Iniciando…' : 'Analizar web'}</button>
-          : <button className="customer-button customer-button-primary" onClick={() => void verifyDomain()} disabled={locked}>{busy === 'verify' ? 'Comprobando DNS…' : 'Comprobar DNS'}</button>}
-        <button className="customer-link-button" onClick={() => { setStep('source'); setError(null); }} disabled={busy !== null}>Usar otra fuente</button>
-        {!domainVerified && <button className="customer-link-button" onClick={() => { if (!scope) return; sessionStorage.removeItem(onboardingStorageKey); onDone({ ...scope, jobId: null }); }} disabled={busy !== null}>Lo verificaré después</button>}
-      </div>
-    </div>}
   </section>;
 }
 

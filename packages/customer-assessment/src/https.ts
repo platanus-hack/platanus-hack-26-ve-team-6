@@ -20,8 +20,18 @@ export interface HttpsOptions {
   testFixture?: { hostname: string; port: number; ca: string };
 }
 export interface HttpsObservation { status: number; headers: Record<string,string>; bodyBytes: number; tlsVerified: true; incomplete: string | null }
-export interface HttpsPageObservation extends HttpsObservation { body: string }
+export interface HttpsPageObservation extends HttpsObservation { body: string; bodyPolicy?: 'headers_only' | 'bounded_body' }
 const MAX_BODY_BYTES = 16_384;
+export const API_PROBE_ORIGIN = 'https://gotchu.invalid';
+const apiRequests = {
+  observe: { method: 'GET', headers: {} },
+  schema: { method: 'GET', headers: { accept: 'application/json' } },
+  head: { method: 'HEAD', headers: {} },
+  cors: { method: 'HEAD', headers: { origin: API_PROBE_ORIGIN } },
+  preflight: { method: 'OPTIONS', headers: { origin: API_PROBE_ORIGIN, 'access-control-request-method': 'GET', 'access-control-request-headers': 'authorization' } },
+  options: { method: 'OPTIONS', headers: {} },
+} as const;
+export type ApiProbeKind = keyof typeof apiRequests;
 
 function requestPath(origin: URL, path: string) {
   if (!path.startsWith('/') || path.startsWith('//') || path.includes('//') || path.length > 512 || /[?#\\\x00-\x20\x7f]/.test(path) || /%(?:2f|5c)/i.test(path)) throw new Error('invalid_https_path');
@@ -36,7 +46,9 @@ function requestPath(origin: URL, path: string) {
 function createHttpsRequester(options: HttpsOptions = {}) {
   const fixture = options.testFixture;
   if (fixture && (process.env.NODE_ENV !== 'test' || !options.lookup || !Number.isInteger(fixture.port) || fixture.port < 1024 || fixture.port > 65535)) throw new Error('invalid_test_fixture');
-  return async (origin: string, path: string, parentSignal: AbortSignal, expiresAt: string | undefined, maxBodyBytes: number): Promise<HttpsPageObservation> => {
+  return async (origin: string, path: string, parentSignal: AbortSignal, expiresAt: string | undefined, maxBodyBytes: number, kind: ApiProbeKind = 'observe'): Promise<HttpsPageObservation> => {
+    if (!Object.hasOwn(apiRequests, kind)) throw new Error('invalid_https_probe');
+    const probe = apiRequests[kind];
     const url = new URL(customerOriginSchema.parse(origin));
     const pathname = requestPath(url, path);
     if (!Number.isInteger(maxBodyBytes) || maxBodyBytes < 1 || maxBodyBytes > MAX_BODY_BYTES) throw new Error('invalid_body_limit');
@@ -53,21 +65,37 @@ function createHttpsRequester(options: HttpsOptions = {}) {
     signal.throwIfAborted();
     if (Date.now() >= authorizedUntil) throw new Error('expired_target');
     return new Promise((resolve,reject) => {
-      const req = request({ hostname: selected.address, family: selected.family, port: scopedFixture?.port ?? 443, servername: url.hostname, checkServerIdentity: (_host, certificate) => checkServerIdentity(url.hostname, certificate), rejectUnauthorized: true, ...(scopedFixture ? { ca: scopedFixture.ca } : {}), method:'GET', path:pathname, agent:false, signal, maxHeaderSize:8192, headers:{host:url.hostname,accept:'text/html, application/json;q=0.8','accept-encoding':'identity','user-agent':'Gotchu-Observation/2'} }, res => {
+      const req = request({ hostname: selected.address, family: selected.family, port: scopedFixture?.port ?? 443, servername: url.hostname, checkServerIdentity: (_host, certificate) => checkServerIdentity(url.hostname, certificate), rejectUnauthorized: true, ...(scopedFixture ? { ca: scopedFixture.ca } : {}), method:probe.method, path:pathname, agent:false, signal, maxHeaderSize:8192, headers:{host:url.hostname,accept:'text/html, application/json;q=0.8','accept-encoding':'identity','user-agent':'Gotchu-Observation/2',...probe.headers} }, res => {
         const status = res.statusCode ?? 0;
+        if (status < 100 || status > 599) {
+          res.destroy(); req.destroy(); reject(new Error('invalid_http_status')); return;
+        }
         const headers: Record<string,string> = {};
+        const rawContentType = res.headers['content-type'];
+        const schemaBody = status === 200 && typeof rawContentType === 'string' && /^application\/(?:json|[\w.-]+\+json)(?:\s*;|$)/i.test(rawContentType);
+        const headersOnly = kind !== 'observe' && (kind !== 'schema' || !schemaBody);
+        let invalidApiHeaders = false;
         for (const name of ['content-type','content-security-policy','strict-transport-security','x-content-type-options','x-frame-options','server','x-powered-by']) {
           const value = res.headers[name]; if (typeof value === 'string') headers[name] = value.slice(0,256).replace(/[\x00-\x1f\x7f]/g,'');
+        }
+        if (kind !== 'observe') for (const name of ['allow','access-control-allow-origin','access-control-allow-credentials','access-control-allow-methods','access-control-allow-headers']) {
+          const value = res.headers[name];
+          // Never turn malformed/oversized policy data into a different valid policy.
+          if (typeof value === 'string') {
+            if (value.length > 256 || /[\x00-\x1f\x7f]/.test(value)) invalidApiHeaders = true;
+            else headers[name] = value;
+          }
         }
         let bodyBytes = 0; let done = false; const bodyChunks: Buffer[] = [];
         const finish = (incomplete: string | null) => {
           if (done) return;
           done = true; signal.removeEventListener('abort',onAbort);
-          resolve({status,headers,bodyBytes,tlsVerified:true,incomplete,body:Buffer.concat(bodyChunks).toString('utf8')});
+          resolve({status,headers,bodyBytes,tlsVerified:true,incomplete:incomplete ?? (invalidApiHeaders ? 'invalid_api_headers' : null),body:Buffer.concat(bodyChunks).toString('utf8'),...(kind !== 'observe' ? {bodyPolicy:headersOnly ? 'headers_only' as const : 'bounded_body' as const} : {})});
           res.destroy(); req.destroy();
         };
         const onAbort=()=>finish('deadline_exceeded');
         if (status >= 300 && status < 400) { finish('redirect_refused'); return; }
+        if (headersOnly) { finish(null); return; }
         signal.addEventListener('abort',onAbort,{once:true});
         res.on('data',(chunk: Buffer) => {
           const available = maxBodyBytes - bodyBytes;
@@ -100,4 +128,10 @@ export function createHttpsProbe(options: HttpsOptions = {}) {
 export function createHttpsPageProbe(options: HttpsOptions = {}) {
   const requestPage = createHttpsRequester(options);
   return (origin: string, path: string, parentSignal: AbortSignal, expiresAt: string | undefined, maxBodyBytes = MAX_BODY_BYTES): Promise<HttpsPageObservation> => requestPage(origin,path,parentSignal,expiresAt,maxBodyBytes);
+}
+
+/** Fixed protocol probes only: callers cannot supply methods, bodies, cookies or arbitrary headers. */
+export function createHttpsApiProbe(options: HttpsOptions = {}) {
+  const requestPage = createHttpsRequester(options);
+  return (origin: string, path: string, kind: ApiProbeKind, signal: AbortSignal, expiresAt: string, maxBodyBytes: number) => requestPage(origin, path, signal, expiresAt, maxBodyBytes, kind);
 }

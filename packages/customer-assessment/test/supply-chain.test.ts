@@ -57,6 +57,35 @@ describe('bounded dependency lockfile inventory', () => {
     expect(result.complete).toBe(true);
   });
 
+  it('recognizes pnpm v6 workspace importers as direct roots', () => {
+    const result = parseFiles([{ path: 'pnpm-lock.yaml', content: `lockfileVersion: '6.0'
+importers:
+  packages/app:
+    dependencies:
+      alpha:
+        specifier: ^1.0.0
+        version: 1.2.3
+packages:
+  /alpha@1.2.3: {}
+` }]);
+    expect(result.inventory[0]?.relationship).toBe('direct');
+    expect(result.graphComplete).toBe(true);
+  });
+
+  it.each(['', 'snapshots: {}\n'])('keeps missing pnpm v9 dependency snapshots unknown (%s)', snapshots => {
+    const result = parseFiles([{ path: 'pnpm-lock.yaml', content: `lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      alpha:
+        version: 1.2.3
+packages:
+  alpha@1.2.3: {}
+${snapshots}` }]);
+    expect(result.inventory[0]).toMatchObject({ name: 'alpha', version: '1.2.3' });
+    expect(result.graphComplete).toBe(false);
+  });
+
   it('keeps pnpm relationship unknown when no importer dependency edges identify roots', () => {
     const result = parseFiles([{ path: 'pnpm-lock.yaml', content: `lockfileVersion: '9.0'\nimporters:\n  .: {}\npackages:\n  alpha@1.2.3:\n    resolution: {integrity: sha512-x}\nsnapshots:\n  alpha@1.2.3: {}\n` }]);
     expect(result.inventory[0]?.relationship).toBe('unknown');
@@ -73,6 +102,7 @@ describe('bounded dependency lockfile inventory', () => {
       { name: 'beta', version: '2.1.0', relationship: 'transitive', dependencies: [] },
     ]);
     expect(result.complete).toBe(true);
+    expect(result.graphComplete).toBe(true);
   });
 
   it('makes malformed, unsupported, oversized and entry-capped lockfiles visible', () => {
@@ -151,6 +181,20 @@ describe('license declarations and workspace policy', () => {
     expect(report.internal?.evidence[0]?.excerpt).toContain('"licenseSource":"registry"');
   });
 
+  it.each([
+    [{ path: 'app.ts', content: 'export const value = true;' }],
+    [{ path: 'bun.lock', content: '{}' }, { path: 'go.sum', content: 'module h1:value' }],
+    [{ path: 'package-lock.json', content: '{' }],
+  ])('keeps license and advisory coverage unknown without a complete inventory: %j', async (...files) => {
+    const report = await createCustomerAssessmentRunner({
+      scanners: absentScanners,
+      advisory: { query: async packages => packages.map(() => ({ ids: [], complete: true })) },
+    }).run(input(files));
+    for (const capability of ['dependency_inventory', 'dependency_advisories', 'license_metadata']) {
+      expect(report.internal?.coverage.find(item => item.capability === capability)?.state).toBe('unavailable');
+    }
+  });
+
   it('counts deduplicated exact versions once for bounded OSV coverage', async () => {
     const lock = JSON.stringify({ lockfileVersion: 3, packages: { '': { dependencies: { alpha: '^1.0.0' } }, 'node_modules/alpha': { version: '1.2.3', license: 'MIT' } } });
     const query = vi.fn(async (packages: ReadonlyArray<{ name: string; version: string }>) => {
@@ -185,6 +229,19 @@ describe('license declarations and workspace policy', () => {
     expect(first.internal?.findings.map(finding => finding.ruleId)).toContain('osv.GHSA-1111-1111-1111');
     expect(second.internal?.findings.map(finding => finding.ruleId)).toContain('osv.GHSA-2222-2222-2222');
     expect(second.internal?.findings.find(finding => finding.ruleId === 'osv.GHSA-2222-2222-2222')?.dependencyAssessment?.reachability.state).toBe('not_found_static');
+  });
+
+  it.each([false, true])('preserves advisory findings and exposes report truncation with many packages (all matched: %s)', async allMatched => {
+    const names = Array.from({ length: 105 }, (_, index) => `package-${index}`);
+    const packages = Object.fromEntries(names.map(name => [`node_modules/${name}`, { version: '1.0.0', ...(allMatched ? { license: 'MIT' } : {}) }]));
+    const report = await createCustomerAssessmentRunner({
+      scanners: absentScanners,
+      advisory: { query: async packages => packages.map(pkg => ({ ids: allMatched || pkg.name === 'package-0' ? ['GHSA-1111-1111-1111'] : [], complete: true })) },
+    }).run(input([{ path: 'package-lock.json', content: JSON.stringify({ lockfileVersion: 3, packages: { '': {}, ...packages } }) }]));
+    expect(report.internal?.findings.some(finding => finding.ruleId === 'osv.GHSA-1111-1111-1111')).toBe(true);
+    expect(report.internal?.findings.length).toBeLessThanOrEqual(100);
+    const capability = allMatched ? 'dependency_advisories' : 'license_metadata';
+    expect(report.internal?.coverage.find(item => item.capability === capability)?.state).toBe('unavailable');
   });
 
   it('keeps an affected transitive dependency unknown unless a direct lockfile path is recorded', async () => {

@@ -5,8 +5,8 @@
   .customer-onboarding-card { display: grid; gap: 24px; }
   .customer-project-name, .customer-web-url { display: grid; gap: 8px; }
   .customer-project-name > span, .customer-web-url > span, .customer-source-choice legend { color: var(--muted-foreground); font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; }
-  .customer-onboarding-card :where(input:not([type='radio'])) { width: 100%; min-width: 0; min-height: 44px; border: 1px solid var(--input); border-radius: 8px; background: var(--background); color: var(--foreground); padding: 8px 12px; font-size: 15px; transition: border-color 160ms var(--ease); }
-  .customer-onboarding-card :where(input:not([type='radio'])):hover:not(:disabled) { border-color: var(--foreground); }
+  .customer-onboarding-card :where(input:not([type='radio']), select) { width: 100%; min-width: 0; min-height: 44px; border: 1px solid var(--input); border-radius: 8px; background: var(--background); color: var(--foreground); padding: 8px 12px; font-size: 15px; transition: border-color 160ms var(--ease); }
+  .customer-onboarding-card :where(input:not([type='radio']), select):hover:not(:disabled) { border-color: var(--foreground); }
   .customer-onboarding-card :where(input):disabled { cursor: not-allowed; opacity: .55; }
   .customer-source-choice { min-width: 0; margin: 0; border: 0; padding: 0; }
   .customer-source-choice legend { margin-bottom: 10px; padding: 0; }
@@ -20,6 +20,7 @@
   .customer-source-option-icon { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border: 1px solid var(--border); border-radius: 6px; color: var(--foreground); }
   .customer-source-option-icon svg { width: 16px; height: 16px; }
   .customer-source-panel { min-width: 0; }
+  .customer-source-option-body > select { width: 100%; }
   .customer-source-option-body { display: grid; gap: 12px; justify-items: start; min-width: 0; }
   .customer-source-option-body > p:not(.customer-form-error) { margin: 0; color: var(--muted-foreground); font-size: 14.5px; line-height: 1.6; overflow-wrap: anywhere; }
   .customer-source-option-body > p strong { color: var(--foreground); }
@@ -30,14 +31,6 @@
   .customer-file-picker > input:disabled + label { cursor: not-allowed; opacity: .5; }
   .customer-file-picker-summary { min-width: 0; color: var(--muted-foreground); font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
   .customer-onboarding-skip { justify-self: start; }
-  .customer-onboarding-dns { gap: 16px; padding-top: 12px; }
-  .customer-onboarding-dns h2 { margin: 0; font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(20px, 3vw, 26px); font-weight: 700; letter-spacing: -.005em; text-transform: uppercase; }
-  .customer-onboarding-dns > p:not(.customer-form-error) { margin: 0; color: var(--muted-foreground); font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
-  .customer-onboarding-dns .customer-challenge { width: 100%; margin: 0; border-radius: 8px; background: var(--muted); padding: 16px; justify-items: start; }
-  .customer-onboarding-dns .customer-challenge dl { width: 100%; }
-  .customer-onboarding-dns .customer-challenge code { color: var(--foreground); }
-  .customer-onboarding-dns .customer-challenge dd { user-select: all; }
-  .customer-onboarding-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
   .customer-onboarding-repositories { display: grid; gap: 0; margin: 0; padding: 0 !important; list-style: none; }
   .customer-onboarding-repositories li { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid var(--border); padding: 12px 0; }
   .customer-onboarding-repositories li > span { display: grid; gap: 3px; min-width: 0; }
@@ -51,8 +44,6 @@
     .customer-onboarding { padding: 12px 0 32px; }
     .customer-source-cards { grid-template-columns: 1fr; }
     .customer-source-card { min-height: 48px; }
-    .customer-onboarding-actions { align-items: stretch; }
-    .customer-onboarding-actions > .customer-button { width: 100%; }
     .customer-first-project-empty { min-height: min(65vh, 520px); }
     .customer-first-project-actions { width: 100%; flex-direction: column; }
     .customer-first-project-actions > .customer-button { width: 100%; }

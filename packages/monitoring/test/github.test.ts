@@ -50,6 +50,40 @@ describe('GitHub REST repository reader', () => {
     expect(authorizations.every(value => value === `Bearer ${token}`)).toBe(true);
   });
 
+  it.each(['bom', 'blob_mismatch', 'tree_mismatch', 'commit_mismatch'])('binds captured bytes to the requested Git objects (%s)', async variant => {
+    const root = await tempDirectory();
+    const scope = { organizationId: randomUUID(), applicationId: randomUUID() };
+    const commitSha = 'a'.repeat(40); const treeSha = 'b'.repeat(40);
+    const catalog = createMonitoringRepositoryCatalog({ repositoryRoot: root, repositories: [{
+      ...scope, repositoryKey: 'exact-source', displayName: 'Exact source', provider: 'github', owner: 'acme', repository: 'product', ref: commitSha,
+    }] });
+    const content = '\uFEFFexport const value = true;\n';
+    const bytes = Buffer.from(content);
+    const blobSha = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+    const fetchFixture: typeof fetch = async (input, init) => {
+      expect(init?.method ?? 'GET').toBe('GET');
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.pathname.endsWith(`/commits/${commitSha}`)) return jsonResponse({
+        sha: variant === 'commit_mismatch' ? 'c'.repeat(40) : commitSha, commit: { tree: { sha: treeSha } },
+      });
+      if (url.pathname.endsWith(`/git/trees/${treeSha}`)) return jsonResponse({
+        sha: variant === 'tree_mismatch' ? 'c'.repeat(40) : treeSha, truncated: false,
+        tree: [{ path: 'app.ts', mode: '100644', type: 'blob', sha: blobSha, size: bytes.length }],
+      });
+      if (url.pathname.endsWith(`/git/blobs/${blobSha}`)) return jsonResponse({
+        sha: blobSha, size: bytes.length, encoding: 'base64',
+        content: (variant === 'blob_mismatch' ? Buffer.alloc(bytes.length, 0x61) : bytes).toString('base64'),
+      });
+      throw new Error('unexpected_github_route');
+    };
+    const reading = createGitHubRepositoryReader(catalog, { fetchImplementation: fetchFixture }).read({ ...scope, repositoryKey: 'exact-source' });
+    if (variant === 'bom') {
+      const observed = await reading;
+      expect(observed.snapshot.files).toEqual([{ path: 'app.ts', content }]);
+      expect(Buffer.from(observed.snapshot.files[0]?.content ?? '')).toEqual(bytes);
+    } else await expect(reading).rejects.toThrow(`github_${variant}`);
+  });
+
   it('pins snapshots to a resolved commit, follows bounded commit pagination, and sends an optional token only in Authorization', async () => {
     const root = await tempDirectory();
     const tokenFile = join(root, 'github-token');
@@ -186,10 +220,9 @@ describe('GitHub REST repository reader', () => {
       path: 'src/file-' + index + '.ts',
       mode: '100644',
       type: 'blob',
-      sha: String(index + 1).padStart(40, '0'),
+      sha: createHash('sha1').update(`blob ${CUSTOMER_MAX_SOURCE_FILE_BYTES}\0`).update(Buffer.alloc(CUSTOMER_MAX_SOURCE_FILE_BYTES, 0x61 + index)).digest('hex'),
       size: 1,
     }));
-    const encodedSource = Buffer.alloc(CUSTOMER_MAX_SOURCE_FILE_BYTES, 0x61).toString('base64');
     let blobRequests = 0;
     let stalledWorkerAborted = false;
     const fetchFixture: typeof fetch = async (input, init) => {
@@ -219,7 +252,7 @@ describe('GitHub REST repository reader', () => {
         sha: entries[blobIndex]?.sha,
         size: CUSTOMER_MAX_SOURCE_FILE_BYTES,
         encoding: 'base64',
-        content: encodedSource,
+        content: Buffer.alloc(CUSTOMER_MAX_SOURCE_FILE_BYTES, 0x61 + blobIndex).toString('base64'),
       });
     };
     const reader = createGitHubRepositoryReader(catalog, { fetchImplementation: fetchFixture });

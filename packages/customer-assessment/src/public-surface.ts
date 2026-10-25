@@ -27,7 +27,7 @@ export interface PublicSurfaceEntrypoint {
 /** A typed inventory of the explicitly authorized origin, not a company-wide asset list. */
 export interface PublicSurfaceInventory {
   profile: 'public_surface';
-  asset: { type: 'verified_https_origin'; targetId: string; targetVersion: number; origin: string };
+  asset: { type: 'requested_https_origin'; targetId: string; targetVersion: number; origin: string };
   entrypoints: PublicSurfaceEntrypoint[];
   requestAttempts: number;
   responseBytes: number;
@@ -170,7 +170,7 @@ function classifyDiscoverySource(path: string, headers: Readonly<Record<string, 
 async function runPublicSurfaceProbe(target: PublicSurfaceTarget, signal: AbortSignal, probePage: ReturnType<typeof createHttpsPageProbe>): Promise<PublicSurfaceInventory> {
     const inventory: PublicSurfaceInventory = {
       profile: 'public_surface',
-      asset: { type: 'verified_https_origin', targetId: target.id, targetVersion: target.version, origin: target.origin },
+      asset: { type: 'requested_https_origin', targetId: target.id, targetVersion: target.version, origin: target.origin },
       entrypoints: [], requestAttempts: 0, responseBytes: 0, maxRequests: MAX_REQUESTS,
       maxResponseBytes: MAX_RESPONSE_BYTES, unrequestedEntrypoints: 0, unrequestedKnownPaths: [],
       ignoredCandidates: 0, discoveryCandidateCapReached: false, discoveryIncomplete: false, unknownCoverage: [], stoppedBecause: null,
@@ -217,7 +217,7 @@ async function runPublicSurfaceProbe(target: PublicSurfaceTarget, signal: AbortS
         inventory.entrypoints.push(entrypoint(current.path, current.source, { incomplete: 'deadline_exceeded' }));
         break;
       }
-      if (Date.parse(target.verifiedAt) > Date.now() || Date.parse(target.expiresAt) <= Date.now()) {
+      if (Date.parse(target.authorizedAt) > Date.now() || Date.parse(target.expiresAt) <= Date.now()) {
         markUnknown(inventory, 'authorization_expired');
         inventory.stoppedBecause = 'authorization_expired';
         inventory.entrypoints.push(entrypoint(current.path, current.source, { incomplete: 'authorization_expired' }));
@@ -298,7 +298,7 @@ export function createPublicSurfaceProbe(options: HttpsOptions = {}) {
 }
 
 function coverageDetail(inventory: PublicSurfaceInventory) {
-  const parts = [`Observed ${inventory.entrypoints.filter(item => item.status !== null).length} HTTP responses from ${inventory.requestAttempts} bounded HTTPS request attempts. Every successful response followed a fresh DNS lookup, public-address validation and pinning, and TLS verification for the enrolled hostname.`];
+  const parts = [`Observed ${inventory.entrypoints.filter(item => item.status !== null).length} HTTP responses from ${inventory.requestAttempts} bounded HTTPS request attempts. Every successful response followed a fresh DNS lookup, public-address validation and pinning, and TLS verification for the requested hostname.`];
   if (inventory.unrequestedKnownPaths.length) parts.push(`Known paths not requested: ${inventory.unrequestedKnownPaths.join(', ')}.`);
   if (inventory.unrequestedEntrypoints > 0) parts.push(`${inventory.unrequestedEntrypoints} queued same-origin candidates were left unknown by the profile bound.`);
   if (inventory.ignoredCandidates > 0) parts.push(`Ignored ${inventory.ignoredCandidates} candidates that were cross-origin, used a query/fragment, or failed safe-path checks.`);
@@ -326,8 +326,9 @@ export async function assessPublicSurface(target: PublicSurfaceTarget, signal: A
   const a = analysis('external', snapshotRef);
   const result = await runPublicSurfaceProbe(parsedTarget, signal, createHttpsPageProbe(options));
   a.limitations.push(
+    'The requested origin was not independently checked for domain control or ownership; the scope comes from the signed-in user’s Analyze request and does not establish ownership.',
     'The public_surface profile makes at most 10 serial same-origin HTTPS GET requests, waits 250 ms between requests, and reads at most 64 KiB total with a 16 KiB per-response limit.',
-    'Only the verified origin is in scope. The profile checks the root, two security.txt locations, robots.txt, sitemap.xml, and bounded query-free links from parseable same-origin HTML or sitemap sources.',
+    'Only the requested origin is in scope. The profile checks the root, two security.txt locations, robots.txt, sitemap.xml, and bounded query-free links from parseable same-origin HTML or sitemap sources.',
     'This is not a company-wide asset inventory. Subdomains, other ports, non-HTTPS services, JavaScript-generated routes, authenticated routes, query-based routes, API methods, and redirect destinations remain unknown.',
     'No response bodies, cookies, authorization headers, redirect locations, or customer credentials are retained. HTTP status and selected response headers apply only to the requested path.',
   );
@@ -355,7 +356,7 @@ export async function assessPublicSurface(target: PublicSurfaceTarget, signal: A
   const allKnownObserved = missingKnown.length === 0;
   const discoveryComplete = !result.discoveryIncomplete && result.unrequestedEntrypoints === 0;
   a.coverage.push(
-    { capability: 'public_surface_origin', state: rootObserved ? 'inspected' : 'unavailable', detail: rootObserved ? `Observed the verified HTTPS origin. ${coverageDetail(result)}` : `The root response could not be verified. ${coverageDetail(result)}` },
+    { capability: 'public_surface_origin', state: rootObserved ? 'inspected' : 'unavailable', detail: rootObserved ? `Observed the requested HTTPS origin. ${coverageDetail(result)}` : `The root response could not be confirmed. ${coverageDetail(result)}` },
     { capability: 'public_surface_known_paths', state: allKnownObserved ? 'inspected' : 'unavailable', detail: allKnownObserved ? `Received TLS-verified HTTP responses from the fixed known paths. ${coverageDetail(result)}` : `Known paths without a TLS-verified HTTP response: ${missingKnown.join(', ')}. ${coverageDetail(result)}` },
     { capability: 'public_surface_response_headers', state: responseHeaderCoverageComplete ? 'inspected' : 'unavailable', detail: `Derived path-specific findings from ${completeResponseCount} complete TLS-verified HTTP responses. ${unknownResponseCount} attempted or queued responses have unknown header coverage; no header absence is inferred for incomplete, failed, or unrequested paths.` },
     { capability: 'same_origin_link_discovery', state: discoveryComplete ? 'inspected' : 'unavailable', detail: `${coverageDetail(result)} Only parseable HTML anchors, robots.txt Sitemap directives, and sitemap loc entries were considered.` },

@@ -1,6 +1,6 @@
 /** Short descriptions of the current assessment path. */
 export const HOW_STEPS = [
-  ['Sube código o verifica HTTPS', 'Carpeta, GitHub o dominio con DNS TXT.'],
+  ['Sube código o elige HTTPS', 'Carpeta, GitHub o un origen HTTPS público.'],
   ['Gotchu evalúa código y web', 'El código nunca se ejecuta.'],
   ['Recibe un informe con evidencia', 'Incluye confianza y cobertura.'],
 ] as const;

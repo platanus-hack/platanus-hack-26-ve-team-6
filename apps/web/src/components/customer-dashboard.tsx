@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
+import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { z } from 'zod';
-import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, HouseIcon, LogOutIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
+import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -45,12 +45,14 @@ import { ProjectSources } from './project-sources';
 import { ProjectReports } from './project-reports';
 import { ProjectVigilance } from './project-vigilance';
 import { DashboardShell } from './dashboard-shell';
+import { ProjectHttpsAudit } from './project-https-audit';
+import { ChoiceSelect } from './choice-select';
 import { DashboardSectionContext, routePageFromPath } from './dashboard-route-view';
 import './customer-shell.css';
 import './customer-report.css';
 import './customer-operations.css';
 
-export type DashboardPage = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
+export type DashboardPage = 'overview' | 'applications' | 'https-audit' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
 type Page = DashboardPage;
 type WorkspacePage = Extract<Page, 'members' | 'decision-records' | 'license-policy' | 'retention-policy'>;
 type ActiveJob = { organizationId: string; applicationId: string; jobId: string; purpose: 'assessment' | 'correction' };
@@ -67,6 +69,7 @@ function readLastProjectPath() {
 const pages: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'overview', label: 'Inicio', icon: HouseIcon },
   { id: 'applications', label: 'Fuentes', icon: AppWindowIcon },
+  { id: 'https-audit', label: 'Auditoría HTTPS', icon: GlobeIcon },
   { id: 'operations', label: 'Vigilancia', icon: RadarIcon },
   { id: 'reports', label: 'Informes', icon: FileTextIcon },
   { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
@@ -84,6 +87,7 @@ function DashboardNavLink({ page, organizationId, applicationId, onNavigate }: {
   switch (page) {
     case 'overview': return <Link {...common} to="/w/$workspaceId/p/$projectId" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'applications': return <Link {...common} to="/w/$workspaceId/p/$projectId/fuentes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
+    case 'https-audit': return <Link {...common} to="/w/$workspaceId/p/$projectId/https" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'operations': return <Link {...common} to="/w/$workspaceId/p/$projectId/vigilancia" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'reports': return <Link {...common} to="/w/$workspaceId/p/$projectId/informes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'license-policy': return <Link {...common} to="/w/$workspaceId/licencias" params={{ workspaceId: organizationId }}>{content}</Link>;
@@ -95,7 +99,7 @@ function DashboardNavLink({ page, organizationId, applicationId, onNavigate }: {
 
 const modeLabels: Record<AssessmentMode, string> = {
   internal: 'Código fuente',
-  external: 'HTTPS autorizado',
+  external: 'HTTPS externo',
   both: 'Código + HTTPS',
 };
 const sourceLabels = { internal: 'Código', external: 'HTTPS' };
@@ -103,7 +107,7 @@ const severityLabels = { unknown: 'Sin evaluar', critical: 'Crítica', high: 'Al
 const confidenceLabels = { observed: 'Observado', inferred: 'Indicado', uncertain: 'Sin comprobar' };
 const coverageLabels = { inspected: 'Evaluado', not_requested: 'No solicitado', unsupported: 'No disponible en este perfil', unavailable: 'No disponible' };
 const analysisLabels = { completed: 'Completado', partial: 'Parcial', unavailable: 'No disponible' };
-const scanProfileLabels: Record<CustomerScanProfile, string> = { root: 'Raíz del sitio', public_surface: 'Superficie pública limitada' };
+const scanProfileLabels: Record<CustomerScanProfile, string> = { root: 'Raíz del sitio', public_surface: 'Superficie pública limitada', api_checks: 'Web y API · escenarios HTTP activos' };
 const rememberedSignInKey = 'gotchu.sign-in-preference';
 const rememberedSignInSchema = z.object({ email: z.string().max(254), method: z.string().min(1).max(128) }).strict();
 const authCsrfResponseSchema = z.object({ csrfToken: z.string().min(1).max(256) }).strict();
@@ -118,7 +122,8 @@ function count(value: number, one: string, many: string) {
 }
 
 function readableError(error: unknown) {
-  if (error instanceof CustomerApiError && error.code === 'target_assessment_in_progress') return 'La autorización sigue activa mientras haya evaluaciones pendientes. Espera a que terminen; si el resultado es incierto, una persona operadora debe revisarlo antes de revocar o renovar.';
+  if (error instanceof CustomerApiError && error.code === 'target_assessment_in_progress') return 'El alcance sigue activo mientras haya evaluaciones pendientes. Espera a que terminen; si el resultado es incierto, una persona operadora debe revisarlo antes de revocar o renovar.';
+  if (error instanceof CustomerApiError && (error.code === 'target_not_authorized' || error.code === 'assessment_target_changed')) return 'El alcance HTTPS venció, cambió o se revocó. Renueva el origen antes de solicitar otra evaluación.';
   if (error instanceof CustomerApiError) return error.message;
   if (error instanceof Error && !(error.name === 'ZodError')) return error.message;
   return 'No se pudo completar la operación. Inténtalo de nuevo.';
@@ -376,60 +381,51 @@ function ApplicationSettings({ organizationId, applicationId, name, archived, ca
 function TargetEnrollment({ organizationId, applicationId, targets, canManage, onChanged }: { organizationId: string; applicationId: string; targets: CustomerTarget[]; canManage: boolean; onChanged: () => void }) {
   const [origin, setOrigin] = useState('');
   const [scanProfile, setScanProfile] = useState<CustomerScanProfile>('root');
-  const [authorized, setAuthorized] = useState(false);
-  const [challenge, setChallenge] = useState<{ name: string; value: string; expiresAt: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const enroll = useMutation({
-    mutationFn: () => customerApi.enrollTarget({ organizationId, applicationId, origin: origin.trim(), authorized: true, scanProfile }),
-    onSuccess: result => { setOrigin(result.target.origin); setScanProfile(result.target.scanProfile ?? 'root'); setChallenge(result.challenge); setAuthorized(false); setError(null); onChanged(); },
+    mutationFn: () => customerApi.enrollTarget({ organizationId, applicationId, origin: origin.trim(), scanProfile }),
+    onSuccess: result => { setOrigin(result.target.origin); setScanProfile(result.target.scanProfile ?? 'root'); setError(null); onChanged(); },
     onError: caught => setError(readableError(caught)),
   });
   const changeTarget = useMutation({
-    mutationFn: ({ targetId, action }: { targetId: string; action: 'verify' | 'revoke' }) => action === 'verify'
-      ? customerApi.verifyTarget(organizationId, applicationId, targetId)
-      : customerApi.revokeTarget(organizationId, applicationId, targetId),
-    onSuccess: target => { setError(null); setChallenge(null); setAuthorized(false); onChanged(); if (target.status === 'verified') { setOrigin(target.origin); setScanProfile(target.scanProfile ?? 'root'); } },
+    mutationFn: (targetId: string) => customerApi.revokeTarget(organizationId, applicationId, targetId),
+    onSuccess: () => { setError(null); onChanged(); },
     onError: caught => setError(readableError(caught)),
   });
   const activeTarget = targets.find(target => target.status !== 'revoked');
   const revokedTargets = targets.filter(target => target.status === 'revoked');
+  const targetCurrent = activeTarget?.status === 'authorized' && activeTarget.expiresAt !== null && Date.parse(activeTarget.expiresAt) > Date.now();
   useEffect(() => {
     if (activeTarget && !origin) setOrigin(activeTarget.origin);
-    if (activeTarget?.status === 'pending') setScanProfile(activeTarget.scanProfile ?? 'root');
+    if (activeTarget?.status === 'authorized') setScanProfile(activeTarget.scanProfile ?? 'root');
   }, [activeTarget, origin]);
   const originIsValid = customerOriginSchema.safeParse(origin.trim()).success;
 
   return <section className="customer-card">
-    <div className="customer-card-heading"><div><h2>Dominio HTTPS</h2></div></div>
+    <div className="customer-card-heading"><div><h2>Aplicación HTTPS</h2></div><span className="customer-status customer-status-muted">Sólo lectura</span></div>
+    <p className="customer-card-copy">Elige un origen HTTPS y un perfil acotado. El análisis externo puede ejecutarse sin acceso al código.</p>
     {activeTarget && <div className="customer-target-row">
-      <div><strong>{activeTarget.origin}</strong><span>{scanProfileLabels[activeTarget.scanProfile ?? 'root']}{(activeTarget.scanProfile ?? 'root') === 'public_surface' ? ' · hasta 10 GET' : ' · 1 GET a /'} · versión {activeTarget.version}</span><span>Vence {activeTarget.expiresAt ? date(activeTarget.expiresAt) : 'sin fecha registrada'}</span></div>
-      <span className={`customer-status ${activeTarget.status === 'verified' ? 'customer-status-ready' : 'customer-status-pending'}`}>{activeTarget.status === 'verified' ? 'Verificado' : 'Pendiente de verificación'}</span>
+      <div><strong>{activeTarget.origin}</strong><span>Solicitado {date(activeTarget.requestedAt)} · alcance activo desde {activeTarget.authorizedAt ? date(activeTarget.authorizedAt) : '—'} · versión {activeTarget.version}</span><span>Perfil: {scanProfileLabels[activeTarget.scanProfile ?? 'root']}{activeTarget.scanProfile === 'api_checks' ? ' · hasta 16 GET/HEAD/OPTIONS' : activeTarget.scanProfile === 'public_surface' ? ' · hasta 10 solicitudes GET' : ' · una solicitud GET a /'}</span><span>Vence {activeTarget.expiresAt ? date(activeTarget.expiresAt) : 'sin fecha registrada'}</span></div>
+      <span className={`customer-status ${targetCurrent ? 'customer-status-ready' : 'customer-status-pending'}`}>{targetCurrent ? 'Alcance activo' : 'Alcance vencido'}</span>
       {canManage && <div className="customer-target-actions">
-        {activeTarget.status === 'pending' && <button className="customer-button customer-button-small" disabled={changeTarget.isPending} onClick={() => { setError(null); changeTarget.mutate({ targetId: activeTarget.id, action: 'verify' }); }}>Comprobar DNS</button>}
-        <button className="customer-link-button customer-danger-link" disabled={changeTarget.isPending} onClick={() => { setError(null); changeTarget.mutate({ targetId: activeTarget.id, action: 'revoke' }); }}>Revocar autorización</button>
+        {activeTarget.status === 'authorized' && <button className="customer-link-button customer-danger-link" disabled={changeTarget.isPending} onClick={() => { setError(null); changeTarget.mutate(activeTarget.id); }}>Revocar alcance</button>}
       </div>}
     </div>}
-    {activeTarget?.status === 'pending' && !challenge && <p className="customer-field-note">El valor TXT solo se muestra al crearlo. Si no lo guardaste, renueva la verificación.</p>}
-    {activeTarget?.status === 'verified' && <p className="customer-field-note">Para cambiar el perfil, revoca esta autorización y crea otra.</p>}
-    {revokedTargets.length > 0 && <details className="customer-revoked-targets"><summary>Autorizaciones revocadas ({revokedTargets.length})</summary>{revokedTargets.map(target => <div key={target.id}><span>{target.origin} · versión {target.version}</span><span>{date(target.consentAt)}</span></div>)}</details>}
-    {challenge && <div className="customer-challenge" role="status">
-      <div><strong>Publica este registro TXT</strong><p>Comprueba el DNS cuando se haya propagado. El valor solo se muestra ahora.</p></div>
-      <dl><div><dt>Nombre</dt><dd>{challenge.name}</dd></div><div><dt>Valor</dt><dd><code>{challenge.value}</code></dd></div><div><dt>Vence</dt><dd>{date(challenge.expiresAt)}</dd></div></dl>
-      <button className="customer-link-button" onClick={() => navigator.clipboard.writeText(`${challenge.name}\t${challenge.value}`).catch(() => setError('No se pudo copiar el registro. Selecciónalo para copiarlo manualmente.'))}>Copiar registro</button>
-    </div>}
-    {canManage && (!activeTarget || activeTarget.status === 'pending') && <form className="customer-form customer-enroll-form" onSubmit={event => { event.preventDefault(); setError(null); enroll.mutate(); }}>
-      <label htmlFor="target-origin">Dominio HTTPS</label><input id="target-origin" type="url" inputMode="url" placeholder="https://ejemplo.com" value={origin} onChange={event => { setOrigin(event.target.value); setAuthorized(false); setChallenge(null); }} maxLength={300} required aria-invalid={origin.length > 0 && !originIsValid} />
-      {origin.length > 0 && !originIsValid && <p className="customer-form-error">Usa un dominio HTTPS público, sin ruta, parámetros ni puerto.</p>}
-      <label htmlFor="target-scan-profile">Perfil de evaluación HTTPS</label>
-      <select id="target-scan-profile" value={scanProfile} onChange={event => { const selected = customerScanProfileSchema.safeParse(event.target.value); if (selected.success) setScanProfile(selected.data); setAuthorized(false); setChallenge(null); }}>
+    {revokedTargets.length > 0 && <details className="customer-revoked-targets"><summary>Alcances revocados ({revokedTargets.length})</summary>{revokedTargets.map(target => <div key={target.id}><span>{target.origin} · versión {target.version}</span><span>{date(target.requestedAt)}</span></div>)}</details>}
+    {canManage && <form className="customer-form customer-enroll-form" onSubmit={event => { event.preventDefault(); setError(null); enroll.mutate(); }}>
+      <label htmlFor="target-origin">Origen HTTPS</label><input id="target-origin" type="url" inputMode="url" placeholder="https://app.example.com" value={origin} onChange={event => setOrigin(event.target.value)} maxLength={300} required aria-describedby="target-origin-help" aria-invalid={origin.length > 0 && !originIsValid} />
+      <p id="target-origin-help" className="customer-field-note">Origen HTTPS público sin ruta, consulta, fragmento ni puerto personalizado.</p>
+      {origin.length > 0 && !originIsValid && <p className="customer-form-error">Usa un origen HTTPS público sin rutas, parámetros ni puerto personalizado.</p>}
+      <label htmlFor="target-scan-profile">Perfil de evaluación</label>
+      <select id="target-scan-profile" value={scanProfile} onChange={event => { const selected = customerScanProfileSchema.safeParse(event.target.value); if (selected.success) setScanProfile(selected.data); }}>
         <option value="root">Raíz del sitio · una solicitud GET a /</option>
         <option value="public_surface">Superficie pública limitada · hasta 10 solicitudes GET, sólo a este origen</option>
+        <option value="api_checks">Web y API · hasta 16 GET/HEAD/OPTIONS, sólo a este origen</option>
       </select>
-      <label className="customer-checkbox"><input type="checkbox" checked={authorized} onChange={event => setAuthorized(event.target.checked)} required /><span>Tengo autorización para evaluar este dominio con el alcance «{scanProfileLabels[scanProfile]}».</span></label>
-      <button className="customer-button customer-button-primary" disabled={enroll.isPending || !authorized || !originIsValid}>{enroll.isPending ? 'Creando verificación…' : activeTarget ? 'Renovar verificación' : 'Autorizar dominio'}</button>
+      <p className="customer-field-note">El perfil elegido limita las rutas, métodos y solicitudes. El alcance no incluye otros dominios.</p>
+      <button className="customer-button customer-button-primary" disabled={enroll.isPending || !originIsValid}>{enroll.isPending ? 'Guardando alcance…' : activeTarget ? 'Renovar alcance' : 'Añadir origen'}</button>
     </form>}
-    {!canManage && !activeTarget && <div className="customer-empty-inline">Solo una persona propietaria u operadora puede añadir el dominio.</div>}
-    {!canManage && activeTarget?.status === 'pending' && <div className="customer-empty-inline">Una persona propietaria u operadora debe comprobar el registro DNS para activar este origen.</div>}
+    {!canManage && !activeTarget && <div className="customer-empty-inline">Una persona propietaria u operadora puede añadir un origen HTTPS.</div>}
     {error && <p className="customer-form-error" role="alert">{error}</p>}
   </section>;
 }
@@ -577,8 +573,8 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
     <div className="customer-report-subject">
       {report.subject.sourceSnapshotId && <div><span>Instantánea de código</span><strong>{summary?.subject.sourceDigest?.slice(0, 16) ?? report.subject.sourceDigest?.slice(0, 16)}…</strong></div>}
       {report.subject.containerImageDigest && <div><span>Digest de imagen {report.subject.containerImageReference ? 'pública' : 'subida'}</span><strong>{report.subject.containerImageDigest.slice(0, 24)}…</strong>{report.subject.containerImageReference && <small>{report.subject.containerImageReference}</small>}</div>}
-      {report.subject.origin && <div><span>Origen HTTPS autorizado</span><strong>{report.subject.origin}</strong></div>}
-      {report.subject.targetVersion !== null && <div><span>Versión de autorización</span><strong>{report.subject.targetVersion}</strong></div>}
+      {report.subject.origin && <div><span>Origen HTTPS solicitado</span><strong>{report.subject.origin}</strong></div>}
+      {report.subject.targetVersion !== null && <div><span>Versión del alcance</span><strong>{report.subject.targetVersion}</strong></div>}
     </div>
     <ReportProgress report={report} job={reportJob.data} />
     <div className="customer-report-callout"><strong>{count(entries.length, 'observación registrada', 'observaciones registradas')}</strong><p>La cobertura parcial o no solicitada no confirma seguridad. No se hicieron cambios en el proyecto.</p></div>
@@ -653,16 +649,16 @@ function downloadReport(report: CustomerAssessmentReport) {
 }
 
 function AssessmentForm({ organizationId, applicationId, sources, images, targets, canManage, archived, onQueued, onAddSource }: { organizationId: string; applicationId: string; sources: CustomerSourceSummary[]; images: CustomerContainerImageSummary[]; targets: CustomerTarget[]; canManage: boolean; archived: boolean; onQueued: (jobId: string) => void; onAddSource: () => void }) {
-  const hasVerifiedTarget = targets.some(target => target.status === 'verified' && target.expiresAt && Date.parse(target.expiresAt) > Date.now());
-  const [mode, setMode] = useState<AssessmentMode>(sources.length === 0 && images.length === 0 && hasVerifiedTarget ? 'external' : 'internal');
+  const hasActiveTarget = targets.some(target => target.status === 'authorized' && target.expiresAt && Date.parse(target.expiresAt) > Date.now());
+  const [mode, setMode] = useState<AssessmentMode>(sources.length === 0 && images.length === 0 && hasActiveTarget ? 'external' : 'internal');
   const [inputKind, setInputKind] = useState<'source_snapshot' | 'container_image'>(sources.length === 0 && images.length > 0 ? 'container_image' : 'source_snapshot');
   const [sourceSnapshotId, setSourceSnapshotId] = useState(sources[0]?.id ?? '');
   const [imageSource, setImageSource] = useState<'archive' | 'registry'>('archive');
   const [imageId, setImageId] = useState('');
   const [registryReference, setRegistryReference] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const verifiedTargets = targets.filter(target => target.status === 'verified' && target.expiresAt && Date.parse(target.expiresAt) > Date.now());
-  const [targetId, setTargetId] = useState(verifiedTargets[0]?.id ?? '');
+  const availableTargets = targets.filter(target => target.status === 'authorized' && target.expiresAt && Date.parse(target.expiresAt) > Date.now());
+  const [targetId, setTargetId] = useState(availableTargets[0]?.id ?? '');
   const usesImage = mode === 'internal' && inputKind === 'container_image';
   const parsedRegistryReference = customerPublicImageReferenceSchema.safeParse(registryReference.trim());
   const hasImage = imageSource === 'archive' ? images.some(image => image.id === imageId) : parsedRegistryReference.success;
@@ -681,9 +677,9 @@ function AssessmentForm({ organizationId, applicationId, sources, images, target
   const needsSource = mode !== 'external' && !usesImage;
   const needsTarget = mode !== 'internal';
   const hasSource = sources.some(source => source.id === sourceSnapshotId);
-  const hasTarget = verifiedTargets.some(target => target.id === targetId);
+  const hasTarget = availableTargets.some(target => target.id === targetId);
   const ready = (!needsSource || hasSource) && (!needsTarget || hasTarget) && (!usesImage || hasImage);
-  const nothingToAssess = sources.length === 0 && images.length === 0 && !hasVerifiedTarget;
+  const nothingToAssess = sources.length === 0 && images.length === 0 && !hasActiveTarget;
 
   if (nothingToAssess) return <section className="customer-card customer-assessment-card">
     <div className="customer-card-heading"><div><h2>Nueva evaluación</h2></div></div>
@@ -697,8 +693,8 @@ function AssessmentForm({ organizationId, applicationId, sources, images, target
       {mode === 'internal' && images.length > 0 && <><label htmlFor="assessment-input-kind">Qué analizar</label><select id="assessment-input-kind" value={inputKind} onChange={event => setInputKind(event.target.value as 'source_snapshot' | 'container_image')} disabled={queue.isPending}><option value="source_snapshot">Código fuente</option><option value="container_image">Imagen de contenedor</option></select></>}
       {usesImage && <><label htmlFor="assessment-image-source">Origen de la imagen</label><select id="assessment-image-source" value={imageSource} onChange={event => setImageSource(event.target.value as 'archive' | 'registry')} disabled={queue.isPending}><option value="archive">Archivo Docker/OCI guardado</option><option value="registry">Referencia de registro público</option></select>{imageSource === 'archive' ? <><label htmlFor="assessment-image-archive">Archivo guardado</label><select id="assessment-image-archive" value={imageId} onChange={event => setImageId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una imagen subida</option>{images.map(image => <option key={image.id} value={image.id}>{image.label} · {image.digest.slice(0, 12)}…</option>)}</select></> : <><label htmlFor="assessment-image-reference">Referencia pública con digest</label><input id="assessment-image-reference" value={registryReference} onChange={event => setRegistryReference(event.target.value)} disabled={queue.isPending} maxLength={512} placeholder="docker.io/library/alpine@sha256:…" /><p className="customer-field-note">docker.io, ghcr.io, quay.io, public.ecr.aws o gcr.io, fijada con digest SHA-256.</p>{registryReference && !parsedRegistryReference.success && <p className="customer-form-error" role="alert">Usa un registro público admitido y una referencia completa fijada por digest.</p>}</>}</>}
       {needsSource && <><label htmlFor="assessment-source">Instantánea de código</label><select id="assessment-source" value={sourceSnapshotId} onChange={event => setSourceSnapshotId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una instantánea</option>{sources.map(source => <option key={source.id} value={source.id}>{source.revision} · {source.fileCount} archivos · {date(source.createdAt)}</option>)}</select></>}
-      {needsTarget && <><label htmlFor="assessment-target">Origen HTTPS verificado</label><select id="assessment-target" value={targetId} onChange={event => setTargetId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona un origen verificado</option>{verifiedTargets.map(target => <option key={target.id} value={target.id}>{target.origin} · {scanProfileLabels[target.scanProfile ?? 'root']}{(target.scanProfile ?? 'root') === 'public_surface' ? ' · máx. 10 GET' : ''} · vence {target.expiresAt ? date(target.expiresAt) : '—'}</option>)}</select></>}
-      {!ready && <p className="customer-field-note">{needsTarget && !hasTarget ? (verifiedTargets.length ? 'Elige un dominio verificado. ' : 'Verifica primero un dominio. ') : ''}{needsSource && !hasSource ? (sources.length ? 'Elige una instantánea. ' : 'Sube primero código. ') : ''}{usesImage && !hasImage ? imageSource === 'archive' ? 'Sube primero un archivo de imagen.' : 'Escribe una referencia pública fijada por digest.' : ''}</p>}
+      {needsTarget && <><label htmlFor="assessment-target">Origen HTTPS disponible</label><select id="assessment-target" value={targetId} onChange={event => setTargetId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona un origen HTTPS</option>{availableTargets.map(target => <option key={target.id} value={target.id}>{target.origin} · {scanProfileLabels[target.scanProfile ?? 'root']}{(target.scanProfile ?? 'root') === 'public_surface' ? ' · máx. 10 GET' : ''} · vence {target.expiresAt ? date(target.expiresAt) : '—'}</option>)}</select></>}
+      {!ready && <p className="customer-field-note">{needsTarget && !hasTarget ? (availableTargets.length ? 'Elige un origen HTTPS. ' : 'Añade o renueva un origen HTTPS desde Fuentes. ') : ''}{needsSource && !hasSource ? (sources.length ? 'Elige una instantánea. ' : 'Sube primero código. ') : ''}{usesImage && !hasImage ? imageSource === 'archive' ? 'Sube primero un archivo de imagen.' : 'Escribe una referencia pública fijada por digest.' : ''}</p>}
       {error && <p className="customer-form-error" role="alert">{error}</p>}
       <button className="customer-button customer-button-primary" disabled={!canManage || archived || !ready || queue.isPending}>{queue.isPending ? 'Guardando evaluación…' : 'Iniciar evaluación'}</button>
       {archived && <p className="customer-field-note">Reactiva este proyecto antes de iniciar otra evaluación.</p>}
@@ -709,7 +705,8 @@ function AssessmentForm({ organizationId, applicationId, sources, images, target
 function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMessage, routePage, routeOrganizationId, routeApplicationId, routeReportId, routeReportTab, routeEntry = true }: { session: CustomerSession; userId: string; acceptedInvitationId: string | null; invitationMessage: string | null; routePage?: Page; routeOrganizationId?: string; routeApplicationId?: string; routeReportId?: string; routeReportTab?: 'dependencias'; routeEntry?: boolean }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const location = useLocation();
+  // Keep the form in the committed outlet; a pending destination can otherwise show it twice and lose input.
+  const location = useRouterState({ select: state => state.resolvedLocation ?? state.location });
   const locationRoute = routePageFromPath(location.pathname);
   const page = routePage ?? locationRoute.page;
   const currentApplicationId = routeApplicationId ?? locationRoute.applicationId;
@@ -726,7 +723,9 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
       return parsed.success ? parsed.data : null;
     } catch { return null; }
   });
+  const [lastFinishedJob, setLastFinishedJob] = useState<(ActiveJob & { job: CustomerJob }) | null>(null);
   const setActiveJob = (value: typeof activeJob) => {
+    if (value) setLastFinishedJob(null);
     setActiveJobState(value);
     queryClient.setQueryData(activeJobKey, value);
     if (typeof window !== 'undefined') {
@@ -742,6 +741,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     else if (next === 'retention-policy') void navigate({ to: '/w/$workspaceId/retencion', params: { workspaceId: organizationId } });
     else if (applicationId && next === 'overview') void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: organizationId, projectId: applicationId } });
     else if (applicationId && next === 'applications') void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: organizationId, projectId: applicationId } });
+    else if (applicationId && next === 'https-audit') void navigate({ to: '/w/$workspaceId/p/$projectId/https', params: { workspaceId: organizationId, projectId: applicationId } });
     else if (applicationId && next === 'operations') void navigate({ to: '/w/$workspaceId/p/$projectId/vigilancia', params: { workspaceId: organizationId, projectId: applicationId } });
     else if (applicationId && next === 'reports') void navigate({ to: '/w/$workspaceId/p/$projectId/informes', params: { workspaceId: organizationId, projectId: applicationId } });
   };
@@ -785,7 +785,6 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     if (!routeEntry || location.pathname !== '/dashboard') return;
     const onboardingScope = readSavedCustomerScope(sessionStorage, 'gotchu-onboarding-scope', userId);
     if (onboardingScope) {
-      sessionStorage.removeItem('gotchu-onboarding-scope');
       void navigate({ to: '/primeros-pasos', search: { espacio: onboardingScope.organizationId, fuente: 'github' } });
       return;
     }
@@ -833,7 +832,8 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
       const nextApplication = lastApplication ?? applications.data.find(item => !item.archived) ?? applications.data[0];
       if (!nextApplication) return;
       if (lastApplication && remembered) {
-        if (remembered.includes('/fuentes')) void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: organizationId, projectId: nextApplication.applicationId } });
+        if (remembered.includes('/https')) void navigate({ to: '/w/$workspaceId/p/$projectId/https', params: { workspaceId: organizationId, projectId: nextApplication.applicationId } });
+        else if (remembered.includes('/fuentes')) void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: organizationId, projectId: nextApplication.applicationId } });
         else if (remembered.includes('/vigilancia')) void navigate({ to: '/w/$workspaceId/p/$projectId/vigilancia', params: { workspaceId: organizationId, projectId: nextApplication.applicationId } });
         else if (remembered.includes('/informes/') && z.uuid().safeParse(remembered.split('/informes/')[1]?.split(/[?#]/)[0]).success) {
           const reportId = remembered.split('/informes/')[1]?.split(/[?#]/)[0];
@@ -858,11 +858,12 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
     return customerApi.targets(organizationId, applicationId);
   }, retry: false });
-  const sources = useQuery({ queryKey: ['customer-data', userId, 'sources', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
+  const needsSourceData = page !== 'https-audit';
+  const sources = useQuery({ queryKey: ['customer-data', userId, 'sources', organizationId, applicationId], enabled: needsSourceData && organizationId !== null && applicationId !== null, queryFn: () => {
     if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
     return customerApi.sources(organizationId, applicationId);
   }, retry: false });
-  const images = useQuery({ queryKey: ['customer-data', userId, 'container-images', organizationId, applicationId], enabled: organizationId !== null && applicationId !== null, queryFn: () => {
+  const images = useQuery({ queryKey: ['customer-data', userId, 'container-images', organizationId, applicationId], enabled: needsSourceData && organizationId !== null && applicationId !== null, queryFn: () => {
     if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
     return customerApi.containerImages(organizationId, applicationId);
   }, retry: false });
@@ -928,15 +929,17 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   // Runs once the finished job has been shown: the phase graph reports it after its last transition.
   const settleJob = useCallback((jobResult: CustomerJob) => {
     if (!activeJob) return;
+    const scope = activeJob;
     if (jobResult.state === 'succeeded') {
-      const scope = activeJob;
+      setLastFinishedJob({ ...scope, job: jobResult });
       // Refresh the report list first: the report route returns to the list for ids it does not know yet.
       queryClient.refetchQueries({ queryKey: ['customer-data', userId, 'reports', scope.organizationId, scope.applicationId], type: 'all' })
         .catch(caught => setPageError(readableError(caught)))
         .finally(() => {
           setActiveJob(null);
           if (jobResult.reportId) {
-            void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: scope.organizationId, projectId: scope.applicationId, reportId: jobResult.reportId } });
+            // Only the project overview opens the report; other pages keep the person where they are.
+            if (page === 'overview' && organizationId === scope.organizationId && applicationId === scope.applicationId) void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: scope.organizationId, projectId: scope.applicationId, reportId: jobResult.reportId } });
             setNotice(scope.purpose === 'correction' ? 'El análisis interno independiente terminó y su informe ya está disponible.' : 'La evaluación terminó y su informe ya está disponible.');
           } else {
             setPageError(scope.purpose === 'correction'
@@ -945,11 +948,13 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
           }
         });
     } else if (jobResult.state === 'failed') {
+      setLastFinishedJob({ ...scope, job: jobResult });
       setActiveJob(null);
-      setPageError(jobFailureMessage(activeJob.purpose, jobResult));
+      setPageError(jobFailureMessage(scope.purpose, jobResult));
     }
-  }, [activeJob, navigate, queryClient, userId]);
-  const progressVisible = activeJob !== null && activeJob.organizationId === organizationId;
+  }, [activeJob, applicationId, navigate, organizationId, page, queryClient, userId]);
+  // The HTTPS audit page draws its own graph of the same job, so the shared one stays hidden there.
+  const progressVisible = activeJob !== null && activeJob.organizationId === organizationId && page !== 'https-audit';
   useEffect(() => {
     if (!progressVisible && (jobResult?.state === 'succeeded' || jobResult?.state === 'failed')) settleJob(jobResult);
   }, [jobResult, progressVisible, settleJob]);
@@ -960,7 +965,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const pageTitle = pages.find(item => item.id === page)?.label ?? 'Inicio';
   const applicationReports = reports.data ?? [];
   const selectedSummary = applicationReports.find(item => item.id === visibleReportId);
-  const needsReportData = page === 'overview' || page === 'reports';
+  const needsReportData = page === 'overview' || page === 'reports' || page === 'https-audit';
   const workspacePage = isWorkspacePage(page);
   if (workspaces.isPending) return <main className="gl customer-app-shell"><Loading label="Cargando tus espacios de trabajo…" /></main>;
   if (workspaces.error) return <main className="gl customer-app-shell"><ErrorNotice message={readableError(workspaces.error)} retry={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} /></main>;
@@ -968,7 +973,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const renderRouteSection = () => <>
     {invitationMessage && <div className="customer-success" role="status">{invitationMessage}</div>}
     {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}><XIcon aria-hidden="true" /></button></div>}
-    {activeJob && progressVisible && <AssessmentProgress key={activeJob.jobId} purpose={activeJob.purpose} job={jobResult} failure={jobResult?.state === 'failed' ? jobFailureMessage(activeJob.purpose, jobResult) : null} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} onSettled={settleVisibleJob} onDismiss={() => setActiveJob(null)} />}
+    {progressVisible && activeJob && <AssessmentProgress key={activeJob.jobId} purpose={activeJob.purpose} job={jobResult} failure={jobResult?.state === 'failed' ? jobFailureMessage(activeJob.purpose, jobResult) : null} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} onSettled={settleVisibleJob} onDismiss={() => setActiveJob(null)} />}
     {operationError && <ErrorNotice message={operationError} retry={() => { setPageError(null); refreshApplicationData(); workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} />}
     {workspacePage && organizationId && workspace ? <WorkspacePages page={page} userId={userId} organizationId={organizationId} role={workspace.role} canManage={canManage} />
     : organizationId && applications.isPending ? <Loading label="Cargando proyectos…" />
@@ -976,10 +981,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     : !organizationId || !selectedApplication ? <FirstProjectEmptyState canManage={canManage || !organizationId} onCreateProject={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId } : {} }); }} onAnalyzeWeb={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId, fuente: 'web' } : { fuente: 'web' } }); }} />
     : <>
       <div className="customer-page-heading"><div><h1>{page === 'overview' ? selectedApplication.name : pageTitle}</h1></div>{selectedApplication.archived && <span className="customer-status customer-status-muted">Proyecto archivado</span>}</div>
-      {targets.isPending || sources.isPending || images.isPending || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance del proyecto…" /> : (targets.error || sources.error || images.error || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? images.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
+      {targets.isPending || (needsSourceData && (sources.isPending || images.isPending)) || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance del proyecto…" /> : (targets.error || (needsSourceData && (sources.error || images.error)) || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? images.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
         {page === 'overview' && <ProjectOverview
           snapshotCount={sources.data?.length ?? 0}
-          verifiedDomainCount={targets.data?.filter(target => target.status === 'verified').length ?? 0}
+          activeDomainCount={targets.data?.filter(target => target.status === 'authorized').length ?? 0}
           reportCount={applicationReports.length}
           onAddSource={() => setPage('applications')}
           onViewReports={() => setPage('reports')}
@@ -1003,6 +1008,19 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
           <ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('El proyecto se actualizó.'); }} />
           {canManage && <StepUpPanel key={`${userId}:${organizationId}`} organizationId={organizationId} />}
         </ProjectSources>}
+        {page === 'https-audit' && <ProjectHttpsAudit
+          key={`${organizationId}:${selectedApplication.applicationId}:https`}
+          organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} reports={applicationReports}
+          canManage={canManage} archived={selectedApplication.archived}
+          activeJob={activeJob?.organizationId === organizationId && activeJob.applicationId === selectedApplication.applicationId ? jobResult ?? null : null}
+          lastJob={lastFinishedJob?.organizationId === organizationId && lastFinishedJob.applicationId === selectedApplication.applicationId ? lastFinishedJob.job : null}
+          checkingJob={Boolean(activeJob?.organizationId === organizationId && activeJob.applicationId === selectedApplication.applicationId && job.isPending)}
+          jobError={Boolean(activeJob?.organizationId === organizationId && activeJob.applicationId === selectedApplication.applicationId && job.error)}
+          onRetryJob={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }}
+          onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPageError(null); }}
+          onChanged={refreshApplicationData}
+          onViewReport={reportId => { void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: selectedApplication.applicationId, reportId } }); }}
+        />}
         {page === 'operations' && <ProjectVigilance userId={userId} organizationId={organizationId} projectId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} />}
         {page === 'reports' && <ProjectReports title="Detalle del informe" reportCount={count(applicationReports.length, 'informe', 'informes')} reportList={applicationReports.length === 0 ? <div className="customer-empty-inline">Este proyecto aún no tiene informes.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} organizationId={organizationId} applicationId={selectedApplication.applicationId} />} detail={report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} activeReportTab={currentReportTab === 'dependencias' ? 'dependencies' : 'findings'} onReportTabChange={setReportTab} onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>} />}
       </>}
@@ -1011,10 +1029,10 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
 
   return <DashboardSectionContext.Provider value={renderRouteSection}><DashboardShell brand={<Brand />} menuOpen={menuOpen} onToggleMenu={() => setMenuOpen(value => !value)} onCloseMenu={() => setMenuOpen(false)} sidebar={
     <>
-      <div className="customer-workspace-select"><label htmlFor="workspace-select">ESPACIO DE TRABAJO</label><select id="workspace-select" value={organizationId ?? ''} onChange={event => { setNotice(null); void navigate({ to: '/w/$workspaceId', params: { workspaceId: event.target.value } }); }}><option value="" disabled>Selecciona un espacio</option>{workspaces.data?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>{workspace && <span>{workspace.role === 'owner' ? 'Propietario' : workspace.role === 'operator' ? 'Operador' : 'Sólo lectura'}</span>}{workspace && <WorkspaceSettings key={workspace.id} organizationId={workspace.id} name={workspace.name} canManage={canManage} onSaved={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); setNotice('El espacio de trabajo se actualizó.'); }} />}</div>
-      {workspace && <div className="customer-application-select"><label htmlFor="application-select">PROYECTO</label><select id="application-select" value={applicationId ?? ''} onChange={event => { setNotice(null); void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: workspace.id, projectId: event.target.value } }); }}><option value="" disabled>Selecciona un proyecto</option>{applications.data?.map(item => <option key={item.applicationId} value={item.applicationId}>{item.name}{item.archived ? ' · archivada' : ''}</option>)}</select></div>}
-      <nav className="customer-nav" aria-label="Proyecto">{pages.slice(0, 4).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
-      <nav className="customer-nav" aria-label="Espacio de trabajo">{pages.slice(4).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
+      <div className="customer-workspace-select"><label htmlFor="workspace-select">ESPACIO DE TRABAJO</label><ChoiceSelect id="workspace-select" value={organizationId ?? ''} options={[{ value: '', label: 'Selecciona un espacio', disabled: true }, ...(workspaces.data ?? []).map(item => ({ value: item.id, label: item.name }))]} onChange={value => { setNotice(null); void navigate({ to: '/w/$workspaceId', params: { workspaceId: value } }); }} />{workspace && <span>{workspace.role === 'owner' ? 'Propietario' : workspace.role === 'operator' ? 'Operador' : 'Sólo lectura'}</span>}{workspace && <WorkspaceSettings key={workspace.id} organizationId={workspace.id} name={workspace.name} canManage={canManage} onSaved={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); setNotice('El espacio de trabajo se actualizó.'); }} />}</div>
+      {workspace && <div className="customer-application-select"><label htmlFor="application-select">PROYECTO</label><ChoiceSelect id="application-select" value={applicationId ?? ''} options={[{ value: '', label: 'Selecciona un proyecto', disabled: true }, ...(applications.data ?? []).map(item => ({ value: item.applicationId, label: `${item.name}${item.archived ? ' · archivada' : ''}` }))]} onChange={value => { setNotice(null); void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: workspace.id, projectId: value } }); }} /></div>}
+      <nav className="customer-nav" aria-label="Proyecto">{pages.slice(0, 5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
+      <nav className="customer-nav" aria-label="Espacio de trabajo">{pages.slice(5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
       <div className="customer-sidebar-bottom">
         {Boolean(workspaces.data?.length) && <WorkspaceCreate disabled={false} onCreated={created => { queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); void navigate({ to: '/w/$workspaceId', params: { workspaceId: created.id } }); }} />}
         <div className="customer-user-row"><span className="customer-user-avatar" aria-hidden="true">{(session.user?.displayName?.trim()[0] ?? 'U').toUpperCase()}</span><span title={session.user?.displayName}>{session.user?.displayName ?? 'Sesión activa'}</span><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOutIcon aria-hidden="true" /></button></div>

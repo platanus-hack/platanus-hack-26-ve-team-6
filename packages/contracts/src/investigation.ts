@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import { customerScopeSchema } from './customer-assessment.js';
-import { investigationProviderPresetIdSchema } from './investigation-providers.js';
+import { investigationProviderCatalog, investigationProviderPresetIdSchema } from './investigation-providers.js';
 import type { InvestigationAdapterKind } from './investigation-providers.js';
 
-export const modelProviderSchema = z.enum(['openai_compatible', 'anthropic_messages']);
+export const modelProviderSchema = z.enum(['openai_compatible', 'anthropic_messages', 'claude_code_cli', 'codex_cli']);
 export function investigationModelProviderForPreset(preset: { adapterKind: InvestigationAdapterKind }): z.infer<typeof modelProviderSchema> {
-  return preset.adapterKind === 'anthropic' ? 'anthropic_messages' : 'openai_compatible';
+  return preset.adapterKind === 'anthropic' ? 'anthropic_messages' : preset.adapterKind;
 }
 export const investigationDataScopeSchema = z.enum([
   'application_context',
@@ -25,7 +25,8 @@ export const configureInvestigationModelSchema = z.object({
   providerPresetId: investigationProviderPresetIdSchema,
   customEndpoint: investigationModelEndpointSchema.optional(),
   modelId: z.string().trim().min(1).max(200).refine(value => !/[\x00-\x1f\x7f]/.test(value)),
-  apiKey: z.string().min(1).max(4_096).optional(),
+  // Room for a Codex auth.json; API keys and Claude Code tokens are far shorter.
+  apiKey: z.string().min(1).max(16_384).optional(),
   consentToExternalProcessing: z.boolean(),
   dataScopes: z.array(investigationDataScopeSchema).max(7),
   inputPriceMicroUsdPerMillionTokens: z.number().int().min(0).max(1_000_000_000),
@@ -38,6 +39,10 @@ export const configureInvestigationModelSchema = z.object({
   }
   if (value.providerPresetId !== 'custom_openai_compatible' && value.customEndpoint !== undefined) {
     context.addIssue({ code: 'custom', path: ['customEndpoint'], message: 'Hosted provider endpoints are fixed by the provider preset' });
+  }
+  const subscription = investigationProviderCatalog.find(preset => preset.id === value.providerPresetId)?.billing === 'subscription';
+  if (subscription && (value.inputPriceMicroUsdPerMillionTokens !== 0 || value.outputPriceMicroUsdPerMillionTokens !== 0)) {
+    context.addIssue({ code: 'custom', path: ['inputPriceMicroUsdPerMillionTokens'], message: 'Subscription providers are not priced per token' });
   }
   if (new Set(value.dataScopes).size !== value.dataScopes.length) {
     context.addIssue({ code: 'custom', path: ['dataScopes'], message: 'Data scopes must be unique' });
@@ -99,6 +104,7 @@ export const investigationModelProbeResultSchema = z.object({
     'invalid_api_key', 'access_denied', 'billing_or_credits', 'model_or_endpoint_not_found',
     'rate_limited', 'request_rejected', 'provider_unavailable', 'network_error',
     'invalid_response', 'missing_usage', 'model_output_invalid', 'budget_exhausted', 'unsafe_endpoint', 'probe_unavailable',
+    'cli_unavailable',
   ]).nullable(),
   inputTokens: z.number().int().nonnegative().nullable(),
   outputTokens: z.number().int().nonnegative().nullable(),

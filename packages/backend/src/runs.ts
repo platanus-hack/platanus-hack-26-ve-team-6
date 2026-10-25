@@ -49,7 +49,7 @@ export function createRunService(deps: BaseDependencies) {
     },
     async reserveModel(input: {
       organizationId: string; runId: string; reservationId: string; maxCostMicros: number; reserveTokens: number;
-      requestSha256: string; configSha256: string; provider: 'openai_compatible' | 'anthropic_messages'; modelId: string;
+      requestSha256: string; configSha256: string; provider: z.infer<typeof modelProviderSchema>; modelId: string;
     }): Promise<{ reservationId: string }> {
       const value = parse(scopeSchema.extend({
         reservationId: z.uuid(), maxCostMicros: micros, reserveTokens: z.number().int().min(1).max(RUN_MODEL_TOKEN_LIMIT),
