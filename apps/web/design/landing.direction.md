@@ -15,8 +15,8 @@
 
 ## Content
 
-- The sequence is Mirada (hero), Cómo funciona (one walkthrough: six chapters beside a pinned dot field that morphs per feature), Preguntas (shadcn accordion) and Cierre (question, “we Gotchu.” and the dot GOTCHU wordmark).
-- Keep it clean: one sentence per chapter, labels only where they name features. Fields show product structure, never results.
+- The sequence is Mirada (hero), Repositorio (animated GitHub audit diagram), Web (animated external audit diagram), Preguntas (shadcn accordion) and Cierre (question, “we Gotchu.”, the dot GOTCHU wordmark, “Crea tu cuenta” and “Ya tengo cuenta”).
+- Only the main audits get a diagram; do not list every feature. Diagrams show how an audit runs, never results. Every audit ends in an action to `/registro`.
 - Show the real report JSON keys: `id`, `organizationId`, `applicationId`, `jobId`, `applicationName`, `mode`, `startedAt`, `finishedAt`, `internal`, `external`, `comparison`, `limitations`, `responseMode`, `actionsPerformed`, `version` and `revision`.
 - Re-checks run every 1–24 hours only when the customer enables them. They are not real time; alerts stay inside Gotchu, and an alert never confirms an attack. Signed runtime telemetry feeds triage, not proof of compromise.
 - Source analysis is bounded to JS/TS, JSON, YAML and TOML, with Semgrep, Gitleaks, Trivy and OSV where configured. Source is not executed.
@@ -26,7 +26,7 @@
 ## Signature moment
 
 - The hero pairs a large uppercase headline with a living dot-field mark. Lines reveal; the field follows and ripples from the pointer, gathers on `data-catch` actions, and can be paused.
-- Carry the dot language through the walkthrough formations and the closing wordmark.
+- Carry the dot language through the hero mark and the closing wordmark.
 
 ## Boundaries
 
