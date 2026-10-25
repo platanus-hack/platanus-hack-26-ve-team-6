@@ -201,7 +201,7 @@ components:
 
 Gotchu reads like a case file someone has already worked through with a pen: giant wide uppercase headlines that unmask line by line, a highlighter swept across the phrases that matter, numbered margin notes beside the paragraphs they qualify, hairline rules between entries, and a few plates of authored art. The ground is a complete white or a complete black and nothing sits on it as a panel; structure comes from rules, columns and type size, not from cards. The brand speaks through magenta used sparingly as ink and highlighter, never as a filled section.
 
-Art is digital and made of the world's own materials: ASCII plates drawn from a character grid (the snapshot folder with its fingerprint, the two overlapping looks) and dot fields of square pixels and glyphs on canvas (the `[◆]` mark in the hero, the domain globe, the closing GOTCHU wordmark). The finding diamond `◆` is the only coloured glyph. The fields ripple away from a fine pointer, gather on their finding while a primary action is hovered or focused, and hold still when paused. Content is real product vocabulary (SHA-256, `_gotchu.<dominio>`, report JSON keys) and is never padded with invented results.
+Art is digital and made of the world's own materials: dot fields of square pixels and glyphs on canvas (the `[◆]` mark in the hero, the walkthrough field that morphs per feature, the closing GOTCHU wordmark). The finding diamond `◆` is the only coloured glyph. The fields ripple away from a fine pointer, gather on their finding while a primary action is hovered or focused, and hold still when paused. Content is real product vocabulary (SHA-256, `_gotchu.<dominio>`, report JSON keys) and is never padded with invented results.
 
 The whole app (landing, `/dashboard`, `/setup`, `/privacy`, `/terms`) follows a light, dark or system theme. Every rule below holds in both; values are shadcn tokens on page roots that carry the `.gl` class, loaded once from the root route. App CSS lives in `src/components/customer-shell.css` (shared primitives), `customer-report.css` and `customer-operations.css`.
 
@@ -210,7 +210,7 @@ The whole app (landing, `/dashboard`, `/setup`, `/privacy`, `/terms`) follows a 
 - One Saira variable file in two faces: Gotchu Display (125% width, 700, uppercase) for headlines, Gotchu Text (100% width) for reading and controls; ui-monospace for notes, labels, code and the DNS record.
 - Editorial devices: line-unmask headlines, highlighter marks, superscript references to margin notes, drop cap, dotted leaders, 2px section rules.
 - shadcn/ui controls on Base UI, restyled: 8px corners, 34px floor, a hard magenta offset on hover.
-- ASCII and square-pixel dot fields only; every moving piece has a still state and a visible pause.
+- Square-pixel dot fields only; every moving piece has a still state and a visible pause.
 
 ## Colors
 
@@ -290,7 +290,7 @@ Flat. Nothing at rest casts a shadow; depth is hairlines, rules and type scale o
 
 ## Shapes
 
-Near-square and straight. Corners come from a fixed scale: 2px for pixels, 6px for chips and the JSON exhibit frame, 8px for buttons, toggles, the FAQ control and the skip link, 12–16px reserved for panels and cards. Sections, the header, the top sheet and the dot fields stay square. Rules carry the structure: 2px foreground rules open sections and close the DNS record and glossary; 1px hairlines separate list rows, scope columns and FAQ rows; 2px dotted leaders join glossary terms to their definitions. The finding is a diamond (a square rotated 45°): 8px magenta list bullets, `◆` in the ASCII plates, and the FAQ control rotating into it when open. Dot fields draw square pixels, never round dots.
+Near-square and straight. Corners come from a fixed scale: 2px for pixels, 6px for chips and the JSON exhibit frame, 8px for buttons, toggles, the FAQ control and the skip link, 12–16px reserved for panels and cards. Sections, the header, the top sheet and the dot fields stay square. Rules carry the structure: 2px foreground rules open sections and close the DNS record and glossary; 1px hairlines separate list rows, scope columns and FAQ rows; 2px dotted leaders join glossary terms to their definitions. The finding is a diamond (a square rotated 45°): 8px magenta list bullets, the current walkthrough step, and the FAQ control rotating into it when open. Dot fields draw square pixels, never round dots.
 
 ### Named Rules
 **The Small Radius Rule.** Radius never exceeds 16px and always comes from the scale; a radius softens a corner, it does not change the silhouette. No pills, no circles (badges map to 6px).
@@ -330,14 +330,10 @@ Mono 12.5px muted notes, led by a superscript number in action/pink ink that mat
 Each line unmasks upward from a clip (800ms `cubic-bezier(.23, 1, .32, 1)`, 90ms stagger, 0.3em rise). The hero reveals on load; sections reveal on entering the viewport. Content is present without JS and under reduced motion.
 
 ### Plates
-- **ASCII plates:** `pre` art in mono clamp(9.5px, 2.4vw, 12.5px)/1.18 in foreground with the `◆` finding in action/pink ink. The Venn plate slides its two circles together (900ms), then fills the lens row by row with the body band and clips its labels in; the "Señales compartidas" label is bold.
 - **Dot fields:** canvas plates of square pixels and mono glyphs in six theme tones (`--dot-1` to `--dot-6`). Particles fly in on first view, ripple from a fine pointer within 120px, gather on `data-catch`, and sleep off screen, in hidden tabs, when paused and under reduced motion (which paints the settled frame). No React state per frame.
 
-### Charts
-Structure, never results. Square pixels (2px radius) in `--dot-6` at rest and foreground when they apply; magenta marks the active or hovered state.
-- **Review matrix:** a semantic table of review × source. Display-uppercase review names with one muted line, then a 24–36px pixel per source; pixels grow in row by row on reveal. Under 700px the source labels stay as one header row and each review's pixels sit beneath its name.
-- **Fix track:** five 48px outlined nodes with lucide icons joined by 2px connectors that fill with magenta as a diamond travels the rail (desktop) on reveal; vertical under 900px.
-- **Interval day:** outline toggles for 1, 6, 12 and 24 h above 24 hour bars; re-check hours rise in magenta, the rest rest at 28% in dust, and the caption counts re-checks per day.
+### Walkthrough
+"Cómo funciona" is one guided tour: six chapters (Conecta, Revisa, Entiende, Corrige, Vigila, Detecta) scroll past a pinned dot field that morphs into each feature: code beside a globe, a code sheet, a report, a branch ending in the finding (a draft PR, never merged), a 24-hour dial with a diamond every sixth hour, and the `[◆]` mark. The chapter covering a band at 60% of the viewport is active; the others fade to 30% while motion is on. A chapter is a mono numeral, a display title clamp(28px, 3.4vw, 52px), one sentence and, only where it names features, a mono label row. Six 34px links under the field jump between chapters; the current square turns into the magenta diamond. From 1000px the field sits right of the chapters (0.85fr / 1.15fr), sticky below the header at full viewport height; on phones it pins above them at 36svh. Charts and fields show structure, never results.
 
 ### Ruled lists and exhibits
 - **Ruled list:** rows between 1px hairlines; display uppercase items led by a mono letter, or text-face facts led by the 8px magenta diamond.
@@ -360,7 +356,7 @@ A band in graphite (light) or black (dark) with porcelain type: brand lockup, a 
 - **Do** carry qualifying facts as numbered margin notes beside the paragraph they qualify.
 - **Do** mark every primary path into the product with `data-catch`.
 - **Do** give every moving piece a still state, a reduced-motion final state and a visible pause where it loops in the first viewport.
-- **Do** make art from ASCII and square-pixel dot fields authored in components.
+- **Do** make art from square-pixel dot fields authored in components.
 
 ### Don't:
 - **Don't** use a graphite ground; graphite is ink and the light-theme footer only.
