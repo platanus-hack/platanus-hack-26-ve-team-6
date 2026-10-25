@@ -68,6 +68,10 @@ export function createGatewayHttpHandler(service: GatewayService, onUnexpectedEr
     }, REQUEST_TIMEOUT_MS);
     timeout.unref();
     try {
+      if (request.method === 'GET' && request.url === '/health/ready') {
+        respond(response, 200, { status: 'ready' });
+        return;
+      }
       const authorization = uniqueHeader(request, 'authorization');
       if (request.url === '/internal/v1/model-probes') {
         if (request.method !== 'POST') throw new GatewayError('method_not_allowed', 405);

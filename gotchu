@@ -79,7 +79,7 @@ ensure_free_ports() {
   node - "$@" <<'NODE'
 const net = require('node:net');
 const ports = process.argv.slice(2).map(Number);
-const labels = ['GOTCHU_WEB_PORT', 'GOTCHU_COORDINATOR_PORT', 'GOTCHU_SCANNER_PORT', 'GOTCHU_POSTGRES_PORT', 'GOTCHU_REDIS_PORT', 'GOTCHU_EXECUTOR_PORT'];
+const labels = ['GOTCHU_WEB_PORT', 'GOTCHU_COORDINATOR_PORT', 'GOTCHU_SCANNER_PORT', 'GOTCHU_POSTGRES_PORT', 'GOTCHU_REDIS_PORT', 'GOTCHU_EXECUTOR_PORT', 'GOTCHU_GATEWAY_PORT', 'GOTCHU_WORKER_PORT'];
 let index = 0;
 function next() {
   if (index === ports.length) return process.exit(0);
@@ -96,11 +96,11 @@ read_setup_environment() {
     chmod 600 "$env_file"
     return
   fi
-  local web_port="${GOTCHU_WEB_PORT:-3000}" coordinator_port="${GOTCHU_COORDINATOR_PORT:-3003}" scanner_port="${GOTCHU_SCANNER_PORT:-4400}" postgres_port="${GOTCHU_POSTGRES_PORT:-55432}" redis_port="${GOTCHU_REDIS_PORT:-56379}" executor_port="${GOTCHU_EXECUTOR_PORT:-3004}"
-  for port in "$web_port" "$coordinator_port" "$scanner_port" "$postgres_port" "$redis_port" "$executor_port"; do [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Los puertos configurados deben estar entre 1024 y 65535.' 2; done
-  ensure_free_ports "$web_port" "$coordinator_port" "$scanner_port" "$postgres_port" "$redis_port" "$executor_port"
+  local web_port="${GOTCHU_WEB_PORT:-3000}" coordinator_port="${GOTCHU_COORDINATOR_PORT:-3003}" scanner_port="${GOTCHU_SCANNER_PORT:-4400}" postgres_port="${GOTCHU_POSTGRES_PORT:-55432}" redis_port="${GOTCHU_REDIS_PORT:-56379}" executor_port="${GOTCHU_EXECUTOR_PORT:-3004}" gateway_port="${GOTCHU_GATEWAY_PORT:-3002}" worker_port="${GOTCHU_WORKER_PORT:-3001}"
+  for port in "$web_port" "$coordinator_port" "$scanner_port" "$postgres_port" "$redis_port" "$executor_port" "$gateway_port" "$worker_port"; do [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) || fail 'Los puertos configurados deben estar entre 1024 y 65535.' 2; done
+  ensure_free_ports "$web_port" "$coordinator_port" "$scanner_port" "$postgres_port" "$redis_port" "$executor_port" "$gateway_port" "$worker_port"
   ensure_state
-  GOTCHU_ENV_FILE="$env_file" GOTCHU_AUTH_MODE=self_host GOTCHU_CUSTOMER_DISCOVERY=true GOTCHU_WEB_PORT="$web_port" GOTCHU_COORDINATOR_PORT="$coordinator_port" GOTCHU_SCANNER_PORT="$scanner_port" GOTCHU_POSTGRES_PORT="$postgres_port" GOTCHU_REDIS_PORT="$redis_port" GOTCHU_EXECUTOR_PORT="$executor_port" GOTCHU_PUBLIC_URL="${GOTCHU_PUBLIC_URL:-http://localhost:${web_port}}" bash "$root/scripts/infra-local-setup.sh" >/dev/null
+  GOTCHU_ENV_FILE="$env_file" GOTCHU_AUTH_MODE=self_host GOTCHU_CUSTOMER_DISCOVERY=true GOTCHU_WEB_PORT="$web_port" GOTCHU_COORDINATOR_PORT="$coordinator_port" GOTCHU_SCANNER_PORT="$scanner_port" GOTCHU_POSTGRES_PORT="$postgres_port" GOTCHU_REDIS_PORT="$redis_port" GOTCHU_EXECUTOR_PORT="$executor_port" GOTCHU_GATEWAY_PORT="$gateway_port" GOTCHU_WORKER_PORT="$worker_port" GOTCHU_PUBLIC_URL="${GOTCHU_PUBLIC_URL:-http://localhost:${web_port}}" bash "$root/scripts/infra-local-setup.sh" >/dev/null
 }
 ensure_scanner_secret() {
   local path="$state_dir/scanner.secret"
@@ -108,8 +108,9 @@ ensure_scanner_secret() {
   [[ -f "$path" && ! -L "$path" && "$(wc -c <"$path")" -eq 32 ]] || fail 'El secreto del scanner debe ser un archivo regular de 32 bytes.' 2
   chmod 600 "$path"
 }
-ensure_scanner_tls() {
-  local cert="$state_dir/scanner.crt" key="$state_dir/scanner.key" cert_public key_public tmp_cert="${state_dir}/.scanner.crt.$$" tmp_key="${state_dir}/.scanner.key.$$" san='DNS:localhost,IP:127.0.0.1'
+# Self-signed loopback identity for one host service: scanner, or internal (gateway and worker).
+ensure_local_tls() {
+  local name="$1" cert="$state_dir/$1.crt" key="$state_dir/$1.key" cert_public key_public tmp_cert="${state_dir}/.$1.crt.$$" tmp_key="${state_dir}/.$1.key.$$" san='DNS:localhost,IP:127.0.0.1'
   if [[ -f "$cert" && ! -L "$cert" && -f "$key" && ! -L "$key" ]] \
     && openssl x509 -in "$cert" -noout -checkhost localhost 2>/dev/null | grep -Fq 'Hostname localhost does match certificate' \
     && openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null 2>&1 \
@@ -127,10 +128,25 @@ ensure_scanner_tls() {
     -addext 'basicConstraints=critical,CA:TRUE' \
     -addext 'keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign,cRLSign' \
     -addext 'extendedKeyUsage=serverAuth' \
-    -addext "subjectAltName=${san}") >/dev/null 2>&1 || fail 'No se pudo crear el certificado TLS privado del scanner.'
+    -addext "subjectAltName=${san}") >/dev/null 2>&1 || fail "No se pudo crear el certificado TLS privado de ${name}."
   chmod 600 "$tmp_cert" "$tmp_key"
   mv -f -- "$tmp_cert" "$cert"; mv -f -- "$tmp_key" "$key"
 }
+# Keys shared by the investigation path: coordinator signs run capabilities, worker and gateway verify them,
+# web and gateway share the model-probe secret and the model credential directory.
+ensure_model_runtime() {
+  local key="$state_dir/run-capability.key" public="$state_dir/run-capability.pub" probe="$state_dir/model-probe.secret" secrets="$state_dir/model-secrets"
+  [[ -e "$key" ]] || (umask 077; openssl genpkey -algorithm ed25519 -out "$key") >/dev/null 2>&1 || fail 'No se pudo crear la llave de capacidades de investigación.'
+  [[ -f "$key" && ! -L "$key" ]] || fail 'La llave de capacidades de investigación debe ser un archivo regular.' 2
+  (umask 077; openssl pkey -in "$key" -pubout -out "$public") >/dev/null 2>&1 || fail 'La llave de capacidades de investigación no es válida.' 2
+  [[ -e "$probe" ]] || (umask 077; node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))" >"$probe")
+  [[ -f "$probe" && ! -L "$probe" && "$(wc -c <"$probe")" -eq 43 ]] || fail 'El secreto de prueba de modelos debe ser un archivo regular de 32 bytes en base64url.' 2
+  mkdir -p -- "$secrets"; [[ -d "$secrets" && ! -L "$secrets" ]] || fail 'El directorio de credenciales de modelos debe ser real.' 2
+  chmod 600 "$key" "$public" "$probe"; chmod 700 "$secrets"
+}
+gateway_port() { local value; value="$(optional_env_value GATEWAY_HOST_PORT)"; printf '%s' "${value:-${GOTCHU_GATEWAY_PORT:-3002}}"; }
+worker_port() { local value; value="$(optional_env_value WORKER_HOST_PORT)"; printf '%s' "${value:-${GOTCHU_WORKER_PORT:-3001}}"; }
+stop_all_apps() { stop_app executor; stop_app web; stop_app coordinator; stop_app worker; stop_app gateway; stop_app scanner; }
 compose_ready() {
   local user db redis_password; user="$(env_value POSTGRES_USER)"; db="$(env_value POSTGRES_DB)"; redis_password="$(env_value REDIS_PASSWORD)"
   for _ in $(seq 1 90); do
@@ -145,6 +161,8 @@ app_entry() {
     coordinator) printf '%s' "$root/apps/coordinator/dist/main.js" ;;
     scanner) printf '%s' "$root/apps/scanner/dist/main.js" ;;
     executor) printf '%s' "$root/apps/executor/dist/main.js" ;;
+    gateway) printf '%s' "$root/apps/gateway/dist/main.js" ;;
+    worker) printf '%s' "$root/apps/worker/dist/main.js" ;;
     *) return 1 ;;
   esac
 }
@@ -226,7 +244,24 @@ start_app() {
       environment+=("PORT=$port" "GOTCHU_COORDINATOR_HOST=127.0.0.1" "GOTCHU_CUSTOMER_DISCOVERY=true" "GOTCHU_ORGANIZATION_IDS=" \
         "GOTCHU_COORDINATOR_DATABASE_URL=$database_url" "GOTCHU_REDIS_URL=$redis_connection_url" "GOTCHU_SCANNER_ORIGIN=https://127.0.0.1:$(env_value SCANNER_HOST_PORT)" \
         "GOTCHU_SCANNER_SECRET_FILE=$state_dir/scanner.secret" "GOTCHU_SCANNER_CA_FILE=$state_dir/scanner.crt" \
-        "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json")
+        "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json" \
+        "GOTCHU_WORKER_URL=https://127.0.0.1:$(worker_port)" "GOTCHU_RUN_CAPABILITY_PRIVATE_KEY=$(cat "$state_dir/run-capability.key")" \
+        "NODE_EXTRA_CA_CERTS=$state_dir/internal.crt")
+      ;;
+    gateway)
+      local database_url
+      database_url="$(postgres_url "$(env_value GOTCHU_GATEWAY_DB_USERNAME)" "$(env_value GOTCHU_GATEWAY_DB_PASSWORD)" "$(env_value POSTGRES_HOST_PORT)" "$(env_value POSTGRES_DB)")"
+      # PATH is inherited so the gateway finds the host's claude and codex CLIs for subscription providers.
+      environment+=("PORT=$port" "GOTCHU_GATEWAY_HOST=127.0.0.1" "GOTCHU_GATEWAY_DATABASE_URL=$database_url" \
+        "GOTCHU_RUN_CAPABILITY_PUBLIC_KEY=$(cat "$state_dir/run-capability.pub")" \
+        "GOTCHU_GATEWAY_TLS_CERT_FILE=$state_dir/internal.crt" "GOTCHU_GATEWAY_TLS_KEY_FILE=$state_dir/internal.key" \
+        "GOTCHU_MODEL_SECRET_DIRECTORY=$state_dir/model-secrets" "GOTCHU_GATEWAY_MODEL_PROBE_SECRET=$(cat "$state_dir/model-probe.secret")" \
+        "GOTCHU_CLAUDE_CODE_BIN=$(optional_env_value GOTCHU_CLAUDE_CODE_BIN)" "GOTCHU_CODEX_BIN=$(optional_env_value GOTCHU_CODEX_BIN)")
+      ;;
+    worker)
+      environment+=("PORT=$port" "GOTCHU_WORKER_HOST=127.0.0.1" "GOTCHU_RUN_CAPABILITY_PUBLIC_KEY=$(cat "$state_dir/run-capability.pub")" \
+        "GOTCHU_GATEWAY_URL=https://127.0.0.1:$(gateway_port)" "NODE_EXTRA_CA_CERTS=$state_dir/internal.crt" \
+        "GOTCHU_WORKER_TLS_CERT_FILE=$state_dir/internal.crt" "GOTCHU_WORKER_TLS_KEY_FILE=$state_dir/internal.key")
       ;;
     executor)
       local database_url redis_connection_url
@@ -262,7 +297,9 @@ start_app() {
         "GOTCHU_EVENT_SIGNING_KEYS_JSON=$(optional_env_value GOTCHU_EVENT_SIGNING_KEYS_JSON)" \
         "GOTCHU_DNS_SERVERS_JSON=$(optional_env_value GOTCHU_DNS_SERVERS_JSON)" \
         "GOTCHU_EVENT_CREDENTIAL_DIRECTORY=$state_dir/event-credentials" \
-        "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json")
+        "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json" \
+        "GOTCHU_GATEWAY_URL=https://127.0.0.1:$(gateway_port)" "GOTCHU_GATEWAY_MODEL_PROBE_SECRET=$(cat "$state_dir/model-probe.secret")" \
+        "GOTCHU_MODEL_SECRET_DIRECTORY=$state_dir/model-secrets" "NODE_EXTRA_CA_CERTS=$state_dir/internal.crt")
       if [[ -n "$executor_token" ]]; then
         environment+=("GOTCHU_EXECUTOR_INTERNAL_URL=http://127.0.0.1:${executor_port}" "GOTCHU_EXECUTOR_INTERNAL_TOKEN=$executor_token")
       fi
@@ -319,7 +356,8 @@ up() {
   ensure_state; check_docker; check_node; check_host_identity; read_setup_environment; ensure_scanner_secret; check_pnpm
   [[ -d "$root/node_modules" ]] || pnpm install --frozen-lockfile --ignore-scripts
   INFRA_ENV_FILE="$env_file" GOTCHU_STATE_DIR="$state_dir" bash "$root/scripts/infra-compose-validate.sh"
-  if [[ "$rebuild" == true ]] || [[ ! -f "$root/apps/web/.output/server/index.mjs" ]] || [[ ! -f "$root/apps/coordinator/dist/main.js" ]] || [[ ! -f "$root/apps/scanner/dist/main.js" ]]; then
+  if [[ "$rebuild" == true ]] || [[ ! -f "$root/apps/web/.output/server/index.mjs" ]] || [[ ! -f "$root/apps/coordinator/dist/main.js" ]] || [[ ! -f "$root/apps/scanner/dist/main.js" ]] \
+    || [[ ! -f "$root/apps/gateway/dist/main.js" ]] || [[ ! -f "$root/apps/worker/dist/main.js" ]]; then
     rebuild=true
     GOTCHU_ENV_FILE="$env_file" GOTCHU_AUTH_MODE=self_host pnpm dev:prepare
     pnpm build
@@ -330,12 +368,18 @@ up() {
   fi
   "${compose[@]}" up -d postgres redis; compose_ready
   INFRA_ENV_FILE="$env_file" INFRA_PROJECT_NAME="$project" bash "$root/scripts/infra-db-bootstrap.sh"
-  ensure_scanner_tls
+  GOTCHU_MIGRATION_DATABASE_URL="$(postgres_url "$(env_value POSTGRES_USER)" "$(env_value POSTGRES_PASSWORD)" "$(env_value POSTGRES_HOST_PORT)" "$(env_value POSTGRES_DB)")" \
+    node "$root/apps/gateway/dist/migrate-cli.js" >/dev/null || fail 'No se pudieron aplicar las migraciones del gateway. Revisa ./gotchu logs postgres.'
+  ensure_local_tls scanner; ensure_local_tls internal; ensure_model_runtime
   if executor_enabled; then require_executor_setup; fi
-  stop_app executor; stop_app web; stop_app coordinator; stop_app scanner
+  stop_all_apps
   local scanner_port coordinator_port web_port; scanner_port="$(env_value SCANNER_HOST_PORT)"; coordinator_port="$(env_value COORDINATOR_HOST_PORT)"; web_port="$(env_value WEB_HOST_PORT)"
   start_app scanner "$scanner_port"
   NODE_EXTRA_CA_CERTS="$state_dir/scanner.crt" wait_http "https://127.0.0.1:${scanner_port}/readyz" scanner
+  start_app gateway "$(gateway_port)"
+  NODE_EXTRA_CA_CERTS="$state_dir/internal.crt" wait_http "https://127.0.0.1:$(gateway_port)/health/ready" gateway
+  start_app worker "$(worker_port)"
+  NODE_EXTRA_CA_CERTS="$state_dir/internal.crt" wait_http "https://127.0.0.1:$(worker_port)/health/ready" worker
   start_app coordinator "$coordinator_port"
   wait_http "http://127.0.0.1:${coordinator_port}/health/ready" coordinator
   local probe_output
@@ -355,7 +399,7 @@ up() {
 }
 status() {
   [[ -f "$env_file" ]] || fail 'Gotchu no está configurado. Ejecuta ./gotchu up.' 2; require_managed_state; require_private_env; check_docker; "${compose[@]}" ps
-  for service in web coordinator scanner; do
+  for service in web coordinator worker gateway scanner; do
     if app_running "$service"; then printf '%s: ejecutándose en loopback\n' "$service"; else printf '%s: detenido\n' "$service"; fi
   done
   if app_running scanner && app_running coordinator; then
@@ -373,9 +417,9 @@ status() {
 }
 logs() {
   local service="${1:-}"
-  if [[ "$service" =~ ^(web|coordinator|scanner|executor)$ ]]; then [[ -f "$state_dir/$service.log" ]] && tail -n 200 -f "$state_dir/$service.log" || fail "No hay registro de ${service}." 2; return; fi
-  [[ -z "$service" || "$service" =~ ^(postgres|redis)$ ]] || fail 'Servicio inválido. Usa web, coordinator, scanner, executor, postgres o redis.' 2
-  if [[ -n "$service" ]]; then "${compose[@]}" logs --tail 200 -f "$service"; else tail -n 200 -f "$state_dir/web.log" "$state_dir/coordinator.log" "$state_dir/scanner.log" "$state_dir/executor.log"; fi
+  if [[ "$service" =~ ^(web|coordinator|worker|gateway|scanner|executor)$ ]]; then [[ -f "$state_dir/$service.log" ]] && tail -n 200 -f "$state_dir/$service.log" || fail "No hay registro de ${service}." 2; return; fi
+  [[ -z "$service" || "$service" =~ ^(postgres|redis)$ ]] || fail 'Servicio inválido. Usa web, coordinator, worker, gateway, scanner, executor, postgres o redis.' 2
+  if [[ -n "$service" ]]; then "${compose[@]}" logs --tail 200 -f "$service"; else tail -n 200 -f "$state_dir/web.log" "$state_dir/coordinator.log" "$state_dir/worker.log" "$state_dir/gateway.log" "$state_dir/scanner.log" "$state_dir/executor.log"; fi
 }
 read_backup_passphrase() {
   [[ -t 0 ]] || fail 'La frase de paso se solicita de forma interactiva para no exponerla en argumentos o variables de entorno.' 2
@@ -470,7 +514,7 @@ restore() (
   [[ ! -L "$state_dir/github/reader-app.json" ]] || fail 'No se restauró: las credenciales locales de GitHub son un enlace simbólico.'
   running="$("${compose[@]}" ps --status running --services 2>/dev/null)" || fail 'No se pudo consultar el estado de la instalación.'
   [[ -z "$running" ]] || fail 'Detén todos los servicios con ./gotchu down antes de restaurar.' 2
-  for service in web coordinator scanner; do app_running "$service" && fail "Detén también el proceso ${service} con ./gotchu down antes de restaurar." 2; done
+  for service in web coordinator worker gateway scanner; do app_running "$service" && fail "Detén también el proceso ${service} con ./gotchu down antes de restaurar." 2; done
   umask 077
   stage="$(mktemp -d "$state_dir/.restore.XXXXXX")" || fail 'No se pudo preparar el área privada de restauración.'
   chmod 700 "$stage"
@@ -520,7 +564,7 @@ restore() (
 down() {
   check_docker; [[ -f "$env_file" ]] || { printf '%s\n' 'Gotchu ya está detenido.'; return; }
   require_managed_state; require_private_env
-  stop_app executor; stop_app web; stop_app coordinator; stop_app scanner
+  stop_all_apps
   "${compose[@]}" --profile web --profile coordinator down; printf '%s\n' 'Servicios detenidos; se conservaron datos y secretos.'
 }
 reset() {
@@ -528,7 +572,7 @@ reset() {
   require_managed_state; require_private_env
   printf 'Esto elimina workspaces, informes, fuentes y credenciales de %s. Escribe RESET para continuar: ' "$project"
   local answer; read -r answer; [[ "$answer" == RESET ]] || fail 'Reinicio cancelado.' 2
-  check_docker; stop_app executor; stop_app web; stop_app coordinator; stop_app scanner
+  check_docker; stop_all_apps
   "${compose[@]}" --profile web --profile coordinator down --volumes --remove-orphans; rm -rf -- "$state_dir"; printf 'Datos locales eliminados. Las copias cifradas del directorio %s se conservaron.\n' "${state_dir}.backups"
 }
 doctor() {
@@ -537,6 +581,11 @@ doctor() {
   if command -v docker >/dev/null 2>&1 && docker compose version --short >/dev/null 2>&1; then printf '%s\n' 'Compose: v2 disponible'; else printf '%s\n' 'Compose: instala Docker Compose v2'; failed=1; fi
   command -v node >/dev/null && node -e 'process.exit(Number(process.versions.node.split(".")[0])===24?0:1)' && printf '%s\n' 'Node.js: versión 24 disponible' || { printf '%s\n' 'Node.js: se requiere versión 24'; failed=1; }
   command -v pnpm >/dev/null && [[ "$(pnpm --version)" == 11.* ]] && printf '%s\n' 'pnpm: versión 11 disponible' || { printf '%s\n' 'pnpm: se requiere versión 11'; failed=1; }
+  local cli
+  for cli in claude codex; do
+    if command -v "$cli" >/dev/null 2>&1; then printf '%s CLI: %s\n' "$cli" "$("$cli" --version 2>/dev/null | head -n1)"
+    else printf '%s CLI: no encontrado; es opcional y sólo hace falta para investigar con tu suscripción.\n' "$cli"; fi
+  done
   command -v openssl >/dev/null && printf '%s\n' 'OpenSSL: disponible' || { printf '%s\n' 'OpenSSL: se requiere para generar secretos locales'; failed=1; }
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     local docker_root free_kib
