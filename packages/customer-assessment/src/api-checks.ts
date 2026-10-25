@@ -13,7 +13,7 @@ import { addApiFindings } from './api-findings.js';
 const targetSchema = customerRunInputSchema.shape.target.unwrap().extend({ scanProfile: z.literal('api_checks') });
 type ApiTarget = z.infer<typeof targetSchema>;
 const schemaPaths = ['/openapi.json', '/swagger.json', '/api/openapi.json', '/api/swagger.json', '/v3/api-docs'];
-const methods: Record<ApiProbeKind, ApiCheckEvidence['method']> = { observe: 'GET', head: 'HEAD', cors: 'HEAD', preflight: 'OPTIONS', options: 'OPTIONS' };
+const methods: Record<ApiProbeKind, ApiCheckEvidence['method']> = { observe: 'GET', schema: 'GET', head: 'HEAD', cors: 'HEAD', preflight: 'OPTIONS', options: 'OPTIONS' };
 const allowedMethods = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'TRACE'];
 
 function signals(page: HttpsPageObservation, scenario: ApiCheckEvidence['scenarioId']): ApiCheckEvidence['signals'] {
@@ -59,7 +59,7 @@ export async function assessApiChecks(raw: ApiTarget, signal: AbortSignal, optio
     try { page = await probe(target.origin, path, kind, signal, target.expiresAt, Math.min(maxBytes, API_CHECKS_MAX_RESPONSE_BYTES - responseBytes)); }
     catch (error) { item.incomplete = signal.aborted ? 'deadline_exceeded' : error instanceof Error && error.message === 'invalid_http_status' ? 'invalid_http_status' : 'transport_unavailable'; observations.push(item); return; }
     responseBytes += page.bodyBytes;
-    Object.assign(item, { status: page.status, tlsVerified: page.tlsVerified, bodyBytes: page.bodyBytes, incomplete: page.incomplete, signals: signals(page, scenarioId) });
+    Object.assign(item, { status: page.status, tlsVerified: page.tlsVerified, bodyBytes: page.bodyBytes, incomplete: page.incomplete, bodyPolicy: page.bodyPolicy ?? 'bounded_body', signals: signals(page, scenarioId) });
     // API evidence retains a normalized MIME category, never arbitrary header values or body text.
     const mime = (page.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
     if (mime && ['application/json', 'text/html', 'text/plain', 'application/problem+json'].includes(mime)) item.headers['content-type'] = mime;
@@ -83,7 +83,7 @@ export async function assessApiChecks(raw: ApiTarget, signal: AbortSignal, optio
   await run('method_policy', '/', 'options');
   await run('error_handling', '/.well-known/gotchu-api-check-v1-missing', 'observe', 4096);
   for (const path of schemaPaths) {
-    await run('schema_discovery', path, 'observe');
+    await run('schema_discovery', path, 'schema');
     if (operations.length > 0) break;
   }
   const paths = [...new Set(operations.filter(item => item.probeEligible).map(item => item.path))].slice(0, 2);
@@ -109,7 +109,7 @@ export async function assessApiChecks(raw: ApiTarget, signal: AbortSignal, optio
     a.coverage.push({ capability: `api_${scenario}`, state: complete && (!discovery || schema && !schema.signals.operationsTruncated) ? 'inspected' : 'unavailable',
       detail: discovery
         ? schema ? `Found an inert OpenAPI document with ${schema.signals.documentedOperationCount} declared operations; at most eight retained. Alternate servers, refs, templates and parameterized routes are not probed.` : 'No complete supported OpenAPI JSON document found in the fixed locations. API inventory remains unknown; a 200 HTML fallback is not an API schema.'
-        : `${items.filter(item => item.status !== null).length}/${items.length} HTTP responses. HEAD and OPTIONS only describe these responses; they do not prove GET access, method execution, or an authorization bypass. Incomplete or unattempted checks remain unknown.` });
+        : `${items.filter(item => item.status !== null).length}/${items.length} HTTP observations. HEAD/OPTIONS inspect response headers only; they do not prove GET access, method execution, or an authorization bypass. Incomplete or unattempted checks remain unknown.` });
   }
   a.coverage.push({ capability: 'api_endpoint_mapping', state: paths.length > 0 && paths.length === new Set(operations.map(item => item.path)).size && operations.every(item => item.probeEligible) ? 'inspected' : 'unavailable',
     detail: `${paths.length} literal documented GET paths selected for HEAD/OPTIONS sampling. Other methods, templates, parameters, alternate servers, unresolved refs, and unsampled paths remain unknown. No business GET response was requested.` });
@@ -118,6 +118,7 @@ export async function assessApiChecks(raw: ApiTarget, signal: AbortSignal, optio
   a.limitations.push(
     'The requested scope records the signed-in user’s request, not domain ownership proof. The explicit api_checks profile applies to manual and enabled scheduled assessments with the same bounds.',
     'Versioned protocol scenarios run real GET/HEAD/OPTIONS requests: at most 16 serial attempts, 250 ms between attempts, 96 KiB total bodies, 16 KiB per response, within the assessment deadline and scope expiry.',
+    'HEAD/OPTIONS inspect headers without reading bodies. Schema discovery reads a body only for HTTP 200 with a supported JSON content type, avoiding oversized HTML/error pages. Body policy is recorded per observation.',
     'Schema metadata is untrusted declaration, not deployed API inventory. Only two literal root-mapped GET paths are sampled using HEAD and OPTIONS; other operations and schema mappings remain unknown. Without a usable path, /api and /api/v1 are sampled as prefixes only.',
     'No credentials, cookies, response bodies, schema descriptions or arbitrary headers are persisted. CORS checks use one fixed unrelated origin; acceptance does not prove arbitrary-origin reflection or authenticated readability.',
     'The marker path may exist or return a SPA fallback. Error signatures are indications, not proof of a vulnerability. Banners never establish a CVE match.',

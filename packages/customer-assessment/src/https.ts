@@ -20,11 +20,12 @@ export interface HttpsOptions {
   testFixture?: { hostname: string; port: number; ca: string };
 }
 export interface HttpsObservation { status: number; headers: Record<string,string>; bodyBytes: number; tlsVerified: true; incomplete: string | null }
-export interface HttpsPageObservation extends HttpsObservation { body: string }
+export interface HttpsPageObservation extends HttpsObservation { body: string; bodyPolicy?: 'headers_only' | 'bounded_body' }
 const MAX_BODY_BYTES = 16_384;
 export const API_PROBE_ORIGIN = 'https://gotchu.invalid';
 const apiRequests = {
   observe: { method: 'GET', headers: {} },
+  schema: { method: 'GET', headers: { accept: 'application/json' } },
   head: { method: 'HEAD', headers: {} },
   cors: { method: 'HEAD', headers: { origin: API_PROBE_ORIGIN } },
   preflight: { method: 'OPTIONS', headers: { origin: API_PROBE_ORIGIN, 'access-control-request-method': 'GET', 'access-control-request-headers': 'authorization' } },
@@ -70,6 +71,9 @@ function createHttpsRequester(options: HttpsOptions = {}) {
           res.destroy(); req.destroy(); reject(new Error('invalid_http_status')); return;
         }
         const headers: Record<string,string> = {};
+        const rawContentType = res.headers['content-type'];
+        const schemaBody = status === 200 && typeof rawContentType === 'string' && /^application\/(?:json|[\w.-]+\+json)(?:\s*;|$)/i.test(rawContentType);
+        const headersOnly = kind !== 'observe' && (kind !== 'schema' || !schemaBody);
         let invalidApiHeaders = false;
         for (const name of ['content-type','content-security-policy','strict-transport-security','x-content-type-options','x-frame-options','server','x-powered-by']) {
           const value = res.headers[name]; if (typeof value === 'string') headers[name] = value.slice(0,256).replace(/[\x00-\x1f\x7f]/g,'');
@@ -86,11 +90,12 @@ function createHttpsRequester(options: HttpsOptions = {}) {
         const finish = (incomplete: string | null) => {
           if (done) return;
           done = true; signal.removeEventListener('abort',onAbort);
-          resolve({status,headers,bodyBytes,tlsVerified:true,incomplete:incomplete ?? (invalidApiHeaders ? 'invalid_api_headers' : null),body:Buffer.concat(bodyChunks).toString('utf8')});
+          resolve({status,headers,bodyBytes,tlsVerified:true,incomplete:incomplete ?? (invalidApiHeaders ? 'invalid_api_headers' : null),body:Buffer.concat(bodyChunks).toString('utf8'),...(kind !== 'observe' ? {bodyPolicy:headersOnly ? 'headers_only' as const : 'bounded_body' as const} : {})});
           res.destroy(); req.destroy();
         };
         const onAbort=()=>finish('deadline_exceeded');
         if (status >= 300 && status < 400) { finish('redirect_refused'); return; }
+        if (headersOnly) { finish(null); return; }
         signal.addEventListener('abort',onAbort,{once:true});
         res.on('data',(chunk: Buffer) => {
           const available = maxBodyBytes - bodyBytes;
