@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { GlobeIcon, ArrowUpRightIcon, PlayIcon } from 'lucide-react';
+import { ArrowUpRightIcon, PlayIcon } from 'lucide-react';
 import { customerOriginSchema, customerScanProfileSchema, type CustomerReportSummary, type CustomerTarget } from '@gotchu/contracts';
 import { customerApi, CustomerApiError, type CustomerJob } from './customer-client';
 import { ChoiceSelect } from './choice-select';
 import { AssessmentProgress } from './assessment-progress';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Badge } from './ui/badge';
+import './https-audit.css';
 
 const profiles = [
   { value: 'root', label: 'Raíz · 1 solicitud GET' },
@@ -59,8 +59,7 @@ export function ProjectHttpsAudit({ organizationId, applicationId, targets, repo
   const locked = !canManage || archived || analyze.isPending || revoke.isPending || unfinished || jobError;
   return <div className="https-audit">
     <section className="https-audit-request" aria-labelledby="https-origin-title">
-      <div className="https-section-heading"><h2 id="https-origin-title"><GlobeIcon aria-hidden="true" />Auditar una web</h2><Badge variant="outline">HTTPS externo</Badge></div>
-      <p>Revisa cómo responde tu web sin conectar su código fuente.</p>
+      <div className="https-section-heading"><h2 id="https-origin-title">Auditar una web</h2></div>
       <form className="https-audit-form" onSubmit={event => { event.preventDefault(); setError(null); analyze.mutate(); }}>
         <div><label htmlFor="https-audit-origin">Origen HTTPS</label><Input id="https-audit-origin" value={origin} onChange={event => setOrigin(event.target.value)} placeholder="https://tu-app.com" inputMode="url" autoComplete="url" disabled={locked} required aria-describedby="https-audit-scope" aria-invalid={origin.length > 0 && !parsedOrigin.success} /></div>
         <div><label htmlFor="https-audit-profile">Perfil de evaluación</label><ChoiceSelect id="https-audit-profile" value={profile} options={profiles} onChange={value => setProfile(customerScanProfileSchema.parse(value))} disabled={locked} /></div>
