@@ -104,7 +104,23 @@ En el arranque local, Web, coordinator, worker y gateway se comunican por loopba
 
 `./gotchu doctor` comprueba requisitos frecuentes. La GitHub App Reader es opcional y sólo necesita permisos de lectura. El executor de PR está desactivado por defecto y requiere una GitHub App Writer, un catálogo de repositorios autorizado y el flujo de aprobación Owner descrito abajo.
 
-### Configurar GitHub App
+### Conectar GitHub con una sola App
+
+La experiencia de cliente comienza en **Conectar GitHub**: autoriza la App de Gotchu en GitHub, selecciona los repositorios y vuelve al mismo flujo para elegir cuál analizar. No crea Apps ni copia claves o IDs de instalación. GitHub puede mostrar pantallas separadas de autorización de cuenta e instalación; Gotchu no puede omitir ese consentimiento. Instalar la App tampoco concede una aprobación de cambios en Gotchu: la escritura en un repositorio y cada PR mantienen sus aprobaciones independientes.
+
+El operador configura una sola App con `Contents: Read and write`, `Pull requests: Read and write` y `Metadata: Read-only`; el acceso a organizaciones requiere también `Members: Read-only`. Registra `<PUBLIC_APP_URL>/api/customer/github/callback` como callback. Guarda un JSON privado con `id`, `clientId`, `clientSecret`, `slug` y `privateKeyPem` en `.gotchu/github-single-app.json`, modo `0600`, y configura:
+
+```dotenv
+GOTCHU_GITHUB_CONNECTION_MODE=single_app
+GOTCHU_GITHUB_SINGLE_APP_FILE=/ruta/privada/github-single-app.json
+GOTCHU_EXECUTOR_ENABLED=false
+```
+
+`./gotchu up` inicia el broker aunque la publicación de PR esté desactivada. Sólo el executor carga la clave privada y el secreto OAuth. La web recibe una identidad pública generada y resultados acotados de lectura; no recibe tokens de proveedor. El executor resuelve repositorios e instalaciones desde los vínculos autorizados del workspace, sin un ID de instalación global ni un catálogo editado por cada cliente. Para publicar, el operador habilita `GOTCHU_EXECUTOR_ENABLED=true`; siguen siendo necesarias la validación aislada, la concesión de escritura y la aprobación exacta con segundo factor.
+
+Este modo es para conectar repositorios. No reutilices su cliente OAuth en el proveedor de inicio de sesión de Auth.js: la web rechaza esa coincidencia. El inicio local, Google, OIDC y un cliente GitHub independiente conservan sus configuraciones. Cambiar de App o de modo requiere desconectar y volver a conectar; la migración conserva las conexiones anteriores mientras continúen en el modo anterior.
+
+### Configurar la conexión anterior con dos Apps
 
 `./gotchu github setup` muestra la URL de callback de autorización que usa **Conectar GitHub** para el `PUBLIC_APP_URL` actual y prepara la carpeta privada de credenciales. En GitHub configura una App con `Contents: Read-only` y `Metadata: Read-only`, instala sólo los repositorios autorizados y guarda el JSON de credenciales en `${state_dir}/github/reader-app.json` con permisos `0600`. El Web monta esa carpeta como sólo lectura. En `${state_dir}/.env` configura:
 
