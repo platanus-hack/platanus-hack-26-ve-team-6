@@ -12,7 +12,7 @@ export const gatewayJobPayloadSchema = z.union([
     z.object({ kind: z.literal('finding'), subjectId: uuid, reportId: uuid }).strict(),
     z.object({ kind: z.literal('alert'), subjectId: uuid }).strict(),
     z.object({ kind: z.literal('incident'), subjectId: uuid }).strict(),
-  ]), evidenceIds, resumeOf: uuid.optional() }).strict(),
+  ]), evidenceIds, resumeOf: uuid.optional(), correctionId: uuid.optional() }).strict(),
 ]);
 export const inputRequestSchema = z.object({ organizationId: uuid, applicationId: uuid }).strict();
 export const readRequestSchema = inputRequestSchema.extend({
