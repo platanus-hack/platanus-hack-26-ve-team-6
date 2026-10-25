@@ -7,7 +7,7 @@ import { audit, authorize, BackendError, parse, type BaseDependencies, type Iden
 const scopeSchema = z.object({ organizationId: z.uuid(), applicationId: z.uuid() }).strict();
 const configureSchema = validationSuiteConfigSchema;
 const defaultLimits = { vcpu: 1, memMiB: 1024, pids: 128, wallMs: 120_000, outputBytes: 262_144, diskMiB: 2048 } as const;
-const selectedLimits = { vcpu: 2, memMiB: 2048, pids: 256, wallMs: 300_000, outputBytes: 1_048_576, diskMiB: 4096 } as const;
+const selectedLimits = { vcpu: 2, memMiB: 4096, pids: 256, wallMs: 300_000, outputBytes: 1_048_576, diskMiB: 4096 } as const;
 
 function suiteNameForConfig(name: string, selection: { files: readonly string[] } | null): string {
   if (!selection) return name;
