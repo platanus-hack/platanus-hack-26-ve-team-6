@@ -5,6 +5,8 @@ import { sha256 } from './source.js';
 
 export const CISA_KEV_FEED_URL = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json';
 const cveId = /^CVE-\d{4}-\d{4,}$/;
+/** The operation contract rejects observations that claim freshness beyond 24 hours. */
+const OBSERVATION_TTL_MS = 86_400_000;
 const kevSchema = z.object({
   catalogVersion: z.string().max(64),
   dateReleased: z.string().max(64),
@@ -64,13 +66,13 @@ export function createCisaKevAdapter(options: CisaKevAdapterOptions = {}) {
         const match = cves.map(cve => ({ cve, entry: feed.entries.get(cve) })).find(item => item.entry);
         if (!match?.entry) continue;
         const summary = [
-          `CISA KEV lists ${match.cve} (${match.entry.name}) as exploited in the wild since ${match.entry.dateAdded}${match.entry.ransomware ? ', including known ransomware use' : ''}.`,
+          `CISA added ${match.cve} (${match.entry.name}) to its Known Exploited Vulnerabilities catalog on ${match.entry.dateAdded}: exploitation in the wild has been reported${match.entry.ransomware ? ', including known ransomware use' : ''}.`,
           `The repository lockfile pins npm ${advisory.packageName}@${advisory.version}, which OSV advisory ${advisory.id} lists as affected.`,
-          'This shows active exploitation elsewhere; whether this application is reachable, deployed with this version, or was attacked is not established.',
+          'Whether this application is reachable, deployed with this version, or was attacked is not established.',
         ].join(' ').slice(0, 2000);
         candidates.push({
           kind: 'dependency_advisory', summary, severity: 'critical', confidence: 'medium', observedAt,
-          expiresAt: new Date(Date.parse(observedAt) + 7 * 86_400_000).toISOString(),
+          expiresAt: new Date(Date.parse(observedAt) + OBSERVATION_TTL_MS).toISOString(),
           evidence: [...advisory.evidence, feedEvidence(`https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext=${encodeURIComponent(match.cve)}`)].slice(0, 20),
           metrics: null, incidentId: null, upstreamImpact: 'not_applicable',
         });

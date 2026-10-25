@@ -31,6 +31,8 @@ describe('CISA KEV correlation', () => {
     const [jquery, systeminformation] = result.candidates;
     expect(jquery).toMatchObject({ kind: 'dependency_advisory', severity: 'critical', confidence: 'medium' });
     expect(jquery?.summary).toContain('not established');
+    // The operation contract rejects observations that claim more than 24 hours of freshness.
+    expect(Date.parse(jquery?.expiresAt ?? '') - Date.parse(jquery?.observedAt ?? '')).toBeLessThanOrEqual(86_400_000);
     expect(jquery?.evidence.map(item => item.adapter)).toEqual(['osv_query_api', 'cisa_kev_feed']);
     expect(systeminformation?.summary).toContain('known ransomware use');
 
