@@ -29,17 +29,19 @@ async function modelRequestFixture(remainingTokens: number) {
     if (text.includes('FROM gotchu.agent_runs r JOIN gotchu.jobs')) {
       rows = [{ applicationId, state: 'running', deadline: new Date(now.getTime() + 60_000), cancelRequested: false,
         payload: { version: 2, subject: { kind: 'incident', subjectId: randomUUID() }, evidenceIds: [evidenceId] },
-        jobState: 'running', jobLeaseUntil: new Date(now.getTime() + 60_000) }];
+        jobState: 'running', jobLeaseUntil: new Date(now.getTime() + 60_000),
+        modelCalls: 1, toolCalls: 0, tokensUsed: 0, spendMicroUsd: 0 }];
     } else if (text.includes('SELECT clock_timestamp() AS now')) rows = [{ now }];
     else if (text.includes('FROM gotchu.gateway_revoked_capabilities')) rows = [];
     else if (text.includes('FROM gotchu.investigation_model_settings s JOIN gotchu.organizations')) rows = [modelSettings];
     else if (text.includes('FROM gotchu.gateway_read_calls')) rows = [];
     else if (text.includes('SELECT model_opt_in,model_budget_micros')) rows = [organizationLimits];
     else if (text.includes('FROM gotchu.investigation_model_settings WHERE')) rows = [modelSettings];
-    else if (text.includes('SELECT run_id,amount_micros,reserved_tokens,')) rows = [{ run_id: runId, amount_micros: '10000', reserved_tokens: String(remainingTokens), token_limit_enforced: true, charged_micros: null, charged_tokens: null, input_tokens: null, output_tokens: null }];
+    else if (text.includes('SELECT run_id,amount_micros,reserved_tokens,token_limit_enforced,charged_micros')) rows = [{ run_id: runId, amount_micros: '10000', reserved_tokens: String(remainingTokens), token_limit_enforced: true, charged_micros: null, charged_tokens: null, input_tokens: null, output_tokens: null }];
     else if (text.includes('FROM gotchu.model_reservations')) rows = [];
     else if (text.includes('SELECT model_calls,reserved_micros')) rows = [{ model_calls: 0, reserved_micros: '0', spent_micros: '0', tokens_reserved: '0', tokens_spent: '0' }];
     else if (text.includes('INSERT INTO gotchu.model_reservations')) state.reserveCount++;
+    else if (text.includes('INSERT INTO gotchu.gateway_validated_model_replies')) rows = [{ reservation_id: reservationId }];
     return { command: 'SELECT', rowCount: rows.length || (text.startsWith('UPDATE') ? 1 : 0), oid: 0, fields: [], rows: rows as R[] };
   };
   const transaction: Transaction = { query };
