@@ -534,7 +534,9 @@ export async function runBoundedInvestigation(
         (signal) => dependencies.persistence.saveCheckpoint(input.scope, dependencies.capability.token, safe, signal),
         remainingMs(),
       );
-    } catch {
+    } catch (error) {
+      // An exhausted time budget is the cause, not checkpoint storage.
+      if (error instanceof InvestigationLimitError) throw error;
       throw new GatewayUnavailableError('checkpoint');
     }
   };
