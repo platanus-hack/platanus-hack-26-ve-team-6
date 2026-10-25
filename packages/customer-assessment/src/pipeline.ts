@@ -6,6 +6,7 @@ import {
   type AssessmentMode,
   type CustomerAssessmentReport,
   type CustomerRunInput,
+  type CustomerScannerPhase,
 } from '@gotchu/contracts';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { compare, isScannerCleanupError, sha256 } from './common.js';
@@ -27,6 +28,8 @@ export interface CustomerAssessmentPipelineOptions {
   artifacts?: NpmArtifactAdapter;
   https?: HttpsOptions;
   deadlineMs: number;
+  /** Told when each analysis branch finishes and when correlation starts; it must not throw. */
+  onProgress?: (phase: CustomerScannerPhase) => void;
 }
 
 export function sourceDigest(source: Pick<NonNullable<CustomerRunInput['source']>, 'revision' | 'files'>) {
@@ -157,12 +160,13 @@ export async function runCustomerAssessmentPipeline(
       const input = invocation.input;
       const signal = invocation.signal;
       if (!input || !signal) throw new Error('assessment_pipeline_not_validated');
+      const finished = <T>(phase: CustomerScannerPhase) => (value: T) => { options.onProgress?.(phase); return value; };
       const [internal, external] = await settleAnalyses(
         input.mode,
-        () => input.inputKind === 'container_image'
+        () => (input.inputKind === 'container_image'
           ? assessContainerImage(input, signal, options.scanners)
-          : assessInternal(input, signal, options.scanners, options.advisory, options.licenses, options.artifacts),
-        () => {
+          : assessInternal(input, signal, options.scanners, options.advisory, options.licenses, options.artifacts)).then(finished('internal_finished')),
+        () => Promise.resolve().then(() => {
           const target = input.target;
           if (!target) throw new Error('missing_target');
           return target.scanProfile === 'api_checks'
@@ -170,7 +174,7 @@ export async function runCustomerAssessmentPipeline(
             : target.scanProfile === 'public_surface'
             ? assessPublicSurface(publicSurfaceTargetSchema.parse(target), signal, options.https)
             : assessExternal(input, signal, options.https);
-        },
+        }).then(finished('external_finished')),
       );
       invocation.internal = internal;
       invocation.external = external;
@@ -178,6 +182,8 @@ export async function runCustomerAssessmentPipeline(
     })
     .addNode('compare', () => {
       if (invocation.internal === undefined || invocation.external === undefined) throw new Error('assessment_pipeline_not_analyzed');
+      // Only code plus HTTPS has two perspectives to correlate.
+      if (invocation.internal && invocation.external) options.onProgress?.('correlating');
       invocation.comparison = compare(invocation.internal, invocation.external);
       return { compared: 1 };
     })
