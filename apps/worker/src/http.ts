@@ -1,4 +1,6 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type RequestListener, type ServerResponse } from 'node:http';
+import { createServer as createTlsServer } from 'node:https';
+import type { Server } from 'node:net';
 import { WorkerConfigError, type WorkerConfig } from './config.js';
 import { WorkerServiceError, type InvestigationWorkerService } from './worker.js';
 
@@ -45,7 +47,7 @@ function handleError(response: ServerResponse, error: unknown): void {
 }
 
 export function createWorkerHttpServer({ config, service }: WorkerHttpOptions): Server {
-  return createServer((request, response) => {
+  const handle: RequestListener = (request, response) => {
     if (request.method === 'GET' && request.url === '/health/live') {
       sendJson(response, 200, { status: 'alive' });
       return;
@@ -75,7 +77,8 @@ export function createWorkerHttpServer({ config, service }: WorkerHttpOptions): 
       (result) => sendJson(response, 200, { result }),
       (error: unknown) => handleError(response, error),
     );
-  });
+  };
+  return config.tls ? createTlsServer({ cert: config.tls.certificate, key: config.tls.privateKey }, handle) : createServer(handle);
 }
 
 export async function listenWorkerServer(server: Server, config: WorkerConfig): Promise<void> {
