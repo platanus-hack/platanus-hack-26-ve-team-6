@@ -370,11 +370,10 @@ start_app() {
       fi
       ;;
     web)
-      local api_url ingest_url github_app_file github_credentials_file webauthn_rp_id executor_port executor_token
+      local api_url ingest_url github_app_file github_credentials_file executor_port executor_token
       api_url="$(postgres_url "$(env_value GOTCHU_API_DB_USERNAME)" "$(env_value GOTCHU_API_DB_PASSWORD)" "$(env_value POSTGRES_HOST_PORT)" "$(env_value POSTGRES_DB)")"
       ingest_url="$(postgres_url "$(env_value GOTCHU_INGEST_DB_USERNAME)" "$(env_value GOTCHU_INGEST_DB_PASSWORD)" "$(env_value POSTGRES_HOST_PORT)" "$(env_value POSTGRES_DB)")"
       github_app_file="$(optional_env_value GOTCHU_GITHUB_READER_APP_FILE)"
-      webauthn_rp_id="$(optional_env_value GOTCHU_WEBAUTHN_RP_ID)"
       if [[ "$github_app_file" == /run/secrets/github/* ]]; then github_app_file="$state_dir/github/${github_app_file##*/}"; fi
       github_credentials_file="$(optional_env_value GOTCHU_GITHUB_READER_APP_CREDENTIALS_FILE)"
       if [[ "$github_credentials_file" == /run/secrets/github/* ]]; then github_credentials_file="$state_dir/github/${github_credentials_file##*/}"; fi
@@ -404,7 +403,6 @@ start_app() {
       if [[ -n "$executor_token" ]]; then
         environment+=("GOTCHU_EXECUTOR_INTERNAL_URL=http://127.0.0.1:${executor_port}" "GOTCHU_EXECUTOR_INTERNAL_TOKEN=$executor_token")
       fi
-      [[ -z "$webauthn_rp_id" ]] || environment+=("GOTCHU_WEBAUTHN_RP_ID=$webauthn_rp_id")
       ;;
   esac
   node -e 'process.exit(Number(process.versions.node.split(".")[0])===24?0:1)' || fail 'Gotchu requiere Node.js 24.' 2
