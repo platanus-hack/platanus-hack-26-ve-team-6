@@ -112,7 +112,7 @@
 .customer-http-headers span { min-width: 0; overflow-wrap: anywhere; }
 
 /* Coverage / analysis */
-.customer-analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px clamp(24px, 3vw, 48px); margin-top: 18px; }
+.customer-analysis-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 24px clamp(24px, 3vw, 48px); margin-top: 18px; }
 .customer-analysis-card { min-width: 0; }
 .customer-analysis-card .customer-card-heading { align-items: center; }
 .customer-analysis-card h4 { margin: 0; font: 700 18px/1.1 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.005em; text-transform: uppercase; }

@@ -78,7 +78,7 @@ export function ProjectHttpsAudit({ organizationId, applicationId, targets, repo
       failure={observedJob?.state === 'failed' ? `La evaluación no finalizó${observedJob.reasonCode ? ` (${observedJob.reasonCode})` : ''}. Un análisis interrumpido no confirma seguridad.` : null}
       error={jobError ? 'No se pudo consultar el estado.' : null} retry={onRetryJob} />
     <section className="https-audit-results" aria-labelledby="https-results-title">
-      <div className="https-section-heading"><h2 id="https-results-title">Informes externos</h2><span>{externalReports.length}</span></div>
+      <div className="https-section-heading"><h2 id="https-results-title">Informes externos</h2><span className="customer-status customer-status-muted">{externalReports.length} {externalReports.length === 1 ? "informe" : "informes"}</span></div>
       {externalReports.length === 0 ? <p className="https-audit-note">El informe aparecerá aquí cuando termine la primera evaluación.</p> : <ul>{externalReports.map(report => <li key={report.id}><div><strong>{report.subject.origin}</strong><small>{formatDate(report.finishedAt)} · {report.mode === 'both' ? 'Código + HTTPS' : 'HTTPS externo'}</small></div><span>{report.findingCount} observaciones{report.mode === 'both' ? ' en total' : ''}</span><Button variant="outline" size="sm" onClick={() => onViewReport(report.id)}>Ver informe<ArrowUpRightIcon aria-hidden="true" /></Button></li>)}</ul>}
     </section>
   </div>;

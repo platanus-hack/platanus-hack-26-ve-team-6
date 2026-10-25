@@ -3,7 +3,7 @@
   .https-audit-request, .https-audit-results { min-width: 0; }
   .https-audit > .customer-progress { margin: 0; }
   .https-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-  .https-section-heading h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 18px; font-weight: 600; line-height: 1.3; }
+  .https-section-heading h2 { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: .01em; line-height: 1.2; text-transform: uppercase; }
   .https-section-heading h2 svg { width: 18px; height: 18px; }
   .https-audit-request > p { margin: 0 0 16px; color: var(--muted-foreground); font-size: 14px; }
   .https-audit-form { display: grid; grid-template-columns: minmax(200px, 1.2fr) minmax(200px, 1fr) auto; gap: 12px; align-items: end; }

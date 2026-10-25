@@ -518,4 +518,5 @@
 .customer-page-actions .customer-button, .customer-ops-alert-actions .customer-button, .customer-ops-alert-resolve .customer-button { min-height: 40px; padding: 8px 16px; font-size: 14.5px; }
 .customer-section-head > .customer-link-button { flex: none; white-space: nowrap; }
 /* The sidebar is sticky at viewport height; its column runs the full page length behind it. */
-@media (min-width: 900px) { .customer-app-shell { background: linear-gradient(to right, var(--muted) 0 267px, var(--border) 267px 268px, var(--background) 268px); } }
+/* Desktop: the app is one screen tall; the sidebar stays put and only the main column scrolls. */
+@media (min-width: 900px) { .customer-app-shell { height: 100vh; min-height: 0; overflow: hidden; } .customer-main-column { height: 100vh; overflow-y: auto; } }

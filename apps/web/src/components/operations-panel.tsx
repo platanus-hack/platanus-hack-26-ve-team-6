@@ -122,6 +122,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
   const [stepDrafts, setStepDrafts] = useState<Record<string, string>>({});
   const [readiness, setReadiness] = useState<Record<string, OperationReadiness>>({});
   const [openAlertId, setOpenAlertId] = useState<string | null>(null);
+  const [configOpen, setConfigOpen] = useState(false);
   const openAlert = alerts.data?.find(alert => alert.id === openAlertId);
 
   useEffect(() => {
@@ -140,6 +141,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     onSuccess: async config => {
       setOperationError(null);
       setNotice(config.enabled ? 'La vigilancia quedó configurada.' : 'La vigilancia está desactivada y su alcance se limpió.');
+      setConfigOpen(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: keys.coverage }),
         queryClient.invalidateQueries({ queryKey: decisionRecordKey }),
@@ -258,7 +260,10 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
 
     <section className="customer-card customer-panel customer-ops-card" aria-labelledby="monitoring-title">
       <div className="customer-card-heading"><div><h2 id="monitoring-title">Revisiones periódicas</h2></div>
+        <div className="customer-ops-heading-actions">
         {coverage.data && <span className={`customer-status ${coverageTone(coverage.data)}`}>{coverage.data.status === 'active' && coverage.data.observations.stale > 0 ? 'Hay evidencia atrasada' : statusNames[coverage.data.status]}</span>}
+          <button className="customer-button" type="button" onClick={() => setConfigOpen(true)}>Configurar</button>
+        </div>
       </div>
       <p className="customer-card-copy">Las revisiones son periódicas, no en tiempo real.</p>
       {coverage.isPending ? <div className="customer-loading" role="status"><span className="customer-spinner" />Cargando el estado de vigilancia…</div>
@@ -275,7 +280,6 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
           </>}
     </section>
 
-    <div className="customer-ops-split">
     <div className="customer-ops-main">
     <section className="customer-card customer-panel customer-ops-card" aria-labelledby="alerts-title">
       <div className="customer-card-heading"><div><h2 id="alerts-title">Alertas de evaluación</h2></div>{alerts.data && <span className="customer-status customer-status-muted">{alerts.data.length} {alerts.data.length === 1 ? 'alerta' : 'alertas'}</span>}</div>
@@ -310,8 +314,9 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     </section>}
 
     </div>
-    <section className="customer-card customer-panel customer-ops-card customer-ops-config" aria-labelledby="monitoring-config-title">
-      <div className="customer-card-heading"><div><h2 id="monitoring-config-title">Configuración</h2></div></div>
+    <Dialog open={configOpen} onOpenChange={setConfigOpen}>
+      <DialogContent className="customer-ops-config">
+      <DialogTitle className="customer-ops-dialog-title">Configurar revisiones periódicas</DialogTitle>
       <form className="customer-form customer-ops-form" onSubmit={saveMonitoring}>
         <label className="customer-checkbox customer-ops-toggle"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} disabled={!canManage || configure.isPending || coverage.isPending || Boolean(coverage.error)} /><span>Activar revisiones periódicas para este proyecto</span></label>
         <label htmlFor="monitor-interval">Frecuencia</label>
@@ -344,9 +349,9 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
           {configure.isPending ? 'Guardando…' : enabled ? 'Guardar vigilancia' : currentConfig?.enabled ? 'Desactivar y limpiar alcance' : 'Guardar configuración'}
         </button>
       </form>
-    </section>
+      </DialogContent>
+    </Dialog>
 
-    </div>
 
     <section className="customer-settings" aria-labelledby="watch-integrations-title">
       <div className="customer-section-head"><div><h2 id="watch-integrations-title">Integraciones y avisos</h2><p>Ábrelos cuando los necesites.</p></div></div>
