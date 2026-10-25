@@ -758,6 +758,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const [notice, setNotice] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const pendingGithubNavigation = useRef<string | null>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -786,18 +787,30 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     ?? null;
   const applicationId = selectedApplication?.applicationId ?? null;
   useEffect(() => {
-    if (!routeEntry || location.pathname !== '/dashboard') return;
+    if (!routeEntry) return;
+    const pendingGithubScope = readSavedCustomerScope(sessionStorage, 'gotchu-pending-github-scope', userId);
+    if (location.pathname !== '/dashboard') {
+      if (pendingGithubScope && location.pathname === `/w/${pendingGithubScope.organizationId}/p/${pendingGithubScope.applicationId}/fuentes`) {
+        sessionStorage.removeItem('gotchu-pending-github-scope');
+        pendingGithubNavigation.current = null;
+      }
+      return;
+    }
     const onboardingScope = readSavedCustomerScope(sessionStorage, 'gotchu-onboarding-scope', userId);
     if (onboardingScope) {
       void navigate({ to: '/primeros-pasos', search: { espacio: onboardingScope.organizationId, fuente: 'github' } });
       return;
     }
-    const pendingGithubScope = readSavedCustomerScope(sessionStorage, 'gotchu-pending-github-scope', userId);
     if (pendingGithubScope) {
-      sessionStorage.removeItem('gotchu-pending-github-scope');
-      void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: pendingGithubScope.organizationId, projectId: pendingGithubScope.applicationId } });
+      const destination = `/w/${pendingGithubScope.organizationId}/p/${pendingGithubScope.applicationId}/fuentes`;
+      if (pendingGithubNavigation.current !== destination) {
+        pendingGithubNavigation.current = destination;
+        // Keep the validated scope until navigation commits so github=connected cannot race to the default project.
+        void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: pendingGithubScope.organizationId, projectId: pendingGithubScope.applicationId } });
+      }
       return;
     }
+    pendingGithubNavigation.current = null;
     const params = new URLSearchParams(window.location.search);
     const legacyScope = customerScopeSchema.safeParse({ organizationId: params.get('organizationId'), applicationId: params.get('applicationId') });
     if (legacyScope.success) {
