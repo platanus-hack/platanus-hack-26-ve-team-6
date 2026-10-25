@@ -74,7 +74,7 @@ export function ProjectHttpsAudit({ organizationId, applicationId, targets, repo
       {archived && <p className="https-audit-note">Reactiva el proyecto para iniciar otra evaluación.</p>}
       {error && <p className="customer-form-error" role="alert">{error}</p>}
     </section>
-    <AssessmentProgress status={status} reportAvailable={Boolean(observedJob ? observedJob.reportId : latest)} />
+    <AssessmentProgress status={analyze.isPending ? 'submitting' : status} reportAvailable={!analyze.isPending && Boolean(observedJob ? observedJob.reportId : latest)} />
     {jobError && <Button variant="outline" size="sm" onClick={onRetryJob}>Volver a consultar</Button>}
     <section className="https-audit-results" aria-labelledby="https-results-title">
       <div className="https-section-heading"><h2 id="https-results-title">Informes externos</h2><span>{externalReports.length}</span></div>

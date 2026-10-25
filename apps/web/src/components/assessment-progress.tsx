@@ -3,20 +3,20 @@ import type { CustomerJob } from './customer-client';
 import { Badge } from './ui/badge';
 import './https-audit.css';
 
-export type AssessmentProgressStatus = CustomerJob['state'] | 'idle' | 'loading' | 'unavailable';
+export type AssessmentProgressStatus = CustomerJob['state'] | 'idle' | 'loading' | 'submitting' | 'unavailable';
 
 export function AssessmentProgress({ status, reportAvailable = false }: { status: AssessmentProgressStatus; reportAvailable?: boolean }) {
   const labels: Record<AssessmentProgressStatus, string> = {
-    idle: 'Lista para empezar', loading: 'Consultando estado', queued: 'En cola', running: 'Evaluando',
+    idle: 'Lista para empezar', loading: 'Consultando estado', submitting: 'Registrando solicitud', queued: 'En cola', running: 'Evaluando',
     succeeded: reportAvailable ? 'Informe disponible' : 'Evaluación terminada', failed: 'No se pudo completar', unavailable: 'Estado sin confirmar',
   };
   const hasJob = ['queued', 'running', 'succeeded', 'failed'].includes(status);
   const stages = [
-    { title: 'Solicitud registrada', detail: 'Solicitud aceptada y encolada', state: hasJob ? 'done' : 'pending' },
+    { title: 'Solicitud registrada', detail: status === 'submitting' ? 'Guardando alcance y solicitud' : 'Solicitud aceptada y encolada', state: status === 'submitting' ? 'running' : hasJob ? 'done' : 'pending' },
     { title: 'Evaluación', detail: 'Comprobaciones en segundo plano', state: status === 'running' ? 'running' : status === 'succeeded' ? 'done' : status === 'failed' ? 'failed' : 'pending' },
     { title: 'Informe guardado', detail: 'Evidencia, hallazgos y cobertura', state: status === 'succeeded' && reportAvailable ? 'done' : 'pending' },
   ];
-  return <section className="https-progress" aria-labelledby="https-progress-title" aria-busy={status === 'running' || status === 'queued' || status === 'loading'}>
+  return <section className="https-progress" aria-labelledby="https-progress-title" aria-busy={status === 'running' || status === 'queued' || status === 'loading' || status === 'submitting'}>
     <div className="https-section-heading"><h2 id="https-progress-title">Proceso de evaluación</h2><Badge variant="outline" role="status">{labels[status]}</Badge></div>
     <ol className="https-progress-graph" aria-label="Estado de la evaluación">
       {stages.map(stage => <li key={stage.title} data-state={stage.state} aria-current={stage.state === 'running' ? 'step' : undefined}>

@@ -4,6 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { AssessmentProgress } from '../src/components/assessment-progress';
 
 describe('assessment progress evidence', () => {
+  it('does not reuse the preceding report completion while a new request is being registered', () => {
+    const submitting = renderToStaticMarkup(createElement(AssessmentProgress, { status: 'submitting', reportAvailable: true }));
+    expect(submitting).toContain('Registrando solicitud');
+    expect(submitting).toContain('aria-busy="true"');
+    expect(submitting).not.toContain('data-state="done"');
+    expect(submitting).not.toContain('Informe disponible');
+  });
   it('keeps evaluation and report pending until the worker confirms them', () => {
     const queued = renderToStaticMarkup(createElement(AssessmentProgress, { status: 'queued' }));
     expect(queued.match(/data-state="done"/g)).toHaveLength(1);
