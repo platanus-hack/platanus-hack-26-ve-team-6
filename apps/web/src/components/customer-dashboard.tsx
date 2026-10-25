@@ -31,7 +31,7 @@ import { membersApi } from './members-client';
 import { ApprovalPanel } from './approval-panel';
 import { GitHubRepositoryPanel } from './onboarding';
 import { WorkflowExceptions } from './workflow-exceptions';
-import { InvestigationActionButton } from './investigations-panel';
+import { InvestigationActionButton, InvestigationsTimeline } from './investigations-panel';
 import { DependencyInventoryPanel } from './customer-supply-chain';
 import { GotchuMark } from './gotchu-mark';
 import { DotPlate } from './dot-field/dot-plate';
@@ -573,6 +573,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
     <div className="customer-report-callout"><strong>{count(entries.length, 'observación registrada', 'observaciones registradas')}</strong><p>La cobertura parcial o no solicitada no confirma seguridad. No se hicieron cambios en el proyecto.</p></div>
     <ComparisonSummary comparisons={report.comparison} internal={report.internal} external={report.external} />
     <ExternalHttpsEvidence analysis={report.external} />
+    <InvestigationsTimeline key={`${organizationId}:${applicationId}:${report.id}`} organizationId={organizationId} applicationId={applicationId} reportId={report.id} canManage={canManage && !archived} />
     <div className="customer-report-tabs" role="tablist" aria-label="Contenido del informe" onKeyDown={event => {
       if (event.key === 'ArrowRight' || event.key === 'ArrowLeft' || event.key === 'Home' || event.key === 'End') {
         event.preventDefault();

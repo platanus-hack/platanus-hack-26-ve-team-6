@@ -247,17 +247,18 @@ const statusNames = {
   inconclusive: 'Inconclusa', delayed: 'Detenida por límites', cancelled: 'Cancelada', reconciliation_required: 'Requiere conciliación',
 } as const;
 
-export function InvestigationsTimeline({ organizationId, applicationId, canManage }: { organizationId: string; applicationId: string; canManage: boolean }) {
+export function InvestigationsTimeline({ organizationId, applicationId, canManage, reportId }: { organizationId: string; applicationId: string; canManage: boolean; reportId?: string }) {
   const queryClient = useQueryClient();
   const key = runsKey(organizationId, applicationId);
   const runs = useQuery({ queryKey: key, queryFn: () => customerApi.investigations(organizationId, applicationId), retry: false, refetchInterval: 5_000 });
   const cancel = useMutation({ mutationFn: (jobId: string) => customerApi.cancelInvestigation(organizationId, applicationId, jobId), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: key }); } });
   const resume = useMutation({ mutationFn: (jobId: string) => customerApi.resumeInvestigation(organizationId, applicationId, jobId), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: key }); } });
-  if (!runs.isPending && !runs.error && runs.data?.length === 0) return null;
-  return <section className="customer-card customer-panel customer-investigation-timeline">
-    <div className="customer-card-heading"><div><h2>Resultados de investigación</h2></div></div>
+  const visibleRuns = runs.data?.filter(run => reportId === undefined || run.subject.kind === 'finding' && run.subject.reportId === reportId);
+  if (!runs.isPending && !runs.error && visibleRuns?.length === 0) return null;
+  return <section className={reportId ? 'customer-report-section customer-investigation-timeline' : 'customer-card customer-panel customer-investigation-timeline'}>
+    <div className="customer-card-heading"><div>{reportId ? <h3>Investigaciones de este informe</h3> : <h2>Resultados de investigación</h2>}</div></div>
     {runs.isPending ? <p>Cargando investigaciones…</p> : runs.error ? <p className="customer-form-error" role="alert">{errorText(runs.error)}</p> : <ol>
-      {runs.data?.map(run => <li key={run.jobId}>
+      {visibleRuns?.map(run => <li key={run.jobId}>
         <div className="customer-investigation-run-heading"><strong>{statusNames[run.status]}</strong><span>{new Date(run.createdAt).toLocaleString('es')}</span></div>
         <p>{run.summary ?? (run.status === 'reconciliation_required' ? 'El coste de una llamada quedó reservado porque el proveedor no confirmó su uso.' : 'La investigación está en curso o no produjo una explicación.')}</p>
         {run.assessment && <span className="customer-status customer-status-muted">Evaluación del modelo: {run.assessment === 'candidate_issue' ? 'indicio candidato' : run.assessment === 'no_issue_supported' ? 'sin indicio respaldado' : 'inconclusa'}</span>}

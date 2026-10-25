@@ -14,8 +14,9 @@ function render(legacy = false) {
       ...(legacy ? {} : { implications: ['Reject connections with an untrusted certificate.'], risks: ['An internal certificate may need a configured trust root.'], validationPlan: ['Verify trusted and untrusted certificate cases independently.'] }) },
     tokensSpent: 10, costMicroUsd: 0, reservedCostMicroUsd: 0, reservedTokens: 0, createdAt: new Date().toISOString(), cancelRequested: false });
   const client = new QueryClient();
-  client.setQueryData(['customer-data', organizationId, applicationId, 'investigations'], [run]);
-  const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(InvestigationsTimeline, { organizationId, applicationId, canManage: true })));
+  client.setQueryData(['customer-data', organizationId, applicationId, 'investigations'], [run,
+    { ...run, jobId: randomUUID(), subject: { kind: 'incident', subjectId: randomUUID() }, summary: 'Unrelated runtime incident', candidateSuggestion: null }]);
+  const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client }, createElement(InvestigationsTimeline, { organizationId, applicationId, reportId, canManage: true })));
   client.clear(); return { markup, organizationId, applicationId, reportId };
 }
 describe('investigation suggestions for human review (synthetic model output)', () => {
@@ -26,6 +27,7 @@ describe('investigation suggestions for human review (synthetic model output)', 
     expect(markup).toContain('Verify trusted and untrusted certificate cases independently.');
     expect(markup).toContain(`/w/${organizationId}/p/${applicationId}/informes/${reportId}`);
     expect(markup).toContain('requiere validación y aprobación'); expect(markup).toContain('no verificada');
+    expect(markup).not.toContain('Unrelated runtime incident');
   });
   it('keeps missing implications and risks explicitly unknown for older saved investigations', () => {
     const { markup } = render(true);
