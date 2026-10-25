@@ -57,7 +57,8 @@ function fixture(options: { purpose?: 'authorize' | 'install' | 'choose'; broker
   } satisfies Pick<Backend['github'], 'workspaceName' | 'createState' | 'consumeState' | 'bind' | 'list' | 'revoke' | 'createRepositoryLink' | 'importCapturedSource'>;
   const services = {
     github,
-    uploadSource: vi.fn(async () => { events.push('upload'); return source; }),
+    uploadSource: vi.fn(async () => { throw new Error('Single-App captures must preserve provenance'); }),
+    uploadCapturedSource: vi.fn(async () => { events.push('upload'); return source; }),
     queue: vi.fn(async () => { events.push('queue'); return { jobId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }; }),
   };
   const broker = {
@@ -109,13 +110,24 @@ describe('single-app GitHub routing', () => {
   });
 
   it('links before capture, imports captured provenance, then queues the existing assessment', async () => {
-    const { handler, events, github } = fixture();
+    const { handler, events, github, services } = fixture();
     const response = await handler(new Request(`${origin}/api/customer/workspaces/${organizationId}/applications/${applicationId}/github/installations/${connection.installationId}/repositories/${repository.id}/select`, {
       method: 'POST', headers: { origin, 'content-type': 'application/json' },
       body: JSON.stringify({ fullName: repository.fullName, defaultBranch: repository.defaultBranch }),
     }), { userId });
     expect(response?.status).toBe(201);
     expect(events).toEqual(['link', 'upload', 'import', 'queue']);
+    expect(services.uploadSource).not.toHaveBeenCalled();
+    expect(services.uploadCapturedSource).toHaveBeenCalledWith({ userId }, {
+      organizationId, applicationId, authorized: true, snapshot,
+    }, {
+      organizationId, applicationId, repositoryLinkId: repositoryLink.id,
+      appId: app.id, installationId: connection.installationId, repositoryId: repository.id,
+      commitSha: snapshot.revision, treeSha: '2'.repeat(40), digest,
+    });
+    expect(services.queue).toHaveBeenCalledWith({ userId }, expect.objectContaining({
+      sourceSnapshotId: source.id, idempotencyKey: `github-first-scan:${source.id}`,
+    }));
     expect(github.importCapturedSource).toHaveBeenCalledWith({ userId }, {
       organizationId, applicationId, repositoryLinkId: repositoryLink.id, sourceSnapshotId: source.id,
       appId: app.id, installationId: connection.installationId, repositoryId: repository.id,
