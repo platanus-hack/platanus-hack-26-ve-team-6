@@ -9,7 +9,7 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "images.lock.json", "PROFILES.md", "README.md", "SELECTED-NODE.md"],
+  "files": ["dist", "images.lock.json", "README.md"],
   "scripts": {
     "prepare:images": "bash scripts/prepare-images.sh",
     "pin:images": "bash scripts/prepare-images.sh --pin",

@@ -57,7 +57,7 @@ The exported `createPublicSurfaceProbe` requires a validated target with `scanPr
 
 ## Verification and limits
 
-After the parent integrates version 2 contracts and reconciles the shared lockfile:
+Run from the repository root:
 
 ```sh
 pnpm --filter @gotchu/contracts build

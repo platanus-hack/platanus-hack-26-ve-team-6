@@ -15,13 +15,13 @@
 
 ## Content
 
-- The sequence is Mirada (hero), Por dentro (code field beside four benefits), Por fuera (globe field beside four benefits), Evidencia (report field and four highlighted terms), Preguntas (shadcn accordion) and Cierre (question, “we Gotchu.”, the dot GOTCHU wordmark, “Crea tu cuenta” and “Ya tengo cuenta”).
-- This is a marketing page: sell what each side gives the customer, not the user's whole flow or every feature. Each side ends in an action to `/registro`. Never promise complete protection; the FAQ says no findings is not proof of safety.
+- The sequence is Mirada (hero), Por dentro (code field beside four benefits), Por fuera (globe field beside four benefits), Evidencia (report field and four highlighted terms) and Cierre (question, “we Gotchu.”, the dot GOTCHU wordmark, “Crea tu cuenta” and “Ya tengo cuenta”).
+- This is a marketing page: sell what each side gives the customer, not the user's whole flow or every feature. Each side ends in an action to `/registro`. Never promise complete protection or present no findings as proof of safety.
 - Show the real report JSON keys: `id`, `organizationId`, `applicationId`, `jobId`, `applicationName`, `mode`, `startedAt`, `finishedAt`, `internal`, `external`, `comparison`, `limitations`, `responseMode`, `actionsPerformed`, `version` and `revision`.
-- Re-checks run every 1–24 hours only when the customer enables them. They are not real time; alerts stay inside Gotchu, and an alert never confirms an attack. Signed runtime telemetry feeds triage, not proof of compromise.
-- Source analysis is bounded to JS/TS, JSON, YAML and TOML, with Semgrep, Gitleaks, Trivy and OSV where configured. Source is not executed.
+- Re-checks run every 1–24 hours only when the customer enables them. They are not real time; configured email and signed HTTPS webhook channels deliver notifications with retries and visible delivery status; an alert never confirms an attack. Signed runtime telemetry feeds triage, not proof of compromise.
+- Source analysis is bounded to JS/TS, JSON, YAML and TOML, with Semgrep, Gitleaks, Trivy and OSV where configured. Source is not executed during static assessment; candidate suites use a separate configured, gated runner.
 - HTTPS scope starts with a signed-in Owner or Operator requesting one public origin and a finite profile. The root profile makes one `GET /`; the public-surface profile makes up to ten GETs to that origin. TLS is verified; cookies, credentials and redirects are not used. The request records the selected scope; it is not presented as proof of ownership or a separate customer attestation. Exploitability remains unknown; severity may be unevaluated.
-- Some findings can produce a private corrected copy and independent re-analysis. Neither changes the repository or production. After the Owner approves the exact change with a passkey, the independent executor can open a draft PR in a linked GitHub repository.
+- Some findings can produce a private corrected copy and independent re-analysis. Neither changes the repository or production. After independent validation, repository publication consent and exact approval from the authenticated Owner session, the independent executor can open a draft PR in a linked GitHub repository.
 
 ## Signature moment
 
@@ -30,7 +30,7 @@
 
 ## Boundaries
 
-- Never claim customer-code execution, PRs without exact approval, merging, deployment, rollback, automatic response, provider recovery, external notifications, AI investigation, AWS hosting or guaranteed security.
+- Describe implemented capabilities under their installation prerequisites: optional model investigations/private AI corrections, durable email/webhook notifications and draft PRs after exact approval. Copying a finding prompt does not call a model. Do not imply execution during static assessment or guaranteed security. Additional capabilities belong in `docs/roadmap.md`.
 - The public landing should describe only the product boundaries below. Do not restyle `/dashboard` or `/demo`, broaden authorization, or turn a visual reference into a product promise.
 
 ## Voice

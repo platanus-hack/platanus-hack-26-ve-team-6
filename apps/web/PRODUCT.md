@@ -16,13 +16,13 @@ Assess explicitly authorized source snapshots and HTTPS origins. Retain evidence
 
 ## Operating Context
 
-The existing dashboard supports authentication, workspaces, applications, bounded HTTPS scope requests, source snapshots, queued assessments, history, report evidence, scheduled re-checks and signed runtime-event triage. A gated controlled-demo dashboard compares known fixture revisions. Both operate in observation mode. Repository documentation remains authoritative for authorization and backend capabilities.
+The current main baseline (26162b7, including PR 25) supports authentication, workspaces, applications, HTTPS-first onboarding, optional GitHub connections, source snapshots, live assessment phases, project summaries, report evidence and copyable finding prompts, periodic re-checks, signed runtime-event triage, email/webhook notifications, optional model investigations/private AI corrections and exactly approved draft PRs. A gated controlled-demo dashboard compares known fixture revisions. Assessments are observational; private correction and approved PR workflows have separate authorization. Repository documentation remains authoritative for authorization and backend capabilities.
 
 ## Capabilities and Constraints
 
-TanStack Start, React, Auth.js, pnpm, Node 24 and strict TypeScript are established repository choices. Preserve HTTP/worker/provider boundaries, tenant isolation and authorization. Source is not executed. Severity does not grant permissions. Scheduled re-checks can run every 1–24 hours when enabled; they are not real time and do not send external notifications. Reports do not confirm exploitation. Some findings can produce a private corrected snapshot and a queued independent re-analysis without changing the original source or production. Automatic response and recovery are not delivered. No mandatory paid identity, model or repository service.
+TanStack Start, React, Auth.js, pnpm, Node 24 and strict TypeScript are established repository choices. Preserve HTTP/worker/provider boundaries, tenant isolation and authorization. Static assessment does not execute customer code. Separate candidate validation requires its configured isolated runner gate. Severity does not grant permissions. Scheduled re-checks run every 1–24 hours when enabled; they are periodic. Configured SMTP and signed HTTPS webhook channels provide durable notification delivery with retries and visible status. Reports do not confirm exploitation. Some findings can produce a private corrected snapshot and a queued independent re-analysis without changing the original source or production. Draft PRs require independent validation, repository publication consent and exact Owner-session approval; the customer flow has no second factor. Further product proposals belong in docs/roadmap.md. No mandatory paid identity, model or repository service.
 
-**Current iteration: bounded HTTPS scope requests in customer onboarding and the existing application panel, plus matching public landing and report language.** `/demo` and its controlled fixture remain unchanged. No public deployment, waitlist, contact database or invented purchase flow.
+**Current iteration: align the landing and product documentation with main and merged PR 25. Preserve implemented notifications, optional AI workflows and approved draft PRs. Consolidate future proposals in docs/roadmap.md; do not add product behavior.**
 
 ## Brand Commitments
 
@@ -32,7 +32,7 @@ Gotchu is the repository/application name; the reference's earlier “Prototipo�
 
 ## Evidence on Hand
 
-Jenn's supplied `prototipo.html` and its reviewed second iteration establish visual direction, not product capabilities. Existing contracts and workflows establish actual scope. No fabricated customers, testimonials, certifications, performance figures or security guarantees. Do not fabricate assessment results. Use authored assets and product-structure panels instead of invented records or pseudo-results, and omit meta/helper captions that explain the artwork or the page. The landing covers snapshot revisions/digests, requested HTTPS scope, evidence fields, coverage, workspace/application organization, queued-job history, JSON export, periodic re-checks, signed runtime events and private corrected snapshots.
+Jenn's supplied `prototipo.html` and its reviewed second iteration establish visual direction, not product capabilities. Existing contracts and workflows establish actual scope. No fabricated customers, testimonials, certifications, performance figures or security guarantees. Do not fabricate assessment results. Use authored assets and product-structure panels instead of invented records or pseudo-results, and omit meta/helper captions that explain the artwork or the page. The landing covers snapshot revisions/digests, requested HTTPS scope, evidence fields, coverage, workspace/application organization, queued-job history, JSON export, periodic re-checks, signed runtime events, configured email/webhook delivery, private corrected snapshots, optional AI and approved draft PRs.
 
 ## Product Principles
 
@@ -47,4 +47,4 @@ Spanish interface with visible keyboard focus, semantic landmarks, native disclo
 
 ## Open Decisions
 
-Primary buyer specialization and commercial AIRNT licensing remain open. The discovery interview timed out; the user then explicitly narrowed and authorized the landing-first iteration. Automatic response, provider recovery, external notifications, hosted AWS and broader app redesign remain outside this PR.
+Primary buyer specialization and commercial AIRNT licensing remain open. The discovery interview timed out; the user then explicitly narrowed and authorized the landing-first iteration. The AWS installation has a separate runbook in infra/aws/README.md. Runtime services and optional integrations must be configured per installation; implementation is not proof of hosted availability. Future scope is kept in docs/roadmap.md.
