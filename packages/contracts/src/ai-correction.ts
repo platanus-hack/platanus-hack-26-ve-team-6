@@ -38,6 +38,7 @@ export const aiCorrectionSchema = z.object({
   sourceDigest: digest, state: z.enum(['queued', 'running', 'prepared', 'failed', 'cancelled', 'reconciliation_required']),
   summary: z.string().max(2_000).nullable(), reasonCode: z.string().max(100).nullable(),
   candidateSourceId: z.uuid().nullable(), patchHash: digest.nullable(), validationRunId: z.uuid().nullable(),
+  rescanJobId: z.uuid().nullable(),
   implications: explanation, risks: explanation, validationPlan: explanation,
   diff: z.array(z.object({ path: customerSourceFileSchema.shape.path, before: z.string().max(12_000), after: z.string().max(24_000) }).strict()).max(4),
   createdAt: z.iso.datetime(),
