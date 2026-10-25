@@ -48,7 +48,7 @@ function isRequireExpression(expression: ts.Expression, aliases: ReadonlySet<str
 }
 
 function parseSources(files: readonly SourceFile[], packageNames: ReadonlySet<string>): ParsedSource[] {
-  const codeFiles = files.filter(file => codePath.test(file.path));
+  const codeFiles = files.filter(file => codePath.test(file.path) && !/\.d\.[cm]?ts$/i.test(file.path));
   return codeFiles.map(file => {
     const ast = ts.createSourceFile(file.path, file.content, ts.ScriptTarget.Latest, true, scriptKind(file.path));
     const bindings = new Map<string, ImportBinding[]>();

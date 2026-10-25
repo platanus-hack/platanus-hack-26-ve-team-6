@@ -87,4 +87,15 @@ describe('dependency import reachability', () => {
       expect(analyzeDependencyReachability(source, [direct], [direct], new Map(), true).get(direct.purl)?.state).toBe('unknown');
     }
   });
+
+  it.each(['.d.ts', '.d.mts', '.d.cts'])('does not treat declaration-only TypeScript files (%s) as runtime dependency evidence', extension => {
+    const dependency = pkg('alpha', 'direct');
+    const run = input([{ path: `types/vue-shim${extension}`, content: "import type { Component } from 'alpha';\ndeclare module '*.vue' { const component: Component; export default component; }" }]);
+    const source = run.source;
+    if (!source) throw new Error('fixture_source_missing');
+
+    const result = analyzeDependencyReachability(source, [dependency], [dependency], new Map(), true).get(dependency.purl);
+
+    expect(result).toMatchObject({ state: 'unknown', importEvidence: [] });
+  });
 });
