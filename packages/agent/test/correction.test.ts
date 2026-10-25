@@ -35,7 +35,7 @@ function patch(): AiCorrectionPatch {
       replacements: [{ before: 'eval(input)', after: 'JSON.parse(input)' }] }] };
 }
 const usage = { inputTokens: 100, outputTokens: 100, totalTokens: 200, spendMicroUsd: 15 };
-function harness(options: { output?: unknown; checkpoint?: SafeInvestigationCheckpoint; modelError?: Error; failSave?: boolean } = {}) {
+function harness(options: { output?: unknown; usage?: typeof usage; checkpoint?: SafeInvestigationCheckpoint; modelError?: Error; failSave?: boolean } = {}) {
   const saved: SafeInvestigationCheckpoint[] = [];
   const calls: ModelCallRequest[] = [];
   const dependencies: InvestigationDependencies = { capability,
@@ -43,7 +43,7 @@ function harness(options: { output?: unknown; checkpoint?: SafeInvestigationChec
     model: { async invoke(request) {
       calls.push(request);
       if (options.modelError) throw options.modelError;
-      return { output: options.output ?? patch(), usage };
+      return { output: options.output ?? patch(), usage: options.usage ?? usage };
     } },
     persistence: { async loadCheckpoint() { return options.checkpoint; }, async saveCheckpoint(_scope, _token, checkpoint) {
       if (options.failSave) throw new GatewayUnavailableError('checkpoint');
@@ -53,6 +53,45 @@ function harness(options: { output?: unknown; checkpoint?: SafeInvestigationChec
 }
 
 describe('bounded correction graph (injected gateways, no live provider)', () => {
+  it.each([undefined, 100, null])('accounts for high usage with modelTokenLimit %s', async modelTokenLimit => {
+    const fixture = harness({ usage: { inputTokens: 20_000, outputTokens: 5_000, totalTokens: 25_000, spendMicroUsd: 0 } });
+    const result = await runBoundedCorrection({ ...input(),
+      ...(modelTokenLimit === undefined ? {} : { modelTokenLimit }),
+    }, fixture.dependencies);
+    expect(result).toMatchObject({ status: modelTokenLimit === null ? 'investigated' : 'delayed',
+      reasonCode: modelTokenLimit === null ? 'completed' : 'model_budget_exhausted',
+      counters: { modelCalls: 1, tokensUsed: 25_000, spendMicroUsd: 0 } });
+    expect(fixture.saved.at(-1)).toMatchObject({ tokensUsed: 25_000, spendMicroUsd: 0 });
+    expect(fixture.calls).toHaveLength(1);
+    expect(fixture.calls[0]?.remainingSpendMicroUsd).toBe(250_000);
+    if (modelTokenLimit === null) {
+      expect(fixture.calls[0]).not.toHaveProperty('maxOutputTokens');
+      expect(fixture.calls[0]).not.toHaveProperty('remainingTokens');
+    } else {
+      expect(fixture.calls[0]).toMatchObject({ remainingTokens: modelTokenLimit ?? 20_000,
+        maxOutputTokens: modelTokenLimit ?? 2_048 });
+    }
+    const serialized = JSON.stringify({ result, saved: fixture.saved });
+    expect(serialized).not.toContain(content);
+    expect(serialized).not.toContain('replacements');
+    expect(serialized).not.toContain('JSON.parse(input)');
+  });
+
+  it('retains spend limits for unlimited token calls', async () => {
+    const fixture = harness({ usage: { ...usage, spendMicroUsd: 250_001 } });
+    expect(await runBoundedCorrection({ ...input(), modelTokenLimit: null }, fixture.dependencies)).toMatchObject({
+      status: 'delayed', reasonCode: 'model_budget_exhausted', counters: { tokensUsed: 200, spendMicroUsd: 250_001 },
+    });
+  });
+
+  it('retains output structure validation for unlimited token calls', async () => {
+    const fixture = harness({ output: { ...patch(), command: 'npm install' },
+      usage: { inputTokens: 20_000, outputTokens: 5_000, totalTokens: 25_000, spendMicroUsd: 0 } });
+    expect(await runBoundedCorrection({ ...input(), modelTokenLimit: null }, fixture.dependencies)).toMatchObject({
+      status: 'inconclusive', reasonCode: 'invalid_model_output', counters: { tokensUsed: 25_000 },
+    });
+  });
+
   it('invokes the model once and persists only an unverified suggestion, never source or replacements', async () => {
     const fixture = harness();
     const result = await runBoundedCorrection(input(), fixture.dependencies);
