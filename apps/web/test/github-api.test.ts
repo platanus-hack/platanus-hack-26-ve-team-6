@@ -33,7 +33,7 @@ async function callbackFixture(options: FixtureOptions = {}) {
       return { organizationId, installationId: options.target === undefined ? '174788349' : options.target, verifier: options.verifier === undefined ? verifier : options.verifier, purpose: options.purpose ?? 'authorize' };
     }),
     bind: vi.fn(async () => ({ installationId: '174788349', accountLogin: 'fixture-owner', state: 'active' as const, connectedAt: new Date().toISOString() })),
-    list: vi.fn(async () => []), revoke: vi.fn(async () => undefined),
+    list: vi.fn(async () => []), revoke: vi.fn(async () => undefined), listRepositoryLinks: vi.fn(async () => []),
     createRepositoryLink: vi.fn(async () => { throw new Error('No source read is expected'); }),
   } satisfies Backend['github'];
   const calls: string[] = [];

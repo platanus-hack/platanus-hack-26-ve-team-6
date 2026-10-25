@@ -75,6 +75,21 @@ export async function listGitHubInstallationRepositories(token: string, fetcher:
   return repositories;
 }
 
+/** Monitor picker options for App-connected repositories, named by their current GitHub full name. */
+export async function githubMonitorRepositoryOptions(links: readonly { repositoryKey: string; installationId: string }[], appFile: string) {
+  const names = new Map<string, string>();
+  for (const installationId of new Set(links.map(link => link.installationId))) {
+    try {
+      const repositories = await listGitHubInstallationRepositories(await mintGitHubInstallationToken(installationId, appFile));
+      for (const repository of repositories) names.set(`gh-${repository.id}`, repository.full_name);
+    } catch (error) {
+      // The key stays selectable; the coordinator re-checks access on every run and records the gap.
+      console.warn('github_monitor_repository_names_unavailable', error instanceof HttpError ? error.code : 'unexpected');
+    }
+  }
+  return links.map(link => ({ key: link.repositoryKey, label: names.get(link.repositoryKey) ?? link.repositoryKey }));
+}
+
 function authorizationUrl(origin: string, credentials: AppCredentials, handshake: { state: string; codeChallenge: string | null }) {
   if (!handshake.codeChallenge) throw new Error('github_pkce_required');
   const url = new URL('https://github.com/login/oauth/authorize');
