@@ -101,7 +101,7 @@ describe('single-app GitHub broker', () => {
         id: 77, node_id: 'I_kwDOBogus', html_url: 'https://github.com/organizations/acme/settings/installations/77',
         account: { id: 88, login: 'acme', type: 'Organization', name: 'Acme, Inc.', avatar_url: 'https://avatars.example/acme.png', node_id: 'MDEyOk9yZ2FuaXphdGlvbjg4' },
       }] });
-      if (url.pathname === '/applications/Iv1.example/grant') return new Response(null, { status: 204 });
+      if (url.pathname === '/applications/Iv1.example/token') return new Response(null, { status: 204 });
       throw new Error('unexpected_github_request');
     };
     const broker = createGitHubBroker({ database: fakeDatabase(), app, publicAppUrl: 'https://gotchu.example', fetchImplementation });
@@ -118,7 +118,8 @@ describe('single-app GitHub broker', () => {
       redirect_uri: 'https://gotchu.example/api/customer/github/callback',
       client_id: app.clientId,
     });
-    expect(requests.find(request => request.url.pathname === '/applications/Iv1.example/grant')?.init?.method).toBe('DELETE');
+    expect(requests.find(request => request.url.pathname === '/applications/Iv1.example/token')?.init?.method).toBe('DELETE');
+    expect(requests.some(request => request.url.pathname === '/applications/Iv1.example/grant')).toBe(false);
   });
 
   it('denies a repository link before contacting GitHub when the persisted binding is unavailable', async () => {

@@ -440,7 +440,7 @@ export async function revokeGitHubOAuthToken(input: {
   fetchImplementation?: typeof fetch;
 }): Promise<void> {
   const fetcher = input.fetchImplementation ?? fetch;
-  const response = await fetcher(new URL(`/applications/${encodeURIComponent(input.app.clientId)}/grant`, apiBase), {
+  const response = await fetcher(new URL(`/applications/${encodeURIComponent(input.app.clientId)}/token`, apiBase), {
     method: 'DELETE', headers: {
       accept: 'application/vnd.github+json', 'content-type': 'application/json',
       authorization: `Basic ${Buffer.from(`${input.app.clientId}:${input.app.clientSecret}`).toString('base64')}`,
