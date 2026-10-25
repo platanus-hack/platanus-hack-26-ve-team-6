@@ -26,7 +26,7 @@ export function createTriageService(deps: BaseDependencies) {
         const history = await tx.query<{ body: unknown; created_at: Date }>('SELECT body,created_at FROM gotchu.triage_revisions WHERE organization_id=$1 AND application_id=$2 AND incident_id=$3 ORDER BY revision DESC LIMIT 200', [value.organizationId,value.applicationId,value.incidentId]);
         const monitor = await tx.query<{ target_id: string | null; providers: unknown }>(`SELECT target_id,providers FROM gotchu.operation_monitors m WHERE organization_id=$1 AND application_id=$2 AND enabled
           AND (source_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_sources s WHERE s.organization_id=m.organization_id AND s.application_id=m.application_id AND s.id=m.source_id AND s.deleted_at IS NULL))
-          AND (target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='verified' AND t.expires_at>clock_timestamp()))`,[value.organizationId,value.applicationId]);
+          AND (target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='authorized' AND t.expires_at>clock_timestamp()))`,[value.organizationId,value.applicationId]);
         const configured = monitor.rows[0];
         const requestableEvidence = configured ? [...(configured.target_id ? ['https_health' as const] : []), ...(Array.isArray(configured.providers) && configured.providers.length ? ['provider_status' as const] : [])] : [];
         const revisions = history.rows.map(item => ({ revision: triageRevisionSchema.parse(item.body), createdAt: item.created_at.toISOString() }));
@@ -53,7 +53,7 @@ export function createTriageService(deps: BaseDependencies) {
         const config = await tx.query<{ target_id: string | null; providers: unknown }>(`UPDATE gotchu.operation_monitors m SET next_due_at=clock_timestamp()
           WHERE organization_id=$1 AND application_id=$2 AND enabled AND next_due_at>clock_timestamp()-interval '5 minutes'
           AND (source_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_sources s WHERE s.organization_id=m.organization_id AND s.application_id=m.application_id AND s.id=m.source_id AND s.deleted_at IS NULL))
-          AND (target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='verified' AND t.expires_at>clock_timestamp()))
+          AND (target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='authorized' AND t.expires_at>clock_timestamp()))
           RETURNING target_id,providers`,[value.organizationId,value.applicationId]);
         const row = config.rows[0]; const requested = row ? [...(row.target_id ? ['https_health' as const] : []), ...(Array.isArray(row.providers) && row.providers.length ? ['provider_status' as const] : [])] : [];
         await audit(tx,value.organizationId,identity.userId,'triage.evidence_requested',value.incidentId,{requested,scope:'existing_monitor_configuration_only'});
@@ -79,7 +79,7 @@ export function createTriageService(deps: BaseDependencies) {
         const options = optionRows.rows.map(value => ({ serviceId: value.service_id, service: value.service, dependencyId: value.dependency_id,
           provider: value.provider, component: value.component, state: value.state }));
         const profile = await tx.query<{scan_profile:'root'|'public_surface'}>(`SELECT t.scan_profile FROM gotchu.operation_monitors m JOIN gotchu.customer_targets t ON t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id
-          WHERE m.organization_id=$1 AND m.application_id=$2 AND m.enabled AND t.status='verified' AND t.expires_at>clock_timestamp()`,[scope.organizationId,scope.applicationId]);
+          WHERE m.organization_id=$1 AND m.application_id=$2 AND m.enabled AND t.status='authorized' AND t.expires_at>clock_timestamp()`,[scope.organizationId,scope.applicationId]);
         const allowedRoutes = profile.rows[0]?.scan_profile==='public_surface' ? ['/','/.well-known/security.txt','/security.txt','/robots.txt','/sitemap.xml'] : profile.rows[0] ? ['/'] : [];
         return triageProbeRouteSettingsSchema.parse({routes,allowedRoutes,options});
       });

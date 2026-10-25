@@ -169,8 +169,8 @@ live('operations durable domain with real Postgres roles (synthetic adapter evid
   });
   it('rejects target version drift and can disable invalid selected scope after work settles', async () => {
     const c = await customer(); const targetId = randomUUID();
-    await f.admin.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at,verified_at,expires_at)
-      VALUES($1,$2,$3,'https://example.com',1,'verified',$4,repeat('a',64),clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '1 day')`, [c.scope.organizationId,c.scope.applicationId,targetId,c.identity.userId]);
+    await f.admin.query(`INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,requested_by,authorized_at,expires_at)
+      VALUES($1,$2,$3,'https://example.com',1,'authorized',$4,clock_timestamp(),clock_timestamp()+interval '1 day')`, [c.scope.organizationId,c.scope.applicationId,targetId,c.identity.userId]);
     const input = { ...c.scope, enabled: true, intervalSeconds: 21600, targetId };
     await api.operations.configure(c.identity, input);
     await f.admin.query("UPDATE gotchu.operation_monitors SET next_due_at='1980-01-01' WHERE organization_id=$1", [c.scope.organizationId]);
@@ -178,10 +178,10 @@ live('operations durable domain with real Postgres roles (synthetic adapter evid
     const claim = { ...c.scope, runId: work.runId, leaseToken: work.leaseToken };
     // Operator fixture simulates target renewal while no canonical scan is queued.
     await f.admin.query('UPDATE gotchu.customer_targets SET version=2 WHERE id=$1', [targetId]);
-    await expect(coordinator.operations.materialize(claim)).rejects.toMatchObject({ code: 'target_not_verified' });
+    await expect(coordinator.operations.materialize(claim)).rejects.toMatchObject({ code: 'target_not_authorized' });
     await coordinator.operations.finishRun({ ...claim, status: 'degraded', reason: 'Authorization changed' });
     expect(await api.operations.getCoverage(c.identity, c.scope)).toMatchObject({ status: 'degraded', scopeCurrent: false });
-    await f.admin.query("UPDATE gotchu.customer_targets SET status='revoked',expires_at=NULL,verified_at=NULL WHERE id=$1", [targetId]);
+    await f.admin.query("UPDATE gotchu.customer_targets SET status='revoked',expires_at=NULL,authorized_at=NULL WHERE id=$1", [targetId]);
     await expect(api.operations.configure(c.identity, { ...input, enabled: false })).resolves.toMatchObject({ enabled: false });
   });
   it('rolls back observation storage if alert persistence fails, and serializes concurrent exact delivery', async () => {

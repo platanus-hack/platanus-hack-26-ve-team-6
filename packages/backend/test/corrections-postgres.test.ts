@@ -53,9 +53,9 @@ live('private corrections on real PostgreSQL with synthetic scanner evidence', (
     const source = external ? null : await api.customers.uploadSource(identity, { ...scope, snapshot, authorized: true });
     let targetId = null;
     if (external) {
-      const target = await api.customers.enrollTarget(identity, { ...scope, origin: 'https://app.example.com', authorized: true, scanProfile: 'public_surface' });
+      const target = await api.customers.enrollTarget(identity, { ...scope, origin: 'https://app.example.com', scanProfile: 'public_surface' });
       // Trusted test setup only; no claim of real DNS verification.
-      await f.admin.query("UPDATE gotchu.customer_targets SET status='verified',verified_at=clock_timestamp(),expires_at=clock_timestamp()+interval '1 day' WHERE organization_id=$1", [scope.organizationId]);
+      await f.admin.query("UPDATE gotchu.customer_targets SET status='authorized',authorized_at=clock_timestamp(),expires_at=clock_timestamp()+interval '1 day' WHERE organization_id=$1", [scope.organizationId]);
       targetId = target.target.id;
     }
     const queued = await api.customers.queue(identity, { ...scope, mode: external ? 'external' : 'internal', sourceSnapshotId: source?.id ?? null, targetId, idempotencyKey: randomUUID() });
