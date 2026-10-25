@@ -15,7 +15,7 @@ function analysis(origin: 'internal' | 'external', status: AssessmentAnalysis['s
 }
 
 describe('customer report presentation', () => {
-  it('shows actual API scenarios and incomplete checks without claiming authorization bypass', () => {
+  it('shows unknown API coverage in the collapsed shadcn scenario summary', () => {
     const external = analysis('external', 'partial');
     external.coverage.push({ capability: 'api_auth_boundary', state: 'unavailable', detail: 'Fixture transport failure.' });
     external.evidence.push({ id: externalFindingId, origin: 'external', kind: 'configuration', locator: 'https://app.example.com/api/account', collectedAt: timestamp,
@@ -24,10 +24,10 @@ describe('customer report presentation', () => {
     });
     const markup = renderToStaticMarkup(createElement(ExternalHttpsEvidence, { analysis: external }));
     expect(markup).toContain('Pruebas de web y API');
-    expect(markup).toContain('HEAD /api/account');
-    expect(markup).toContain('Sin respuesta');
+    expect(markup).toContain('Respuesta sin autenticación (HEAD) · 0/1 respuestas completas');
+    expect(markup).toContain('data-slot="accordion-trigger"');
     expect(markup).toContain('Cobertura parcial o desconocida');
-    expect(markup).toContain('no demuestra acceso mediante GET ni un bypass');
+    expect(markup).not.toContain('bypass demostrado');
   });
 
   it('prioritizes advisory packages by reachability and leaves other dependencies unprioritized', () => {
