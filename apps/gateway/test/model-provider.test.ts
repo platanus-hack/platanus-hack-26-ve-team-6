@@ -89,7 +89,7 @@ function localTlsFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Re
 }
 
 // One fixture per request shape; presets sharing every wire-format field differ only in catalog data.
-const wireFormat = (preset: (typeof investigationProviderCatalog)[number]) =>
+const wireFormat = (preset: (typeof perTokenPresets)[number]) =>
   [preset.adapterKind, preset.authHeaderStyle, preset.maxTokensField, preset.supportsJsonObjectMode, preset.baseUrl === null].join(':');
 const onePresetPerWireFormat = perTokenPresets.filter((preset, index, all) =>
   all.findIndex(other => wireFormat(other) === wireFormat(preset)) === index);
