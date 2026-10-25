@@ -54,7 +54,7 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
     {proposals.error && <div className="customer-error" role="alert"><p>{errorMessage(proposals.error)}</p><button className="customer-link-button" onClick={() => { proposals.refetch().catch(() => undefined); }}>Reintentar</button></div>}
     {proposals.data?.length === 0 && <div className="customer-empty-inline">Todavía no hay propuestas para este proyecto.</div>}
     {proposals.data?.map((proposal, index) => {
-      const serverEligibility = eligibility[index]?.data;
+      const serverEligibility = proposal.state === 'eligible' ? eligibility[index]?.data : undefined;
       const isPullRequestAction = proposal.kind === 'source_patch_pull_request' || proposal.kind === 'dependency_pull_request';
       const canApprovePr = isOwner && isPullRequestAction && proposal.state === 'eligible' && serverEligibility?.status === 'eligible';
       const eligibilityReasons = serverEligibility?.status === 'ineligible' ? serverEligibility.blockingReasons : proposal.blockingReasons;
@@ -78,7 +78,7 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
         {canManage && isOwner && ['proposed','ineligible','expired'].includes(proposal.state) && isPullRequestAction && <button className="customer-link-button" type="button" disabled={checkEligibility.isPending} onClick={() => checkEligibility.mutate(proposal.id)}>{checkEligibility.isPending ? 'Comprobando requisitos…' : proposal.state === 'expired' ? 'Revisar para aprobar de nuevo' : 'Comprobar requisitos'}</button>}
         {canManage && proposal.state !== 'approved' && !['executing','succeeded','failed','uncertain','reconciliation_required','invalidated','expired'].includes(proposal.state) && <button className="customer-button" type="button" disabled={!canApprovePr || approve.isPending} title={!isOwner ? 'Solo una persona propietaria puede aprobar.' : eligibility[index]?.isPending ? 'Comprobando los requisitos actuales.' : eligibilityReasons[0] ?? (!isPullRequestAction ? 'Esta acción no está disponible en esta fase.' : 'La propuesta todavía no es elegible.')} onClick={() => approve.mutate(proposal)}>{approve.isPending ? 'Guardando aprobación…' : buttonLabels[proposal.kind] ?? 'Acción no disponible'}</button>}
         {canManage && ['proposed','eligible','ineligible'].includes(proposal.state) && <button className="customer-link-button" type="button" disabled={cancel.isPending} onClick={() => cancel.mutate(proposal.id)}>Cancelar propuesta</button>}
-        {eligibility[index]?.error && <p className="customer-form-error" role="alert">{errorMessage(eligibility[index].error)}</p>}
+        {proposal.state === 'eligible' && eligibility[index]?.error && <p className="customer-form-error" role="alert">{errorMessage(eligibility[index].error)}</p>}
         {checkEligibility.error && checkEligibility.variables === proposal.id && <p className="customer-form-error" role="alert">{errorMessage(checkEligibility.error)}</p>}
         {approve.error && approve.variables?.id === proposal.id && <p className="customer-form-error" role="alert">{errorMessage(approve.error)}</p>}
         {cancel.error && cancel.variables === proposal.id && <p className="customer-form-error" role="alert">{errorMessage(cancel.error)}</p>}
