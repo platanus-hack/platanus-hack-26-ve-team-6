@@ -235,7 +235,7 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
 }
 
 export function GitHubRepositoryPanel({ userId, organizationId, applicationId, canManage, onScanQueued }: {
-  userId: string; organizationId: string; applicationId: string; canManage: boolean; onScanQueued: (jobId: string) => void;
+  userId: string; organizationId: string; applicationId: string; canManage: boolean; onScanQueued: (jobId: string, monitoringEnabled: boolean) => void;
 }) {
   const [installationId, setInstallationId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -265,7 +265,7 @@ export function GitHubRepositoryPanel({ userId, organizationId, applicationId, c
     setBusy(true); setError(null);
     try {
       const result = await customerApi.githubSelectRepository({ organizationId, applicationId, installationId: activeInstallation.installationId, repositoryId: repository.id, fullName: repository.fullName, defaultBranch: repository.defaultBranch });
-      onScanQueued(result.jobId);
+      onScanQueued(result.jobId, result.monitoringEnabled);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'No se pudo iniciar la evaluación del repositorio.'); }
     finally { setBusy(false); }
   }
