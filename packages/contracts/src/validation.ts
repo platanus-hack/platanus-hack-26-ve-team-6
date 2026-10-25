@@ -30,7 +30,7 @@ export const validationSuiteConfigSchema = z.object({
   testSelection: validationTestSelectionSchema.nullable().default(null),
   requiredCount: z.number().int().min(1).max(10_000), regressionTestPath: z.string().min(1).max(256).nullable().optional(),
 }).strict();
-export const validationSandboxSchema = z.literal('bwrap+systemd-scope');
+export const validationSandboxSchema = z.enum(['bwrap+systemd-scope', 'docker']);
 export const validationLimitsSchema = z.object({
   vcpu: z.number().int().min(1).max(2), memMiB: z.number().int().min(256).max(4096),
   pids: z.number().int().min(16).max(256), wallMs: z.number().int().min(1_000).max(300_000),
@@ -43,6 +43,7 @@ export const validationRunSchema = z.object({
   baseSnapshotDigest: digest, candidateTreeDigest: digest, patchDigest: digest,
   suiteRepositoryLinkId: uuid.nullable(), suiteDefinitionId: uuid.nullable(), suiteVersion: z.number().int().positive().nullable(), runnerProfile: validationProfileSchema,
   runnerDigest: digest.nullable(), firecrackerDigest: digest.nullable(), kernelDigest: digest.nullable(), rootfsDigest: digest.nullable(),
+  containerImageDigest: digest.nullable().default(null),
   sandboxKind: validationSandboxSchema, limits: validationLimitsSchema,
   state: validationStateSchema, reason: z.string().min(1).max(160).nullable(),
   queuedAt: timestamp, startedAt: timestamp.nullable(), finishedAt: timestamp.nullable(), expiresAt: timestamp,
