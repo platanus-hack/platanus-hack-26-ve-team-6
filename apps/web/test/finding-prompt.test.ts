@@ -28,4 +28,15 @@ describe('finding prompt for coding assistants', () => {
     expect(dependency).toContain('lodash@4.17.20');
     expect(dependency).toContain('regenera el lockfile');
   });
+
+  it('includes an earlier AI investigation as an unverified starting point', () => {
+    const prompt = findingPrompt({ applicationName: 'Shop', origin: null, finding: finding(), evidence: [], suggestion: {
+      summary: 'Read the key from the environment.', path: 'src/index.js', implications: ['Deployments need the variable set.'], risks: ['Old key stays valid until rotated.'], validationPlan: ['Run the unit tests.'],
+    } });
+    expect(prompt).toContain('sin verificar');
+    expect(prompt).toContain('Read the key from the environment. (src/index.js)');
+    expect(prompt).toContain('Implicaciones:\n- Deployments need the variable set.');
+    expect(prompt).toContain('Cómo validarla:\n- Run the unit tests.');
+    expect(findingPrompt({ applicationName: 'Shop', origin: null, finding: finding(), evidence: [] })).not.toContain('investigación previa');
+  });
 });
