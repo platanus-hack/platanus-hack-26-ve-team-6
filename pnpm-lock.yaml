@@ -113,6 +113,9 @@ importers:
       '@gotchu/demo-target':
         specifier: workspace:*
         version: link:../demo-target
+      '@gotchu/gateway':
+        specifier: workspace:*
+        version: link:../gateway
       '@gotchu/monitoring':
         specifier: workspace:*
         version: link:../../packages/monitoring

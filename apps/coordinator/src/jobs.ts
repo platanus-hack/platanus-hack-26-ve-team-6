@@ -3,6 +3,7 @@ import { aggregateAuthFailures, investigationResultSchema, safeCheckpointSchema,
 import { BackendError, completeAiCorrectionForJob, failAiCorrectionForJob, completeJob, createRunService, enqueue, enqueueNotificationEvent, type Backend, type JobClaim } from '@gotchu/backend';
 import { jobEnvelopeSchema, securityEventSchema, type JobEnvelope } from '@gotchu/contracts';
 import type { Database, Transaction } from '@gotchu/database';
+import { recoverTrustedCheckpoint } from '@gotchu/gateway/recovery';
 import { z } from 'zod';
 import { runAssessment, runCustomerAssessment, type AssessmentRunner, type CustomerAssessmentRunner } from './assessment.js';
 import { observeRuntime, observeAssessment, backendInTransaction } from './observations.js';
@@ -109,7 +110,7 @@ type InvestigationCompletion = { status: 'result'; result: InvestigationResult }
 export async function finalizeInvestigation(dependencies: CoordinatorDependencies, claim: JobClaim, runId: string, completion: InvestigationCompletion) {
   const { organizationId, applicationId, id: jobId } = claim.envelope;
   await dependencies.database.tenant(organizationId, async (tx) => {
-    const locked = await tx.query<{ state: string; reserved_micros: string; tokens_reserved: string }>(`SELECT r.state,r.reserved_micros,r.tokens_reserved FROM gotchu.agent_runs r
+    const locked = await tx.query<{ state: string; reserved_micros: string; tokens_reserved: string; model_calls: number; tool_calls: number }>(`SELECT r.state,r.reserved_micros,r.tokens_reserved,r.model_calls,r.tool_calls FROM gotchu.agent_runs r
       JOIN gotchu.jobs j ON j.organization_id=r.organization_id AND j.application_id=r.application_id AND j.id=r.job_id
       WHERE r.organization_id=$1 AND r.application_id=$2 AND r.id=$3 AND j.id=$4
         AND j.lease_token=$5 AND j.state='running' AND j.lease_until>clock_timestamp() FOR UPDATE OF r,j`, [organizationId, applicationId, runId, jobId, claim.leaseToken]);
@@ -159,6 +160,16 @@ export async function finalizeInvestigation(dependencies: CoordinatorDependencie
         await failAiCorrectionForJob(tx, { ...correctionScope, reasonCode: error.code });
         completion = { status: 'failed', reasonCode: error.code };
       }
+    } else if (completion.status === 'result') {
+      const result = completion.result;
+      const scope = { organizationId, applicationId, runId };
+      const recovered = await recoverTrustedCheckpoint(tx, scope, {
+        version: 1, scope, sequence: 0, stage: result.status === 'investigated' ? 'completed' : result.status,
+        modelCalls: result.counters.modelCalls, additionalReadToolCalls: result.counters.additionalReadToolCalls,
+        tokensUsed: result.counters.tokensUsed, spendMicroUsd: result.counters.spendMicroUsd, result,
+      }, payload.evidenceIds, { modelCalls: run.model_calls, toolCalls: run.tool_calls });
+      if (!recovered.result) throw new BackendError('investigation_result_unavailable', 'A terminal investigation result is required', 409);
+      completion = { status: 'result', result: recovered.result };
     }
     if (run.state === 'running') {
       if (BigInt(run.reserved_micros) !== 0n || BigInt(run.tokens_reserved) !== 0n) {
@@ -195,9 +206,11 @@ async function investigate(dependencies: CoordinatorDependencies, claim: JobClai
   const currentRun = await dependencies.backend.runs.load({ organizationId, runId: run.runId });
   const saved = safeCheckpointSchema.safeParse(currentRun.checkpoint);
   const checkpoint = saved.success ? saved.data : undefined;
+  const references = checkpoint?.result ? [...checkpoint.result.citedEvidenceIds,
+    ...checkpoint.result.hypotheses.flatMap(item => item.evidenceIds), ...(checkpoint.result.candidateSuggestion?.evidenceIds ?? [])] : [];
   const canRecover = ['running', 'succeeded', 'unavailable'].includes(currentRun.state) && checkpoint && checkpoint.stage !== 'running' && checkpoint.result
       && checkpoint.scope.organizationId === organizationId && checkpoint.scope.applicationId === applicationId && checkpoint.scope.runId === run.runId
-      && checkpoint.result.citedEvidenceIds.every((id) => payload.evidenceIds.includes(id));
+      && references.every((id) => payload.evidenceIds.includes(id));
   if (canRecover || currentRun.state !== 'running') {
     await finalizeInvestigation(dependencies, claim, run.runId, canRecover && checkpoint?.result
       ? { status: 'result', result: checkpoint.result }
