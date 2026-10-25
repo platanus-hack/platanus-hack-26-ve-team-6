@@ -62,9 +62,10 @@ live('automatic source investigation admission on real PostgreSQL (synthetic sca
     for (const job of await jobs(c.scope)) await api.investigations.cancel(c.identity, { ...c.scope, jobId: job.id });
     await coordinator.customers.recordResult(await c.prepare()); expect(await jobs(c.scope)).toHaveLength(6);
   });
-  it('does not queue work when the existing token budget is exhausted', async () => {
+  it('does not queue work when the existing spend budget is exhausted', async () => {
+    // The fixture's subscription preset has no token limit; its spend budget still bounds admission.
     const c = await customer(true); const run = await c.prepare();
-    await f.admin.query('UPDATE gotchu.organizations SET model_tokens_spent=model_token_budget WHERE id=$1', [c.scope.organizationId]);
+    await f.admin.query('UPDATE gotchu.organizations SET model_spent_micros=model_budget_micros WHERE id=$1', [c.scope.organizationId]);
     await coordinator.customers.recordResult(run); expect(await jobs(c.scope)).toHaveLength(0);
   });
   it('honors revocation before an assessment finishes', async () => {
