@@ -58,6 +58,8 @@ BEGIN
 
   RETURN true;
 END $$;
+REVOKE ALL ON FUNCTION gotchu.validation_test_selection_is_valid(jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION gotchu.validation_test_selection_is_valid(jsonb) TO gotchu_api;
 
 ALTER TABLE gotchu.validation_suite_definitions
   ADD CONSTRAINT validation_suite_definitions_test_selection_check
