@@ -106,7 +106,7 @@ const severityLabels = { unknown: 'Sin evaluar', critical: 'Crítica', high: 'Al
 const confidenceLabels = { observed: 'Observado', inferred: 'Indicado', uncertain: 'Sin comprobar' };
 const coverageLabels = { inspected: 'Evaluado', not_requested: 'No solicitado', unsupported: 'No disponible en este perfil', unavailable: 'No disponible' };
 const analysisLabels = { completed: 'Completado', partial: 'Parcial', unavailable: 'No disponible' };
-const scanProfileLabels: Record<CustomerScanProfile, string> = { root: 'Raíz del sitio', public_surface: 'Superficie pública limitada' };
+const scanProfileLabels: Record<CustomerScanProfile, string> = { root: 'Raíz del sitio', public_surface: 'Superficie pública limitada', api_checks: 'Web y API · escenarios HTTP activos' };
 const rememberedSignInKey = 'gotchu.sign-in-preference';
 const rememberedSignInSchema = z.object({ email: z.string().max(254), method: z.string().min(1).max(128) }).strict();
 const authCsrfResponseSchema = z.object({ csrfToken: z.string().min(1).max(256) }).strict();
@@ -404,7 +404,7 @@ function TargetEnrollment({ organizationId, applicationId, targets, canManage, o
     <div className="customer-card-heading"><div><h2>Aplicación HTTPS</h2></div><span className="customer-status customer-status-muted">Sólo lectura</span></div>
     <p className="customer-card-copy">Elige un origen HTTPS y un perfil acotado. El análisis externo puede ejecutarse sin acceso al código.</p>
     {activeTarget && <div className="customer-target-row">
-      <div><strong>{activeTarget.origin}</strong><span>Solicitado {date(activeTarget.requestedAt)} · alcance activo desde {activeTarget.authorizedAt ? date(activeTarget.authorizedAt) : '—'} · versión {activeTarget.version}</span><span>Perfil: {scanProfileLabels[activeTarget.scanProfile ?? 'root']}{(activeTarget.scanProfile ?? 'root') === 'public_surface' ? ' · hasta 10 solicitudes GET' : ' · una solicitud GET a /'}</span><span>Vence {activeTarget.expiresAt ? date(activeTarget.expiresAt) : 'sin fecha registrada'}</span></div>
+      <div><strong>{activeTarget.origin}</strong><span>Solicitado {date(activeTarget.requestedAt)} · alcance activo desde {activeTarget.authorizedAt ? date(activeTarget.authorizedAt) : '—'} · versión {activeTarget.version}</span><span>Perfil: {scanProfileLabels[activeTarget.scanProfile ?? 'root']}{activeTarget.scanProfile === 'api_checks' ? ' · hasta 16 GET/HEAD/OPTIONS' : activeTarget.scanProfile === 'public_surface' ? ' · hasta 10 solicitudes GET' : ' · una solicitud GET a /'}</span><span>Vence {activeTarget.expiresAt ? date(activeTarget.expiresAt) : 'sin fecha registrada'}</span></div>
       <span className={`customer-status ${targetCurrent ? 'customer-status-ready' : 'customer-status-pending'}`}>{targetCurrent ? 'Alcance activo' : 'Alcance vencido'}</span>
       {canManage && <div className="customer-target-actions">
         {activeTarget.status === 'authorized' && <button className="customer-link-button customer-danger-link" disabled={changeTarget.isPending} onClick={() => { setError(null); changeTarget.mutate(activeTarget.id); }}>Revocar alcance</button>}
@@ -419,8 +419,9 @@ function TargetEnrollment({ organizationId, applicationId, targets, canManage, o
       <select id="target-scan-profile" value={scanProfile} onChange={event => { const selected = customerScanProfileSchema.safeParse(event.target.value); if (selected.success) setScanProfile(selected.data); }}>
         <option value="root">Raíz del sitio · una solicitud GET a /</option>
         <option value="public_surface">Superficie pública limitada · hasta 10 solicitudes GET, sólo a este origen</option>
+        <option value="api_checks">Web y API · hasta 16 GET/HEAD/OPTIONS, sólo a este origen</option>
       </select>
-      <p className="customer-field-note">El perfil limitado consulta como máximo 10 rutas públicas del mismo origen. El alcance no incluye otros dominios.</p>
+      <p className="customer-field-note">El perfil elegido limita las rutas, métodos y solicitudes. El alcance no incluye otros dominios.</p>
       <button className="customer-button customer-button-primary" disabled={enroll.isPending || !originIsValid}>{enroll.isPending ? 'Guardando alcance…' : activeTarget ? 'Renovar alcance' : 'Añadir origen'}</button>
     </form>}
     {!canManage && !activeTarget && <div className="customer-empty-inline">Una persona propietaria u operadora puede añadir un origen HTTPS.</div>}

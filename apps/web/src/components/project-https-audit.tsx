@@ -12,6 +12,7 @@ import { Badge } from './ui/badge';
 const profiles = [
   { value: 'root', label: 'Raíz · 1 solicitud GET' },
   { value: 'public_surface', label: 'Superficie pública · hasta 10 GET' },
+  { value: 'api_checks', label: 'Web y API · escenarios HTTP activos' },
 ];
 function errorMessage(error: unknown) {
   if (error instanceof CustomerApiError && error.code === 'target_assessment_in_progress') return 'Ya hay una evaluación pendiente para este origen. Espera a que termine antes de renovar el alcance.';
@@ -28,7 +29,7 @@ export function ProjectHttpsAudit({ organizationId, applicationId, targets, repo
 }) {
   const target = targets.find(item => item.status === 'authorized') ?? targets[0];
   const [origin, setOrigin] = useState(target?.origin ?? '');
-  const [profile, setProfile] = useState(customerScanProfileSchema.parse(target?.scanProfile ?? 'public_surface'));
+  const [profile, setProfile] = useState(customerScanProfileSchema.parse(target?.scanProfile ?? 'api_checks'));
   const [error, setError] = useState<string | null>(null);
   const [retryTargetId, setRetryTargetId] = useState<string | null>(null);
   useEffect(() => { setRetryTargetId(null); }, [origin, profile]);
@@ -67,7 +68,7 @@ export function ProjectHttpsAudit({ organizationId, applicationId, targets, repo
         <div><label htmlFor="https-audit-profile">Perfil de evaluación</label><ChoiceSelect id="https-audit-profile" value={profile} options={profiles} onChange={value => setProfile(customerScanProfileSchema.parse(value))} disabled={locked} /></div>
         <Button type="submit" size="sm" disabled={locked || !parsedOrigin.success}><PlayIcon aria-hidden="true" />{analyze.isPending ? 'Iniciando…' : 'Analizar HTTPS'}</Button>
       </form>
-      <p id="https-audit-scope" className="https-audit-note">{profile === 'root' ? 'Una petición GET a la raíz.' : 'Hasta diez peticiones GET a rutas públicas del mismo origen.'} Sin credenciales ni redirecciones. Los límites y las rutas no observadas aparecen en el informe.</p>
+      <p id="https-audit-scope" className="https-audit-note">{profile === 'api_checks' ? 'Descubre OpenAPI y comprueba CORS, métodos HTTP, rutas de control y respuestas HEAD sin autenticación. Hasta 16 peticiones GET/HEAD/OPTIONS al mismo origen, sin modificar datos.' : profile === 'root' ? 'Una petición GET a la raíz.' : 'Hasta diez peticiones GET a rutas públicas del mismo origen.'} Sin credenciales ni redirecciones. Los límites y las rutas no observadas aparecen en el informe.</p>
       {target && <div className="https-scope-summary"><span><strong>{target.origin}</strong><small>{target.status === 'revoked' ? 'Alcance revocado' : target.expiresAt && Date.parse(target.expiresAt) > Date.now() ? `Vigente hasta ${formatDate(target.expiresAt)}` : 'Alcance vencido'}</small></span>{target.status === 'authorized' && canManage && <Button type="button" variant="link" size="sm" disabled={locked} onClick={() => revoke.mutate()}>Revocar alcance</Button>}</div>}
       {!canManage && <p className="https-audit-note">Una persona propietaria u operadora puede iniciar la evaluación.</p>}
       {archived && <p className="https-audit-note">Reactiva el proyecto para iniciar otra evaluación.</p>}

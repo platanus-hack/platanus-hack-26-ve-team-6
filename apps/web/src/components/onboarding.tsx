@@ -54,7 +54,7 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
   const [autoNameApplication, setAutoNameApplication] = useState(false);
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [domain, setDomain] = useState('');
-  const [domainScanProfile, setDomainScanProfile] = useState(customerScanProfileSchema.parse('public_surface'));
+  const [domainScanProfile, setDomainScanProfile] = useState(customerScanProfileSchema.parse('api_checks'));
   const [error, setError] = useState<{ source: Source; message: string } | null>(null);
   const [busy, setBusy] = useState<BusyAction | null>(null);
   const [installationId, setInstallationId] = useState('');
@@ -222,6 +222,7 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
           <select id="onboarding-scan-profile" value={domainScanProfile} onChange={event => setDomainScanProfile(customerScanProfileSchema.parse(event.target.value))} disabled={locked}>
             <option value="root">Raíz del sitio · una solicitud GET a /</option>
             <option value="public_surface">Superficie pública limitada · hasta 10 solicitudes GET</option>
+            <option value="api_checks">Web y API · hasta 16 GET/HEAD/OPTIONS</option>
           </select>
           <p>La evaluación se limita al origen y al perfil elegido.</p>
           {sourceError('web') && <p className="customer-form-error" role="alert">{sourceError('web')}</p>}

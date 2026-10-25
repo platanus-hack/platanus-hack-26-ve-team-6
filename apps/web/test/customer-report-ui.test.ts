@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { AssessmentAnalysis, AssessmentFinding, DependencyInventory, DependencyReachability } from '@gotchu/contracts';
+import { apiCheckEvidenceSchema, type AssessmentAnalysis, type AssessmentFinding, type DependencyInventory, type DependencyReachability } from '@gotchu/contracts';
 import { ExternalHttpsEvidence } from '../src/components/customer-report-components.js';
 import { DependencyInventoryPanel } from '../src/components/customer-supply-chain.js';
 
@@ -15,6 +15,21 @@ function analysis(origin: 'internal' | 'external', status: AssessmentAnalysis['s
 }
 
 describe('customer report presentation', () => {
+  it('shows actual API scenarios and incomplete checks without claiming authorization bypass', () => {
+    const external = analysis('external', 'partial');
+    external.coverage.push({ capability: 'api_auth_boundary', state: 'unavailable', detail: 'Fixture transport failure.' });
+    external.evidence.push({ id: externalFindingId, origin: 'external', kind: 'configuration', locator: 'https://app.example.com/api/account', collectedAt: timestamp,
+      snapshotRef: 'target:api_checks', tool: { name: 'gotchu-api-checks', version: '1.0.0' }, checksum,
+      excerpt: JSON.stringify(apiCheckEvidenceSchema.parse({ profile: 'api_checks', catalogVersion: '1.0.0', scenarioId: 'auth_boundary', method: 'HEAD', path: '/api/account', status: null, tlsVerified: false, headers: {}, bodyBytes: 0, incomplete: 'transport_unavailable', signals: {} })),
+    });
+    const markup = renderToStaticMarkup(createElement(ExternalHttpsEvidence, { analysis: external }));
+    expect(markup).toContain('Pruebas de web y API');
+    expect(markup).toContain('HEAD /api/account');
+    expect(markup).toContain('Sin respuesta');
+    expect(markup).toContain('Cobertura parcial o desconocida');
+    expect(markup).toContain('no demuestra acceso mediante GET ni un bypass');
+  });
+
   it('prioritizes advisory packages by reachability and leaves other dependencies unprioritized', () => {
     const states = ['reachable', 'imported', 'unknown', 'not_found_static'] as const;
     const reachabilityFor = (state: DependencyReachability['state']): DependencyReachability => ({
