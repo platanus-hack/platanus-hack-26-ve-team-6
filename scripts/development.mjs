@@ -534,7 +534,7 @@ async function waitForScanner(port) {
     }
     await delay(Math.min(500, Math.max(0, deadline - Date.now())));
   }
-  throw new Error(`Scanner did not report ready within 90 seconds (unavailable: ${unavailableTools}). Inspect .local/dev/scanner.log; missing pinned images can be checked with pnpm dev:prepare.`);
+  throw new Error(`Scanner did not report ready within 90 seconds (unavailable: ${unavailableTools}). Inspect .local/dev/scanner.log and run pnpm dev:prepare to refresh required local scanner data or pull missing pinned images.`);
 }
 
 async function start() {
