@@ -9,11 +9,10 @@ import {
   originCandidateSchema, type ContextInventory,
 } from '@gotchu/contracts';
 import { audit, authorize, BackendError, canonicalJson, parse, sha256, systemClock, type BaseDependencies, type Identity } from './core.js';
-import { assertStepUp, verifiedStepUpSchema, type StepUpVerifier, type VerifiedStepUp } from './proposals.js';
 
 const writeRoles = ['owner', 'operator'] as const;
 const writeAccessInputSchema = contextScopeSchema.extend({ repositoryLinkId: z.uuid(), grant: z.boolean() }).strict();
-const writeAccessChangeSchema = writeAccessInputSchema.extend({ actionHash: z.string().regex(/^[a-f0-9]{64}$/), stepUpProof: z.string().min(1).max(512).optional() }).strict();
+const writeAccessChangeSchema = writeAccessInputSchema.extend({ actionHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 const writerVerificationSchema = z.object({ installationId: z.string().regex(/^[0-9]{1,20}$/), baseCommit: z.string().regex(/^[a-f0-9]{40,64}$/) }).strict();
 type RepositoryWriteAccessVerifier = (input: { organizationId: string; applicationId: string; repositoryLinkId: string; repositoryKey: string; branch: string }) => Promise<unknown>;
 type RepositoryWriteAccessRow = {
@@ -65,7 +64,6 @@ function throwMutationFailure(code: string) {
   throw new BackendError('not_found', 'Application context item not found or unavailable', 404);
 }
 export function createContextService(deps: BaseDependencies & {
-  stepUpVerifier?: StepUpVerifier;
   repositoryWriteAccessVerifier?: RepositoryWriteAccessVerifier;
 }) {
   const clock = deps.clock ?? systemClock;
@@ -180,14 +178,6 @@ export function createContextService(deps: BaseDependencies & {
         revision:before.write_access_revision,
       });
       if (actionHash !== value.actionHash) throw new BackendError('stale_state','Repository state or Writer App coverage changed; request a fresh confirmation',409);
-      let proof: VerifiedStepUp | undefined;
-      if (value.stepUpProof !== undefined) {
-        if (!deps.stepUpVerifier) throw new BackendError('step_up_unavailable','The supplied second-factor proof cannot be verified',503);
-        proof = parse(verifiedStepUpSchema, await deps.stepUpVerifier.verify({ proof:value.stepUpProof,userId:identity.userId,organizationId:value.organizationId,actionHash }));
-        assertStepUp(proof,{userId:identity.userId,organizationId:value.organizationId,actionHash},clock.now());
-        if (proof.method !== 'webauthn') throw new BackendError('step_up_required','A supplied proof must be a fresh WebAuthn assertion',403);
-      }
-
       const writerVerifiedAt = writer ? clock.now() : null;
       await deps.database.tenant(value.organizationId,async tx=>{
         await authorize(tx,value.organizationId,identity,['owner'],value.applicationId);
@@ -203,8 +193,8 @@ export function createContextService(deps: BaseDependencies & {
         }
         await audit(tx,value.organizationId,identity.userId,value.grant?'context.repository_write_access_granted':'context.repository_write_access_revoked',
           value.repositoryLinkId,{applicationId:value.applicationId,repositoryKey:current.repository_key,branch:current.default_branch,
-            actionHash,authorizationMethod:proof ? 'step_up' : 'owner_session',proofId:proof?.proofId ?? null,
-            method:proof?.method ?? 'owner_session',writerInstallationId:writer?.installationId ?? null,
+            actionHash,authorizationMethod:'owner_session',proofId:null,
+            method:'owner_session',writerInstallationId:writer?.installationId ?? null,
             writerVerifiedAt:writerVerifiedAt?.toISOString() ?? null,writerVerifiedCommit:writer?.baseCommit ?? null});
       });
       return (await this.list(identity,{organizationId:value.organizationId,applicationId:value.applicationId})).repositoryLinks.find(row=>row.id===value.repositoryLinkId);
