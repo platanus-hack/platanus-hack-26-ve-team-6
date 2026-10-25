@@ -4,6 +4,7 @@ import {
   customerEnrollTargetSchema, customerTargetIdSchema, customerUploadSourceSchema, customerQueueSchema,
   customerWorkspaceSchema, customerApplicationSchema, customerTargetSchema, customerEnrollmentSchema,
   customerSourceSummarySchema, customerReportSummarySchema, customerAssessmentReportSchema, CUSTOMER_MAX_SOURCE_BYTES,
+  assessmentModeSchema, customerJobProgressSchema,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES, customerContainerImageSummarySchema, customerContainerImageUploadMetadataSchema,
   type CustomerWorkspace, type CustomerApplication, type CustomerTarget, type CustomerEnrollment,
   type CustomerSourceSummary, type CustomerReportSummary, type CustomerAssessmentReport,
@@ -86,7 +87,12 @@ export interface CustomerServices {
 }
 const uuid = z.uuid().transform(id => id.toLowerCase());
 const scopeSchema = z.object({ organizationId: uuid, applicationId: uuid });
-const jobSchema = z.object({ id: uuid, applicationId: uuid, kind: z.string(), state: z.enum(['queued', 'running', 'succeeded', 'failed']), reportId: uuid.nullable(), reasonCode: z.string().nullable() });
+const isoDate = z.coerce.date().transform(value => value.toISOString());
+const jobSchema = z.object({
+  id: uuid, applicationId: uuid, kind: z.string(), state: z.enum(['queued', 'running', 'succeeded', 'failed']), reportId: uuid.nullable(), reasonCode: z.string().nullable(),
+  mode: assessmentModeSchema.nullable(), inputKind: z.enum(['source_snapshot', 'container_image']).nullable(),
+  createdAt: isoDate, completedAt: isoDate.nullable(), progress: customerJobProgressSchema,
+});
 function parse<T>(schema: z.ZodType<T>, value: unknown) {
   const parsed = schema.safeParse(value);
   if (!parsed.success) throw new HttpError(400, 'invalid_input', 'La solicitud no coincide con el contrato permitido.');
