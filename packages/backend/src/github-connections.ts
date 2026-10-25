@@ -1,28 +1,39 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { githubBindInputSchema, githubConnectionSchema, githubLinkInputSchema, githubScopeSchema, type GitHubConnection } from '@gotchu/contracts';
+import { githubBindInputSchema, githubConnectionSchema, githubLinkInputSchema, githubScopeSchema, githubOAuthStartSchema, githubOAuthContextSchema, type GitHubConnection } from '@gotchu/contracts';
 import { audit, authorize, BackendError, parse, sha256, type BaseDependencies, type Identity } from './core.js';
 
 export function createGitHubConnectionService(deps: BaseDependencies) {
   return {
-    async createState(identity: Identity, input: unknown): Promise<string> {
-      const scope = parse(githubScopeSchema, input);
+    async workspaceName(identity: Identity, organizationId: string): Promise<string> {
+      const scope = parse(githubScopeSchema, { organizationId });
+      return deps.database.tenant(scope.organizationId, async tx => {
+        await authorize(tx, scope.organizationId, identity, ['owner', 'operator']);
+        const result = await tx.query<{ name: string }>('SELECT name FROM gotchu.organizations WHERE id=$1', [scope.organizationId]);
+        const name = result.rows[0]?.name;
+        if (!name) throw new BackendError('not_found', 'El espacio de trabajo no está disponible.', 404);
+        return name;
+      });
+    },
+    async createState(identity: Identity, input: unknown) {
+      const scope = parse(githubOAuthStartSchema, input);
       const state = randomBytes(32).toString('base64url');
+      const verifier = scope.purpose === 'authorize' ? randomBytes(32).toString('base64url') : null;
       const result = await deps.database.tenant(scope.organizationId, async tx => {
         await authorize(tx, scope.organizationId, identity, ['owner', 'operator']);
-        const created = await tx.query<{ created: boolean }>('SELECT gotchu.github_create_state($1,$2,$3) AS created', [scope.organizationId, identity.userId, sha256(state)]);
+        const created = await tx.query<{ created: boolean }>('SELECT gotchu.github_create_state($1,$2,$3,$4,$5,$6) AS created', [scope.organizationId, identity.userId, sha256(state), verifier, scope.installationId, scope.purpose]);
         if (created.rows[0]?.created) await audit(tx, scope.organizationId, identity.userId, 'github.oauth_started', null);
         return created;
       });
       if (!result.rows[0]?.created) throw new BackendError('forbidden', 'Organization membership does not authorize GitHub connections', 403);
-      return state;
+      return { state, codeChallenge: verifier ? Buffer.from(sha256(verifier), 'hex').toString('base64url') : null };
     },
-    async consumeState(identity: Identity, state: string): Promise<string> {
-      const result = await deps.database.tenant('00000000-0000-0000-0000-000000000000', tx => tx.query<{ organization_id: string }>(
-        'SELECT organization_id FROM gotchu.github_consume_state($1,$2)', [sha256(state), identity.userId],
+    async consumeState(identity: Identity, state: string) {
+      const result = await deps.database.tenant('00000000-0000-0000-0000-000000000000', tx => tx.query<{ organization_id: string; pkce_verifier: string | null; installation_id: string | null; purpose: string }>(
+        'SELECT * FROM gotchu.github_consume_state($1,$2)', [sha256(state), identity.userId],
       ));
-      const organizationId = result.rows[0]?.organization_id;
-      if (!organizationId) throw new BackendError('github_state_invalid', 'La conexión de GitHub expiró o ya se utilizó. Inicia la conexión de nuevo.', 400);
-      return organizationId;
+      const context = result.rows[0];
+      if (!context) throw new BackendError('github_state_invalid', 'La conexión de GitHub expiró o ya se utilizó. Inicia la conexión de nuevo.', 400);
+      return parse(githubOAuthContextSchema, { organizationId: context.organization_id, verifier: context.pkce_verifier, installationId: context.installation_id, purpose: context.purpose });
     },
     async bind(identity: Identity, input: unknown): Promise<GitHubConnection> {
       const value = parse(githubBindInputSchema, input);
@@ -33,7 +44,7 @@ export function createGitHubConnectionService(deps: BaseDependencies) {
         if (status === 'already_bound') throw new BackendError('github_installation_bound', 'Esta instalación ya está vinculada a otro espacio de trabajo.', 409);
         if (status === 'owner_required_to_move') throw new BackendError('github_move_owner_required', 'Un Owner debe autorizar el traslado de una instalación desconectada desde otro espacio de trabajo.', 403);
         if (status !== 'bound') throw new BackendError('forbidden', 'No se pudo autorizar esta instalación para el espacio de trabajo.', 403);
-        await audit(tx, value.organizationId, identity.userId, 'github.installation_connected', null, { installationId: value.installationId, accountLogin: value.accountLogin });
+        await audit(tx, value.organizationId, identity.userId, 'github.installation_connected', null, { installationId: value.installationId, accountLogin: value.accountLogin, githubUserId: value.githubUserId, githubAccountId: value.githubAccountId, consentVersion: 1 });
         return parse(githubConnectionSchema, { installationId: value.installationId, accountLogin: value.accountLogin, state: 'active', connectedAt: new Date().toISOString() });
       });
     },
