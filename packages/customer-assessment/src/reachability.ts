@@ -47,6 +47,21 @@ function isRequireExpression(expression: ts.Expression, aliases: ReadonlySet<str
       && expression.expression.text === 'module' && expression.name.text === 'require';
 }
 
+function isTypeOnlyModuleReference(node: ts.Node) {
+  if (ts.isImportEqualsDeclaration(node)) return node.isTypeOnly;
+  if (ts.isImportDeclaration(node)) {
+    const clause = node.importClause;
+    if (clause?.isTypeOnly) return true;
+    const named = clause?.namedBindings;
+    return !clause?.name && named && ts.isNamedImports(named)
+      && named.elements.length > 0 && named.elements.every(item => item.isTypeOnly);
+  }
+  if (ts.isExportDeclaration(node)) return node.isTypeOnly
+    || node.exportClause && ts.isNamedExports(node.exportClause)
+      && node.exportClause.elements.length > 0 && node.exportClause.elements.every(item => item.isTypeOnly);
+  return false;
+}
+
 function parseSources(files: readonly SourceFile[], packageNames: ReadonlySet<string>): ParsedSource[] {
   const codeFiles = files.filter(file => codePath.test(file.path) && !/\.d\.[cm]?ts$/i.test(file.path));
   return codeFiles.map(file => {
@@ -72,6 +87,7 @@ function parseSources(files: readonly SourceFile[], packageNames: ReadonlySet<st
       }
     };
     const visit = (node: ts.Node) => {
+      if (ts.isTypeNode(node) || isTypeOnlyModuleReference(node)) return;
       if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
         const specifier = node.moduleSpecifier.text;
         const packageName = packageNameFromSpecifier(specifier);
@@ -81,6 +97,7 @@ function parseSources(files: readonly SourceFile[], packageNames: ReadonlySet<st
           if (clause.name) recordBinding(bindings, packageName, { local: clause.name.text, exported: 'default', namespace: false, position: node.end });
           if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) recordBinding(bindings, packageName, { local: clause.namedBindings.name.text, exported: '', namespace: true, position: node.end });
           if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) for (const item of clause.namedBindings.elements) {
+            if (item.isTypeOnly) continue;
             recordBinding(bindings, packageName, { local: item.name.text, exported: item.propertyName?.text ?? item.name.text, namespace: false, position: node.end });
           }
         }
@@ -97,7 +114,7 @@ function parseSources(files: readonly SourceFile[], packageNames: ReadonlySet<st
         const packageName = packageNameFromSpecifier(specifier);
         addImport(specifier, node.moduleSpecifier, 're_export');
         if (packageName && packageNames.has(packageName) && node.exportClause && ts.isNamedExports(node.exportClause)) {
-          for (const item of node.exportClause.elements) recordBinding(bindings, packageName, { local: '', exported: item.propertyName?.text ?? item.name.text, namespace: false, position: node.end });
+          for (const item of node.exportClause.elements) if (!item.isTypeOnly) recordBinding(bindings, packageName, { local: '', exported: item.propertyName?.text ?? item.name.text, namespace: false, position: node.end });
         } else if (packageName && packageNames.has(packageName) && node.exportClause && ts.isNamespaceExport(node.exportClause)) {
           recordBinding(bindings, packageName, { local: node.exportClause.name.text, exported: '', namespace: true, position: node.end });
         }
@@ -182,9 +199,11 @@ function symbolEvidenceForPackage(parsed: ParsedSource, packageName: string, sym
     }
   };
   const visit = (node: ts.Node) => {
+    if (ts.isTypeNode(node) || isTypeOnlyModuleReference(node)) return;
     if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)
       && packageNameFromSpecifier(node.moduleSpecifier.text) === packageName && node.exportClause && ts.isNamedExports(node.exportClause)) {
       for (const item of node.exportClause.elements) {
+        if (item.isTypeOnly) continue;
         const exported = item.propertyName?.text ?? item.name.text;
         const symbol = symbols.find(candidate => symbolMatches(candidate, exported));
         if (symbol) add(item, symbol);
@@ -259,6 +278,12 @@ export function analyzeDependencyReachability(
   graphComplete: boolean,
 ): Map<string, DependencyReachability> {
   const packageNames = new Set(inventory.map(item => item.name));
+  const versionsByName = new Map<string, Set<string>>();
+  for (const item of inventory) {
+    const versions = versionsByName.get(item.name) ?? new Set<string>();
+    versions.add(item.version);
+    versionsByName.set(item.name, versions);
+  }
   const parsedSources = parseSources(source.files, packageNames);
   const supportedSourceExists = parsedSources.length > 0;
   const hasUnsupportedResolver = hasUnsupportedResolverConfiguration(source.files);
@@ -270,14 +295,16 @@ export function analyzeDependencyReachability(
     const path = directDependencyPath(dependency, inventory);
     const parseFailed = parsedSources.some(parsed => parsed.parseFailed);
     const dynamicResolution = parsedSources.some(parsed => parsed.dynamicResolution);
+    const ambiguousVersion = imports.length > 0 && (versionsByName.get(dependency.name)?.size ?? 0) > 1;
     let state: DependencyReachability['state'];
-    if (!supportedSourceExists || parseFailed || imports.length === 0 && (dynamicResolution || hasUnsupportedResolver) || dependency.relationship === 'unknown' && imports.length > 0 || dependency.relationship === 'transitive' && imports.length > 0 && path === null) {
+    if (!supportedSourceExists || parseFailed || ambiguousVersion || imports.length === 0 && (dynamicResolution || hasUnsupportedResolver) || dependency.relationship === 'unknown' && imports.length > 0 || dependency.relationship === 'transitive' && imports.length > 0 && path === null) {
       state = 'unknown';
     } else if (imports.length === 0) state = 'not_found_static';
     else if (symbols.length > 0 && symbolEvidence.length > 0) state = 'reachable';
     else state = 'imported';
     const symbolCoverage: DependencyReachability['symbolCoverage'] = symbols.length === 0 ? 'unknown' : symbolEvidence.length > 0 ? 'available' : 'not_found_static';
     const limitation = [...limitations];
+    if (ambiguousVersion) limitation.push('Multiple exact versions share this package name; the static import does not identify which lockfile version is loaded.');
     if (!supportedSourceExists) limitation.push('No supported JavaScript or TypeScript files were present for static import analysis.');
     if (parseFailed) limitation.push('At least one supported JavaScript or TypeScript file could not be parsed; all reachability conclusions remain unknown.');
     if (dynamicResolution && imports.length === 0) limitation.push('A non-literal import() or require() was present, so static package resolution is unknown.');
