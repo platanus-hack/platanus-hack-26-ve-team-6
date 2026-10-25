@@ -14,7 +14,7 @@ import {
   inputRequestSchema, modelRequestSchema, readRequestSchema, type GatewayOperation,
 } from './contracts.js';
 import { GatewayError } from './errors.js';
-import { createModelPort, ModelProviderError, type ModelPort } from './model-provider.js';
+import { createModelPort, ModelProviderError, type ModelCompletion, type ModelCompletionRequest, type ModelPort } from './model-provider.js';
 
 const runRowSchema = z.object({
   applicationId: z.uuid(), state: z.enum(['pending', 'running', 'succeeded', 'unavailable', 'failed']),
@@ -453,7 +453,29 @@ function pricedUsage(inputTokens: number, outputTokens: number, inputRate: bigin
   return Number((numerator + 999_999n) / 1_000_000n);
 }
 
-const probeTokens = 64;
+function probeTokenAllowance(presetId: z.infer<typeof investigationProviderPresetIdSchema>): number {
+  return investigationProviderCatalog.find(preset => preset.id === presetId)?.probeTokenAllowance ?? 64;
+}
+
+const credentialLocks = new Map<string, Promise<ModelCompletion>>();
+/**
+ * Codex rotates its refresh token on use, so calls sharing one stored login run one at a time,
+ * re-read the latest credential, and write any rotated tokens back. Other providers pass through.
+ */
+async function completeWithStoredCredential(modelPort: ModelPort, secrets: ModelSecretStore, secretRef: string, apiKey: string,
+  request: Omit<ModelCompletionRequest, 'apiKey' | 'persistCredential'>): Promise<ModelCompletion> {
+  if (request.providerPresetId !== 'codex') return modelPort.complete({ ...request, apiKey });
+  const previous = credentialLocks.get(secretRef);
+  const current = (previous ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    const latest = new TextDecoder('utf-8', { fatal: true }).decode(await secrets.get(secretRef));
+    return modelPort.complete({ ...request, apiKey: latest,
+      persistCredential: next => secrets.replace(secretRef, Buffer.from(next, 'utf8')) });
+  });
+  credentialLocks.set(secretRef, current);
+  try { return await current; }
+  finally { if (credentialLocks.get(secretRef) === current) credentialLocks.delete(secretRef); }
+}
+
 const probeOutputSchema = z.object({ ok: z.literal(true) }).strict();
 const probeFailureSchema = investigationModelProbeResultSchema;
 type ModelProbeResult = z.infer<typeof investigationModelProbeResultSchema>;
@@ -462,6 +484,7 @@ function probeReason(error: unknown): ModelProbeResult['reason'] {
   if (!(error instanceof ModelProviderError)) return 'network_error';
   if (error.code === 'invalid_response') return 'invalid_response';
   if (error.code === 'missing_usage') return 'missing_usage';
+  if (error.code === 'cli_unavailable') return 'cli_unavailable';
   if (error.code === 'aborted') return 'provider_unavailable';
   switch (error.status) {
     case 401: return 'invalid_api_key';
@@ -523,8 +546,10 @@ async function invokeModelProbe(options: {
     }
   }
 
+  const secretRef = settings.secret_ref ?? '';
+  const probeTokens = probeTokenAllowance(settings.provider_preset_id);
   let apiKey: string;
-  try { apiKey = new TextDecoder('utf-8', { fatal: true }).decode(await modelSecrets.get(settings.secret_ref ?? '')); }
+  try { apiKey = new TextDecoder('utf-8', { fatal: true }).decode(await modelSecrets.get(secretRef)); }
   catch { return probeUnavailable(); }
   if (!apiKey) return probeUnavailable();
 
@@ -605,9 +630,9 @@ async function invokeModelProbe(options: {
   cancelPoll.unref();
   let result: ModelProbeResult;
   try {
-    const completion = await modelPort.complete({
+    const completion = await completeWithStoredCredential(modelPort, modelSecrets, secretRef, apiKey, {
       provider: reservation.settings.provider, providerPresetId: reservation.settings.provider_preset_id,
-      endpoint: new URL(reservation.settings.endpoint), modelId: reservation.settings.model_id, apiKey,
+      endpoint: new URL(reservation.settings.endpoint), modelId: reservation.settings.model_id,
       systemInstruction: 'Reply with exactly this JSON object and no other text: {"ok":true}',
       userContext: 'Connection test. Return the requested JSON.', maxOutputTokens: 16, signal: requestController.signal,
     });
@@ -683,12 +708,12 @@ async function invokeModel(
     return { config: parsed.data, userContext: context };
   });
 
-  if (!secrets && settings.config.secret_ref) throw new GatewayError('model_secret_store_unavailable', 503);
-  let apiKey: string | undefined;
-  if (settings.config.secret_ref && secrets) {
-    try { apiKey = new TextDecoder('utf-8', { fatal: true }).decode(await secrets.get(settings.config.secret_ref)); }
-    catch { throw new GatewayError('model_secret_unavailable', 503); }
-  }
+  const secretRef = settings.config.secret_ref;
+  if (!secrets && secretRef) throw new GatewayError('model_secret_store_unavailable', 503);
+  if (!secrets || !secretRef) throw new GatewayError('model_secret_unavailable', 503);
+  let apiKey: string;
+  try { apiKey = new TextDecoder('utf-8', { fatal: true }).decode(await secrets.get(secretRef)); }
+  catch { throw new GatewayError('model_secret_unavailable', 503); }
   if (!apiKey) throw new GatewayError('model_secret_unavailable', 503);
   if (settings.config.provider_preset_id === 'custom_openai_compatible') {
     const endpointValidator = modelEndpointValidator ?? createModelEndpointValidator();
@@ -757,12 +782,11 @@ async function invokeModel(
   }, 1_000);
   cancelPoll.unref();
   try {
-    const completion = await modelPort.complete({
+    const completion = await completeWithStoredCredential(modelPort, secrets, secretRef, apiKey, {
       provider: settings.config.provider,
       providerPresetId: settings.config.provider_preset_id,
       endpoint: new URL(settings.config.endpoint),
       modelId: settings.config.model_id,
-      ...(apiKey ? { apiKey } : {}),
       systemInstruction: gatewaySystemInstruction,
       userContext: settings.userContext,
       maxOutputTokens: Math.min(input.maxOutputTokens, 2_048, reserveTokens),
