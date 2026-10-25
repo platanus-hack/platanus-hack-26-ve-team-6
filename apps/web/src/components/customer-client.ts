@@ -37,6 +37,9 @@ import {
   dependencyFixPreparationRequestSchema,
   dependencyFixPreparationResponseSchema,
   validationPublicProjectionSchema,
+  validationSuiteConfigSchema,
+  validationSuiteDefinitionSchema,
+  validationTestSelectionSchema,
   configureInvestigationModelSchema,
   investigationModelSettingsSchema,
   investigationModelProbeResultSchema,
@@ -387,6 +390,25 @@ export const customerApi = {
   validationStatus(organizationId: string, applicationId: string, candidateSourceId: string) {
     const sourceId = z.uuid().parse(candidateSourceId);
     return request(`${applicationPath(organizationId, applicationId)}/corrections/${encodeURIComponent(sourceId)}`, validationPublicProjectionSchema.nullable());
+  },
+  configureValidationSuite(input: {
+    organizationId: string;
+    applicationId: string;
+    repositoryLinkId: string;
+    suiteName: string;
+    testSelection: z.infer<typeof validationTestSelectionSchema>;
+    requiredCount: number;
+  }) {
+    const validated = validationSuiteConfigSchema.parse({
+      ...input,
+      profile: 'node24-tsx-selected-v1',
+      scriptName: 'test',
+      regressionTestPath: null,
+    });
+    const { organizationId, applicationId, ...body } = validated;
+    return request(`${applicationPath(organizationId, applicationId)}/validation-suites`, validationSuiteDefinitionSchema, {
+      method: 'POST', ...jsonBody(body),
+    });
   },
   actionProposals(organizationId: string, applicationId: string) {
     return request(`${applicationPath(organizationId, applicationId)}/actions`, actionListSchema);
