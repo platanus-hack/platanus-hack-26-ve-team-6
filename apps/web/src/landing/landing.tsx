@@ -6,11 +6,10 @@ import { DotPlate } from '../components/dot-field/dot-plate';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { buttonVariants } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
-import { FolderPlate, LensPlate, ReportPlate } from './ascii-plates';
-import { HOW_STEPS, QUESTIONS, REPORT_JSON } from './copy';
+import { QUESTIONS } from './copy';
 import { Display, Mark } from './editorial';
 import { Header } from './header';
-import { FixTrack, IntervalDay, ReviewMatrix } from './walkthrough';
+import { Tour } from './tour';
 
 /** True when motion is welcome; resolved after mount so server and first client render agree. */
 function useMotionAllowed() {
@@ -65,59 +64,6 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
   </section>;
 }
 
-const STEP_PLATES = [FolderPlate, LensPlate, ReportPlate];
-
-function HowItWorks() {
-  return <Section id="gl-funciona" titleId="gl-funciona-titulo" title={['Cómo funciona.']}>
-    <ol className="gl-steps">
-      {HOW_STEPS.map(([title, detail], index) => {
-        const Plate = STEP_PLATES[index] ?? FolderPlate;
-        return <li key={title}>
-          <span className="gl-step-number" aria-hidden="true">0{index + 1}</span>
-          <div><h3>{title}</h3><p>{detail}</p></div>
-          <div className="gl-step-plate"><Plate /></div>
-        </li>;
-      })}
-    </ol>
-  </Section>;
-}
-
-function Reviews() {
-  return <Section id="gl-revisiones" titleId="gl-revisiones-titulo" title={['Seis revisiones.', <Mark key="m" size="big">Un informe.</Mark>]}>
-    <ReviewMatrix />
-  </Section>;
-}
-
-function Fixes() {
-  return <Section id="gl-correccion" titleId="gl-correccion-titulo" title={['Corrige con', <Mark key="m" size="big">tu aprobación.</Mark>]}>
-    <p className="gl-section-lead">Para algunos hallazgos, Gotchu prepara la corrección y la vuelve a analizar antes de pedirte permiso.</p>
-    <FixTrack />
-  </Section>;
-}
-
-function Evidence() {
-  return <Section id="gl-informe" titleId="gl-informe-titulo" className="gl-report-section" title={['Cada hallazgo.', <Mark key="m" size="big">Su evidencia.</Mark>]}>
-    <div className="gl-report-copy"><p>El informe muestra confianza y cobertura.</p><JsonExhibit /></div>
-  </Section>;
-}
-
-function Vigilance() {
-  return <Section id="gl-vigilancia" titleId="gl-vigilancia-titulo" className="gl-vigilance-section" title={['Programa evaluaciones', <Mark key="m" size="big">cada 1–24 h.</Mark>]}>
-    <div className="gl-vigilance-body">
-      <p className="gl-vigilance-copy">No son evaluaciones en tiempo real.</p>
-      <IntervalDay />
-    </div>
-  </Section>;
-}
-
-function JsonExhibit() {
-  return <figure className="gl-exhibit" aria-label="Estructura del reporte en JSON">
-    <pre tabIndex={0}><code>{REPORT_JSON.map((line, index) => <span className="gl-jl" key={index}>
-      {line.split(/("(?:[^"\\]|\\.)*"\s*:?)/).map((part, at) => part.endsWith(':') ? <span className="gl-jk" key={at}>{part}</span> : part.startsWith('"') ? <span className="gl-js" key={at}>{part}</span> : part)}
-    </span>)}</code></pre>
-  </figure>;
-}
-
 function Questions() {
   return <Section id="gl-preguntas" titleId="gl-preguntas-titulo" title={['Preguntas.']}>
     <Accordion className="gl-qa">
@@ -146,7 +92,7 @@ function Footer() {
 }
 
 /**
- * The landing uses short product steps and report evidence alongside authored visual plates.
+ * The landing: a hero, one guided walkthrough of the product, questions and the invitation to start.
  */
 export function Landing() {
   const motionAllowed = useMotionAllowed();
@@ -156,11 +102,7 @@ export function Landing() {
     <Header />
     <main id="contenido" tabIndex={-1} className="gl-main">
       <Hero paused={paused} onPause={setPaused} motion={motionAllowed} />
-      <HowItWorks />
-      <Reviews />
-      <Evidence />
-      <Fixes />
-      <Vigilance />
+      <Tour paused={paused} />
       <Questions />
       <Closing paused={paused} />
     </main>

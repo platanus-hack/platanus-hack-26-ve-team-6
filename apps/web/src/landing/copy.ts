@@ -1,49 +1,13 @@
-/** Short descriptions of the current assessment path. */
-export const HOW_STEPS = [
-  ['Sube código o verifica HTTPS', 'Carpeta, GitHub o dominio con DNS TXT.'],
-  ['Gotchu evalúa código y web', 'El código nunca se ejecuta.'],
-  ['Recibe un informe con evidencia', 'Incluye confianza y cobertura.'],
-] as const;
+import type { FormationName } from '../components/dot-field/engine';
 
-/** Where each review can run. Every row is a scanner profile the assessment engine runs today. */
-export const SOURCES = ['Carpeta', 'GitHub', 'Imagen', 'Dominio'] as const;
-export type Source = (typeof SOURCES)[number];
-
-export const REVIEWS: readonly { name: string; detail: string; sources: readonly Source[] }[] = [
-  { name: 'Código', detail: 'Patrones de riesgo en JavaScript y TypeScript.', sources: ['Carpeta', 'GitHub'] },
-  { name: 'Secretos', detail: 'Claves y tokens expuestos. El valor no se guarda.', sources: ['Carpeta', 'GitHub'] },
-  { name: 'Dependencias', detail: 'npm, pnpm y Yarn contra avisos de OSV.', sources: ['Carpeta', 'GitHub'] },
-  { name: 'Infraestructura', detail: 'Kubernetes, Terraform y Dockerfile.', sources: ['Carpeta', 'GitHub'] },
-  { name: 'Contenedor', detail: 'Paquetes del sistema y del lenguaje.', sources: ['Imagen'] },
-  { name: 'Web', detail: 'Certificado y respuesta del origen HTTPS.', sources: ['Dominio'] },
-];
-
-/** The private-fix path, in the order it runs. Only some findings have a correction. */
-export const FIX_STEPS = [
-  ['Hallazgo', 'Con su evidencia'],
-  ['Copia corregida', 'Privada, aparte de tu código'],
-  ['Reanálisis', 'Comprueba el cambio'],
-  ['Tu aprobación', 'Con llave de acceso'],
-  ['PR en borrador', 'En tu repositorio de GitHub'],
-] as const;
-
-/** Re-check intervals offered by the scheduler, in hours (it accepts any value from 1 to 24). */
-export const INTERVALS = [1, 6, 12, 24] as const;
-
-/** Report fields are abbreviated here as a visual outline, not a sample result. */
-export const REPORT_JSON = [
-  '{',
-  '  "internal": {',
-  '    "findings": […],',
-  '    "evidence": […],',
-  '    "coverage": […]',
-  '  },',
-  '  "external": {',
-  '    "findings": […],',
-  '    "evidence": […],',
-  '    "coverage": […]',
-  '  }',
-  '}',
+/** The product walkthrough, in the order a person meets each feature. Every line describes shipped behaviour. */
+export const CHAPTERS: readonly { id: string; title: string; text: string; tags?: readonly string[]; formation: FormationName }[] = [
+  { id: 'gl-conecta', title: 'Conecta tu proyecto', text: 'Sube una carpeta, conecta GitHub o verifica tu dominio con un registro DNS TXT.', formation: 'both' },
+  { id: 'gl-revisa', title: 'Revisa sin ejecutar nada', text: 'Seis revisiones sobre tu código, tu imagen y tu web. El código nunca se ejecuta.', tags: ['Código', 'Secretos', 'Dependencias', 'Infraestructura', 'Contenedor', 'Web'], formation: 'code' },
+  { id: 'gl-informe', title: 'Entiende cada hallazgo', text: 'Cada hallazgo trae su evidencia, severidad y confianza, y el informe dice qué quedó sin revisar.', tags: ['JSON', 'SBOM CycloneDX'], formation: 'report' },
+  { id: 'gl-corrige', title: 'Corrige con tu aprobación', text: 'Para algunos hallazgos, Gotchu prepara el cambio, lo vuelve a analizar y abre un PR en borrador cuando lo apruebas con tu llave de acceso.', formation: 'branch' },
+  { id: 'gl-vigila', title: 'Vigila cada 1\u2060–\u206024\u00a0h', text: 'Programa revisiones periódicas y recibe avisos por correo o webhook. No es tiempo real.', formation: 'cycle' },
+  { id: 'gl-detecta', title: 'Detecta en tu servidor', text: 'Con el SDK registras o bloqueas intentos en tu servidor. Los incidentes separan lo observado de lo que falta comprobar.', formation: 'mark' },
 ];
 
 export const QUESTIONS = [
