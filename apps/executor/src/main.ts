@@ -175,7 +175,14 @@ async function main() {
         ...(config.monitoringConfigFile ? { monitoringConfigFile: config.monitoringConfigFile } : {}),
       }),
     });
-    const processor = createExecutionJobProcessor({ database,backend,provider,ledger:createBackendActionExecutionLedger(backend.executions) });
+    const ledger = createBackendActionExecutionLedger(backend.executions);
+    const processor = createExecutionJobProcessor({ database,backend,provider,ledger: {
+      ...ledger,
+      async claim(scope) {
+        try { return await ledger.claim(scope); }
+        catch (error) { report('executor_approval_claim_rejected', error); throw error; }
+      },
+    } });
     worker = new Worker('gotchu-executions-v1', processor, { connection:redis,concurrency:1,lockDuration:300_000 });
     worker.on('error', error => report('executor_worker_error', error));
     worker.on('failed', (_job, error) => report('executor_job_failed', error));
