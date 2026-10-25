@@ -131,30 +131,42 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
     .gl .gl-hero-field { height: 100%; min-height: 520px; margin: 0 calc(-1 * var(--gutter)) 0 0; }
   }
 
-  /* ── Audit flows: four nodes light in turn while a packet travels each wire ─── */
-  /* Phones stack the nodes with vertical wires; from 900px they run left to right. */
+  /* ── Audit flows: scroll-driven diagrams ──────────────────────────────────── */
+  /* The section carries `--gl-at` (0 → 4.6 as the diagram scrolls through view; step i is active from i) and
+     `--gl-q` (-1 → 1, its distance from the viewport centre). Defaults are the finished, still diagram, which is
+     what shows without motion. Per step, `--gl-e` is its entrance, done just before the wire into it (`--gl-w`)
+     starts drawing, so a node never moves while connected. Phones stack the nodes with vertical wires. */
   .gl .gl-section-lead { margin: 0 0 clamp(36px, 5vw, 64px); max-width: 40ch; font-size: clamp(19px, 2vw, 24px); line-height: 1.4; }
+  .gl .gl-section { --gl-at: 9; --gl-q: 0; }
   .gl .gl-flow { --gl-gap: 28px; --gl-node: 104px; }
+  .gl .gl-flow ol > li { --gl-e: clamp(0, calc((var(--gl-at) - var(--gl-i) + 1.6) / .8), 1); --gl-w: clamp(0, calc((var(--gl-at) - var(--gl-i) + .7) / .7), 1); }
   .gl .gl-flow ol { display: grid; gap: var(--gl-gap); margin: 0; padding: 0; list-style: none; }
   .gl .gl-flow ol > li { position: relative; display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 20px; align-items: start; }
-  .gl .gl-flow-node { display: grid; place-items: center; align-content: center; gap: 10px; height: var(--gl-node); padding: 14px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted-foreground); font: 500 12.5px/1.2 var(--mono); transition: border-color 400ms var(--ease), color 400ms var(--ease); }
+
+  /* Parallax on the elements themselves: headline lines slide in from the right at two speeds and settle once
+     the section reaches the centre, the lead trails them, and each step rises into place, its caption from
+     further down than its node. */
+  .gl [data-parallax] .gl-section-title .gl-line:nth-of-type(1) { transform: translateX(calc(max(0, var(--gl-q)) * 5vw)); }
+  .gl [data-parallax] .gl-section-title .gl-line:nth-of-type(2) { transform: translateX(calc(max(0, var(--gl-q)) * 12vw)); }
+  .gl [data-parallax] .gl-section-lead { transform: translateY(calc(var(--gl-q) * 48px)); }
+  .gl [data-parallax] .gl-flow-node { opacity: calc(.2 + var(--gl-e) * .8); transform: translateY(calc((1 - var(--gl-e)) * 72px)) scale(calc(.94 + var(--gl-e) * .06)); }
+  .gl [data-parallax] .gl-flow-step { opacity: calc(.2 + var(--gl-e) * .8); transform: translateY(calc((1 - var(--gl-e)) * 132px)); }
+  .gl [data-parallax] .gl-flow-wire { opacity: var(--gl-e); }
+
+  .gl .gl-flow-node { position: relative; display: grid; place-items: center; align-content: center; gap: 10px; height: var(--gl-node); padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); color: var(--muted-foreground); font: 500 12.5px/1.2 var(--mono); transition: border-color 400ms var(--ease), color 400ms var(--ease); }
   .gl .gl-flow-node > * { transition: opacity 400ms var(--ease); }
   .gl .gl-flow-node svg { width: 26px; height: 26px; }
   .gl .gl-flow li[data-state='idle'] .gl-flow-node > * { opacity: .3; }
   .gl .gl-flow li[data-state='done'] .gl-flow-node { color: var(--foreground); }
   .gl .gl-flow li[data-state='active'] .gl-flow-node { border-color: var(--brand); color: var(--foreground); }
-  .gl .gl-flow-node { position: relative; }
   /* The active node carries the finding diamond on its corner. */
   .gl .gl-flow-node::before { content: ''; position: absolute; top: -5px; left: -5px; width: 9px; height: 9px; background: var(--brand); opacity: 0; transform: rotate(45deg) scale(.4); transition: opacity 300ms var(--ease), transform 300ms var(--ease); }
   .gl .gl-flow li[data-state='active'] .gl-flow-node::before { opacity: 1; transform: rotate(45deg); }
 
+  /* The wire draws with scroll and the packet rides its tip, fading at both ends. */
   .gl .gl-flow-wire { position: absolute; bottom: 100%; left: 73px; width: 2px; height: var(--gl-gap); background: var(--dot-6); }
-  .gl .gl-flow-wire::after { content: ''; position: absolute; inset: 0; background: var(--brand); transform: scaleY(0); transform-origin: top; transition: transform 600ms var(--sweep); }
-  .gl .gl-flow li:not([data-state='idle']) .gl-flow-wire::after { transform: none; }
-  .gl .gl-flow-packet { position: absolute; top: 0; left: 50%; width: 10px; height: 10px; background: var(--brand); opacity: 0; transform: translate(-50%, -50%) rotate(45deg); }
-  .gl .gl-flow li[data-state='active'] .gl-flow-packet { animation: gl-packet-y 650ms var(--sweep); }
-  @keyframes gl-packet-y { 0%, 85% { opacity: 1; } 0% { top: 0; } 100% { top: 100%; opacity: 0; } }
-  @keyframes gl-packet-x { 0%, 85% { opacity: 1; } 0% { left: 0; } 100% { left: 100%; opacity: 0; } }
+  .gl .gl-flow-wire::after { content: ''; position: absolute; inset: 0; background: var(--brand); transform: scaleY(var(--gl-w)); transform-origin: top; }
+  .gl .gl-flow-packet { position: absolute; top: calc(var(--gl-w) * 100%); left: 50%; z-index: 1; width: 10px; height: 10px; background: var(--brand); opacity: min(1, calc(var(--gl-w) * 12), calc((1 - var(--gl-w)) * 12)); transform: translate(-50%, -50%) rotate(45deg); }
 
   .gl .gl-flow-step { position: relative; display: grid; justify-items: start; gap: 6px; min-height: 34px; margin: -6px -8px; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
   .gl .gl-flow-number { color: var(--brand-ink); font: 700 12.5px/1 var(--mono); }
@@ -162,13 +174,10 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
   .gl .gl-flow-text { color: var(--muted-foreground); font-size: 16px; line-height: 1.45; }
   .gl .gl-flow li[data-state='idle'] .gl-flow-step strong { color: var(--muted-foreground); }
   @media (hover: hover) { .gl .gl-flow-step:hover strong { color: var(--brand-ink); } }
-  /* The active step's bar runs for as long as the step stays on screen; held, it stays full. */
-  .gl .gl-flow-step::after { content: ''; width: 100%; height: 2px; margin-top: 6px; background: var(--brand); transform: scaleX(0); transform-origin: left; }
-  .gl .gl-flow li[data-state='active'] .gl-flow-step::after { transform: none; }
-  .gl .gl-flow[data-running] li[data-state='active'] .gl-flow-step::after { animation: gl-progress var(--gl-step) linear; }
-  .gl .gl-flow[data-running] li:last-child[data-state='active'] .gl-flow-step::after { animation-duration: var(--gl-hold); }
-  @keyframes gl-progress { from { transform: scaleX(0); } }
-  .gl .gl-flow-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-top: clamp(32px, 4vw, 48px); }
+  /* Under the active step, a bar fills as you scroll through it. */
+  .gl .gl-flow-step::after { content: ''; width: 100%; height: 2px; margin-top: 6px; background: var(--brand); opacity: 0; transform: scaleX(clamp(0, calc(var(--gl-at) - var(--gl-i)), 1)); transform-origin: left; }
+  .gl .gl-flow li[data-state='active'] .gl-flow-step::after { opacity: 1; }
+  .gl .gl-flow-foot { display: flex; margin-top: clamp(32px, 4vw, 48px); }
 
   @media (min-width: 900px) {
     .gl .gl-flow { --gl-gap: clamp(40px, 4.5vw, 72px); --gl-node: 200px; }
@@ -181,9 +190,8 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
     .gl .gl-flow ol { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .gl .gl-flow ol > li { grid-template-columns: minmax(0, 1fr); gap: 24px; }
     .gl .gl-flow-wire { top: calc(var(--gl-node) / 2 - 1px); right: 100%; bottom: auto; left: auto; width: var(--gl-gap); height: 2px; }
-    .gl .gl-flow-wire::after { transform: scaleX(0); transform-origin: left; }
-    .gl .gl-flow-packet { top: 50%; left: 0; }
-    .gl .gl-flow li[data-state='active'] .gl-flow-packet { animation-name: gl-packet-x; }
+    .gl .gl-flow-wire::after { transform: scaleX(var(--gl-w)); transform-origin: left; }
+    .gl .gl-flow-packet { top: 50%; left: calc(var(--gl-w) * 100%); }
   }
 
   /* Node contents. Each "active" animation starts hidden and lands on the base style, which is also the done state. */

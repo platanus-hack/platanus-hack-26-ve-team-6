@@ -1,67 +1,85 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { CheckIcon, GitBranchIcon, GlobeIcon, LockIcon, PauseIcon, PlayIcon } from 'lucide-react';
-import { Toggle } from '@/components/ui/toggle';
+import { CheckIcon, GitBranchIcon, GlobeIcon, LockIcon } from 'lucide-react';
 import { REPO_SCANS, REPO_STEPS, WEB_STEPS, type FlowStep } from './copy';
 
-const STEP_MS = 2000;
-const HOLD_MS = 3000;
 const LAST = 3;
+/** The four steps plus a short hold on the finished report. */
+const SPAN = 4.6;
 
-type FlowProps = { label: string; steps: readonly FlowStep[]; nodes: readonly ReactNode[]; motion: boolean; paused: boolean; action: ReactNode };
-type Props = { motion: boolean; paused: boolean; action: ReactNode };
+type FlowProps = { label: string; steps: readonly FlowStep[]; nodes: readonly ReactNode[]; motion: boolean; action: ReactNode };
+type Props = { motion: boolean; action: ReactNode };
+
+/** Where the diagram's top sits when the run starts and how far it travels until the run ends. */
+function runWindow(height: number) {
+  const start = innerHeight * 0.92;
+  return { start, length: innerHeight * 0.12 + height };
+}
 
 /**
- * An audit as four nodes joined by wires. While it is on screen the nodes light in turn and a packet
- * travels each wire, then the whole run repeats. Choosing a step or pausing holds it; without motion
- * every step shows its finished state.
+ * An audit as four nodes joined by wires, in the normal page flow. As it scrolls through the viewport each
+ * node rises into place and lights, the wire into it draws with a packet at its tip, and the section's
+ * headline lines drift apart and back. Scroll writes `--gl-at` (0 → 4.6, step i active from i) and `--gl-q`
+ * (-1 → 1, the section's distance from the viewport centre) on the section, never React state; only the
+ * active step re-renders. Without motion every step shows its finished state.
  */
-function AuditFlow({ label, steps, nodes, motion, paused, action }: FlowProps) {
+function AuditFlow({ label, steps, nodes, motion, action }: FlowProps) {
   const root = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState(LAST);
-  const [visible, setVisible] = useState(false);
-  const [held, setHeld] = useState(false);
-  const running = motion && visible && !paused && !held;
 
   useEffect(() => {
     const element = root.current;
-    if (!element) return;
-    let started = false;
-    const observer = new IntersectionObserver(([entry]) => {
-      const inView = entry?.isIntersecting ?? false;
-      // The first time it comes into view the run starts from the first step.
-      if (inView && !started) { started = true; setStage(0); }
-      setVisible(inView);
-    }, { rootMargin: '0px 0px -25% 0px' });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
+    const section = element?.closest('section');
+    if (!element || !section || !motion) { setStage(LAST); return; }
+    section.dataset.parallax = '';
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const box = element.getBoundingClientRect();
+      const { start, length } = runWindow(box.height);
+      const progress = Math.min(1, Math.max(0, (start - box.top) / length));
+      const around = section.getBoundingClientRect();
+      const distance = (around.top + around.height / 2 - innerHeight / 2) / innerHeight;
+      section.style.setProperty('--gl-at', (progress * SPAN).toFixed(3));
+      section.style.setProperty('--gl-q', Math.min(1, Math.max(-1, distance)).toFixed(3));
+      setStage(Math.min(LAST, Math.floor(progress * SPAN)));
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    update();
+    addEventListener('scroll', schedule, { passive: true });
+    addEventListener('resize', schedule);
+    return () => {
+      removeEventListener('scroll', schedule);
+      removeEventListener('resize', schedule);
+      cancelAnimationFrame(frame);
+      delete section.dataset.parallax;
+      section.style.removeProperty('--gl-at');
+      section.style.removeProperty('--gl-q');
+    };
+  }, [motion]);
 
-  useEffect(() => {
-    if (!running) return;
-    const timer = setTimeout(() => setStage(current => current === LAST ? 0 : current + 1), stage === LAST ? HOLD_MS : STEP_MS);
-    return () => clearTimeout(timer);
-  }, [running, stage]);
+  /** Scrolls to the point where `index` is the active step. */
+  const show = (index: number) => {
+    const element = root.current;
+    if (!element || !motion) return;
+    const box = element.getBoundingClientRect();
+    const { start, length } = runWindow(box.height);
+    scrollTo({ top: scrollY + box.top - (start - length * (index + 0.4) / SPAN), behavior: 'smooth' });
+  };
 
   const shown = motion ? stage : LAST;
-  // The active step's bar fills over the time it stays on screen; `data-running` turns the fill on.
-  return <div ref={root} className="gl-flow" role="group" aria-label={label} data-running={running || undefined} style={{ '--gl-step': `${STEP_MS}ms`, '--gl-hold': `${HOLD_MS}ms` }}>
+  return <div ref={root} className="gl-flow" role="group" aria-label={label}>
     <ol>
-      {steps.map((step, index) => <li key={step.title} data-state={index < shown ? 'done' : index === shown ? 'active' : 'idle'}>
+      {steps.map((step, index) => <li key={step.title} data-state={index < shown ? 'done' : index === shown ? 'active' : 'idle'} style={{ '--gl-i': index }}>
         {index > 0 && <span className="gl-flow-wire" aria-hidden="true"><span className="gl-flow-packet" /></span>}
         <div className="gl-flow-node" aria-hidden="true">{nodes[index]}</div>
-        <button type="button" className="gl-flow-step" aria-pressed={index === shown} onClick={() => { setHeld(true); setStage(index); }}>
+        <button type="button" className="gl-flow-step" aria-current={index === shown ? 'step' : undefined} onClick={() => show(index)}>
           <span className="gl-flow-number">0{index + 1}</span>
           <strong>{step.title}</strong>
           <span className="gl-flow-text">{step.text}</span>
         </button>
       </li>)}
     </ol>
-    <div className="gl-flow-foot">
-      {action}
-      {motion && <Toggle variant="outline" pressed={held} onPressedChange={setHeld} aria-label={held ? 'Reanudar animación' : 'Pausar animación'}>
-        {held ? <PlayIcon aria-hidden="true" className="size-3" /> : <PauseIcon aria-hidden="true" className="size-3" />}
-      </Toggle>}
-    </div>
+    <div className="gl-flow-foot">{action}</div>
   </div>;
 }
 

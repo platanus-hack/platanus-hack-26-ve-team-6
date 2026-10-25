@@ -64,17 +64,17 @@ function Hero({ paused, onPause, motion }: { paused: boolean; onPause: (paused: 
   </section>;
 }
 
-function RepoAudit({ motion, paused }: { motion: boolean; paused: boolean }) {
+function RepoAudit({ motion }: { motion: boolean }) {
   return <Section id="gl-repo" titleId="gl-repo-titulo" title={['Audita tu', <Mark key="m" size="big">repositorio.</Mark>]}>
     <p className="gl-section-lead">Conecta GitHub y Gotchu revisa una copia de tu código sin ejecutarla.</p>
-    <RepoFlow motion={motion} paused={paused} action={<Action href="/registro">Audita tu repositorio</Action>} />
+    <RepoFlow motion={motion} action={<Action href="/registro">Audita tu repositorio</Action>} />
   </Section>;
 }
 
-function WebAudit({ motion, paused }: { motion: boolean; paused: boolean }) {
+function WebAudit({ motion }: { motion: boolean }) {
   return <Section id="gl-web" titleId="gl-web-titulo" title={['Audita tu web', <Mark key="m" size="big">desde fuera.</Mark>]}>
     <p className="gl-section-lead">Sin acceso a tu código: solo demuestras que controlas el dominio.</p>
-    <WebFlow motion={motion} paused={paused} action={<Action href="/registro">Audita tu web</Action>} />
+    <WebFlow motion={motion} action={<Action href="/registro">Audita tu web</Action>} />
   </Section>;
 }
 
@@ -119,8 +119,8 @@ export function Landing() {
     <Header />
     <main id="contenido" tabIndex={-1} className="gl-main">
       <Hero paused={paused} onPause={setPaused} motion={motionAllowed} />
-      <RepoAudit motion={motionAllowed} paused={paused} />
-      <WebAudit motion={motionAllowed} paused={paused} />
+      <RepoAudit motion={motionAllowed} />
+      <WebAudit motion={motionAllowed} />
       <Questions />
       <Closing paused={paused} />
     </main>
