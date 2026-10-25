@@ -7,8 +7,8 @@ import { cn } from '@/lib/utils';
 import { ThemeSwitch } from '../components/theme-switch';
 
 const LINKS = [
-  { href: '#gl-funciona', label: 'Cómo funciona' },
-  { href: '#gl-informe', label: 'Informe' },
+  { href: '#gl-dentro', label: 'Por dentro' },
+  { href: '#gl-fuera', label: 'Por fuera' },
   { href: '#gl-preguntas', label: 'Preguntas' },
 ] as const;
 
