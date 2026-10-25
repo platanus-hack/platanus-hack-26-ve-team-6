@@ -20,7 +20,7 @@ live('observed model usage', () => {
     const jobId = randomUUID();
     const reservationId = randomUUID();
     await f.admin.query(`INSERT INTO gotchu.jobs(organization_id,application_id,id,kind,idempotency_key,payload)
-      VALUES ($1,$2,$3,'investigation',$3::text,'{}'::jsonb)`, [scope.organizationId, scope.applicationId, jobId]);
+      VALUES ($1,$2,$3,'investigation',$4,'{}'::jsonb)`, [scope.organizationId, scope.applicationId, jobId, jobId]);
     await f.admin.query(`INSERT INTO gotchu.agent_runs
       (organization_id,application_id,id,job_id,state,deadline,model_calls,tokens_reserved,reserved_micros)
       VALUES ($1,$2,$3,$4,'running',clock_timestamp()+interval '5 minutes',1,20000,20)`,

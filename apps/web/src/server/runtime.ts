@@ -5,7 +5,9 @@ import { z } from 'zod';
 import { createGitHubAppAdapter } from '@gotchu/git-adapters';
 import { createApi, type ApiOperation } from './api.js';
 import { authSettings, createAuthService, publicAuthProviders, type AuthService } from './auth.js';
-import { HttpError } from './http.js';
+import { HttpError, json } from './http.js';
+import { createMcpHandler } from './mcp.js';
+import { mcpInstallGuide } from './mcp-install.js';
 import { bindDemoAssessmentServices, createDemoAssessmentApi } from './demo.js';
 import { createLocalAccounts } from './local-accounts.js';
 import { createCustomerApi } from './customer-api.js';
@@ -320,6 +322,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
     members: web.members,
     github: web.github,
     notifications: web.notifications,
+    mcpTokens: web.mcpTokens,
     retention: web.retention,
     actions: web.actions,
     workflowExceptions: web.workflowExceptions,
@@ -343,8 +346,11 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
     ...(!singleAppMode && env.GOTCHU_GITHUB_READER_APP_FILE ? { githubAppFile: env.GOTCHU_GITHUB_READER_APP_FILE } : {}),
     ...(!singleAppMode && env.GOTCHU_GITHUB_APP_SLUG ? { githubAppSlug: env.GOTCHU_GITHUB_APP_SLUG } : {}),
   });
+  const mcp = web ? createMcpHandler({ origin, authenticate: bearer => web.mcpTokens.authenticate(bearer), services: web }) : null;
   return {
     handle,
+    handleMcpInstall: () => new Response(mcpInstallGuide(origin), { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=300', 'x-content-type-options': 'nosniff' } }),
+    handleMcp: async (request: Request) => mcp ? mcp(request) : json({ error: { code: 'database_not_configured', message: 'The MCP server needs the API database' } }, 503),
     handleAuth: auth.handle,
     handleCustomer,
     handleDemo,

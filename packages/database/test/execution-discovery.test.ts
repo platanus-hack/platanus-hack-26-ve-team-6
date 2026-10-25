@@ -17,12 +17,13 @@ live('pending execution discovery on real PostgreSQL', () => {
 
   it('keeps an execution-only organization discoverable until its pending work finishes', async () => {
     const jobId = randomUUID();
+    const auditId = randomUUID();
     // Discovery reads the envelope kind; approval authorization remains the executor's responsibility.
     await f.admin.query(`INSERT INTO gotchu.jobs
       (organization_id, application_id, id, kind, idempotency_key, payload, state)
-      VALUES ($1,$2,$3,'audit',$3::text,'{"version":2}','succeeded'),
-             ($1,$2,$4,'execution',$4::text,'{}','queued')`,
-    [f.a.organizationId, f.a.applicationId, randomUUID(), jobId]);
+      VALUES ($1,$2,$3,'audit',$5,'{"version":2}','succeeded'),
+             ($1,$2,$4,'execution',$6,'{}','queued')`,
+    [f.a.organizationId, f.a.applicationId, auditId, jobId, auditId, jobId]);
 
     for (const state of ['queued', 'running']) {
       await f.admin.query('UPDATE gotchu.jobs SET state=$3 WHERE organization_id=$1 AND id=$2',
@@ -56,7 +57,7 @@ live('pending execution discovery on real PostgreSQL', () => {
     const jobId = randomUUID();
     await f.admin.query(`INSERT INTO gotchu.jobs
       (organization_id, application_id, id, kind, idempotency_key)
-      VALUES ($1,$2,$3,'execution',$3::text)`, [f.b.organizationId, f.b.applicationId, jobId]);
+      VALUES ($1,$2,$3,'execution',$4)`, [f.b.organizationId, f.b.applicationId, jobId, jobId]);
     await f.databases.gotchu_coordinator.tenant(systemTenant, async tx => {
       expect((await tx.query('SELECT * FROM gotchu.customer_pending_organizations(500)')).rows)
         .toContainEqual({ organization_id: f.b.organizationId });
@@ -72,7 +73,7 @@ live('pending execution discovery on real PostgreSQL', () => {
     expect((await f.admin.query(`SELECT relrowsecurity, relforcerowsecurity FROM pg_class
       WHERE oid='gotchu.jobs'::regclass`)).rows)
       .toEqual([{ relrowsecurity: true, relforcerowsecurity: true }]);
-    expect((await f.admin.query(`SELECT cmd, roles FROM pg_policies
+    expect((await f.admin.query(`SELECT cmd, roles::text[] AS roles FROM pg_policies
       WHERE schemaname='gotchu' AND tablename='jobs' AND policyname='customer_pending_discovery'`)).rows)
       .toEqual([{ cmd: 'SELECT', roles: ['gotchu_owner'] }]);
   });

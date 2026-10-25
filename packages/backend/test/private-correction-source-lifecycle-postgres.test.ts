@@ -40,7 +40,7 @@ live('private AI correction source lifecycle with real PostgreSQL roles', () => 
           'targetId',NULL,'targetVersion',NULL,'origin',NULL,'containerImageId',NULL,'containerImageDigest',NULL,'containerImageReference',NULL))
       FROM gotchu.customer_requests WHERE organization_id=$1 AND job_id=$2`, [scope.organizationId, assessment.jobId, reportId]);
     await f.admin.query(`INSERT INTO gotchu.jobs(organization_id,application_id,id,kind,idempotency_key,state)
-      VALUES($1,$2,$3,'investigation',$3::text,'succeeded')`, [scope.organizationId, scope.applicationId, jobId]);
+      VALUES($1,$2,$3,'investigation',$4,'succeeded')`, [scope.organizationId, scope.applicationId, jobId, jobId]);
     await f.admin.query(`INSERT INTO gotchu.validation_runs(organization_id,application_id,id,action_ref,target_finding_id,
       candidate_source_id,base_source_id,base_snapshot_digest,candidate_tree_digest,patch_digest,state,finished_at,runner_profile,sandbox_kind,limits)
       VALUES($1,$2,$3,$4,$5,$4,$6,$7,$8,repeat('a',64),'inconclusive',clock_timestamp(),'node24-npm-test','bwrap+systemd-scope','{}')`,
@@ -168,7 +168,7 @@ live('private AI correction source lifecycle with real PostgreSQL roles', () => 
   async function newJob(c: Correction) {
     const id = randomUUID();
     await f.admin.query(`INSERT INTO gotchu.jobs(organization_id,application_id,id,kind,idempotency_key)
-      VALUES($1,$2,$3,'investigation',$3::text)`, [c.scope.organizationId, c.scope.applicationId, id]);
+      VALUES($1,$2,$3,'investigation',$4)`, [c.scope.organizationId, c.scope.applicationId, id, id]);
     return id;
   }
   const insertRequest = (tx: Transaction, c: Correction, jobId: string) => tx.query(`INSERT INTO gotchu.ai_correction_requests(
@@ -243,7 +243,7 @@ live('private AI correction source lifecycle with real PostgreSQL roles', () => 
     await remove(c, c.candidate.id);
     const nextJob = randomUUID();
     await f.admin.query(`INSERT INTO gotchu.jobs(organization_id,application_id,id,kind,idempotency_key)
-      VALUES($1,$2,$3,'investigation',$3::text)`, [c.scope.organizationId, c.scope.applicationId, nextJob]);
+      VALUES($1,$2,$3,'investigation',$4)`, [c.scope.organizationId, c.scope.applicationId, nextJob, nextJob]);
     await f.databases.gotchu_api.tenant(c.scope.organizationId, tx => tx.query(`INSERT INTO gotchu.ai_correction_requests(
       organization_id,application_id,id,job_id,report_id,finding_id,base_source_id,source_digest,requested_by,model_config_sha256,authorized_files)
       SELECT organization_id,application_id,$3,$4,report_id,finding_id,base_source_id,source_digest,requested_by,model_config_sha256,authorized_files

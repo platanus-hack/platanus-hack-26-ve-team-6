@@ -21,8 +21,8 @@ live('server-owned investigation replies', () => {
     const evidenceId = randomUUID();
     const unreadId = randomUUID();
     await f.admin.query(`INSERT INTO gotchu.jobs(organization_id,application_id,id,kind,idempotency_key,payload)
-      VALUES ($1,$2,$3,'investigation',$3::text,$4::jsonb)`,
-    [scope.organizationId, scope.applicationId, jobId, JSON.stringify({ incidentId: randomUUID(), evidenceIds: [evidenceId, unreadId] })]);
+      VALUES ($1,$2,$3,'investigation',$5,$4::jsonb)`,
+    [scope.organizationId, scope.applicationId, jobId, JSON.stringify({ incidentId: randomUUID(), evidenceIds: [evidenceId, unreadId] }), jobId]);
     await f.admin.query(`INSERT INTO gotchu.agent_runs(organization_id,application_id,id,job_id,state,deadline)
       VALUES ($1,$2,$3,$4,'running',clock_timestamp()+interval '5 minutes')`,
     [scope.organizationId, scope.applicationId, scope.runId, jobId]);

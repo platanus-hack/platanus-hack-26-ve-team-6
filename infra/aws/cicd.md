@@ -2,6 +2,8 @@
 
 `main` remains the development integration branch. Production changes are promoted through a `main` → `prod` PR; merging that PR authorizes delivery to the existing `gotchu-prod` Lightsail server. Keep changes in main, including hotfixes. Do not maintain a second application implementation in prod.
 
+CI, promotion and deployment jobs run only in `0bkevin/gotchu`. The Platanus team repository mirrors the source for the hackathon; every job is skipped there, including manual runs. Deployments also require `refs/heads/prod`. Mirroring code does not authorize another repository to operate production.
+
 ## Normal release
 
 1. Merge a feature PR into main after `required-checks` passes. This gate requires every selected CI job to succeed; jobs run in parallel according to the affected packages.

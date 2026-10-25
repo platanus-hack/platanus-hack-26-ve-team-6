@@ -118,6 +118,10 @@ The Owner grants repository publication permission and approves an eligible exac
 
 Core contracts are provider-independent; AWS is the primary hosting choice. Additional product proposals and operational verification work are recorded only in [Roadmap](roadmap.md). Current availability and evidence boundaries are in [implementation status](implementation-plan.md).
 
+## Assistant boundaries
+
+The MCP server (`apps/web/src/server/mcp.ts`) is another web entry point, not a new authority. A workspace-bound personal token resolves to a member identity, and each tool calls the same backend service as the dashboard, so membership, role and tenant checks stay in the backend. Every tool is read-only; queueing analyses, running agents, approvals and pull requests have no MCP tool.
+
 ## Continuous selected-input monitoring and correction preparation
 
 An operator-scoped local Git/GitHub catalog binds every repository key to an organization and application. The scheduler claims one persisted monitor run at a time, revalidates the configuring membership and current inputs, reads exact commits and current advisory/status metadata, then atomically materializes a canonical customer audit/request/outbox. Leases and heartbeats fence writes; configuration changes cannot silently invalidate admitted active work. The existing audit lane executes the scanner, not the scheduler's HTTP lifetime. Unchanged commits still receive advisory queries and scheduled assessments.

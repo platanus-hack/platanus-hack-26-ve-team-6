@@ -34,9 +34,9 @@ live('captured-source deduplication across GitHub authority changes', () => {
   });
   async function connect(installationId = providerId(), repositoryId = Number(providerId()), expectedApp = appId, legacy = false) {
     const binding = { organizationId: scope.organizationId, installationId, accountLogin: 'fixture',
-      githubUserId: '99', githubAccountId: '100', state: 's'.repeat(43) };
+      githubUserId: '99', githubAccountId: '100', state: 's'.repeat(43), userId: f.a.userId };
     if (legacy) await github.bind(actor(), binding);
-    else await executor.bindSingleApp(actor(), { ...binding, userId: f.a.userId, appId: expectedApp });
+    else await executor.bindSingleApp(actor(), { ...binding, appId: expectedApp });
     const link = await github.createRepositoryLink(actor(), { ...scope, installationId, repositoryId,
       fullName: 'fixture/repository', defaultBranch: 'main' });
     return { ...scope, repositoryLinkId: link.id, installationId, repositoryId, appId: expectedApp,
