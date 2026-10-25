@@ -15,7 +15,7 @@ export type CorrectionReportScope = z.infer<typeof correctionReportScopeSchema>;
 export type PrepareCorrectionInput = z.infer<typeof prepareCorrectionInputSchema>;
 export type PrepareDependencyFixInput = z.infer<typeof prepareDependencyFixInputSchema>;
 
-async function lockApplication(tx: Transaction, scope: CorrectionReportScope) {
+export async function lockCorrectionApplication(tx: Transaction, scope: CorrectionReportScope) {
   const organization = await tx.query<{ exists: boolean }>('SELECT gotchu.lock_customer_organization($1) AS exists', [scope.organizationId]);
   if (!organization.rows[0]?.exists) throw new BackendError('not_found', 'Workspace not found', 404);
   const result = await tx.query<{ app: unknown }>('SELECT gotchu.lock_customer_application($1,$2) AS app', [scope.organizationId, scope.applicationId]);
@@ -29,7 +29,7 @@ function scopeMismatch(): never {
 }
 
 /** Historical reports use persisted intent, never the lease-only scanner hydration API. */
-async function loadAssessment(tx: Transaction, scope: CorrectionReportScope) {
+export async function loadAssessment(tx: Transaction, scope: CorrectionReportScope) {
   const result = await tx.query<{ body: unknown; job_id: string; input: unknown; payload: unknown; kind: string; source_id: string | null; target_id: string | null }>(`SELECT p.body,p.job_id,r.input,r.source_id,r.target_id,j.payload,j.kind
     FROM gotchu.customer_reports p
     JOIN gotchu.customer_requests r ON r.organization_id=p.organization_id AND r.application_id=p.application_id AND r.job_id=p.job_id
@@ -65,7 +65,7 @@ function recipeBoundary<T>(work: () => T): T {
 }
 
 /** Only the current tenant transaction is available to the existing customer services. */
-function transactionDatabase(database: Database, organizationId: string, tx: Transaction): Database {
+export function transactionDatabase(database: Pick<Database, 'role'>, organizationId: string, tx: Transaction): Database {
   const unavailable = async (): Promise<never> => { throw new Error('Correction transaction capability does not allow this operation'); };
   return {
     role: database.role,
@@ -200,7 +200,7 @@ export function createCorrectionService(deps: BaseDependencies & { npmRegistry?:
     const actor = parse(identitySchema, identity); const scope = parse(correctionReportScopeSchema, input);
     const context = await deps.database.tenant(scope.organizationId, async tx => {
       await authorize(tx, scope.organizationId, actor);
-      await lockApplication(tx, scope);
+      await lockCorrectionApplication(tx, scope);
       return dependencyContext(tx, scope);
     });
     const groups = dependencyFindingGroups(context.assessment.input, context.assessment.report);
@@ -240,7 +240,7 @@ export function createCorrectionService(deps: BaseDependencies & { npmRegistry?:
     const actor = parse(identitySchema, identity); const scope = parse(correctionReportScopeSchema, input);
     const base = await deps.database.tenant(scope.organizationId, async tx => {
       await authorize(tx, scope.organizationId, actor);
-      await lockApplication(tx, scope);
+      await lockCorrectionApplication(tx, scope);
       const assessment = await loadAssessment(tx, scope);
       return recipeBoundary(() => buildRecipeRecommendations(assessment.input, assessment.report));
     });
@@ -251,7 +251,7 @@ export function createCorrectionService(deps: BaseDependencies & { npmRegistry?:
     const scope = parse(prepareDependencyFixInputSchema, input);
     const initial = await deps.database.tenant(scope.organizationId, async tx => {
       await authorize(tx, scope.organizationId, actor, ['owner', 'operator']);
-      await lockApplication(tx, scope);
+      await lockCorrectionApplication(tx, scope);
       const context = await dependencyContext(tx, scope);
       const group = dependencyFindingGroups(context.assessment.input, context.assessment.report).find(item => item.findingIds.includes(scope.findingId) || item.withdrawnFindingIds.includes(scope.findingId));
       if (!group || !context.assessment.input.source) throw new BackendError('dependency_finding_unavailable', 'This finding has no complete npm lockfile evidence', 409);
@@ -291,7 +291,7 @@ export function createCorrectionService(deps: BaseDependencies & { npmRegistry?:
 
     return deps.database.tenant(scope.organizationId, async tx => {
       await authorize(tx, scope.organizationId, actor, ['owner', 'operator']);
-      await lockApplication(tx, scope);
+      await lockCorrectionApplication(tx, scope);
       const current = await dependencyContext(tx, scope);
       const currentSource = current.assessment.input.source;
       const currentGroup = dependencyFindingGroups(current.assessment.input, current.assessment.report).find(item => item.findingIds.includes(scope.findingId) || item.withdrawnFindingIds.includes(scope.findingId));
@@ -358,7 +358,7 @@ export function createCorrectionService(deps: BaseDependencies & { npmRegistry?:
       const actor = parse(identitySchema, identity); const value = parse(prepareCorrectionInputSchema, input);
       return deps.database.tenant(value.organizationId, async tx => {
         await authorize(tx, value.organizationId, actor, ['owner', 'operator']);
-        await lockApplication(tx, value);
+        await lockCorrectionApplication(tx, value);
         const assessment = await loadAssessment(tx, value);
         const preparation = recipeBoundary(() => prepareCandidatePatch(assessment.input, assessment.report, {
           recipeId: value.recipeId, findingId: value.findingId, expectedSourceDigest: value.expectedSourceDigest,
