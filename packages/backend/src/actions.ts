@@ -8,6 +8,7 @@ import { APPROVAL_TTL_MS, STEP_UP_MAX_AGE_MS, assertStepUp, verifiedStepUpSchema
 import { enqueue } from './jobs.js';
 import { dependencyCommitMessage, expectedDependencyCommitSha } from './git-commit.js';
 import { actionPolicyVersion } from './action-policies.js';
+import { verifyValidationAttestation } from './validations.js';
 
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
 const actionHashSchema = digest;
@@ -32,7 +33,57 @@ export function hashActionV2(action: ActionV2, recoveryEpoch: string): string {
   return sha256('gotchu-action-v2\n' + canonicalJson({ action: parse(actionV2Schema, action), recoveryEpoch: parse(z.string().regex(/^[1-9][0-9]*$/), recoveryEpoch) }));
 }
 
-function publicProjection(row: z.infer<typeof actionRowSchema>, details: { path?: string; diffSummary?: string }, execution: { status: string | null; pullRequestUrl: string | null; attempts: Array<Record<string, unknown>> } = { status:null,pullRequestUrl:null,attempts:[] }) {
+type DependencyValidationResults = { rescan: 'pending' | 'passed' | 'failed' | 'inconclusive'; suite: 'pending' | 'passed' | 'failed' | 'inconclusive' };
+
+async function loadDependencyValidationResults(tx: Transaction, scope: { organizationId: string; applicationId: string }, actions: readonly ActionV2[]) {
+  const attestationIds = actions.flatMap(action => action.kind === 'dependency_pull_request' ? [action.rescanAttestationId, action.suiteAttestationId] : []);
+  const results = new Map<ActionV2, DependencyValidationResults>();
+  if (!attestationIds.length) return results;
+  const stored = await tx.query<{
+    id: string; kind: string; body: unknown; key_id: string; signature: string; public_key: string;
+    run_id: string; candidate_source_id: string; candidate_digest: string; patch_sha256: string;
+    repository_link_id: string; base_commit: string;
+  }>(`SELECT a.id,a.kind,a.body,a.key_id,a.signature,k.public_key,a.run_id,
+      c.candidate_source_id,c.candidate_digest,c.patch_sha256,c.repository_link_id,c.base_commit
+    FROM gotchu.validation_attestations a
+    JOIN gotchu.validation_keys k ON k.id=a.key_id
+    JOIN gotchu.validation_runs v ON v.organization_id=a.organization_id AND v.application_id=a.application_id AND v.id=a.run_id
+    JOIN gotchu.dependency_fix_candidates c ON c.organization_id=v.organization_id AND c.application_id=v.application_id
+      AND c.validation_run_id=v.id AND c.candidate_source_id=v.candidate_source_id AND c.candidate_source_id=v.action_ref
+      AND c.base_source_id=v.base_source_id AND c.base_digest=v.base_snapshot_digest
+      AND c.candidate_digest=v.candidate_tree_digest AND c.patch_sha256=v.patch_digest
+    WHERE a.organization_id=$1 AND a.application_id=$2 AND a.id=ANY($3::uuid[]) AND v.validation_mode='dependency'`,
+  [scope.organizationId, scope.applicationId, [...new Set(attestationIds)]]);
+  for (const action of actions) {
+    if (action.kind !== 'dependency_pull_request' || action.organizationId !== scope.organizationId || action.applicationId !== scope.applicationId) continue;
+    const candidates = action.evidence.filter(item => item.kind === 'dependency_candidate');
+    const candidate = candidates[0];
+    if (candidates.length !== 1 || !candidate) continue;
+    const result: DependencyValidationResults = { rescan: 'pending', suite: 'pending' };
+    for (const [field, id, kind] of [
+      ['rescan', action.rescanAttestationId, 'independent_rescan'],
+      ['suite', action.suiteAttestationId, 'functional_suite'],
+    ] as const) {
+      const matches = stored.rows.filter(item => item.id === id);
+      const item = matches[0];
+      if (matches.length !== 1 || !item || item.kind !== kind || item.candidate_source_id !== candidate.id
+        || item.candidate_digest !== candidate.sha256 || item.patch_sha256 !== action.patchSha256
+        || item.repository_link_id !== action.target.repositoryLinkId || item.base_commit !== action.baseCommit) continue;
+      const payload = validationAttestationPayloadSchema.safeParse(item.body);
+      if (!payload.success || payload.data.id !== id || payload.data.organizationId !== scope.organizationId
+        || payload.data.applicationId !== scope.applicationId || payload.data.runId !== item.run_id
+        || payload.data.actionRef !== candidate.id || payload.data.evidence.kind !== kind
+        || !verifyValidationAttestation({ payload: payload.data, keyId: item.key_id, signature: item.signature }, item.public_key)) continue;
+      const evidence = payload.data.evidence;
+      // Display the signed result; freshness and approval eligibility remain verifier decisions.
+      if (evidence.kind === 'independent_rescan' || evidence.kind === 'functional_suite') result[field] = evidence.result;
+    }
+    results.set(action, result);
+  }
+  return results;
+}
+
+function publicProjection(row: z.infer<typeof actionRowSchema>, details: { path?: string; diffSummary?: string }, execution: { status: string | null; pullRequestUrl: string | null; attempts: Array<Record<string, unknown>> } = { status:null,pullRequestUrl:null,attempts:[] }, validation?: DependencyValidationResults) {
   const kindLabel = row.action.kind === 'source_patch_pull_request' ? 'Abrir una solicitud de cambio para una corrección de código'
     : row.action.kind === 'dependency_pull_request' ? 'Abrir una solicitud de cambio para actualizar dependencias npm' : 'Acción propuesta';
   const blockerText: Record<string, string> = {
@@ -45,6 +96,7 @@ function publicProjection(row: z.infer<typeof actionRowSchema>, details: { path?
     'base cambió desde la propuesta': 'La rama base cambió. Prepara y valida una propuesta nueva antes de aprobar.',
     'dependency_candidate_invalid': 'La instantánea de dependencias no coincide con la propuesta guardada.',
     'dependency_validation_missing': 'La validación independiente de la dependencia aún no está disponible.',
+    'repository_write_access_not_granted': 'Concede permiso de escritura al repositorio en la configuración de la aplicación para continuar con la propuesta.',
   };
   return {
     id: row.id, actionHash: row.actionHash, kind: row.action.kind, state: row.state,
@@ -54,7 +106,7 @@ function publicProjection(row: z.infer<typeof actionRowSchema>, details: { path?
       ? { path: 'package.json · package-lock.json', summary: details.diffSummary ?? row.action.changes.map(change => `${change.name}: ${change.from} → ${change.to}`).join('; ') }
       : details.path ? { path: details.path, summary: details.diffSummary ?? 'Cambio privado de una receta; el contenido del código no se comparte en esta vista.' } : null,
     validations: row.action.kind === 'dependency_pull_request'
-      ? [{ label: 'reanálisis objetivo', state: row.state === 'eligible' ? 'passed' : 'pending' }, { label: 'suite configurada', state: row.state === 'eligible' ? 'passed' : 'pending' }]
+      ? [{ label: 'reanálisis objetivo', state: validation?.rescan ?? 'pending' }, { label: 'suite configurada', state: validation?.suite ?? 'pending' }]
       : [{ label: 'reanálisis objetivo', state: row.state === 'eligible' ? 'passed' : 'pending' }, { label: 'suite configurada', state: row.state === 'eligible' ? 'passed' : 'pending' }],
     limits: [execution.status ? 'Gotchu no fusionó el cambio ni lo desplegó.' : 'No se ha escrito en Git ni en producción.', 'La severidad y el texto de una recomendación no conceden permisos.'],
     blockingReasons: row.blockingReasons.map(reason => blockerText[reason] ?? reason),
@@ -389,7 +441,8 @@ export function createActionService(deps: ActionDependencies) {
           return actionRowSchema.parse({ id: row.id, actionHash: row.action_hash, action, state: row.state, blockingReasons: publicReasons(row.blocking_reasons,row.invalidation_reason), createdAt: row.created_at });
         });
         const histories = await loadExecutionHistory(tx, scope.organizationId, rows.map(row => row.id));
-        return rows.map(row => publicProjection(row, {}, histories.get(row.id)));
+        const validations = await loadDependencyValidationResults(tx, scope, rows.map(row => row.action));
+        return rows.map(row => publicProjection(row, {}, histories.get(row.id), validations.get(row.action)));
       });
     },
     async get(identity: Identity, input: { organizationId: string; applicationId: string; proposalId: string }) {
@@ -412,7 +465,8 @@ export function createActionService(deps: ActionDependencies) {
           path = parsed.success ? parsed.data.path : undefined;
         }
         const history = await loadExecutionHistory(tx, scope.organizationId, [scope.proposalId]);
-        return publicProjection(actionRowSchema.parse({ id: row.id, actionHash: row.action_hash, action, state: row.state, blockingReasons: publicReasons(row.blocking_reasons,row.invalidation_reason), createdAt: row.created_at }), path === undefined ? {} : { path }, history.get(scope.proposalId));
+        const validations = await loadDependencyValidationResults(tx, scope, [action]);
+        return publicProjection(actionRowSchema.parse({ id: row.id, actionHash: row.action_hash, action, state: row.state, blockingReasons: publicReasons(row.blocking_reasons,row.invalidation_reason), createdAt: row.created_at }), path === undefined ? {} : { path }, history.get(scope.proposalId), validations.get(action));
       });
     },
     async propose(identity: Identity, input: { organizationId: string; applicationId: string; kind: string; sourceRef: unknown }) {
