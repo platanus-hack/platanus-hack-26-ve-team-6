@@ -12,7 +12,7 @@ export function AssessmentProgress({ status, reportAvailable = false }: { status
   };
   const hasJob = ['queued', 'running', 'succeeded', 'failed'].includes(status);
   const stages = [
-    { title: 'Solicitud registrada', detail: 'Origen y perfil guardados', state: hasJob ? 'done' : 'pending' },
+    { title: 'Solicitud registrada', detail: 'Solicitud aceptada y encolada', state: hasJob ? 'done' : 'pending' },
     { title: 'Evaluación', detail: 'Comprobaciones en segundo plano', state: status === 'running' ? 'running' : status === 'succeeded' ? 'done' : status === 'failed' ? 'failed' : 'pending' },
     { title: 'Informe guardado', detail: 'Evidencia, hallazgos y cobertura', state: status === 'succeeded' && reportAvailable ? 'done' : 'pending' },
   ];
