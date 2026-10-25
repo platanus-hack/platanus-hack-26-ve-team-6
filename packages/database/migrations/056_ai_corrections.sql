@@ -45,3 +45,5 @@ GRANT EXECUTE ON FUNCTION gotchu.lock_ai_correction_model(uuid) TO gotchu_api;
 -- Finalization reuses source admission, static assessment admission and validation queuing.
 GRANT INSERT ON gotchu.customer_sources,gotchu.customer_requests,gotchu.validation_runs TO gotchu_coordinator;
 GRANT SELECT ON gotchu.customer_license_policies,gotchu.validation_suite_definitions TO gotchu_coordinator;
+
+GRANT UPDATE (cancel_requested_at) ON gotchu.agent_runs TO gotchu_api;

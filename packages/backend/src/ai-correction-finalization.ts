@@ -46,7 +46,7 @@ export async function completeAiCorrectionForJob(tx: Transaction, raw: Correctio
   const payload = parse(z.object({ version: z.literal(2), correctionId: z.uuid(), subject: z.object({ kind: z.literal('finding'), reportId: z.uuid(), subjectId: z.uuid() }).strict(), evidenceIds: z.array(z.uuid()).min(1).max(20) }).strict(), current.payload);
   if (payload.correctionId !== row.id || payload.subject.reportId !== row.report_id || payload.subject.subjectId !== row.finding_id) correctionBoundary('correction_run_mismatch');
   if (current.cancelled) {
-    await failAiCorrectionForJob(tx, { ...scope, reasonCode: 'cancelled' });
+    await failAiCorrectionForJob(tx, { organizationId: scope.organizationId, applicationId: scope.applicationId, jobId: scope.jobId, leaseToken: scope.leaseToken, reasonCode: 'cancelled' });
     return null;
   }
   if (row.model_patch === null) return null;
