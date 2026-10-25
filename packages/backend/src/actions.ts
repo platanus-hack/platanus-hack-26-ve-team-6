@@ -613,7 +613,11 @@ export function createActionService(deps: ActionDependencies) {
           await tx.query("UPDATE gotchu.proposals SET state='invalidated',invalidated_at=clock_timestamp(),invalidation_reason=$3 WHERE organization_id=$1 AND id=$2", [value.organizationId,value.proposalId,invalidationReason]);
           return new BackendError(check.baseChanged ? 'stale_state' : 'stale_policy', check.baseChanged ? 'The target base changed; prepare and validate a new proposal' : 'The action policy changed; prepare and validate a new proposal', 409);
         }
-        if (!check.eligible || check.blockingReasons.length) throw new BackendError('proposal_ineligible', 'Action became ineligible before approval', 409);
+        if (!check.eligible || check.blockingReasons.length) {
+          const reasons = check.blockingReasons.length ? check.blockingReasons : ['validaciones pendientes'];
+          await tx.query("UPDATE gotchu.proposals SET state='ineligible',blocking_reasons=$3::jsonb WHERE organization_id=$1 AND id=$2", [value.organizationId,value.proposalId,JSON.stringify(reasons)]);
+          return new BackendError('proposal_ineligible', `La propuesta no puede aprobarse: ${reasons.join('; ')}`, 409);
+        }
         const authorizationMethod = 'owner_session';
         const expiresAt = new Date(clock.now().getTime() + APPROVAL_TTL_MS);
         const approvalId = randomUUID();
