@@ -125,7 +125,7 @@ async function loadCandidate(tx: Transaction, scope: { organizationId: string; a
   if (!source || source.deleted_at) throw new BackendError('candidate_unavailable', 'Private correction candidate is unavailable', 409);
   const auditResult = await tx.query<{ detail: unknown }>(`SELECT detail FROM gotchu.audit_records
     WHERE organization_id=$1 AND subject_id=$2 AND action='correction.prepared' ORDER BY created_at DESC LIMIT 1`, [scope.organizationId, candidateId]);
-  const detail = z.object({ recipeId: z.string().min(1).max(100), recipeVersion: z.string().min(1).max(100), findingId: z.string().min(1).max(256), patchHash: digest, candidateSourceDigest: digest, path: z.string().min(1).max(512), originalSourceId: z.uuid().optional(), sourceDigest: digest.optional() }).passthrough().safeParse(auditResult.rows[0]?.detail);
+  const detail = z.object({ recipeId: z.string().min(1).max(100), recipeVersion: z.string().min(1).max(100), findingId: z.string().min(1).max(256), patchHash: digest, candidateSourceDigest: digest, path: z.string().min(1).max(512), paths: z.array(z.string().min(1).max(512)).min(1).max(4).optional(), originalSourceId: z.uuid().optional(), sourceDigest: digest.optional() }).passthrough().safeParse(auditResult.rows[0]?.detail);
   if (!detail.success || detail.data.candidateSourceDigest !== source.digest) throw new BackendError('candidate_mismatch', 'Stored correction metadata does not match the private candidate', 409);
   const linkResult = await tx.query<{ id: string; repository_key: string; default_branch: string; state: string; revoked: boolean; write_access: string }>(`SELECT id,repository_key,default_branch,state,revoked,write_access FROM gotchu.application_repository_links
     WHERE organization_id=$1 AND application_id=$2 AND NOT revoked ORDER BY created_at,id LIMIT 2`, [scope.organizationId, scope.applicationId]);
@@ -147,7 +147,10 @@ async function loadCandidate(tx: Transaction, scope: { organizationId: string; a
         const after = new Map(snapshot.files.map(file => [file.path, file.content]));
         const removed = [...before.keys()].filter(path => !after.has(path));
         const changed = snapshot.files.filter(file => before.get(file.path) !== file.content);
-        if (removed.length === 0 && changed.length === 1 && changed[0]?.path === detail.data.path) {
+        const paths = detail.data.recipeId === 'ai-source-fix' ? detail.data.paths : [detail.data.path];
+        const exactPaths = paths !== undefined && new Set(paths).size === paths.length && paths[0] === detail.data.path
+          && changed.length === paths.length && changed.every(file => paths.includes(file.path) && before.has(file.path));
+        if (removed.length === 0 && exactPaths) {
           patchFiles = changed.map(file => ({ path: file.path, content: file.content, mode: '100644' as const }));
           artifactUnsupportedReason = null;
         } else {
