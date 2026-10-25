@@ -192,7 +192,7 @@ export function createGitHubActionProvider(options: {
       const validationIds = action.kind === 'source_patch_pull_request'
         ? action.validationAttestationIds
         : [action.rescanAttestationId, action.suiteAttestationId];
-      const actionUrl = new URL(`/dashboard?organizationId=${encodeURIComponent(action.organizationId)}&applicationId=${encodeURIComponent(action.applicationId)}#action-${input.actionHash}`, options.publicAppUrl).toString();
+      const actionUrl = new URL(`/w/${encodeURIComponent(action.organizationId)}/p/${encodeURIComponent(action.applicationId)}/informes#action-${input.actionHash}`, options.publicAppUrl).toString();
       const validationLines = validationIds.map(id => `- [Signed validation attestation \`${id}\`](${actionUrl})`);
       const changeLines = action.kind === 'dependency_pull_request'
         ? action.changes.map(change => `- \`${change.name}\`: \`${change.from}\` → \`${change.to}\``)
@@ -213,6 +213,7 @@ export function createGitHubActionProvider(options: {
         '### Validation evidence',
         `[Review the exact action and validation state in Gotchu](${actionUrl}). The independent verifier checked signed evidence for this approved candidate.`,
         ...validationLines,
+        'Validation covers the configured scope, which may be a selected test subset. It does not establish full-suite success, exploit reproduction, or whole-application safety; findings outside the approved change can remain unresolved.',
         '',
         '### Source evidence',
         ...evidenceLines,
