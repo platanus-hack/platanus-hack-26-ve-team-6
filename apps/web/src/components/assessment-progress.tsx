@@ -8,6 +8,7 @@ import {
 import './assessment-progress.css';
 
 const STEP_MS = 350;
+const SETTLED_HOLD_MS = 900;
 const LABELS: Record<Phase, string> = { queue: 'Cola', validation: 'Validación', internal: 'Interno', external: 'Externo', correlation: 'Correlación', report: 'Informe' };
 const inactive = (state: PhaseState) => state === 'skipped' || state === 'not_requested';
 const stateKey = (states: PhaseStates) => PHASES.map(phase => states[phase]).join();
@@ -204,11 +205,12 @@ export function AssessmentProgress({ purpose, job, failure, error, retry, onSett
     const interval = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(interval);
   }, [settled]);
+  // Hold the completed graph briefly so the last phase is seen before the report opens.
   const reported = useRef(false);
   useEffect(() => {
     if (!settled || !job || reported.current) return;
-    reported.current = true;
-    onSettled(job);
+    const timeout = window.setTimeout(() => { reported.current = true; onSettled(job); }, SETTLED_HOLD_MS);
+    return () => window.clearTimeout(timeout);
   }, [settled, job, onSettled]);
 
   const hints = laneHints(job?.inputKind);
@@ -222,7 +224,8 @@ export function AssessmentProgress({ purpose, job, failure, error, retry, onSett
       {started !== null && <span className="customer-progress-clock">{elapsed((ended ?? now) - started)}</span>}
     </div>
     <p className="sr-only" role="status" aria-live="polite">{title}</p>
-    <PhaseGraph states={shown} times={times} hints={hints} now={now} />
+    {/* The branches depend on the job's mode, so the graph waits for the first poll. */}
+    {job && <PhaseGraph states={shown} times={times} hints={hints} now={now} />}
     {error && <button className="customer-link-button" type="button" onClick={retry}>Actualizar estado del análisis</button>}
     {failedShown && settled && <button className="customer-link-button" type="button" onClick={onDismiss}>Descartar</button>}
   </section>;

@@ -929,16 +929,21 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const settleJob = useCallback((jobResult: CustomerJob) => {
     if (!activeJob) return;
     if (jobResult.state === 'succeeded') {
-      setActiveJob(null);
-      if (jobResult.reportId) {
-        void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: activeJob.organizationId, projectId: activeJob.applicationId, reportId: jobResult.reportId } });
-        setNotice(activeJob.purpose === 'correction' ? 'El análisis interno independiente terminó y su informe ya está disponible.' : 'La evaluación terminó y su informe ya está disponible.');
-      } else {
-        setPageError(activeJob.purpose === 'correction'
-          ? 'El análisis interno terminó, pero el nuevo informe todavía no está disponible. La instantánea privada se conserva; actualiza el historial para comprobarlo.'
-          : 'La evaluación terminó, pero el informe todavía no está disponible. Actualiza el historial para comprobarlo.');
-      }
-      queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'reports', activeJob.organizationId, activeJob.applicationId] }).catch(caught => setPageError(readableError(caught)));
+      const scope = activeJob;
+      // Refresh the report list first: the report route returns to the list for ids it does not know yet.
+      queryClient.refetchQueries({ queryKey: ['customer-data', userId, 'reports', scope.organizationId, scope.applicationId], type: 'all' })
+        .catch(caught => setPageError(readableError(caught)))
+        .finally(() => {
+          setActiveJob(null);
+          if (jobResult.reportId) {
+            void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: scope.organizationId, projectId: scope.applicationId, reportId: jobResult.reportId } });
+            setNotice(scope.purpose === 'correction' ? 'El análisis interno independiente terminó y su informe ya está disponible.' : 'La evaluación terminó y su informe ya está disponible.');
+          } else {
+            setPageError(scope.purpose === 'correction'
+              ? 'El análisis interno terminó, pero el nuevo informe todavía no está disponible. La instantánea privada se conserva; actualiza el historial para comprobarlo.'
+              : 'La evaluación terminó, pero el informe todavía no está disponible. Actualiza el historial para comprobarlo.');
+          }
+        });
     } else if (jobResult.state === 'failed') {
       setActiveJob(null);
       setPageError(jobFailureMessage(activeJob.purpose, jobResult));
