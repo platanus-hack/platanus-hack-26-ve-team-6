@@ -48,9 +48,15 @@ function database(prefix) {
   return url.href;
 }
 const common = { NODE_ENV: 'production', GOTCHU_DEMO_ENABLED: 'false', GOTCHU_MONITORING_CONFIG_FILE: '/etc/gotchu/repositories.json' };
+// Optional integrations belong only to web; keep operator settings across reinstalls.
+const webIntegrations = Object.fromEntries([
+  'AUTH_GITHUB_ID', 'AUTH_GITHUB_SECRET', 'AUTH_GOOGLE_ID', 'AUTH_GOOGLE_SECRET',
+  'AUTH_OIDC_ISSUER', 'AUTH_OIDC_CLIENT_ID', 'AUTH_OIDC_CLIENT_SECRET', 'AUTH_OIDC_NAME',
+  'GOTCHU_GITHUB_READER_APP_FILE', 'GOTCHU_GITHUB_APP_SLUG',
+].filter(key => config[key]).map(key => [key, config[key]]));
 const services = {
   web: {
-    ...common, GOTCHU_SERVICE_ENTRY: '/opt/gotchu/app/apps/web/.output/server/index.mjs',
+    ...common, ...webIntegrations, GOTCHU_SERVICE_ENTRY: '/opt/gotchu/app/apps/web/.output/server/index.mjs',
     PORT: '3000', NITRO_PORT: '3000', HOST: '127.0.0.1', NITRO_HOST: '127.0.0.1',
     NITRO_SSL_CERT: '/etc/gotchu/web.crt', NITRO_SSL_KEY: '/etc/gotchu/web.key',
     PUBLIC_APP_URL: 'https://gotchu.kevinbravo.com', GOTCHU_AUTH_MODE: 'public', AUTH_SECRET: required('AUTH_SECRET'),
