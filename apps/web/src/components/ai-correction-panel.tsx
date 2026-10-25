@@ -54,20 +54,21 @@ function CorrectionForSource({ organizationId, applicationId, reportId, findingI
   const client = useQueryClient();
   const key = ['customer-data', organizationId, applicationId, 'ai-corrections', reportId] as const;
   const modelKey = ['customer-data', organizationId, 'investigation-model'] as const;
-  const settings = useQuery({ queryKey: modelKey, queryFn: () => customerApi.investigationModel(organizationId), retry: false });
+  const settings = useQuery({ queryKey: modelKey, queryFn: () => customerApi.investigationModel(organizationId), retry: false, staleTime: 5_000 });
   const corrections = useQuery({
     queryKey: key, queryFn: () => customerApi.aiCorrections(organizationId, applicationId, reportId), retry: false, staleTime: 5_000,
-    refetchInterval: query => query.state.data?.some(active) ? 5_000 : false,
+    refetchInterval: query => query.state.data?.some(item => item.findingId === findingId && item.sourceDigest === sourceDigest && active(item)) ? 5_000 : false,
   });
   const [confirming, setConfirming] = useState(false);
   const [authorizedContext, setAuthorizedContext] = useState<string | null>(null);
   const model = settings.data;
   const enabled = model?.status === 'ready' && model.apiKeyConfigured && model.consentToExternalProcessing
     && model.dataScopes.includes('finding_details') && model.dataScopes.includes('source_excerpts');
-  const consentContext = JSON.stringify([sourceDigest, model?.providerPresetId, model?.modelId, model?.endpoint, model?.dataScopes, model?.organizationBudgetCents, model?.organizationTokenBudget]);
+  const consentContext = JSON.stringify([sourceDigest, model?.providerPresetId, model?.modelId, model?.endpoint, model?.dataScopes, model?.organizationBudgetCents, model?.organizationTokenBudget, model?.inputPriceMicroUsdPerMillionTokens, model?.outputPriceMicroUsdPerMillionTokens]);
   const providerName = investigationProviderCatalog.find(provider => provider.id === model?.providerPresetId)?.displayName ?? model?.provider ?? 'proveedor configurado';
-  const saved = (corrections.data ?? []).filter(item => item.organizationId === organizationId && item.applicationId === applicationId && item.reportId === reportId && item.findingId === findingId && item.sourceDigest === sourceDigest);
-  const current = [...saved].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+  const saved = (corrections.data ?? []).filter(item => item.organizationId === organizationId && item.applicationId === applicationId && item.reportId === reportId && item.findingId === findingId && item.sourceDigest === sourceDigest)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const current = saved[0];
   const existing = saved.some(item => active(item) || item.state === 'prepared' || item.state === 'reconciliation_required');
 
   async function saveResult(value: AiCorrection) {
@@ -90,6 +91,7 @@ function CorrectionForSource({ organizationId, applicationId, reportId, findingI
   const modelsLink = `/w/${organizationId}/modelos`;
 
   return <section className="customer-investigation-suggestion customer-ai-correction" aria-label="Corrección de código con IA">
+    {settings.isPending && <p role="status">Cargando el modelo y sus permisos…</p>}
     {corrections.isPending && <p role="status">Cargando correcciones guardadas…</p>}
     {corrections.error && <div role="alert"><p>No se pudo actualizar el estado guardado: {errorText(corrections.error)}</p><Button variant="outline" size="sm" onClick={() => { void corrections.refetch(); }}>Reintentar carga de correcciones</Button></div>}
     {settings.error && <p role="alert">No se pudo cargar el modelo: {errorText(settings.error)}</p>}
@@ -102,7 +104,7 @@ function CorrectionForSource({ organizationId, applicationId, reportId, findingI
       event.preventDefault();
       if (canPrepare && authorizedContext === consentContext) prepare.mutate();
     }}>
-      <p>Se enviarán detalles del hallazgo y archivos de código acotados de esta instantánea a <strong>{providerName} · {model?.modelId}</strong>. La preparación consume presupuesto y tokens del espacio.</p>
+      <p>Se enviarán detalles del hallazgo y hasta 4 archivos de código acotados de esta instantánea a <strong>{providerName} · {model?.modelId}</strong>. La preparación consume presupuesto y tokens del espacio.</p>
       <p>La IA preparará cambios reales en una instantánea privada. El código no se ejecutará ni se escribirá en el repositorio. Una PR requiere validación independiente, aprobación humana exacta con segundo factor y un ejecutor independiente habilitado.</p>
       <p className="customer-field-note">Fuente fijada: <code>{sourceDigest}</code></p>
       <label className="customer-checkbox"><input type="checkbox" required checked={authorizedContext === consentContext} disabled={!canPrepare} onChange={event => setAuthorizedContext(event.target.checked ? consentContext : null)} /><span>Autorizo compartir estos archivos con el proveedor seleccionado y consumir el presupuesto para preparar cambios privados.</span></label>
@@ -110,7 +112,7 @@ function CorrectionForSource({ organizationId, applicationId, reportId, findingI
       {!enabled && <a href={modelsLink}>Revisar modelo y consentimiento</a>}
     </form>}
     {prepare.error && <p className="customer-form-error" role="alert">{errorText(prepare.error)} <a href={modelsLink}>Revisar modelo y presupuesto</a></p>}
-    {saved.length > 0 && <ol className="customer-ai-corrections">{[...saved].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map(item => <li key={item.id}>
+    {saved.length > 0 && <ol className="customer-ai-corrections">{saved.map(item => <li key={item.id}>
       <p role="status"><strong>{stateLabels[item.state]}</strong> · {new Date(item.createdAt).toLocaleString('es')}</p>
       {item.summary && <p>{item.summary}</p>}
       {item.reasonCode && <p>Motivo registrado: <code>{item.reasonCode}</code></p>}
@@ -119,7 +121,7 @@ function CorrectionForSource({ organizationId, applicationId, reportId, findingI
       {item.state === 'failed' && <p>El intento falló. Revisa el motivo antes de autorizar un nuevo intento.</p>}
       {item.state === 'reconciliation_required' && <p>El resultado o el uso del proveedor necesita revisión. La preparación no se reintentará automáticamente.</p>}
       {cancel.error && cancel.variables === item.id && <p className="customer-form-error" role="alert">{errorText(cancel.error)}</p>}
-      {item.diff.map(file => <details className="customer-evidence" key={file.path}><summary>Ver cambios en {file.path}</summary><h4>Antes</h4><pre tabIndex={0} aria-label={`Antes: ${file.path}`}>{file.before}</pre><h4>Después</h4><pre tabIndex={0} aria-label={`Después: ${file.path}`}>{file.after}</pre></details>)}
+      {item.diff.map(file => <details className="customer-evidence" key={file.path}><summary>Ver cambios en {file.path}</summary><h4>Antes</h4><pre tabIndex={0} role="region" aria-label={`Antes: ${file.path}`}>{file.before}</pre><h4>Después</h4><pre tabIndex={0} role="region" aria-label={`Después: ${file.path}`}>{file.after}</pre></details>)}
       {(item.state === 'prepared' || item.diff.length > 0) && <>
         <SavedExplanation title="Qué cambiaría" items={item.implications} empty="El resultado guardado no detalló las implicaciones." />
         <SavedExplanation title="Riesgos" items={item.risks} empty="El resultado guardado no evaluó posibles efectos secundarios." />
@@ -128,6 +130,7 @@ function CorrectionForSource({ organizationId, applicationId, reportId, findingI
         {item.patchHash && <p className="customer-field-note">SHA-256 del cambio: <code>{item.patchHash}</code></p>}
       </>}
       {item.state === 'prepared' && item.candidateSourceId && <CorrectionProposal key={item.candidateSourceId} organizationId={organizationId} applicationId={applicationId} candidateId={item.candidateSourceId} canManage={canManage} />}
+      {item.state === 'prepared' && !item.candidateSourceId && <p>No hay una instantánea candidata disponible para preparar una PR. Hace falta revisar el resultado guardado.</p>}
     </li>)}</ol>}
   </section>;
 }
