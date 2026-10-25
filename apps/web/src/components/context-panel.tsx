@@ -29,8 +29,7 @@ export function ContextPanel({ userId, organizationId, applicationId, canManage,
     return contextClient.setRepositoryWriteAccess({organizationId,applicationId,...input,actionHash:challenge.actionHash});
   },onSuccess:async()=>{setError(null);await refresh();},onError:caught=>setError(message(caught)) });
   const data = inventory.data;
-  return <section className="customer-card customer-panel customer-context-panel" aria-labelledby="context-heading">
-    <div className="customer-card-heading"><div><h2 id="context-heading">Entornos y recursos vinculados</h2></div></div>
+  return <section className="customer-card customer-panel customer-context-panel" aria-label="Entornos y recursos vinculados">
     {inventory.isPending ? <p className="customer-empty-inline" role="status">Cargando inventario de entornos…</p>
       : inventory.error ? <div className="customer-empty-inline" role="alert">{message(inventory.error)} <button className="customer-link-button" onClick={() => { inventory.refetch().catch(() => undefined); }}>Reintentar</button></div>
       : data ? <>

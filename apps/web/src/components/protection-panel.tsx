@@ -95,11 +95,7 @@ app.get('/search', async (request, response) => {
     setDraft({ mode, enabledDetectors: next });
   }
 
-  return <section className="customer-card customer-panel customer-protection" aria-labelledby="runtime-protection-title">
-    <div className="customer-card-heading">
-      <div><h2 id="runtime-protection-title">Protección en ejecución</h2></div>
-    </div>
-
+  return <section className="customer-card customer-panel customer-protection" aria-label="Protección en ejecución">
     {config.isPending ? <p className="customer-protection-message" role="status">Cargando configuración…</p>
       : config.error ? <p className="customer-form-error" role="alert">No se pudo cargar la configuración. <button className="customer-link-button" type="button" onClick={() => { config.refetch().catch(() => undefined); }}>Reintentar</button></p>
         : config.data && <>

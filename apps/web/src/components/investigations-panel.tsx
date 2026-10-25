@@ -162,8 +162,7 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
   if (settings.isPending) return <section className="customer-card customer-panel"><p>Cargando configuración de investigación…</p></section>;
   const ready = settings.data?.status === 'ready' && settings.data.providerPresetId === providerPresetId;
   return <section className="customer-card customer-panel customer-investigation-settings">
-    <div className="customer-card-heading"><div><h2>Modelo y consentimiento</h2></div><span className={`customer-status ${ready ? 'customer-ops-status-ready' : 'customer-ops-status-warning'}`}>{ready ? 'Disponible' : 'Investigación deshabilitada'}</span></div>
-    <p>Al habilitar el modelo, se envían al proveedor las categorías elegidas y fragmentos de código redactados.</p>
+    <div className="customer-card-heading"><div><p>Al habilitar el modelo, se envían al proveedor las categorías elegidas y fragmentos de código redactados.</p></div><span className={`customer-status ${ready ? 'customer-ops-status-ready' : 'customer-ops-status-warning'}`}>{ready ? 'Disponible' : 'Investigación deshabilitada'}</span></div>
     {settings.error && <p className="customer-form-error" role="alert">{errorText(settings.error)}</p>}
     <label htmlFor="investigation-provider">Proveedor</label>
     <select id="investigation-provider" value={providerPresetId} onChange={event => {

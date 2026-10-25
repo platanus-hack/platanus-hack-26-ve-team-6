@@ -50,8 +50,7 @@ export function MembersPanel({ organizationId, userId, role }: { organizationId:
     if (action.kind === 'leave') leave.mutate(); else remove.mutate(action.userId);
   }
 
-  return <section className="customer-card customer-panel" aria-labelledby="workspace-members-title">
-    <div className="customer-card-heading"><div><h2 id="workspace-members-title">Miembros y roles</h2></div></div>
+  return <section className="customer-card customer-panel" aria-label="Miembros y roles">
     {message && <p role="status" className="customer-success">{message}</p>}
     {members.isPending ? <div role="status" className="customer-loading">Cargando miembros…</div>
       : members.error ? <div role="alert" className="customer-form-error">{errorMessage(members.error)} <button type="button" className="customer-link-button" onClick={() => { members.refetch().catch(() => undefined); }}>Reintentar</button></div>

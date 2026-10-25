@@ -85,5 +85,5 @@ export function DecisionRecordHistory({ userId, organizationId, filter, compact 
   if (compact) return <details className="customer-decision-inline" onToggle={event => setExpanded(event.currentTarget.open)}>
     <summary>Historial de esta decisión</summary>{expanded && content}
   </details>;
-  return <section className="customer-card customer-decision-history"><div className="customer-card-heading"><div><h2>Historial de decisiones</h2></div></div>{content}</section>;
+  return <section className="customer-card customer-decision-history" aria-label="Historial de decisiones">{content}</section>;
 }

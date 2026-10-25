@@ -28,8 +28,7 @@ export function WorkflowExceptions({userId,organizationId,applicationId,isOwner}
   const remove=useMutation({mutationFn:(row:NonNullable<typeof data.data>['exceptions'][number])=>customerApi.removeWorkflowException({organizationId,applicationId,repositoryLinkId:row.repositoryLinkId,id:row.id,version:row.version}),onSuccess:refresh});
   const selected=repositoryLinkId||data.data?.repositories[0]?.id||'';
   const error=create.error??remove.error??data.error;
-  return <section className="customer-card customer-panel" aria-labelledby="workflow-exceptions-title">
-    <div className="customer-card-heading"><div><h2 id="workflow-exceptions-title">Excepciones de GitHub Actions</h2></div></div>
+  return <section className="customer-card customer-panel" aria-label="Excepciones de GitHub Actions">
     <p>Una excepción cambia qué automatización se permite en el repositorio. Solo el propietario puede confirmarla.</p>
     {data.isPending&&<div className="customer-loading" role="status">Cargando vínculos de repositorio…</div>}
     {error&&<div className="customer-error" role="alert">{error instanceof CustomerApiError?error.message:error.message}</div>}

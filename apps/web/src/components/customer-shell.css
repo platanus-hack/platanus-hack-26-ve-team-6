@@ -527,3 +527,6 @@
 .customer-settings-row[open] > summary:not(:hover) { background: none; }
 .customer-tile-body { align-content: start; }
 .customer-source-list > div > span { overflow-wrap: anywhere; }
+/* With the panel title gone, the first panel starts right under the page header. */
+.customer-page-header + .customer-card, .customer-page-header + .customer-operations > .customer-card:first-child { padding-top: 0; }
+.customer-page-header + .customer-card > .customer-card-heading:first-child p { margin-top: 0; }

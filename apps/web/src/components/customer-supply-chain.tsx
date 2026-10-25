@@ -115,8 +115,7 @@ export function LicensePolicyPanel({ userId, organizationId, canManage }: { user
   if (query.error) return <section className="customer-card"><div className="customer-error" role="alert"><strong>No se pudo cargar la política</strong><p>{query.error instanceof CustomerApiError ? query.error.message : 'Inténtalo de nuevo.'}</p><button className="customer-link-button" onClick={() => { query.refetch().catch(() => undefined); }}>Reintentar</button></div></section>;
   if (!draft) return <section className="customer-card"><div className="customer-empty-inline">La política de licencias está vacía o no disponible.</div></section>;
   return <section className="customer-card customer-license-policy-panel">
-    <div className="customer-card-heading"><div><h2>Política de licencias</h2></div><span className="customer-status customer-status-muted">{query.data?.configured ? 'Configurada' : 'Valores predeterminados'}</span></div>
-    <p className="customer-card-copy">Las no permitidas generan observaciones; las de revisión o sin declarar requieren atención.</p>
+    <div className="customer-card-heading"><div><p className="customer-card-copy">Las no permitidas generan observaciones; las de revisión o sin declarar requieren atención.</p></div><span className="customer-status customer-status-muted">{query.data?.configured ? 'Configurada' : 'Valores predeterminados'}</span></div>
     {!query.data?.configured && <p className="customer-license-default-note">Por defecto, se permiten algunas licencias permisivas; GPL, AGPL, SSPL, las desconocidas y las que no están en la lista de permitidas requieren revisión.</p>}
     <p className="customer-field-note">Escribe un identificador o expresión SPDX por línea.</p>
     <div className="customer-license-policy-grid">
@@ -167,8 +166,7 @@ export function RetentionPolicyPanel({ userId, organizationId, isOwner }: { user
   if (query.error) return <section className="customer-card"><div className="customer-error" role="alert"><strong>No se pudo cargar la política</strong><p>{query.error instanceof CustomerApiError ? query.error.message : 'Inténtalo de nuevo.'}</p><button className="customer-link-button" onClick={() => { query.refetch().catch(() => undefined); }}>Reintentar</button></div></section>;
   if (!draft) return <section className="customer-card"><div className="customer-empty-inline">La política de retención no está disponible.</div></section>;
   return <section className="customer-card customer-license-policy-panel">
-    <div className="customer-card-heading"><div><h2>Plazos de conservación</h2></div><span className="customer-status customer-status-muted">Actualizada: {new Date(query.data.updatedAt).toLocaleDateString('es')}</span></div>
-    <p className="customer-card-copy">Gotchu elimina los datos vencidos. Las propuestas pendientes se invalidan antes de borrar su fuente; los eventos recibidos tienen su propio plazo.</p>
+    <div className="customer-card-heading"><div><p className="customer-card-copy">Gotchu elimina los datos vencidos. Las propuestas pendientes se invalidan antes de borrar su fuente; los eventos recibidos tienen su propio plazo.</p></div><span className="customer-status customer-status-muted">Actualizada: {new Date(query.data.updatedAt).toLocaleDateString('es')}</span></div>
     <div className="customer-license-policy-grid">
       {retentionFields.map(([key, label, help]) => <label key={key}>{label}<input type="number" min={1} max={3650} step={1} value={draft[key]} disabled={!isOwner || update.isPending} onChange={event => { setSaved(false); const value = Number(event.target.value); setDraft(current => current ? { ...current, [key]: value } : current); }} /><small>{help}</small></label>)}
     </div>
