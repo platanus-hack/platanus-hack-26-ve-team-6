@@ -57,6 +57,35 @@ describe('bounded dependency lockfile inventory', () => {
     expect(result.complete).toBe(true);
   });
 
+  it('recognizes pnpm v6 workspace importers as direct roots', () => {
+    const result = parseFiles([{ path: 'pnpm-lock.yaml', content: `lockfileVersion: '6.0'
+importers:
+  packages/app:
+    dependencies:
+      alpha:
+        specifier: ^1.0.0
+        version: 1.2.3
+packages:
+  /alpha@1.2.3: {}
+` }]);
+    expect(result.inventory[0]?.relationship).toBe('direct');
+    expect(result.graphComplete).toBe(true);
+  });
+
+  it.each(['', 'snapshots: {}\n'])('keeps missing pnpm v9 dependency snapshots unknown (%s)', snapshots => {
+    const result = parseFiles([{ path: 'pnpm-lock.yaml', content: `lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      alpha:
+        version: 1.2.3
+packages:
+  alpha@1.2.3: {}
+${snapshots}` }]);
+    expect(result.inventory[0]).toMatchObject({ name: 'alpha', version: '1.2.3' });
+    expect(result.graphComplete).toBe(false);
+  });
+
   it('keeps pnpm relationship unknown when no importer dependency edges identify roots', () => {
     const result = parseFiles([{ path: 'pnpm-lock.yaml', content: `lockfileVersion: '9.0'\nimporters:\n  .: {}\npackages:\n  alpha@1.2.3:\n    resolution: {integrity: sha512-x}\nsnapshots:\n  alpha@1.2.3: {}\n` }]);
     expect(result.inventory[0]?.relationship).toBe('unknown');
@@ -73,6 +102,7 @@ describe('bounded dependency lockfile inventory', () => {
       { name: 'beta', version: '2.1.0', relationship: 'transitive', dependencies: [] },
     ]);
     expect(result.complete).toBe(true);
+    expect(result.graphComplete).toBe(true);
   });
 
   it('makes malformed, unsupported, oversized and entry-capped lockfiles visible', () => {
