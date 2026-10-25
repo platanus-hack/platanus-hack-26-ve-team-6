@@ -6,6 +6,7 @@ import { customerSourceSnapshotSchema, githubSingleAppOAuthStartSchema, githubBr
 import type { Backend, Identity } from '@gotchu/backend';
 import { createSingleAppGitHubBroker } from '../src/server/github-broker-client.js';
 import { createGitHubApi } from '../src/server/github-api.js';
+import { createCustomerApi, type CustomerServices } from '../src/server/customer-api.js';
 import { createWebRuntime } from '../src/server/runtime.js';
 
 const origin = 'http://localhost:3000';
@@ -76,6 +77,34 @@ function fixture(options: { purpose?: 'authorize' | 'install' | 'choose'; broker
 }
 
 describe('single-app GitHub routing', () => {
+  it('passes trusted capture admission through the authenticated customer API', async () => {
+    const { services, github, broker } = fixture();
+    const unused = async (): Promise<never> => { throw new Error('Unexpected customer service invocation'); };
+    const customerServices: CustomerServices = {
+      listWorkspaces: unused, createWorkspace: unused, updateWorkspace: unused,
+      listApplications: unused, createApplication: unused, updateApplication: unused,
+      listTargets: unused, enrollTarget: unused, revokeTarget: unused, listSources: unused,
+      deleteSource: unused, listContainerImages: unused, uploadContainerImage: unused,
+      deleteContainerImage: unused, listReports: unused, getReport: unused,
+      recordReportDownload: unused, job: unused, ...services,
+      github: { ...github, consumeSingleAppState: unused, bindSingleApp: unused },
+    };
+    const handler = createCustomerApi({
+      origin, services: customerServices, registrationEnabled: false, providers: [],
+      auth: { enabled: true, handle: unused, accountEmail: async () => null,
+        identity: async () => ({ userId, cookies: [] }) },
+      singleAppGitHub: { publicApp: app, broker },
+    });
+    const response = await handler(new Request(`${origin}/api/customer/workspaces/${organizationId}/applications/${applicationId}/github/installations/${connection.installationId}/repositories/${repository.id}/select`, {
+      method: 'POST', headers: { origin, 'content-type': 'application/json' },
+      body: JSON.stringify({ fullName: repository.fullName, defaultBranch: repository.defaultBranch }),
+    }));
+    expect(response.status).toBe(201);
+    expect(services.uploadCapturedSource).toHaveBeenCalledTimes(1);
+    expect(services.uploadSource).not.toHaveBeenCalled();
+    expect(services.queue).toHaveBeenCalledTimes(1);
+  });
+
   it('starts the existing connect button flow with app-bound PKCE and never reads legacy credentials', async () => {
     const { handler, github, broker } = fixture();
     const response = await handler(new Request(`${origin}/api/customer/github/connect`, {
