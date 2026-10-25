@@ -20,6 +20,7 @@ import type { Transaction } from '@gotchu/database';
 import { audit, authorize, BackendError, canonicalJson, identitySchema, parse, sha256, type BaseDependencies, type Identity } from './core.js';
 import { DEMO_ASSESSMENT_SCOPE } from './demo.js';
 import { completeJob, enqueue } from './jobs.js';
+import { enqueueAutomaticSourceInvestigations } from './automatic-source-investigations.js';
 
 export type CustomerDependencies = BaseDependencies;
 export const CUSTOMER_MAX_UNFINISHED = 3;
@@ -534,6 +535,7 @@ export function createCustomerService(deps: CustomerDependencies) {
         }
         // Locks prevent concurrent revocation; recheck time-based expiry after storage work too.
         if (request.target && !(await targetRow(tx, request, request.target.id))?.authorization_current) throw new BackendError('assessment_target_changed', 'Target authorization expired before completion', 409);
+        await enqueueAutomaticSourceInvestigations(tx, report);
         await completeJob(tx, { organizationId: request.organizationId, jobId: request.jobId, leaseToken: value.leaseToken, result: { status: 'completed', reportId: report.id } });
         await enqueue(tx, { organizationId: request.organizationId, applicationId: request.applicationId, id: randomUUID(), kind: 'notification', idempotencyKey: `assessment-observation:${report.id}`, payload: { kind: 'assessment_observation', reportId: report.id } });
         await audit(tx, request.organizationId, 'coordinator', 'customer_assessment.recorded', report.id, { jobId: request.jobId });

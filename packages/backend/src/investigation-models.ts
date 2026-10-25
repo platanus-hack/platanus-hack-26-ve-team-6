@@ -45,6 +45,7 @@ interface SettingsRow {
   model_id: string | null;
   secret_ref: string | null;
   consent_to_external_processing: boolean;
+  automatic_source_investigations: boolean;
   data_scopes: unknown;
   input_price_micro_usd_per_million_tokens: string | number;
   output_price_micro_usd_per_million_tokens: string | number;
@@ -58,7 +59,7 @@ interface SettingsRow {
 
 async function load(tx: Transaction, organizationId: string): Promise<SettingsRow> {
   const result = await tx.query<SettingsRow>(`SELECT s.provider,s.provider_preset_id,s.endpoint,s.model_id,s.secret_ref,
-    COALESCE(s.consent_to_external_processing,false) AS consent_to_external_processing,COALESCE(s.data_scopes,'[]'::jsonb) AS data_scopes,
+    COALESCE(s.consent_to_external_processing,false) AS consent_to_external_processing,COALESCE(s.automatic_source_investigations,false) AS automatic_source_investigations,COALESCE(s.data_scopes,'[]'::jsonb) AS data_scopes,
     COALESCE(s.input_price_micro_usd_per_million_tokens,0) AS input_price_micro_usd_per_million_tokens,
     COALESCE(s.output_price_micro_usd_per_million_tokens,0) AS output_price_micro_usd_per_million_tokens,
     o.model_budget_micros AS budget_micros,o.model_token_budget AS tokens_budget,
@@ -92,7 +93,7 @@ function project(row: SettingsRow, secretStoreAvailable: boolean) {
   return investigationModelSettingsSchema.parse({
     status: disabledReason === null ? 'ready' : 'disabled', disabledReason,
     provider, providerPresetId, endpoint: checkedEndpoint?.success ? checkedEndpoint.data : null, modelId: row.model_id,
-    apiKeyConfigured: keyConfigured, consentToExternalProcessing: consent, dataScopes,
+    apiKeyConfigured: keyConfigured, consentToExternalProcessing: consent, automaticSourceInvestigations: row.automatic_source_investigations, dataScopes,
     inputPriceMicroUsdPerMillionTokens: Number(row.input_price_micro_usd_per_million_tokens),
     outputPriceMicroUsdPerMillionTokens: Number(row.output_price_micro_usd_per_million_tokens),
     organizationBudgetCents: budgetCents, organizationTokenBudget: Number(row.tokens_budget),
@@ -206,17 +207,17 @@ export function createInvestigationModelService(options: {
           [value.organizationId, value.consentToExternalProcessing, budgetMicros.toString(), value.organizationTokenBudget]);
           if (!budgetUpdate.rowCount) throw new BackendError('model_budget_below_usage', 'A budget cannot be lower than spend or reservations already recorded', 409);
           await tx.query(`INSERT INTO gotchu.investigation_model_settings(organization_id,provider,provider_preset_id,endpoint,model_id,secret_ref,
-            consent_to_external_processing,data_scopes,input_price_micro_usd_per_million_tokens,output_price_micro_usd_per_million_tokens,updated_by,updated_at)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,clock_timestamp())
+            consent_to_external_processing,data_scopes,input_price_micro_usd_per_million_tokens,output_price_micro_usd_per_million_tokens,updated_by,updated_at,automatic_source_investigations)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,clock_timestamp(),$12)
             ON CONFLICT(organization_id) DO UPDATE SET provider=EXCLUDED.provider,provider_preset_id=EXCLUDED.provider_preset_id,
               endpoint=EXCLUDED.endpoint,model_id=EXCLUDED.model_id,
-              secret_ref=EXCLUDED.secret_ref,consent_to_external_processing=EXCLUDED.consent_to_external_processing,data_scopes=EXCLUDED.data_scopes,
+              automatic_source_investigations=EXCLUDED.automatic_source_investigations,secret_ref=EXCLUDED.secret_ref,consent_to_external_processing=EXCLUDED.consent_to_external_processing,data_scopes=EXCLUDED.data_scopes,
               input_price_micro_usd_per_million_tokens=EXCLUDED.input_price_micro_usd_per_million_tokens,
               output_price_micro_usd_per_million_tokens=EXCLUDED.output_price_micro_usd_per_million_tokens,updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at`,
           [value.organizationId, investigationModelProviderForPreset(preset), preset.id, endpoint, value.modelId, secretRef, value.consentToExternalProcessing,
-            JSON.stringify(value.dataScopes), value.inputPriceMicroUsdPerMillionTokens, value.outputPriceMicroUsdPerMillionTokens, identity.userId]);
+            JSON.stringify(value.dataScopes), value.inputPriceMicroUsdPerMillionTokens, value.outputPriceMicroUsdPerMillionTokens, identity.userId, value.automaticSourceInvestigations]);
           await audit(tx, value.organizationId, identity.userId, 'investigation.model_configured', null, {
-            providerPresetId: preset.id, modelId: value.modelId, consentToExternalProcessing: value.consentToExternalProcessing,
+            providerPresetId: preset.id, modelId: value.modelId, consentToExternalProcessing: value.consentToExternalProcessing, automaticSourceInvestigations: value.automaticSourceInvestigations,
             dataScopes: value.dataScopes, organizationBudgetCents: value.organizationBudgetCents,
             organizationTokenBudget: value.organizationTokenBudget, apiKeyChanged: newSecretRef !== null || value.clearApiKey,
           });
