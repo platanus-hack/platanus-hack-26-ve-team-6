@@ -6,22 +6,22 @@ export const SIDES: readonly {
 }[] = [
   {
     id: 'gl-dentro', title: 'Por dentro.', mark: 'Tu código.', formation: 'code', action: 'Audita tu repositorio',
-    lead: 'Conecta GitHub o sube una carpeta. Revisamos una copia, sin ejecutar nada.',
+    lead: 'Conecta GitHub o sube una carpeta. La auditoría revisa una copia sin ejecutar tu código.',
     benefits: [
-      ['Secretos a la vista', 'Claves y tokens expuestos en tu código. El valor nunca se guarda.'],
-      ['Dependencias vulnerables', 'Avisos de OSV y si tu código importa lo afectado.'],
+      ['Secretos a la vista', 'Claves y tokens expuestos. El informe oculta su valor.'],
+      ['Dependencias vulnerables', 'Versiones exactas, avisos de OSV y señales de uso en tu código.'],
       ['Infraestructura revisada', 'Kubernetes, Terraform y Dockerfile.'],
-      ['Correcciones listas', 'Para algunos hallazgos, un PR en borrador tras tu aprobación.'],
+      ['Correcciones revisables', 'Copia un prompt por hallazgo o prepara un cambio compatible para un PR aprobado.'],
     ],
   },
   {
     id: 'gl-fuera', title: 'Por fuera.', mark: 'Tu web.', formation: 'globe', action: 'Audita tu web',
-    lead: 'Sin acceso a tu código. Indicas el origen HTTPS y revisamos tu web como la ve cualquiera.',
+    lead: 'Sin acceso a tu código. Indicas un origen HTTPS autorizado y eliges qué revisar.',
     benefits: [
       ['Certificado TLS', 'Comprobamos la cadena y el nombre del certificado.'],
       ['Cabeceras de seguridad', 'Qué cabeceras faltan, como CSP o HSTS.'],
-      ['security.txt', 'Si tu web publica cómo avisarte de un fallo.'],
-      ['Sin tocar producción', 'Solo peticiones GET, sin cookies ni credenciales.'],
+      ['Web y API', 'security.txt, OpenAPI y escenarios HTTP según el perfil elegido.'],
+      ['Peticiones acotadas', 'GET, HEAD y OPTIONS según el perfil, sin cookies ni credenciales.'],
     ],
   },
 ];
@@ -36,7 +36,9 @@ export const EVIDENCE = [
 
 export const QUESTIONS = [
   ['¿Puedo revisar cualquier sitio?', 'Solo orígenes que tengas autorización para evaluar.'],
-  ['¿Gotchu cambia algo en mi aplicación?', 'Puedes pedir correcciones en una copia privada; no cambia tu app ni producción.'],
+  ['¿Cómo llevo un hallazgo a un PR?', 'Prepara una corrección compatible en una copia privada. Tras la validación y el permiso de publicación, el Owner aprueba el cambio exacto y un executor independiente abre el PR en borrador. Necesita estar configurado en tu instalación.'],
+  ['¿Puedo usar mi asistente de código?', 'Cada hallazgo tiene un prompt con su evidencia y sus límites para copiar a tu asistente. También puedes configurar un modelo en Gotchu para investigar y preparar correcciones privadas, con tu consentimiento.'],
   ['¿Gotchu evalúa en tiempo real?', 'No. Puedes activar evaluaciones periódicas cada 1–24 h.'],
+  ['¿Cómo recibo las notificaciones?', 'Además de las alertas en Gotchu, puedes configurar email y webhooks HTTPS por espacio de trabajo, elegir la severidad mínima y consultar el estado de entrega.'],
   ['¿Sin hallazgos significa que estoy a salvo?', 'No. El informe cubre lo observado y deja claros sus límites.'],
 ] as const;
