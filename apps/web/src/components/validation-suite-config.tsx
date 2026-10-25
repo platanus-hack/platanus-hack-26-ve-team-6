@@ -97,7 +97,7 @@ export function ValidationSuiteConfig({ organizationId, applicationId, repositor
     <div id={`${id}-form`} className="customer-context-forms" style={{ display: open ? undefined : 'none' }}>
       <form onSubmit={submit} style={{ gridColumn: '1 / -1', display: 'grid', gap: '10px' }}>
         <h3>Pruebas de compatibilidad</h3>
-        <p className="customer-field-note">La selección define la cobertura de compatibilidad y excluye la suite completa. En una futura validación de candidatos, estos archivos se ejecutarán sin modificarse dentro de una VM aislada. Guardar solo registra la configuración: no ejecuta pruebas ni concede permisos para abrir un PR.</p>
+        <p className="customer-field-note">La selección define la cobertura de compatibilidad y excluye la suite completa. En una futura validación de candidatos, estos archivos se ejecutarán sin modificarse en un entorno aislado. Guardar solo registra la configuración: no ejecuta pruebas ni concede permisos para abrir un PR.</p>
         <label className="customer-context-label" htmlFor={`${id}-name`}>Nombre de la configuración</label>
         <input id={`${id}-name`} value={suiteName} maxLength={128} required disabled={save.isPending} onChange={event => { setSuiteName(event.currentTarget.value); clearResult(); }} />
         <label className="customer-context-label" htmlFor={`${id}-files`}>Archivos de prueba existentes del repositorio</label>
