@@ -178,12 +178,20 @@ globalThis.fetch = async (input, init) => {
       callback.search = new URLSearchParams({ code: 'fixture-code', installation_id: '174788349', setup_action: 'install', state }).toString();
       await route.fulfill({ json: { installUrl: callback.href } });
     });
-    await page.route('https://github.com/login/oauth/authorize**', async route => {
-      const state = new URL(route.request().url()).searchParams.get('state');
+    // Browser routing cannot intercept a later hop of a server redirect chain.
+    // Exercise the real form POST, then replace only its external provider redirect.
+    await page.route(`${origin}/api/customer/github/choose`, async route => {
+      const response = await route.fetch({ maxRedirects: 0 });
+      expect(response.status()).toBe(303);
+      const authorization = new URL(response.headers()['location'] ?? '');
+      expect(authorization.origin).toBe('https://github.com');
+      expect(authorization.pathname).toBe('/login/oauth/authorize');
+      expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
+      const state = authorization.searchParams.get('state');
       if (!state) throw new Error('Missing selected-installation OAuth state');
       const callback = new URL('/api/customer/github/callback', origin);
       callback.search = new URLSearchParams({ code: 'fixture-code', state }).toString();
-      await route.fulfill({ status: 302, headers: { location: callback.href } });
+      await route.fulfill({ status: 303, headers: { location: callback.href } });
     });
     await page.getByRole('button', { name: 'Conectar GitHub' }).click();
     await page.getByRole('button', { name: 'Compartir fixture-owner con este espacio' }).click();
@@ -208,7 +216,7 @@ globalThis.fetch = async (input, init) => {
       (SELECT count(*)::int FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2) AS sources,
       (SELECT count(*)::int FROM gotchu.jobs WHERE organization_id=$1 AND application_id=$2 AND kind='audit') AS jobs`, [workspace.id, application.applicationId]);
     expect(counts.rows[0]).toEqual({ sources: 1, jobs: 1 });
-    await page.unroute('https://github.com/login/oauth/authorize**');
+    await page.unroute(`${origin}/api/customer/github/choose`);
   }, 60_000);
 
   it('does not reuse a previous identity\'s onboarding scope after signing out', async () => {
