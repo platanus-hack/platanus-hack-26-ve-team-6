@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { investigationDataScopeSchema, investigationProviderPresetIdSchema, modelProviderSchema } from '@gotchu/contracts';
+import { investigationDataScopeSchema, investigationProviderCatalog, investigationProviderPresetIdSchema, modelProviderSchema } from '@gotchu/contracts';
 import { audit, BackendError, canonicalJson, parse, type BaseDependencies } from './core.js';
 import { modelConfigurationFingerprint } from './model-configuration.js';
 const scopeSchema = z.object({ organizationId: z.uuid(), runId: z.uuid() }).strict();
 const micros = z.number().int().min(0).max(1_000_000_000_000);
 const RUN_MODEL_COST_LIMIT_MICROS = 250_000;
 const RUN_MODEL_TOKEN_LIMIT = 20_000;
+// Usage sanity bound, independent of a model invocation's token budget.
+const observedTokens = z.number().int().min(0).max(1_000_000_000);
 
 /** Trusted gateway/coordinator only. Do not give an investigator this object or a DB connection. */
 export function createRunService(deps: BaseDependencies) {
@@ -52,7 +54,7 @@ export function createRunService(deps: BaseDependencies) {
       requestSha256: string; configSha256: string; provider: z.infer<typeof modelProviderSchema>; modelId: string;
     }): Promise<{ reservationId: string }> {
       const value = parse(scopeSchema.extend({
-        reservationId: z.uuid(), maxCostMicros: micros, reserveTokens: z.number().int().min(1).max(RUN_MODEL_TOKEN_LIMIT),
+        reservationId: z.uuid(), maxCostMicros: micros, reserveTokens: z.number().int().min(0).max(RUN_MODEL_TOKEN_LIMIT),
         requestSha256: z.string().regex(/^[a-f0-9]{64}$/), configSha256: z.string().regex(/^[a-f0-9]{64}$/), provider: modelProviderSchema,
         modelId: z.string().min(1).max(200),
       }).strict(), input);
@@ -76,9 +78,15 @@ export function createRunService(deps: BaseDependencies) {
           outputPriceMicroUsdPerMillionTokens: Number(setting.output_price_micro_usd_per_million_tokens),
         });
         if (configSha256 !== value.configSha256) throw new BackendError('model_configuration_changed', 'Workspace model configuration changed before reservation', 409);
-        const prior = await tx.query<{ run_id: string; amount_micros: string; reserved_tokens: string; request_sha256: string | null; model_config_sha256: string | null; provider: string | null; model_id: string | null }>('SELECT run_id,amount_micros,reserved_tokens,request_sha256,model_config_sha256,provider,model_id FROM gotchu.model_reservations WHERE organization_id=$1 AND id=$2', [value.organizationId, value.reservationId]);
+        const preset = investigationProviderCatalog.find(item => item.id === setting.provider_preset_id);
+        const tokenLimitEnforced = preset?.billing !== 'subscription';
+        if (tokenLimitEnforced ? value.reserveTokens === 0 : value.reserveTokens !== 0 || value.maxCostMicros !== 1) {
+          throw new BackendError('model_reservation_invalid', 'Token and cost reservations must match the configured billing mode', 400);
+        }
+        const prior = await tx.query<{ run_id: string; amount_micros: string; reserved_tokens: string; token_limit_enforced: boolean; request_sha256: string | null; model_config_sha256: string | null; provider: string | null; model_id: string | null }>('SELECT run_id,amount_micros,reserved_tokens,token_limit_enforced,request_sha256,model_config_sha256,provider,model_id FROM gotchu.model_reservations WHERE organization_id=$1 AND id=$2', [value.organizationId, value.reservationId]);
         if (prior.rows[0]) {
           if (prior.rows[0].run_id !== value.runId || BigInt(prior.rows[0].amount_micros) !== BigInt(value.maxCostMicros)
+            || prior.rows[0].token_limit_enforced !== tokenLimitEnforced
             || BigInt(prior.rows[0].reserved_tokens) !== BigInt(value.reserveTokens) || prior.rows[0].request_sha256 !== value.requestSha256
             || prior.rows[0].model_config_sha256 !== value.configSha256 || prior.rows[0].provider !== value.provider || prior.rows[0].model_id !== value.modelId) throw new BackendError('reservation_conflict', 'Reservation ID was reused for a different request', 409);
           // A reservation is permission for one provider call, not permission to repeat it.
@@ -88,17 +96,17 @@ export function createRunService(deps: BaseDependencies) {
         const run = runResult.rows[0];
         if (!run || run.model_calls >= 4) throw new BackendError('model_call_limit', 'Run is expired, cancelled, or its model-call limit has been reached', 429);
         if (BigInt(run.reserved_micros) + BigInt(run.spent_micros) + BigInt(value.maxCostMicros) > BigInt(RUN_MODEL_COST_LIMIT_MICROS)
-          || BigInt(run.tokens_reserved) + BigInt(run.tokens_spent) + BigInt(value.reserveTokens) > BigInt(RUN_MODEL_TOKEN_LIMIT)) {
+          || (tokenLimitEnforced && BigInt(run.tokens_reserved) + BigInt(run.tokens_spent) + BigInt(value.reserveTokens) > BigInt(RUN_MODEL_TOKEN_LIMIT))) {
           throw new BackendError('model_budget_exhausted', 'Investigation run budget is exhausted', 429);
         }
         if (BigInt(organization.model_spent_micros) + BigInt(organization.model_reserved_micros) + BigInt(value.maxCostMicros) > BigInt(organization.model_budget_micros)
-          || BigInt(organization.model_tokens_spent) + BigInt(organization.model_tokens_reserved) + BigInt(value.reserveTokens) > BigInt(organization.model_token_budget)) {
+          || (tokenLimitEnforced && BigInt(organization.model_tokens_spent) + BigInt(organization.model_tokens_reserved) + BigInt(value.reserveTokens) > BigInt(organization.model_token_budget))) {
           throw new BackendError('model_budget_exhausted', 'Workspace model budget is exhausted', 429);
         }
         await tx.query('UPDATE gotchu.organizations SET model_reserved_micros=model_reserved_micros+$2,model_tokens_reserved=model_tokens_reserved+$3 WHERE id=$1', [value.organizationId, value.maxCostMicros, value.reserveTokens]);
         await tx.query('UPDATE gotchu.agent_runs SET model_calls=model_calls+1,reserved_micros=reserved_micros+$3,tokens_reserved=tokens_reserved+$4 WHERE organization_id=$1 AND id=$2', [value.organizationId, value.runId, value.maxCostMicros, value.reserveTokens]);
-        await tx.query(`INSERT INTO gotchu.model_reservations(organization_id,id,run_id,amount_micros,reserved_tokens,request_sha256,model_config_sha256,provider,model_id,state)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'reserved')`, [value.organizationId, value.reservationId, value.runId, value.maxCostMicros, value.reserveTokens, value.requestSha256, value.configSha256, value.provider, value.modelId]);
+        await tx.query(`INSERT INTO gotchu.model_reservations(organization_id,id,run_id,amount_micros,reserved_tokens,request_sha256,model_config_sha256,provider,model_id,token_limit_enforced,state)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'reserved')`, [value.organizationId, value.reservationId, value.runId, value.maxCostMicros, value.reserveTokens, value.requestSha256, value.configSha256, value.provider, value.modelId, tokenLimitEnforced]);
         return { reservationId: value.reservationId };
       });
     },
@@ -117,18 +125,24 @@ export function createRunService(deps: BaseDependencies) {
     },
     async settleModel(input: { organizationId: string; reservationId: string; actualCostMicros: number; actualTokens: number; inputTokens: number; outputTokens: number }): Promise<void> {
       const value = parse(z.object({ organizationId: z.uuid(), reservationId: z.uuid(), actualCostMicros: micros,
-        actualTokens: z.number().int().min(0).max(RUN_MODEL_TOKEN_LIMIT), inputTokens: z.number().int().min(0).max(RUN_MODEL_TOKEN_LIMIT),
-        outputTokens: z.number().int().min(0).max(RUN_MODEL_TOKEN_LIMIT) }).strict().refine(item => item.inputTokens + item.outputTokens === item.actualTokens), input);
+        actualTokens: observedTokens, inputTokens: observedTokens, outputTokens: observedTokens }).strict().refine(item => item.inputTokens + item.outputTokens === item.actualTokens), input);
       await deps.database.tenant(value.organizationId, async tx => {
         await tx.query('SELECT id FROM gotchu.organizations WHERE id=$1 FOR UPDATE', [value.organizationId]);
-        const result = await tx.query<{ run_id: string; amount_micros: string; reserved_tokens: string; charged_micros: string | null; charged_tokens: string | null }>('SELECT run_id,amount_micros,reserved_tokens,charged_micros,charged_tokens FROM gotchu.model_reservations WHERE organization_id=$1 AND id=$2 FOR UPDATE', [value.organizationId, value.reservationId]);
+        const result = await tx.query<{ run_id: string; amount_micros: string; reserved_tokens: string; token_limit_enforced: boolean; charged_micros: string | null; charged_tokens: string | null; input_tokens: string | null; output_tokens: string | null }>('SELECT run_id,amount_micros,reserved_tokens,token_limit_enforced,charged_micros,charged_tokens,input_tokens,output_tokens FROM gotchu.model_reservations WHERE organization_id=$1 AND id=$2 FOR UPDATE', [value.organizationId, value.reservationId]);
         const row = result.rows[0];
         if (!row) throw new BackendError('not_found', 'Model reservation not found', 404);
         if (row.charged_micros !== null) {
-          if (BigInt(row.charged_micros) !== BigInt(value.actualCostMicros) || BigInt(row.charged_tokens ?? '0') !== BigInt(value.actualTokens)) throw new BackendError('settlement_conflict', 'Reservation already settled at a different amount', 409);
+          if (BigInt(row.charged_micros) !== BigInt(value.actualCostMicros) || BigInt(row.charged_tokens ?? '0') !== BigInt(value.actualTokens)
+            || (row.input_tokens !== null && BigInt(row.input_tokens) !== BigInt(value.inputTokens))
+            || (row.output_tokens !== null && BigInt(row.output_tokens) !== BigInt(value.outputTokens))) throw new BackendError('settlement_conflict', 'Reservation already settled at a different amount', 409);
           return;
         }
-        if (BigInt(value.actualCostMicros) > BigInt(row.amount_micros) || BigInt(value.actualTokens) > BigInt(row.reserved_tokens)) throw new BackendError('reservation_overrun', 'Provider usage exceeds its reserved maximum; reservation remains held for reconciliation', 409);
+        // The subscription sentinel holds uncertainty; it is never a per-call charge.
+        if ((!row.token_limit_enforced && value.actualCostMicros !== 0)
+          || BigInt(value.actualCostMicros) > BigInt(row.amount_micros)
+          || (row.token_limit_enforced && BigInt(value.actualTokens) > BigInt(row.reserved_tokens))) {
+          throw new BackendError('reservation_overrun', 'Provider usage does not fit its reserved billing limits; reservation remains held for reconciliation', 409);
+        }
         await tx.query('UPDATE gotchu.organizations SET model_reserved_micros=model_reserved_micros-$2,model_spent_micros=model_spent_micros+$3,model_tokens_reserved=model_tokens_reserved-$4,model_tokens_spent=model_tokens_spent+$5 WHERE id=$1', [value.organizationId, row.amount_micros, value.actualCostMicros, row.reserved_tokens, value.actualTokens]);
         await tx.query('UPDATE gotchu.agent_runs SET reserved_micros=reserved_micros-$3,spent_micros=spent_micros+$4,tokens_reserved=tokens_reserved-$5,tokens_spent=tokens_spent+$6 WHERE organization_id=$1 AND id=$2', [value.organizationId, row.run_id, row.amount_micros, value.actualCostMicros, row.reserved_tokens, value.actualTokens]);
         await tx.query("UPDATE gotchu.model_reservations SET charged_micros=$3,charged_tokens=$4,input_tokens=$5,output_tokens=$6,state='settled',settled_at=clock_timestamp() WHERE organization_id=$1 AND id=$2", [value.organizationId, value.reservationId, value.actualCostMicros, value.actualTokens, value.inputTokens, value.outputTokens]);

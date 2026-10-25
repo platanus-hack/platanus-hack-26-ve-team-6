@@ -39,6 +39,7 @@ const configureSchema = configureInvestigationModelSchema.extend({
 const dataScopesSchema = investigationDataScopeSchema.array().max(7);
 
 interface SettingsRow {
+  model_opt_in: boolean;
   provider: string | null;
   provider_preset_id: string | null;
   endpoint: string | null;
@@ -58,7 +59,7 @@ interface SettingsRow {
 }
 
 async function load(tx: Transaction, organizationId: string): Promise<SettingsRow> {
-  const result = await tx.query<SettingsRow>(`SELECT s.provider,s.provider_preset_id,s.endpoint,s.model_id,s.secret_ref,
+  const result = await tx.query<SettingsRow>(`SELECT o.model_opt_in,s.provider,s.provider_preset_id,s.endpoint,s.model_id,s.secret_ref,
     COALESCE(s.consent_to_external_processing,false) AS consent_to_external_processing,COALESCE(s.automatic_source_investigations,false) AS automatic_source_investigations,COALESCE(s.data_scopes,'[]'::jsonb) AS data_scopes,
     COALESCE(s.input_price_micro_usd_per_million_tokens,0) AS input_price_micro_usd_per_million_tokens,
     COALESCE(s.output_price_micro_usd_per_million_tokens,0) AS output_price_micro_usd_per_million_tokens,
@@ -86,9 +87,9 @@ function project(row: SettingsRow, secretStoreAvailable: boolean) {
   const budgetCents = Number(row.budget_micros) / 10_000;
   let disabledReason: z.infer<typeof investigationModelSettingsSchema.shape.disabledReason> = null;
   if (!provider || !providerPresetId || !preset || !checkedEndpoint?.success || !endpointMatchesPreset || provider !== investigationModelProviderForPreset(preset) || !row.model_id) disabledReason = 'not_configured';
-  else if (!consent) disabledReason = 'consent_required';
+  else if (!consent || !row.model_opt_in) disabledReason = 'consent_required';
   else if (dataScopes.length === 0) disabledReason = 'data_scope_required';
-  else if (budgetCents <= 0 || Number(row.tokens_budget) <= 0) disabledReason = 'budget_unconfigured';
+  else if (budgetCents <= 0 || (preset.billing !== 'subscription' && Number(row.tokens_budget) <= 0)) disabledReason = 'budget_unconfigured';
   else if (!keyConfigured || !secretStoreAvailable) disabledReason = 'secret_unavailable';
   return investigationModelSettingsSchema.parse({
     status: disabledReason === null ? 'ready' : 'disabled', disabledReason,
@@ -203,8 +204,8 @@ export function createInvestigationModelService(options: {
           const secretRef = newSecretRef ?? (value.clearApiKey || providerChanged ? null : oldSecretRef);
           const budgetMicros = BigInt(value.organizationBudgetCents) * 10_000n;
           const budgetUpdate = await tx.query(`UPDATE gotchu.organizations SET model_opt_in=$2,model_budget_micros=$3,model_token_budget=$4
-            WHERE id=$1 AND model_spent_micros+model_reserved_micros<=$3 AND model_tokens_spent+model_tokens_reserved<=$4`,
-          [value.organizationId, value.consentToExternalProcessing, budgetMicros.toString(), value.organizationTokenBudget]);
+            WHERE id=$1 AND model_spent_micros+model_reserved_micros<=$3 AND ($5 OR model_tokens_spent+model_tokens_reserved<=$4)`,
+          [value.organizationId, value.consentToExternalProcessing, budgetMicros.toString(), value.organizationTokenBudget, preset.billing === 'subscription']);
           if (!budgetUpdate.rowCount) throw new BackendError('model_budget_below_usage', 'A budget cannot be lower than spend or reservations already recorded', 409);
           await tx.query(`INSERT INTO gotchu.investigation_model_settings(organization_id,provider,provider_preset_id,endpoint,model_id,secret_ref,
             consent_to_external_processing,data_scopes,input_price_micro_usd_per_million_tokens,output_price_micro_usd_per_million_tokens,updated_by,updated_at,automatic_source_investigations)

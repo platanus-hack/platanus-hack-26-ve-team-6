@@ -2,7 +2,7 @@ import { posix } from 'node:path';
 import { z } from 'zod';
 import {
   aiCorrectionInputSchema, aiCorrectionPatchSchema, customerSourceSnapshotSchema,
-  investigationDataScopeSchema, investigationProviderPresetIdSchema, modelProviderSchema,
+  investigationDataScopeSchema, investigationProviderCatalog, investigationProviderPresetIdSchema, modelProviderSchema,
   type AiCorrectionInput, type AiCorrectionPatch, type CustomerSourceSnapshot,
 } from '@gotchu/contracts';
 import type { Transaction } from '@gotchu/database';
@@ -27,13 +27,14 @@ export async function correctionModelFingerprint(tx: Transaction, organizationId
     s.consent_to_external_processing,s.data_scopes,s.input_price_micro_usd_per_million_tokens,s.output_price_micro_usd_per_million_tokens
     FROM gotchu.organizations o JOIN gotchu.investigation_model_settings s ON s.organization_id=o.id WHERE o.id=$1`, [organizationId]);
   const row = result.rows[0];
+  const subscription = investigationProviderCatalog.find(preset => preset.id === row?.provider_preset_id)?.billing === 'subscription';
   if (!row || !row.model_opt_in || !row.consent_to_external_processing
-    || BigInt(row.model_budget_micros) <= 0n || BigInt(row.model_token_budget) <= 0n
+    || BigInt(row.model_budget_micros) <= 0n || (!subscription && BigInt(row.model_token_budget) <= 0n)
     || row.provider !== 'openai_compatible' && !row.secret_ref) correctionBoundary('model_consent_required');
   const scopes = parse(z.array(investigationDataScopeSchema).max(7), row.data_scopes);
   if (!scopes.includes('finding_details') || !scopes.includes('source_excerpts')) correctionBoundary('model_scope_required');
   if (admission && (BigInt(row.model_budget_micros) <= BigInt(row.model_spent_micros) + BigInt(row.model_reserved_micros)
-    || BigInt(row.model_token_budget) <= BigInt(row.model_tokens_spent) + BigInt(row.model_tokens_reserved))) {
+    || (!subscription && BigInt(row.model_token_budget) <= BigInt(row.model_tokens_spent) + BigInt(row.model_tokens_reserved)))) {
     throw new BackendError('model_budget_exhausted', 'Model budget has no remaining capacity', 429);
   }
   return modelConfigurationFingerprint({ provider: parse(modelProviderSchema, row.provider),
