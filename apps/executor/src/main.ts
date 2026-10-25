@@ -53,6 +53,7 @@ async function readJsonBody(request: IncomingMessage, limit: number, timeoutMs: 
 }
 
 async function main() {
+  const pinnedDockerImageDigest = z.string().regex(/^[a-f0-9]{64}$/).optional().parse(process.env.GOTCHU_VALIDATION_DOCKER_IMAGE_SHA256);
   const config = z.object({
     databaseUrl: z.url(), redisUrl: z.url(), port: z.coerce.number().int().min(1).max(65535),
     publicAppUrl: z.url(),
@@ -123,7 +124,7 @@ async function main() {
   };
   const actionVerifier = writesEnabled && writer && (singleAppFiles || config.writerInstallationId && config.monitoringConfigFile)
     ? createActionVerifier({
-      database, pinnedRootfsDigest: readPinnedRootfsDigest(),
+      database, pinnedRootfsDigest: readPinnedRootfsDigest(), ...(pinnedDockerImageDigest ? { pinnedDockerImageDigest } : {}),
       validationFacts: { getFacts: input => baseBackend.validations.getValidationFacts(input) },
       repository: {
         ...(singleAppFiles ? {

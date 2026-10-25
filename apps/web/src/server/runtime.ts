@@ -203,6 +203,9 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   if (configuredOrigin.username || configuredOrigin.password || configuredOrigin.pathname !== '/' || configuredOrigin.search || configuredOrigin.hash
     || (configuredOrigin.protocol !== 'https:' && !(configuredOrigin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(configuredOrigin.hostname)))) throw new Error('PUBLIC_APP_URL must be an HTTPS origin (localhost is allowed for development)');
   const origin = configuredOrigin.origin;
+  const dependencyValidationSandbox = z.enum(['docker', 'bwrap+systemd-scope']).optional().parse(env.GOTCHU_DEPENDENCY_VALIDATION_SANDBOX);
+  const pinnedDockerImageDigest = z.string().regex(/^[a-f0-9]{64}$/).optional().parse(env.GOTCHU_VALIDATION_DOCKER_IMAGE_SHA256);
+  if (dependencyValidationSandbox === 'docker' && !pinnedDockerImageDigest) throw new Error('validation_image_unconfigured');
   if (env.GOTCHU_GITHUB_CONNECTION_MODE && !['single_app', 'legacy_two_app'].includes(env.GOTCHU_GITHUB_CONNECTION_MODE)) throw new Error('github_connection_mode_invalid');
   const singleAppMode = env.GOTCHU_GITHUB_CONNECTION_MODE === 'single_app';
   const singleAppPublicGitHubApp = singleAppMode ? singleAppGitHubPublicApp(env) : undefined;
@@ -248,7 +251,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
     if (linked.repositoryKey !== scope.repositoryKey) throw new BackendError('repository_link_unavailable', 'The active GitHub repository link is unavailable', 409);
     return linked;
   } : undefined;
-  const actionVerifier = apiDatabase ? createActionVerifier({ database: apiDatabase, pinnedRootfsDigest: readPinnedRootfsDigest(), repository: {
+  const actionVerifier = apiDatabase ? createActionVerifier({ database: apiDatabase, pinnedRootfsDigest: readPinnedRootfsDigest(), ...(pinnedDockerImageDigest ? { pinnedDockerImageDigest } : {}), repository: {
     ...(loadBoundSingleAppRepository ? { writerInstallationIdFor: async (scope: { organizationId:string; applicationId:string; repositoryLinkId:string; repositoryKey:string }) => (await loadBoundSingleAppRepository(scope)).installationId }
       : env.GOTCHU_GITHUB_WRITER_INSTALLATION_ID ? { writerInstallationId:env.GOTCHU_GITHUB_WRITER_INSTALLATION_ID } : {}),
     async readHead(scope) {
@@ -312,7 +315,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   }, validationFacts: {
     getFacts: input => validationService?.getValidationFacts(input) ?? Promise.resolve(null),
   } }) : undefined;
-  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), webhookValidator: createNotificationWebhookValidator(dnsServers), modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true' }), ...(notificationSecrets ? { notificationSecrets } : {}), ...(modelSecrets ? { modelSecrets } : {}), ...(modelProbeClient ? { modelProbeClient } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(verifyRepositoryWriteAccess ? { repositoryWriteAccessVerifier: verifyRepositoryWriteAccess } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(dependencyValidationSandbox ? { dependencyValidationSandbox } : {}), ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), webhookValidator: createNotificationWebhookValidator(dnsServers), modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true' }), ...(notificationSecrets ? { notificationSecrets } : {}), ...(modelSecrets ? { modelSecrets } : {}), ...(modelProbeClient ? { modelProbeClient } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(verifyRepositoryWriteAccess ? { repositoryWriteAccessVerifier: verifyRepositoryWriteAccess } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
   const stepUp = web?.stepUp;
   const settings = authSettings(env, accounts, stepUp ? userId => stepUp.invalidateSession(userId) : undefined);
   const auth = createAuthService(settings);
