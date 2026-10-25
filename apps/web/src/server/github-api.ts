@@ -16,7 +16,7 @@ const accessTokenSchema = z.object({ token: z.string().min(1), expires_at: z.iso
 const oauthTokenSchema = z.object({ access_token: z.string().min(1), token_type: z.literal('bearer'), scope: z.string().optional() }).passthrough();
 type GithubServices = {
   github: Pick<Backend['github'], 'workspaceName' | 'createState' | 'consumeState' | 'bind' | 'list' | 'revoke' | 'createRepositoryLink' | 'importCapturedSource'>;
-} & Pick<NonNullable<CustomerServices>, 'uploadSource' | 'queue'>;
+} & Pick<NonNullable<CustomerServices>, 'uploadSource' | 'uploadCapturedSource' | 'queue'>;
 type AppCredentials = z.infer<typeof appFileSchema>;
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 

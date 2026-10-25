@@ -16,7 +16,7 @@ import { githubConsentPage } from './github-authorization.js';
 
 type GithubServices = {
   github: Pick<Backend['github'], 'createState' | 'consumeState' | 'workspaceName' | 'list' | 'revoke' | 'createRepositoryLink' | 'importCapturedSource'>;
-} & Pick<NonNullable<CustomerServices>, 'uploadSource' | 'queue'>;
+} & Pick<NonNullable<CustomerServices>, 'uploadCapturedSource' | 'queue'>;
 export type SingleGitHubPublicApp = z.infer<typeof singleGitHubPublicAppSchema>;
 
 async function readJson(request: Request): Promise<unknown> {
@@ -168,23 +168,24 @@ export function createSingleAppGitHubApi(options: {
           throw new HttpError(502, 'github_snapshot_invalid', 'GitHub devolvió una instantánea que no coincide con el repositorio seleccionado.');
         }
 
-        const source = await services.uploadSource(identity, { organizationId, applicationId, authorized: true, snapshot: captured.result.snapshot });
-        if (source.digest !== captured.result.digest) throw new HttpError(502, 'github_snapshot_digest_mismatch', 'No se pudo verificar la instantánea del repositorio.');
-        await services.github.importCapturedSource(identity, {
+        if (!services.uploadCapturedSource) throw new HttpError(503, 'github_capture_unavailable', 'No se pudo guardar la captura de GitHub.');
+        const capture = {
           organizationId,
           applicationId,
           repositoryLinkId: link.id,
-          sourceSnapshotId: source.id,
           appId: captured.result.appId,
           installationId: captured.result.installationId,
           repositoryId,
           commitSha: captured.result.snapshot.revision,
           treeSha: captured.result.treeSha,
           digest: captured.result.digest,
-        });
+        };
+        const source = await services.uploadCapturedSource(identity, { organizationId, applicationId, authorized: true, snapshot: captured.result.snapshot }, capture);
+        if (source.digest !== captured.result.digest) throw new HttpError(502, 'github_snapshot_digest_mismatch', 'No se pudo verificar la instantánea del repositorio.');
+        await services.github.importCapturedSource(identity, { ...capture, sourceSnapshotId: source.id });
         const queued = await services.queue(identity, {
           organizationId, applicationId, mode: 'internal', sourceSnapshotId: source.id, targetId: null,
-          idempotencyKey: `github-first-scan:${installationId}:${repositoryId}:${captured.result.snapshot.revision}`,
+          idempotencyKey: `github-first-scan:${source.id}`,
         });
         return send({ repository: githubRepositorySchema.parse(repository), link, source, jobId: queued.jobId }, 201);
       }

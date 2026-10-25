@@ -80,6 +80,7 @@ export interface CustomerServices {
   revokeTarget(identity: Identity, value: z.infer<typeof customerTargetIdSchema>): Promise<CustomerTarget>;
   listSources(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerSourceSummary[]>;
   uploadSource(identity: Identity, value: z.infer<typeof customerUploadSourceSchema>): Promise<CustomerSourceSummary>;
+  uploadCapturedSource?: Backend['customers']['uploadCapturedSource'];
   deleteSource(identity: Identity, value: { organizationId: string; applicationId: string; sourceSnapshotId: string }): Promise<unknown>;
   listContainerImages(identity: Identity, value: { organizationId: string; applicationId: string }): Promise<CustomerContainerImageSummary[]>;
   uploadContainerImage(identity: Identity, value: { organizationId: string; applicationId: string; label: string; authorized: true }, bytes: Uint8Array): Promise<CustomerContainerImageSummary>;
