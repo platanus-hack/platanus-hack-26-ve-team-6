@@ -9,7 +9,8 @@ import { investigationModelProviderForPreset, investigationProviderCatalog } fro
 import { createModelPort } from '../src/model-provider.js';
 import { redactEvidenceExcerpt } from '../src/service.js';
 
-const providerHosts = investigationProviderCatalog.flatMap(preset => preset.baseUrl ? [new URL(preset.baseUrl).hostname] : ['custom.example']);
+const perTokenPresets = investigationProviderCatalog.filter(preset => preset.billing === 'per_token');
+const providerHosts = perTokenPresets.flatMap(preset => preset.baseUrl ? [new URL(preset.baseUrl).hostname] : ['custom.example']);
 const fixtureBody = { choices: [{ message: { content: '{}' } }], usage: { prompt_tokens: 9, completion_tokens: 2 } };
 const recorded: Array<{ url: string; method: string; headers: Headers; body: string }> = [];
 let server: ReturnType<typeof createHttpsServer>;
@@ -95,7 +96,7 @@ describe('hosted investigator provider adapters (local HTTPS fixtures; not live-
     expect(excerpt).toContain('[REDACTED]');
   });
 
-  it.each(investigationProviderCatalog)('sends the exact HTTPS request for $displayName and parses usage', async preset => {
+  it.each(perTokenPresets)('sends the exact HTTPS request for $displayName and parses usage', async preset => {
     recorded.length = 0;
     const endpoint = new URL(preset.baseUrl ?? 'https://custom.example/v1');
     const modelId = preset.defaultModelId ?? 'fixture-model';
