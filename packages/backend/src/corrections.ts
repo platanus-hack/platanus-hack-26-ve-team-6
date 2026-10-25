@@ -11,11 +11,13 @@ import { createNpmRegistryAdapter, parseNpmAdvisoryEvidence, prepareNpmDependenc
 export const correctionReportScopeSchema = customerScopeSchema.extend({ reportId: z.uuid() }).strict();
 export const prepareCorrectionInputSchema = correctionReportScopeSchema.extend(prepareCorrectionRequestSchema.shape).strict();
 export const prepareDependencyFixInputSchema = correctionReportScopeSchema.extend(dependencyFixPreparationRequestSchema.shape).strict();
+export const retryDependencyValidationInputSchema = customerScopeSchema.extend({ candidateSourceId: z.uuid() }).strict();
 export type CorrectionReportScope = z.infer<typeof correctionReportScopeSchema>;
 export type PrepareCorrectionInput = z.infer<typeof prepareCorrectionInputSchema>;
 export type PrepareDependencyFixInput = z.infer<typeof prepareDependencyFixInputSchema>;
+export type RetryDependencyValidationInput = z.infer<typeof retryDependencyValidationInputSchema>;
 
-export async function lockCorrectionApplication(tx: Transaction, scope: CorrectionReportScope) {
+export async function lockCorrectionApplication(tx: Transaction, scope: Pick<CorrectionReportScope, 'organizationId' | 'applicationId'>) {
   const organization = await tx.query<{ exists: boolean }>('SELECT gotchu.lock_customer_organization($1) AS exists', [scope.organizationId]);
   if (!organization.rows[0]?.exists) throw new BackendError('not_found', 'Workspace not found', 404);
   const result = await tx.query<{ app: unknown }>('SELECT gotchu.lock_customer_application($1,$2) AS app', [scope.organizationId, scope.applicationId]);
@@ -176,6 +178,101 @@ async function mapConcurrent<T, R>(items: readonly T[], limit: number, work: (it
 export function createCorrectionService(deps: BaseDependencies & { npmRegistry?: NpmRegistryPort }) {
   const validations = createValidationService(deps);
   const registry = deps.npmRegistry ?? createNpmRegistryAdapter();
+  async function retryDependencyValidation(identity: Identity, input: RetryDependencyValidationInput): Promise<{ candidateSourceId: string; validationRunId: string }> {
+    const actor = parse(identitySchema, identity);
+    const scope = parse(retryDependencyValidationInputSchema, input);
+    return deps.database.tenant(scope.organizationId, async tx => {
+      await authorize(tx, scope.organizationId, actor, ['owner', 'operator']);
+      await lockCorrectionApplication(tx, scope);
+      const candidates = await tx.query<{ candidate: unknown }>(`SELECT to_jsonb(c) AS candidate FROM gotchu.dependency_fix_candidates c
+        WHERE organization_id=$1 AND application_id=$2 AND candidate_source_id=$3`, [scope.organizationId, scope.applicationId, scope.candidateSourceId]);
+      if (!candidates.rows[0]) throw new BackendError('not_found', 'Dependency candidate not found in this application', 404);
+      const digest = z.string().regex(/^[a-f0-9]{64}$/);
+      const candidate = parse(z.object({
+        candidate_source_id: z.uuid(), base_source_id: z.uuid(), repository_link_id: z.uuid(), validation_run_id: z.uuid(),
+        finding_id: z.uuid(), finding_ids: z.array(z.uuid()).min(1).max(20), base_commit: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
+        package_name: z.string().min(1).max(214), dependency_section: z.enum(['dependencies', 'devDependencies', 'optionalDependencies']),
+        to_version: z.string().min(1).max(100), package_json_path: z.literal('package.json'), package_lock_path: z.literal('package-lock.json'),
+        base_digest: digest, candidate_digest: digest, lockfile_sha256: digest, patch_sha256: digest,
+      }), candidates.rows[0].candidate);
+      const stored = await tx.query<{
+        base_body: unknown; base_digest: string; base_deleted_at: Date | null; source_body: unknown; source_digest: string; source_deleted_at: Date | null;
+        binding_commit: string; binding_digest: string; bound_repository_link_id: string; revoked: boolean; read_access: string; link_state: string; github_connection_active: boolean;
+        state: string; validation_mode: string; action_ref: string; candidate_source_id: string; base_source_id: string; suite_repository_link_id: string | null;
+        base_snapshot_digest: string; candidate_tree_digest: string; patch_digest: string; target_finding_id: string; target_finding_ids: unknown; dependency_allowlist: unknown;
+      }>(`SELECT b.body AS base_body,b.digest AS base_digest,b.deleted_at AS base_deleted_at,s.body AS source_body,s.digest AS source_digest,s.deleted_at AS source_deleted_at,
+          binding.commit_sha AS binding_commit,binding.source_digest AS binding_digest,binding.repository_link_id AS bound_repository_link_id,
+          l.revoked,l.read_access,l.state AS link_state,coalesce(g.state='active',false) AS github_connection_active,
+          v.state,v.validation_mode,v.action_ref,v.candidate_source_id,v.base_source_id,v.suite_repository_link_id,
+          v.base_snapshot_digest,v.candidate_tree_digest,v.patch_digest,v.target_finding_id,v.target_finding_ids,v.dependency_allowlist
+        FROM gotchu.customer_sources s
+        JOIN gotchu.customer_sources b ON b.organization_id=s.organization_id AND b.application_id=s.application_id AND b.id=$4
+        JOIN gotchu.customer_source_repository_bindings binding ON binding.organization_id=b.organization_id AND binding.application_id=b.application_id AND binding.source_id=b.id
+        JOIN gotchu.application_repository_links l ON l.organization_id=s.organization_id AND l.application_id=s.application_id AND l.id=$5
+        LEFT JOIN gotchu.github_installations g ON g.organization_id=l.organization_id AND g.installation_id=l.installation_id
+        JOIN gotchu.validation_runs v ON v.organization_id=s.organization_id AND v.application_id=s.application_id AND v.id=$6
+        WHERE s.organization_id=$1 AND s.application_id=$2 AND s.id=$3`, [scope.organizationId, scope.applicationId, candidate.candidate_source_id,
+        candidate.base_source_id, candidate.repository_link_id, candidate.validation_run_id]);
+      const row = stored.rows[0];
+      if (!row || row.base_deleted_at !== null || row.source_deleted_at !== null || row.base_body === null || row.source_body === null) {
+        throw new BackendError('source_unavailable', 'The exact base and candidate snapshots must still be available', 409);
+      }
+      if (row.revoked || row.read_access !== 'granted' || row.link_state !== 'verified'
+        || row.bound_repository_link_id !== candidate.repository_link_id || row.binding_commit !== candidate.base_commit || row.binding_digest !== candidate.base_digest) {
+        throw new BackendError('source_not_repository_bound', 'The original repository binding is no longer available', 409);
+      }
+      if (!row.github_connection_active) throw new BackendError('github_connection_unavailable', 'An active GitHub App connection for this repository is required', 409);
+      const base = parse(customerSourceSnapshotSchema, row.base_body);
+      const snapshot = parse(customerSourceSnapshotSchema, row.source_body);
+      const dependencyAllowlist = [{ name: candidate.package_name, section: candidate.dependency_section, version: candidate.to_version }];
+      if (base.revision !== candidate.base_commit || snapshot.revision !== candidate.base_commit
+        || row.base_digest !== candidate.base_digest || row.source_digest !== candidate.candidate_digest
+        || sha256(canonicalJson(base)) !== candidate.base_digest || sha256(canonicalJson(snapshot)) !== candidate.candidate_digest
+        || row.validation_mode !== 'dependency' || row.action_ref !== candidate.candidate_source_id
+        || row.candidate_source_id !== candidate.candidate_source_id || row.base_source_id !== candidate.base_source_id
+        || row.suite_repository_link_id !== candidate.repository_link_id || row.base_snapshot_digest !== candidate.base_digest
+        || row.candidate_tree_digest !== candidate.candidate_digest || row.patch_digest !== candidate.patch_sha256
+        || row.target_finding_id !== candidate.finding_id || !candidate.finding_ids.includes(candidate.finding_id)
+        || new Set(candidate.finding_ids).size !== candidate.finding_ids.length
+        || canonicalJson(row.target_finding_ids) !== canonicalJson(candidate.finding_ids)
+        || canonicalJson(row.dependency_allowlist) !== canonicalJson(dependencyAllowlist)) {
+        throw new BackendError('dependency_candidate_invalid', 'The candidate no longer matches its canonical validation scope', 409);
+      }
+      const before = new Map(base.files.map(file => [file.path, file.content]));
+      const after = new Map(snapshot.files.map(file => [file.path, file.content]));
+      const changed = [...new Set([...before.keys(), ...after.keys()])].filter(path => before.get(path) !== after.get(path));
+      const paths: readonly string[] = [candidate.package_json_path, candidate.package_lock_path];
+      const patch = paths.map(path => {
+        const original = before.get(path); const updated = after.get(path);
+        if (original === undefined || updated === undefined) throw new BackendError('dependency_candidate_invalid', 'The exact patch files are no longer available', 409);
+        return { path, before: sha256(original), after: sha256(updated) };
+      });
+      if (changed.length !== 2 || changed.some(path => !paths.includes(path))
+        || patch[1]?.after !== candidate.lockfile_sha256 || sha256(canonicalJson(patch)) !== candidate.patch_sha256) {
+        throw new BackendError('dependency_candidate_invalid', 'The candidate patch bytes changed', 409);
+      }
+      // A duplicate click observes the pointer advanced by the first transaction.
+      if (row.state === 'queued' || row.state === 'running') return { candidateSourceId: candidate.candidate_source_id, validationRunId: candidate.validation_run_id };
+      if (row.state !== 'failed' && row.state !== 'inconclusive') throw new BackendError('validation_retry_unavailable', 'Only failed or inconclusive validation can be retried', 409);
+      const history = await tx.query<{ count: number }>(`SELECT count(*)::int AS count FROM gotchu.validation_runs
+        WHERE organization_id=$1 AND application_id=$2 AND candidate_source_id=$3 AND queued_at>clock_timestamp()-interval '24 hours'`,
+      [scope.organizationId, scope.applicationId, candidate.candidate_source_id]);
+      if ((history.rows[0]?.count ?? 0) >= 5) throw new BackendError('validation_retry_limit', 'A candidate may have at most five validation attempts in 24 hours', 429);
+      const validationRunId = await enqueueValidation(tx, {
+        organizationId: scope.organizationId, applicationId: scope.applicationId, candidateSourceId: candidate.candidate_source_id,
+        baseSourceId: candidate.base_source_id, targetFindingId: candidate.finding_id, targetFindingIds: candidate.finding_ids,
+        baseDigest: candidate.base_digest, candidateDigest: candidate.candidate_digest, patchDigest: candidate.patch_sha256,
+        repositoryLinkId: candidate.repository_link_id, mode: 'dependency', dependencyAllowlist,
+      });
+      await tx.query(`UPDATE gotchu.dependency_fix_candidates SET validation_run_id=$4
+        WHERE organization_id=$1 AND application_id=$2 AND candidate_source_id=$3`, [scope.organizationId, scope.applicationId, candidate.candidate_source_id, validationRunId]);
+      await audit(tx, scope.organizationId, actor.userId, 'dependency_fix.validation_retried', candidate.candidate_source_id, {
+        applicationId: scope.applicationId, previousValidationRunId: candidate.validation_run_id, validationRunId,
+        baseDigest: candidate.base_digest, candidateDigest: candidate.candidate_digest, patchSha256: candidate.patch_sha256,
+      });
+      return { candidateSourceId: candidate.candidate_source_id, validationRunId };
+    });
+  }
   async function dependencyContext(tx: Transaction, scope: CorrectionReportScope) {
     const assessment = await loadAssessment(tx, scope);
     const source = assessment.input.source;
@@ -354,6 +451,7 @@ export function createCorrectionService(deps: BaseDependencies & { npmRegistry?:
     recommendations: reportRecommendations,
     reportRecommendations,
     prepareDependencyFix,
+    retryDependencyValidation,
     async prepare(identity: Identity, input: PrepareCorrectionInput): Promise<PrepareCorrectionResponse> {
       const actor = parse(identitySchema, identity); const value = parse(prepareCorrectionInputSchema, input);
       return deps.database.tenant(value.organizationId, async tx => {

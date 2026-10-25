@@ -90,7 +90,12 @@ export function createValidationService(deps: BaseDependencies) {
       const actor = parse(z.object({ userId: z.string().min(1).max(256) }).strict(), identity); const input = parse(scopeSchema.extend({ candidateSourceId: z.uuid() }).strict(), raw);
       return deps.database.tenant(input.organizationId, async tx => {
         await authorize(tx, input.organizationId, actor);
-        const result = await tx.query<{ id: string; action_ref: string; target_finding_id: string; candidate_source_id: string; base_source_id: string; suite_repository_link_id: string | null; suite_definition_id: string | null; suite_version: number | null; base_snapshot_digest: string; candidate_tree_digest: string; patch_digest: string; state: string; reason: string | null; runner_profile: string; sandbox_kind: string; runner_digest: string | null; firecracker_digest: string | null; kernel_digest: string | null; rootfs_digest: string | null; limits: unknown; queued_at: Date; started_at: Date | null; finished_at: Date | null; expires_at: Date }>(`SELECT * FROM gotchu.validation_runs WHERE organization_id=$1 AND application_id=$2 AND candidate_source_id=$3`, [input.organizationId, input.applicationId, input.candidateSourceId]);
+        const result = await tx.query<{ id: string; action_ref: string; target_finding_id: string; candidate_source_id: string; base_source_id: string; suite_repository_link_id: string | null; suite_definition_id: string | null; suite_version: number | null; base_snapshot_digest: string; candidate_tree_digest: string; patch_digest: string; state: string; reason: string | null; runner_profile: string; sandbox_kind: string; runner_digest: string | null; firecracker_digest: string | null; kernel_digest: string | null; rootfs_digest: string | null; limits: unknown; queued_at: Date; started_at: Date | null; finished_at: Date | null; expires_at: Date }>(`SELECT v.* FROM gotchu.validation_runs v
+          LEFT JOIN gotchu.dependency_fix_candidates c ON c.organization_id=v.organization_id AND c.application_id=v.application_id AND c.candidate_source_id=v.candidate_source_id
+          WHERE v.organization_id=$1 AND v.application_id=$2 AND v.candidate_source_id=$3
+            AND ((c.candidate_source_id IS NOT NULL AND v.id=c.validation_run_id AND v.validation_mode='dependency' AND v.action_ref=c.candidate_source_id)
+              OR (c.candidate_source_id IS NULL AND v.validation_mode='correction'))
+          ORDER BY v.queued_at DESC,v.id DESC LIMIT 1`, [input.organizationId, input.applicationId, input.candidateSourceId]);
         const row = result.rows[0];
         if (!row) return null;
         const attestations = await tx.query<{ body: unknown }>('SELECT body FROM gotchu.validation_attestations WHERE organization_id=$1 AND application_id=$2 AND run_id=$3 ORDER BY created_at,id', [input.organizationId, input.applicationId, row.id]);
@@ -109,10 +114,15 @@ export function createValidationService(deps: BaseDependencies) {
     async getValidationFacts(input: { organizationId: string; actionRef: string }) {
       const value = parse(z.object({ organizationId: z.uuid(), actionRef: z.uuid() }).strict(), input);
       return deps.database.tenant(value.organizationId, async tx => {
-        const runResult = await tx.query<{ id: string; state: string }>('SELECT id,state FROM gotchu.validation_runs WHERE organization_id=$1 AND action_ref=$2', [value.organizationId, value.actionRef]);
-        const run = runResult.rows[0]; if (!run) return null;
+        const runResult = await tx.query<{ id: string; application_id: string; state: string }>(`SELECT v.id,v.application_id,v.state FROM gotchu.validation_runs v
+          LEFT JOIN gotchu.dependency_fix_candidates c ON c.organization_id=v.organization_id AND c.application_id=v.application_id AND c.candidate_source_id=v.action_ref
+          WHERE v.organization_id=$1 AND v.action_ref=$2
+            AND ((c.candidate_source_id IS NOT NULL AND v.id=c.validation_run_id AND v.validation_mode='dependency' AND v.candidate_source_id=c.candidate_source_id)
+              OR (c.candidate_source_id IS NULL AND v.validation_mode='correction'))
+          ORDER BY v.queued_at DESC,v.id DESC LIMIT 2`, [value.organizationId, value.actionRef]);
+        const run = runResult.rows[0]; if (!run || runResult.rows.length !== 1) return null;
         const rows = await tx.query<{ body: unknown; key_id: string; signature: string; public_key: string }>(`SELECT a.body,a.key_id,a.signature,k.public_key FROM gotchu.validation_attestations a
-          JOIN gotchu.validation_keys k ON k.id=a.key_id WHERE a.organization_id=$1 AND a.run_id=$2 ORDER BY a.created_at,a.id`, [value.organizationId, run.id]);
+          JOIN gotchu.validation_keys k ON k.id=a.key_id WHERE a.organization_id=$1 AND a.application_id=$2 AND a.run_id=$3 ORDER BY a.created_at,a.id`, [value.organizationId, run.application_id, run.id]);
         return validationFactsSchema.parse({ actionRef: value.actionRef, runId: run.id, state: run.state,
           attestations: rows.rows.map(row => validationAttestationSchema.parse({ payload: row.body, keyId: row.key_id, signature: row.signature })),
           keys: [...new Map(rows.rows.map(row => [row.key_id, { keyId: row.key_id, publicKey: row.public_key }])).values()] });
