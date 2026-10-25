@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { z } from 'zod';
@@ -39,6 +39,7 @@ import { ThemeSwitch } from './theme-switch';
 import { FilePicker } from './file-picker';
 import { FirstProjectEmptyState } from './empty-state';
 import { WorkspacePages } from './workspace-pages';
+import { AssessmentProgress, ReportProgress } from './assessment-progress';
 import { ProjectOverview } from './project-overview';
 import { ProjectSources } from './project-sources';
 import { ProjectReports } from './project-reports';
@@ -562,6 +563,8 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
   const findingTitles = new Map(entries.map(finding => [finding.id, finding.title]));
   const evidenceById = new Map(evidence.map(item => [item.id, item]));
   const originSections = (['internal', 'external'] as const).map(origin => ({ origin, analysis: report[origin] }));
+  // Queue and validation timings live on the job; the report carries its own analysis timings.
+  const reportJob = useQuery({ queryKey: ['customer-data', userId, 'job', organizationId, applicationId, report.jobId], queryFn: () => customerApi.job(organizationId, applicationId, report.jobId), retry: false, staleTime: Infinity });
 
   return <div className="customer-report-detail">
     <div className="customer-report-title"><div><h2>{report.applicationName}</h2><p>{reportInputLabel(report)} · {date(report.finishedAt)}</p></div><button className="customer-button" disabled={downloading} onClick={async () => {
@@ -577,6 +580,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
       {report.subject.origin && <div><span>Origen HTTPS autorizado</span><strong>{report.subject.origin}</strong></div>}
       {report.subject.targetVersion !== null && <div><span>Versión de autorización</span><strong>{report.subject.targetVersion}</strong></div>}
     </div>
+    <ReportProgress report={report} job={reportJob.data} />
     <div className="customer-report-callout"><strong>{count(entries.length, 'observación registrada', 'observaciones registradas')}</strong><p>La cobertura parcial o no solicitada no confirma seguridad. No se hicieron cambios en el proyecto.</p></div>
     <ComparisonSummary comparisons={report.comparison} internal={report.internal} external={report.external} />
     <ExternalHttpsEvidence analysis={report.external} />
@@ -921,8 +925,9 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   });
 
   const jobResult: CustomerJob | undefined = job.data;
-  useEffect(() => {
-    if (!activeJob || !jobResult) return;
+  // Runs once the finished job has been shown: the phase graph reports it after its last transition.
+  const settleJob = useCallback((jobResult: CustomerJob) => {
+    if (!activeJob) return;
     if (jobResult.state === 'succeeded') {
       setActiveJob(null);
       if (jobResult.reportId) {
@@ -936,13 +941,15 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
       queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'reports', activeJob.organizationId, activeJob.applicationId] }).catch(caught => setPageError(readableError(caught)));
     } else if (jobResult.state === 'failed') {
       setActiveJob(null);
-      setPageError(activeJob.purpose === 'correction'
-        ? `El análisis independiente no finalizó${jobResult.reasonCode ? ` (${jobResult.reasonCode})` : ''}. La instantánea privada se preparó, pero no se validó.`
-        : jobResult.reasonCode === 'assessment_reconciliation_required'
-        ? 'No se pudo confirmar que el escáner haya terminado. Una persona operadora debe comprobarlo antes de revocar o renovar el origen. La autorización sigue activa y no se repetirá este trabajo automáticamente.'
-        : jobResult.reasonCode ? `La evaluación no finalizó (${jobResult.reasonCode}).` : 'La evaluación no finalizó. Los informes anteriores siguen disponibles.');
+      setPageError(jobFailureMessage(activeJob.purpose, jobResult));
     }
-  }, [activeJob, jobResult, navigate, queryClient, userId]);
+  }, [activeJob, navigate, queryClient, userId]);
+  const progressVisible = activeJob !== null && activeJob.organizationId === organizationId;
+  useEffect(() => {
+    if (!progressVisible && (jobResult?.state === 'succeeded' || jobResult?.state === 'failed')) settleJob(jobResult);
+  }, [jobResult, progressVisible, settleJob]);
+  // A visible failure stays on the graph, at the phase where it stopped, until it is dismissed.
+  const settleVisibleJob = useCallback((jobResult: CustomerJob) => { if (jobResult.state === 'succeeded') settleJob(jobResult); }, [settleJob]);
 
   const operationError = pageError;
   const pageTitle = pages.find(item => item.id === page)?.label ?? 'Inicio';
@@ -956,7 +963,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const renderRouteSection = () => <>
     {invitationMessage && <div className="customer-success" role="status">{invitationMessage}</div>}
     {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}><XIcon aria-hidden="true" /></button></div>}
-    {activeJob && activeJob.organizationId === organizationId && <JobStatusBanner purpose={activeJob.purpose} job={jobResult} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} />}
+    {activeJob && progressVisible && <AssessmentProgress key={activeJob.jobId} purpose={activeJob.purpose} job={jobResult} failure={jobResult?.state === 'failed' ? jobFailureMessage(activeJob.purpose, jobResult) : null} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} onSettled={settleVisibleJob} onDismiss={() => setActiveJob(null)} />}
     {operationError && <ErrorNotice message={operationError} retry={() => { setPageError(null); refreshApplicationData(); workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} />}
     {workspacePage && organizationId && workspace ? <WorkspacePages page={page} userId={userId} organizationId={organizationId} role={workspace.role} canManage={canManage} />
     : organizationId && applications.isPending ? <Loading label="Cargando proyectos…" />
@@ -1018,17 +1025,10 @@ function ReportList({ reports, selectedId, organizationId, applicationId }: { re
   return <ul className="customer-report-list">{reports.map(report => <li key={report.id}><Link to="/w/$workspaceId/p/$projectId/informes/$reportId" params={{ workspaceId: organizationId, projectId: applicationId, reportId: report.id }} className={selectedId === report.id ? 'is-selected' : ''}><span className="customer-report-icon" aria-hidden="true" /><span className="customer-report-row-title"><strong>{report.subject.containerImageDigest ? 'Imagen de contenedor' : modeLabels[report.mode]}</strong><small>{date(report.finishedAt)} · {count(report.findingCount, 'observación', 'observaciones')}</small></span><ChevronRightIcon aria-hidden="true" /></Link></li>)}</ul>;
 }
 
-function JobStatusBanner({ purpose, job, error, retry }: { purpose: 'assessment' | 'correction'; job: CustomerJob | undefined; error: string | null; retry: () => void }) {
-  const correction = purpose === 'correction';
-  const heading = correction
-    ? job?.state === 'running' ? 'Analizando instantánea privada' : job?.state === 'failed' ? 'Análisis independiente no finalizado' : job?.state === 'succeeded' ? 'Análisis independiente finalizado' : 'Análisis independiente en cola'
-    : job?.state === 'running' ? 'Evaluación en curso' : job?.state === 'failed' ? 'Evaluación no finalizada' : job?.state === 'succeeded' ? 'Evaluación finalizada' : 'Evaluación guardada';
-  const detail = error
-    ? 'No se pudo actualizar el estado. El trabajo puede continuar en segundo plano.'
-    : correction
-      ? 'El estado se actualiza automáticamente.'
-      : 'El trabajo continúa en segundo plano. Tus informes anteriores siguen disponibles.';
-  return <div id="customer-active-job" className="customer-job-banner" role="status" aria-live="polite"><span className="customer-spinner" /><div><strong>{heading}</strong><p>{detail}</p></div>{error && <button className="customer-link-button" type="button" onClick={retry}>Actualizar estado del análisis</button>}</div>;
+function jobFailureMessage(purpose: 'assessment' | 'correction', job: CustomerJob) {
+  if (purpose === 'correction') return `El análisis independiente no finalizó${job.reasonCode ? ` (${job.reasonCode})` : ''}. La instantánea privada se preparó, pero no se validó.`;
+  if (job.reasonCode === 'assessment_reconciliation_required') return 'No se pudo confirmar que el escáner haya terminado. Una persona operadora debe comprobarlo antes de revocar o renovar el origen. La autorización sigue activa y no se repetirá este trabajo automáticamente.';
+  return job.reasonCode ? `La evaluación no finalizó (${job.reasonCode}). Los informes anteriores siguen disponibles.` : 'La evaluación no finalizó. Los informes anteriores siguen disponibles.';
 }
 
 export function CustomerDashboard({ routePage, routeOrganizationId, routeApplicationId, routeReportId, routeReportTab, authMode, routeEntry = true }: { routePage?: DashboardPage; routeOrganizationId?: string; routeApplicationId?: string; routeReportId?: string; routeReportTab?: 'dependencias'; authMode?: 'sign-in' | 'register'; routeEntry?: boolean }) {
