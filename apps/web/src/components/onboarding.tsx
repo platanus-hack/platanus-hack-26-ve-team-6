@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CUSTOMER_MAX_SOURCE_BYTES, customerSourceFileSchema, customerSourceSnapshotSchema, customerScanProfileSchema, type CustomerWorkspace } from '@gotchu/contracts';
+import { CUSTOMER_MAX_SOURCE_BYTES, customerOriginSchema, customerSourceFileSchema, customerSourceSnapshotSchema, customerScanProfileSchema, type CustomerWorkspace } from '@gotchu/contracts';
 import { customerApi, CustomerApiError } from './customer-client';
 import { readSavedCustomerScope } from './customer-scope-storage';
 
@@ -29,16 +29,14 @@ export function Onboarding({ userId, displayName, initialOrganizationId, initial
   const name = suggestedName(displayName);
   const [scope, setScope] = useState<Scope | null>(null);
   const [createdOrganizationId, setCreatedOrganizationId] = useState<string | null>(null);
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2>(1);
   const [workspaceName, setWorkspaceName] = useState(name ? `Espacio de ${name}` : 'Mi espacio de trabajo');
   const [applicationName, setApplicationName] = useState(name ? `Aplicación de ${name}` : 'Mi primera aplicación');
   const [applicationNameEdited, setApplicationNameEdited] = useState(false);
   const [autoNameApplication, setAutoNameApplication] = useState(false);
   const [files, setFiles] = useState<SourceFile[]>([]);
-  const [targetId, setTargetId] = useState<string | null>(null);
-  const [domainVerified, setDomainVerified] = useState(false);
   const [domain, setDomain] = useState('');
-  const [challenge, setChallenge] = useState<{ name: string; value: string } | null>(null);
+  const [domainScanProfile, setDomainScanProfile] = useState<'root' | 'public_surface'>('public_surface');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [installationId, setInstallationId] = useState('');
@@ -149,29 +147,11 @@ export function Onboarding({ userId, displayName, initialOrganizationId, initial
     setBusy(true); setError(null);
     try {
       const currentScope = await ensureScope();
-      const enrollment = await customerApi.enrollTarget({ ...currentScope, origin: domain, authorized: true, scanProfile: customerScanProfileSchema.parse('public_surface') });
-      setScope(currentScope);
-      setChallenge({ name: enrollment.challenge.name, value: enrollment.challenge.value });
-      setTargetId(enrollment.target.id);
-      setStep(3);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'No se pudo iniciar la verificación del dominio.'); }
-    finally { setBusy(false); }
-  }
-  async function verifyDomain() {
-    if (!scope || !targetId || !canManage) return;
-    setBusy(true); setError(null);
-    try { await customerApi.verifyTarget(scope.organizationId, scope.applicationId, targetId); setDomainVerified(true); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'El registro DNS todavía no se ha encontrado.'); }
-    finally { setBusy(false); }
-  }
-  async function queueDomainAssessment() {
-    if (!scope || !targetId || !canManage || !domainVerified) return;
-    setBusy(true); setError(null);
-    try {
-      const result = await customerApi.queue({ ...scope, mode: 'external', sourceSnapshotId: null, targetId });
+      const enrollment = await customerApi.enrollTarget({ ...currentScope, origin: domain, scanProfile: customerScanProfileSchema.parse(domainScanProfile) });
+      const result = await customerApi.queue({ ...currentScope, mode: 'external', sourceSnapshotId: null, targetId: enrollment.target.id });
       sessionStorage.removeItem(onboardingStorageKey);
-      onScanQueued(scope, result.jobId);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'No se pudo iniciar la evaluación.'); }
+      onScanQueued(currentScope, result.jobId);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'No se pudo iniciar la evaluación HTTPS.'); }
     finally { setBusy(false); }
   }
   async function selectRepository(repository: NonNullable<typeof repositories.data>[number]) {
@@ -189,6 +169,7 @@ export function Onboarding({ userId, displayName, initialOrganizationId, initial
   const selectedFiles = files.filter(item => item.valid);
   const bytes = selectedFiles.reduce((total, item) => total + item.file.size, 0);
   const fileError = files.length > 0 && (!selectedFiles.length || bytes > CUSTOMER_MAX_SOURCE_BYTES || !customerSourceFileSchema.safeParse({ path: selectedFiles[0]?.path, content: '' }).success);
+  const domainIsValid = customerOriginSchema.safeParse(domain.trim()).success;
   const githubSource = <div className="customer-onboarding-source-body">
     {!scope ? <><p>Concede acceso de lectura a los repositorios que autorices. Gotchu no ejecuta el proyecto ni escribe en GitHub.</p><button className="customer-button customer-button-primary" onClick={() => void connectGitHub()} disabled={busy || !canManage}>{busy ? 'Preparando y abriendo GitHub…' : 'Conectar GitHub'}</button></>
       : connections.isPending ? <p role="status">Comprobando conexiones…</p>
@@ -203,11 +184,10 @@ export function Onboarding({ userId, displayName, initialOrganizationId, initial
   const uploadSource = <div className="customer-onboarding-source-body"><label htmlFor="onboarding-folder">Carpeta del proyecto</label><input id="onboarding-folder" ref={fileInput} type="file" multiple disabled={!canManage || busy} onChange={event => { const selected = Array.from(event.target.files ?? []).map(file => { const path = file.webkitRelativePath.split('/').slice(1).join('/'); return { file, path, valid: customerSourceFileSchema.safeParse({ path, content: '' }).success }; }); setFiles(selected); }} />{files.length > 0 && <p role="status">{selectedFiles.length} archivos compatibles · {Math.ceil(bytes / 1024)} KiB</p>}{fileError && <p className="customer-form-error" role="alert">La carpeta no contiene archivos compatibles o supera el límite de tamaño.</p>}<p>Gotchu analizará los archivos compatibles que compartas, sin ejecutar código.</p><button className="customer-button customer-button-primary" onClick={() => void uploadAndQueue()} disabled={!canManage || busy || !selectedFiles.length || fileError}>{busy ? 'Guardando y encolando…' : 'Analizar carpeta'}</button></div>;
 
   return <section className="customer-onboarding" aria-labelledby="onboarding-title">
-    <div className="customer-onboarding-header"><h1 id="onboarding-title">Empieza en dos pasos</h1><p>Conecta o comparte una fuente autorizada y Gotchu preparará un informe con hallazgos, recomendaciones y aquello que todavía no pudo comprobar.</p></div>
+    <div className="customer-onboarding-header"><h1 id="onboarding-title">Empieza en dos pasos</h1><p>Elige una fuente para revisar y Gotchu preparará un informe con hallazgos, recomendaciones y aquello que todavía no pudo comprobar.</p></div>
     <ol className="customer-onboarding-steps" aria-label="Pasos de configuración">{['Conecta o comparte una fuente', 'Analiza y revisa el informe'].map((label, index) => <li key={label} aria-current={step === index + 1 ? 'step' : undefined} className={step >= index + 1 ? 'is-current' : ''}><span>{index + 1}</span>{label}</li>)}</ol>
-    {step === 1 && <section className="customer-card customer-panel customer-onboarding-card"><h2 ref={stepHeading} tabIndex={-1}>¿Qué quieres proteger?</h2>{needsWorkspace && <><label htmlFor="onboarding-workspace">Espacio de trabajo</label><input id="onboarding-workspace" value={workspaceName} onChange={event => setWorkspaceName(event.target.value)} required maxLength={200} disabled={!canManage || busy} /></>}<label htmlFor="onboarding-application">Nombre de la aplicación</label><input id="onboarding-application" value={applicationName} onChange={event => { setApplicationName(event.target.value); setApplicationNameEdited(true); }} required maxLength={200} disabled={!canManage || busy} /><p>Podrás cambiar el nombre de la aplicación más adelante. Al analizar un repositorio nuevo, usaremos su nombre si no lo editas aquí.</p>{!canManage && <p>Un Owner u Operator debe crear la aplicación y autorizar una evaluación.</p>}<h3>Conecta GitHub</h3>{githubSource}<h3>O elige una carpeta</h3>{uploadSource}<button className="customer-link-button" onClick={() => setStep(2)}>Verificar un dominio HTTPS</button></section>}
-    {step === 2 && <section className="customer-card customer-panel customer-onboarding-card"><h2 ref={stepHeading} tabIndex={-1}>Elige cómo empezar</h2><h3>Conecta GitHub</h3>{githubSource}<h3>Sube una carpeta</h3>{uploadSource}<h3>Verifica mi dominio</h3><div className="customer-onboarding-source-body"><label htmlFor="onboarding-domain">Dominio HTTPS</label><input id="onboarding-domain" type="url" value={domain} onChange={event => setDomain(event.target.value)} placeholder="https://ejemplo.com" disabled={!canManage || busy} /><button className="customer-button customer-button-primary" onClick={() => void enrollDomain()} disabled={!canManage || busy || !domain.trim()}>{busy ? 'Preparando verificación…' : 'Verificar dominio'}</button><p>Prueba una superficie HTTPS pública acotada; no inspecciona código privado.</p></div></section>}
-    {step === 3 && <section className="customer-card customer-panel customer-onboarding-card"><h2 ref={stepHeading} tabIndex={-1}>Confirma que controlas el dominio</h2><p>Publica este TXT en <code>{challenge?.name}</code>: <code>{challenge?.value}</code></p><button className="customer-button customer-button-secondary" onClick={() => void verifyDomain()} disabled={!canManage || busy}>{busy ? 'Comprobando DNS…' : domainVerified ? 'Dominio verificado' : 'Ya publiqué el registro'}</button><p><strong>No comprobado</strong> significa que Gotchu no tuvo evidencia suficiente; no significa que no haya problemas.</p><button className="customer-button customer-button-primary" onClick={() => void queueDomainAssessment()} disabled={!canManage || busy || !domainVerified}>{busy ? 'Encolando…' : 'Analizar dominio'}</button></section>}
+    {step === 1 && <section className="customer-card customer-panel customer-onboarding-card"><h2 ref={stepHeading} tabIndex={-1}>¿Qué quieres revisar?</h2>{needsWorkspace && <><label htmlFor="onboarding-workspace">Espacio de trabajo</label><input id="onboarding-workspace" value={workspaceName} onChange={event => setWorkspaceName(event.target.value)} required maxLength={200} disabled={!canManage || busy} /></>}<label htmlFor="onboarding-application">Nombre de la aplicación</label><input id="onboarding-application" value={applicationName} onChange={event => { setApplicationName(event.target.value); setApplicationNameEdited(true); }} required maxLength={200} disabled={!canManage || busy} /><p>Podrás cambiar el nombre de la aplicación más adelante. Al analizar un repositorio nuevo, usaremos su nombre si no lo editas aquí.</p>{!canManage && <p>Un Owner u Operator debe crear la aplicación y solicitar evaluaciones.</p>}<h3>Conecta GitHub</h3>{githubSource}<h3>O elige una carpeta</h3>{uploadSource}<button className="customer-link-button" onClick={() => setStep(2)}>Evaluar un origen HTTPS</button></section>}
+    {step === 2 && <section className="customer-card customer-panel customer-onboarding-card"><h2 ref={stepHeading} tabIndex={-1}>Define el alcance HTTPS</h2><h3>Conecta GitHub</h3>{githubSource}<h3>Sube una carpeta</h3>{uploadSource}<h3>Analiza una web</h3><div className="customer-onboarding-source-body"><label htmlFor="onboarding-domain">Origen HTTPS</label><input id="onboarding-domain" type="url" value={domain} onChange={event => setDomain(event.target.value)} placeholder="https://ejemplo.com" disabled={!canManage || busy} aria-invalid={domain.length > 0 && !domainIsValid} aria-describedby="onboarding-domain-help" />{domain.length > 0 && !domainIsValid && <p className="customer-form-error">Usa un origen HTTPS público sin rutas, parámetros ni puerto personalizado.</p>}<label htmlFor="onboarding-scan-profile">Perfil de evaluación</label><select id="onboarding-scan-profile" value={domainScanProfile} onChange={event => setDomainScanProfile(customerScanProfileSchema.parse(event.target.value))} disabled={!canManage || busy}><option value="root">Raíz del sitio · una solicitud GET a /</option><option value="public_surface">Superficie pública limitada · hasta 10 solicitudes GET</option></select><p id="onboarding-domain-help">La evaluación se limita al origen y al perfil elegido. No comparte el código fuente.</p><button className="customer-button customer-button-primary" onClick={() => void enrollDomain()} disabled={!canManage || busy || !domainIsValid}>{busy ? 'Encolando evaluación…' : 'Analizar origen'}</button></div></section>}
     {error && <p className="customer-inline-error" role="alert">{error}</p>}
     <p className="customer-onboarding-note">Puedes continuar con cobertura parcial y añadir otra fuente después.</p>
   </section>;

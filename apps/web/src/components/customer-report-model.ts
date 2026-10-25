@@ -19,7 +19,7 @@ export function reportInputLabel(report: Pick<CustomerAssessmentReport, 'mode' |
   if (report.subject.containerImageDigest) return 'Imagen de contenedor';
   switch (report.mode) {
     case 'internal': return 'Código fuente';
-    case 'external': return 'HTTPS autorizado';
+    case 'external': return 'HTTPS externo';
     case 'both': return 'Código + HTTPS';
   }
 }

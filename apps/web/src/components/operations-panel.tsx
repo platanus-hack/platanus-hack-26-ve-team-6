@@ -58,7 +58,7 @@ function errorText(error: unknown) {
     if (error.code === 'evidence_stale') return 'La evidencia ya no está vigente. Actualiza las observaciones antes de crear o preparar una guía.';
     if (error.code === 'capacity_evidence_required') return 'La observación sólo muestra volumen. Se necesita presión medida de errores, latencia o capacidad para investigar balanceo.';
     if (error.code === 'upstream_evidence_required') return 'La preparación de migración requiere una observación del estado de un proveedor.';
-    if (error.code === 'target_not_verified') return 'El origen ya no tiene una autorización vigente. Actualiza su verificación antes de incluirlo.';
+    if (error.code === 'target_not_authorized' || error.code === 'assessment_target_changed') return 'El alcance del origen ya no está vigente. Renueva el origen antes de incluirlo.';
     return error.message;
   }
   if (error instanceof Error && error.name !== 'ZodError') return error.message;
@@ -77,7 +77,7 @@ function scopeKeys(userId: string, scope: OperationsScope) {
 
 function currentTargets(targets: CustomerTarget[]) {
   const now = Date.now();
-  return targets.filter(target => target.status === 'verified' && target.expiresAt !== null && Date.parse(target.expiresAt) > now);
+  return targets.filter(target => target.status === 'authorized' && target.expiresAt !== null && Date.parse(target.expiresAt) > now);
 }
 
 function suggestedPlan(alert: OperationAlert): PlanKind {
@@ -105,7 +105,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
   const repositories = useQuery({ queryKey: keys.repositories, queryFn: () => operationsApi.repositories(scope), retry: false });
   const alerts = useQuery({ queryKey: keys.alerts, queryFn: () => operationsApi.alerts(scope), retry: false, refetchInterval: 7_500 });
   const plans = useQuery({ queryKey: keys.plans, queryFn: () => operationsApi.plans(scope), retry: false });
-  const verifiedTargets = currentTargets(targets);
+  const availableTargets = currentTargets(targets);
 
   const [enabled, setEnabled] = useState(false);
   const [intervalSeconds, setIntervalSeconds] = useState(21_600);
@@ -126,9 +126,9 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     setEnabled(config.enabled);
     setIntervalSeconds(config.intervalSeconds);
     setBasis(config.sourceSnapshotId ? `snapshot:${config.sourceSnapshotId}` : config.repositoryKey ? `repository:${config.repositoryKey}` : '');
-    setTargetId(verifiedTargets.some(target => target.id === config.targetId) ? config.targetId ?? '' : '');
+    setTargetId(availableTargets.some(target => target.id === config.targetId) ? config.targetId ?? '' : '');
     setProviders([...config.providers]);
-  }, [coverage.data?.config, verifiedTargets]);
+  }, [coverage.data?.config, availableTargets]);
 
   const configure = useMutation({
     mutationFn: (settings: MonitorSettings) => operationsApi.configure(scope, settings),
@@ -148,7 +148,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
           setEnabled(saved.enabled);
           setIntervalSeconds(saved.intervalSeconds);
           setBasis(saved.sourceSnapshotId ? `snapshot:${saved.sourceSnapshotId}` : saved.repositoryKey ? `repository:${saved.repositoryKey}` : '');
-          setTargetId(verifiedTargets.some(target => target.id === saved.targetId) ? saved.targetId ?? '' : '');
+          setTargetId(availableTargets.some(target => target.id === saved.targetId) ? saved.targetId ?? '' : '');
           setProviders([...saved.providers]);
         }
         queryClient.invalidateQueries({ queryKey: keys.coverage }).catch(() => undefined);
@@ -240,7 +240,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
     { key: 'plans', label: 'Planes operativos', used: coverage.data.quotas.plans.used, limit: coverage.data.quotas.plans.limit },
   ] : [];
   const selectedBasisIsMissing = basis !== '' && !availableBasis.includes(basis);
-  const targetIsCurrent = verifiedTargets.some(target => target.id === targetId);
+  const targetIsCurrent = availableTargets.some(target => target.id === targetId);
   const basisSelected = (basis !== '' && !selectedBasisIsMissing) || targetIsCurrent || providers.length > 0;
 
   return <div className="customer-operations">
@@ -251,7 +251,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
       <div className="customer-card-heading"><div><h2 id="monitoring-title">Supervisar esta aplicación</h2></div>
         {coverage.data && <span className={`customer-status ${coverageTone(coverage.data)}`}>{coverage.data.status === 'active' && coverage.data.observations.stale > 0 ? 'Hay evidencia atrasada' : statusNames[coverage.data.status]}</span>}
       </div>
-      <p className="customer-card-copy">Programa revisiones con fuentes fijas, el origen HTTPS verificado y estados de proveedor disponibles. Una revisión incompleta o atrasada se muestra como tal; una señal no confirma por sí sola un ataque ni una corrección.</p>
+      <p className="customer-card-copy">Programa revisiones con fuentes fijas, el alcance HTTPS vigente y estados de proveedor disponibles. Una revisión incompleta o atrasada se muestra como tal; una señal no confirma por sí sola un ataque ni una corrección.</p>
       <div className="customer-ops-facts">
         <p>El intervalo permitido es de 1 a 24 horas; el valor inicial es cada 6 horas. El límite compartido es de hasta 20 evaluaciones por espacio de trabajo al día.</p>
         <p>La cobertura se limita a las fuentes que selecciones. No equivale a un inventario completo de la empresa. La retención puede eliminar historial antes del plazo configurado para respetar estas cuotas.</p>
@@ -288,18 +288,18 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
         </select>
         {repositories.isPending && <p className="customer-field-note">Cargando repositorios configurados…</p>}
         {repositories.error && <p className="customer-form-error" role="alert">No se pudo cargar el catálogo de repositorios configurados. Puedes continuar con otras fuentes.</p>}
-        <label htmlFor="monitor-target">Origen HTTPS autorizado (opcional)</label>
+        <label htmlFor="monitor-target">Origen HTTPS vigente (opcional)</label>
         <select id="monitor-target" value={targetId} onChange={event => setTargetId(event.target.value)} disabled={!canManage || configure.isPending}>
           <option value="">No incluir origen HTTPS</option>
-          {verifiedTargets.map(target => <option key={target.id} value={target.id}>{target.origin} · perfil {target.scanProfile ?? 'root'} · vence {target.expiresAt ? formatDate(target.expiresAt) : 'sin fecha'}</option>)}
+          {availableTargets.map(target => <option key={target.id} value={target.id}>{target.origin} · perfil {target.scanProfile ?? 'root'} · vence {target.expiresAt ? formatDate(target.expiresAt) : 'sin fecha'}</option>)}
         </select>
-        {currentConfig?.targetId && !verifiedTargets.some(target => target.id === currentConfig.targetId) && <p className="customer-form-error" role="status">La autorización HTTPS anterior ya no está vigente. Elige una autorización verificada o limpia este alcance.</p>}
+        {currentConfig?.targetId && !availableTargets.some(target => target.id === currentConfig.targetId) && <p className="customer-form-error" role="status">El alcance HTTPS anterior ya no está vigente. Renueva el origen o quítalo de esta configuración.</p>}
         <fieldset className="customer-ops-providers" disabled={!canManage || configure.isPending}>
           <legend>Estado del proveedor (opcional)</legend>
           {(['cloudflare', 'railway'] as const).map(provider => <label className="customer-checkbox" key={provider}><input type="checkbox" checked={providers.includes(provider)} onChange={event => changeProvider(provider, event.target.checked)} /><span>{providerNames[provider]}</span></label>)}
           <p className="customer-field-note">Se consulta sólo el estado que el adaptador del servicio pueda obtener. Un aviso del proveedor no prueba impacto en tu aplicación.</p>
         </fieldset>
-        {enabled && !basisSelected && <p className="customer-form-error" role="status">Elige una instantánea, repositorio, origen verificado o estado de proveedor antes de activar.</p>}
+        {enabled && !basisSelected && <p className="customer-form-error" role="status">Elige una instantánea, repositorio, origen HTTPS vigente o estado de proveedor antes de activar.</p>}
         {!canManage && <p className="customer-field-note">Sólo una persona propietaria u operadora puede cambiar la vigilancia.</p>}
         <button className="customer-button customer-button-primary" disabled={!canManage || configure.isPending || coverage.isPending || Boolean(coverage.error) || (enabled && !basisSelected)}>
           {configure.isPending ? 'Guardando…' : enabled ? 'Guardar vigilancia' : currentConfig?.enabled ? 'Desactivar y limpiar alcance' : 'Guardar configuración'}

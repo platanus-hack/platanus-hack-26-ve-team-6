@@ -94,7 +94,7 @@ describe('customer report presentation', () => {
       kind: 'http_response',
       locator: 'https://app.example.test/',
       collectedAt: timestamp,
-      snapshotRef: 'target:verified:root',
+      snapshotRef: 'target:authorized:root',
       tool: { name: 'node:https', version: '24' },
       checksum,
       excerpt: '<script>alert(1)</script>',

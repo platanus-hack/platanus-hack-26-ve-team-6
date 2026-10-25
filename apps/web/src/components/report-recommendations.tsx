@@ -41,7 +41,7 @@ const severityLabels: Record<RecipeRecommendation['risk']['severity'], string> =
 const confidenceLabels: Record<RecipeRecommendation['risk']['confidence'], string> = {
   observed: 'Observada', inferred: 'Indicada', uncertain: 'Sin comprobar',
 };
-const modeLabels = { internal: 'Código fuente', external: 'HTTPS autorizado', both: 'Código + HTTPS' } as const;
+const modeLabels = { internal: 'Código fuente', external: 'HTTPS externo', both: 'Código + HTTPS' } as const;
 const dependencyReasonLabels: Record<NonNullable<DependencyFixRecommendation['reason']>, string> = {
   source_not_repository_bound: 'La instantánea no está ligada a un repositorio y commit conocidos.',
   github_connection_unavailable: 'La conexión activa de GitHub para este repositorio no está disponible.',

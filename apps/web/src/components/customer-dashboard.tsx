@@ -60,7 +60,7 @@ const pages: { id: Page; label: string; icon: LucideIcon }[] = [
 
 const modeLabels: Record<AssessmentMode, string> = {
   internal: 'Código fuente',
-  external: 'HTTPS autorizado',
+  external: 'HTTPS externo',
   both: 'Código + HTTPS',
 };
 const sourceLabels = { internal: 'Código', external: 'HTTPS' };
@@ -79,7 +79,8 @@ function date(value: string) {
 }
 
 function readableError(error: unknown) {
-  if (error instanceof CustomerApiError && error.code === 'target_assessment_in_progress') return 'La autorización sigue activa mientras haya evaluaciones pendientes. Espera a que terminen; si el resultado es incierto, una persona operadora debe revisarlo antes de revocar o renovar.';
+  if (error instanceof CustomerApiError && error.code === 'target_assessment_in_progress') return 'El alcance sigue activo mientras haya evaluaciones pendientes. Espera a que terminen; si el resultado es incierto, una persona operadora debe revisarlo antes de revocar o renovar.';
+  if (error instanceof CustomerApiError && (error.code === 'target_not_authorized' || error.code === 'assessment_target_changed')) return 'El alcance HTTPS venció, cambió o se revocó. Renueva el origen antes de solicitar otra evaluación.';
   if (error instanceof CustomerApiError) return error.message;
   if (error instanceof Error && !(error.name === 'ZodError')) return error.message;
   return 'No se pudo completar la operación. Inténtalo de nuevo.';
@@ -339,63 +340,50 @@ function ApplicationSettings({ organizationId, applicationId, name, archived, ca
 function TargetEnrollment({ organizationId, applicationId, targets, canManage, onChanged }: { organizationId: string; applicationId: string; targets: CustomerTarget[]; canManage: boolean; onChanged: () => void }) {
   const [origin, setOrigin] = useState('');
   const [scanProfile, setScanProfile] = useState<CustomerScanProfile>('root');
-  const [authorized, setAuthorized] = useState(false);
-  const [challenge, setChallenge] = useState<{ name: string; value: string; expiresAt: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const enroll = useMutation({
-    mutationFn: () => customerApi.enrollTarget({ organizationId, applicationId, origin: origin.trim(), authorized: true, scanProfile }),
-    onSuccess: result => { setOrigin(result.target.origin); setScanProfile(result.target.scanProfile ?? 'root'); setChallenge(result.challenge); setAuthorized(false); setError(null); onChanged(); },
+    mutationFn: () => customerApi.enrollTarget({ organizationId, applicationId, origin: origin.trim(), scanProfile }),
+    onSuccess: result => { setOrigin(result.target.origin); setScanProfile(result.target.scanProfile ?? 'root'); setError(null); onChanged(); },
     onError: caught => setError(readableError(caught)),
   });
   const changeTarget = useMutation({
-    mutationFn: ({ targetId, action }: { targetId: string; action: 'verify' | 'revoke' }) => action === 'verify'
-      ? customerApi.verifyTarget(organizationId, applicationId, targetId)
-      : customerApi.revokeTarget(organizationId, applicationId, targetId),
-    onSuccess: target => { setError(null); setChallenge(null); setAuthorized(false); onChanged(); if (target.status === 'verified') { setOrigin(target.origin); setScanProfile(target.scanProfile ?? 'root'); } },
+    mutationFn: (targetId: string) => customerApi.revokeTarget(organizationId, applicationId, targetId),
+    onSuccess: () => { setError(null); onChanged(); },
     onError: caught => setError(readableError(caught)),
   });
   const activeTarget = targets.find(target => target.status !== 'revoked');
   const revokedTargets = targets.filter(target => target.status === 'revoked');
+  const targetCurrent = activeTarget?.status === 'authorized' && activeTarget.expiresAt !== null && Date.parse(activeTarget.expiresAt) > Date.now();
   useEffect(() => {
     if (activeTarget && !origin) setOrigin(activeTarget.origin);
-    if (activeTarget?.status === 'pending') setScanProfile(activeTarget.scanProfile ?? 'root');
+    if (activeTarget?.status === 'authorized') setScanProfile(activeTarget.scanProfile ?? 'root');
   }, [activeTarget, origin]);
   const originIsValid = customerOriginSchema.safeParse(origin.trim()).success;
 
   return <section className="customer-card">
     <div className="customer-card-heading"><div><h2>Aplicación HTTPS</h2></div><span className="customer-status customer-status-muted">Sólo lectura</span></div>
-    <p className="customer-card-copy">El análisis externo puede ejecutarse sin acceso al código. Añade un origen público HTTPS y verifica que controlas el dominio antes de analizarlo.</p>
+    <p className="customer-card-copy">Elige un origen HTTPS y un perfil acotado. El análisis externo puede ejecutarse sin acceso al código.</p>
     {activeTarget && <div className="customer-target-row">
-      <div><strong>{activeTarget.origin}</strong><span>Versión de autorización {activeTarget.version} · autorizado por {activeTarget.consentActor}</span><span>Perfil activo: {scanProfileLabels[activeTarget.scanProfile ?? 'root']}{(activeTarget.scanProfile ?? 'root') === 'public_surface' ? ' · hasta 10 solicitudes GET al origen verificado' : ' · una solicitud GET a /'}</span><span>Vence {activeTarget.expiresAt ? date(activeTarget.expiresAt) : 'sin fecha registrada'}</span></div>
-      <span className={`customer-status ${activeTarget.status === 'verified' ? 'customer-status-ready' : 'customer-status-pending'}`}>{activeTarget.status === 'verified' ? 'Verificado' : 'Pendiente de verificación'}</span>
+      <div><strong>{activeTarget.origin}</strong><span>Solicitado {date(activeTarget.requestedAt)} · alcance activo desde {activeTarget.authorizedAt ? date(activeTarget.authorizedAt) : '—'} · versión {activeTarget.version}</span><span>Perfil: {scanProfileLabels[activeTarget.scanProfile ?? 'root']}{(activeTarget.scanProfile ?? 'root') === 'public_surface' ? ' · hasta 10 solicitudes GET' : ' · una solicitud GET a /'}</span><span>Vence {activeTarget.expiresAt ? date(activeTarget.expiresAt) : 'sin fecha registrada'}</span></div>
+      <span className={`customer-status ${targetCurrent ? 'customer-status-ready' : 'customer-status-pending'}`}>{targetCurrent ? 'Alcance activo' : 'Alcance vencido'}</span>
       {canManage && <div className="customer-target-actions">
-        {activeTarget.status === 'pending' && <button className="customer-button customer-button-small" disabled={changeTarget.isPending} onClick={() => { setError(null); changeTarget.mutate({ targetId: activeTarget.id, action: 'verify' }); }}>Comprobar DNS</button>}
-        <button className="customer-link-button customer-danger-link" disabled={changeTarget.isPending} onClick={() => { setError(null); changeTarget.mutate({ targetId: activeTarget.id, action: 'revoke' }); }}>Revocar</button>
+        {activeTarget.status === 'authorized' && <button className="customer-link-button customer-danger-link" disabled={changeTarget.isPending} onClick={() => { setError(null); changeTarget.mutate(activeTarget.id); }}>Revocar alcance</button>}
       </div>}
     </div>}
-    {activeTarget?.status === 'pending' && !challenge && <p className="customer-field-note">El valor completo del desafío sólo se muestra al crearlo. Si no lo guardaste, puedes renovar la verificación y publicar el nuevo valor.</p>}
-    {activeTarget?.status === 'verified' && <p className="customer-field-note">El perfil vigente limita esta evaluación a este origen; no representa un inventario de toda la empresa. Para cambiarlo, revoca esta autorización y crea una nueva con consentimiento explícito.</p>}
-    {revokedTargets.length > 0 && <details className="customer-revoked-targets"><summary>Autorizaciones revocadas ({revokedTargets.length})</summary>{revokedTargets.map(target => <div key={target.id}><span>{target.origin} · versión {target.version}</span><span>{date(target.consentAt)}</span></div>)}</details>}
-    {challenge && <div className="customer-challenge" role="status">
-      <div><strong>Publica este registro TXT para confirmar el dominio</strong><p>El desafío es temporal y sólo se muestra al crear o renovar esta autorización. Verifica después de que el DNS se haya propagado.</p></div>
-      <dl><div><dt>Nombre</dt><dd>{challenge.name}</dd></div><div><dt>Valor</dt><dd><code>{challenge.value}</code></dd></div><div><dt>Vence</dt><dd>{date(challenge.expiresAt)}</dd></div></dl>
-      <button className="customer-link-button" onClick={() => navigator.clipboard.writeText(`${challenge.name}\t${challenge.value}`).catch(() => setError('No se pudo copiar el registro. Selecciónalo para copiarlo manualmente.'))}>Copiar registro</button>
-    </div>}
-    {canManage && (!activeTarget || activeTarget.status === 'pending') && <form className="customer-form customer-enroll-form" onSubmit={event => { event.preventDefault(); setError(null); enroll.mutate(); }}>
-      <label htmlFor="target-origin">Origen autorizado</label><input id="target-origin" type="url" inputMode="url" placeholder="https://app.example.com" value={origin} onChange={event => { setOrigin(event.target.value); setAuthorized(false); setChallenge(null); }} maxLength={300} required aria-describedby="target-origin-help" aria-invalid={origin.length > 0 && !originIsValid} />
+    {revokedTargets.length > 0 && <details className="customer-revoked-targets"><summary>Alcances revocados ({revokedTargets.length})</summary>{revokedTargets.map(target => <div key={target.id}><span>{target.origin} · versión {target.version}</span><span>{date(target.requestedAt)}</span></div>)}</details>}
+    {canManage && <form className="customer-form customer-enroll-form" onSubmit={event => { event.preventDefault(); setError(null); enroll.mutate(); }}>
+      <label htmlFor="target-origin">Origen HTTPS</label><input id="target-origin" type="url" inputMode="url" placeholder="https://app.example.com" value={origin} onChange={event => setOrigin(event.target.value)} maxLength={300} required aria-describedby="target-origin-help" aria-invalid={origin.length > 0 && !originIsValid} />
       <p id="target-origin-help" className="customer-field-note">Origen HTTPS público sin ruta, consulta, fragmento ni puerto personalizado.</p>
       {origin.length > 0 && !originIsValid && <p className="customer-form-error">Usa un origen HTTPS público sin rutas, parámetros ni puerto personalizado.</p>}
-      <label htmlFor="target-scan-profile">Perfil de evaluación autorizado</label>
-      <select id="target-scan-profile" value={scanProfile} onChange={event => { const selected = customerScanProfileSchema.safeParse(event.target.value); if (selected.success) setScanProfile(selected.data); setAuthorized(false); setChallenge(null); }}>
+      <label htmlFor="target-scan-profile">Perfil de evaluación</label>
+      <select id="target-scan-profile" value={scanProfile} onChange={event => { const selected = customerScanProfileSchema.safeParse(event.target.value); if (selected.success) setScanProfile(selected.data); }}>
         <option value="root">Raíz del sitio · una solicitud GET a /</option>
         <option value="public_surface">Superficie pública limitada · hasta 10 solicitudes GET, sólo a este origen</option>
       </select>
-      <p className="customer-field-note">El perfil limitado consulta como máximo 10 rutas públicas del origen verificado. Los permisos no se amplían al cambiar de perfil y no se exploran otros dominios.</p>
-      <label className="customer-checkbox"><input type="checkbox" checked={authorized} onChange={event => setAuthorized(event.target.checked)} required /><span>Confirmo que tengo autorización para evaluar este dominio dentro del perfil «{scanProfileLabels[scanProfile]}» y que he definido el alcance con su propietario.</span></label>
-      <button className="customer-button customer-button-primary" disabled={enroll.isPending || !authorized || !originIsValid}>{enroll.isPending ? 'Creando verificación…' : activeTarget ? 'Renovar verificación' : 'Autorizar origen'}</button>
+      <p className="customer-field-note">El perfil limitado consulta como máximo 10 rutas públicas del mismo origen. El alcance no incluye otros dominios.</p>
+      <button className="customer-button customer-button-primary" disabled={enroll.isPending || !originIsValid}>{enroll.isPending ? 'Guardando alcance…' : activeTarget ? 'Renovar alcance' : 'Añadir origen'}</button>
     </form>}
-    {!canManage && !activeTarget && <div className="customer-empty-inline">Una persona propietaria u operadora puede añadir y verificar el origen HTTPS.</div>}
-    {!canManage && activeTarget?.status === 'pending' && <div className="customer-empty-inline">Una persona propietaria u operadora debe comprobar el registro DNS para activar este origen.</div>}
+    {!canManage && !activeTarget && <div className="customer-empty-inline">Una persona propietaria u operadora puede añadir un origen HTTPS.</div>}
     {error && <p className="customer-form-error" role="alert">{error}</p>}
   </section>;
 }
@@ -545,8 +533,8 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
     <div className="customer-report-subject">
       {report.subject.sourceSnapshotId && <div><span>Instantánea de código</span><strong>{summary?.subject.sourceDigest?.slice(0, 16) ?? report.subject.sourceDigest?.slice(0, 16)}…</strong></div>}
       {report.subject.containerImageDigest && <div><span>Digest de imagen {report.subject.containerImageReference ? 'pública' : 'subida'}</span><strong>{report.subject.containerImageDigest.slice(0, 24)}…</strong>{report.subject.containerImageReference && <small>{report.subject.containerImageReference}</small>}</div>}
-      {report.subject.origin && <div><span>Origen HTTPS autorizado</span><strong>{report.subject.origin}</strong></div>}
-      {report.subject.targetVersion !== null && <div><span>Versión de autorización</span><strong>{report.subject.targetVersion}</strong></div>}
+      {report.subject.origin && <div><span>Origen HTTPS solicitado</span><strong>{report.subject.origin}</strong></div>}
+      {report.subject.targetVersion !== null && <div><span>Versión del alcance</span><strong>{report.subject.targetVersion}</strong></div>}
       <div><span>Perfil</span><strong>Observación · {report.actionsPerformed.length} acciones</strong></div>
     </div>
     <div className="customer-report-callout"><strong>{entries.length} observaciones registradas</strong><p>Los resultados describen el alcance evaluado. Una fuente ausente, un indicio o una cobertura limitada no equivale a una comprobación aprobada. No se han realizado cambios en la aplicación.</p></div>
@@ -629,7 +617,7 @@ function AssessmentForm({ organizationId, applicationId, sources, images, target
   const [registryReference, setRegistryReference] = useState('');
   const [targetId, setTargetId] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const verifiedTargets = targets.filter(target => target.status === 'verified' && target.expiresAt && Date.parse(target.expiresAt) > Date.now());
+  const availableTargets = targets.filter(target => target.status === 'authorized' && target.expiresAt && Date.parse(target.expiresAt) > Date.now());
   const usesImage = mode === 'internal' && inputKind === 'container_image';
   const parsedRegistryReference = customerPublicImageReferenceSchema.safeParse(registryReference.trim());
   const hasImage = imageSource === 'archive' ? images.some(image => image.id === imageId) : parsedRegistryReference.success;
@@ -648,19 +636,19 @@ function AssessmentForm({ organizationId, applicationId, sources, images, target
   const needsSource = mode !== 'external' && !usesImage;
   const needsTarget = mode !== 'internal';
   const hasSource = sources.some(source => source.id === sourceSnapshotId);
-  const hasTarget = verifiedTargets.some(target => target.id === targetId);
+  const hasTarget = availableTargets.some(target => target.id === targetId);
   const ready = (!needsSource || hasSource) && (!needsTarget || hasTarget) && (!usesImage || hasImage);
 
   return <section className="customer-card customer-assessment-card">
     <div className="customer-card-heading"><div><h2>Nueva evaluación</h2></div><span className="customer-status customer-status-muted">Observación</span></div>
     <p className="customer-card-copy">Elige sólo las perspectivas que autorizas. El análisis de código y de imágenes no ejecuta archivos ni inicia contenedores.</p>
     <form className="customer-form customer-assessment-form" onSubmit={event => { event.preventDefault(); setError(null); queue.mutate(); }}>
-      <label htmlFor="assessment-mode">Perspectiva</label><select id="assessment-mode" value={mode} onChange={event => { const nextMode = event.target.value as AssessmentMode; setMode(nextMode); if (nextMode !== 'internal') setInputKind('source_snapshot'); setError(null); }} disabled={queue.isPending}><option value="external">HTTPS autorizado (sin código)</option><option value="internal">Análisis interno</option><option value="both">Código + HTTPS</option></select>
+      <label htmlFor="assessment-mode">Perspectiva</label><select id="assessment-mode" value={mode} onChange={event => { const nextMode = event.target.value as AssessmentMode; setMode(nextMode); if (nextMode !== 'internal') setInputKind('source_snapshot'); setError(null); }} disabled={queue.isPending}><option value="external">HTTPS externo (sin código)</option><option value="internal">Análisis interno</option><option value="both">Código + HTTPS</option></select>
       {mode === 'internal' && <><label htmlFor="assessment-input-kind">Tipo de activo interno</label><select id="assessment-input-kind" value={inputKind} onChange={event => setInputKind(event.target.value as 'source_snapshot' | 'container_image')} disabled={queue.isPending}><option value="source_snapshot">Código fuente</option><option value="container_image">Imagen de contenedor</option></select></>}
       {usesImage && <><label htmlFor="assessment-image-source">Origen de la imagen</label><select id="assessment-image-source" value={imageSource} onChange={event => setImageSource(event.target.value as 'archive' | 'registry')} disabled={queue.isPending}><option value="archive">Archivo Docker/OCI guardado</option><option value="registry">Referencia de registro público</option></select>{imageSource === 'archive' ? <><label htmlFor="assessment-image-archive">Archivo guardado</label><select id="assessment-image-archive" value={imageId} onChange={event => setImageId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una imagen subida</option>{images.map(image => <option key={image.id} value={image.id}>{image.label} · {image.digest.slice(0, 12)}…</option>)}</select></> : <><label htmlFor="assessment-image-reference">Referencia pública con digest</label><input id="assessment-image-reference" value={registryReference} onChange={event => setRegistryReference(event.target.value)} disabled={queue.isPending} maxLength={512} placeholder="docker.io/library/alpine@sha256:…" /><p className="customer-field-note">Sólo docker.io, ghcr.io, quay.io, public.ecr.aws y gcr.io, siempre con digest SHA-256. No se aceptan etiquetas mutables ni credenciales.</p>{registryReference && !parsedRegistryReference.success && <p className="customer-form-error" role="alert">Usa un registro público admitido y una referencia completa fijada por digest.</p>}</>}</>}
       {needsSource && <><label htmlFor="assessment-source">Instantánea de código</label><select id="assessment-source" value={sourceSnapshotId} onChange={event => setSourceSnapshotId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una instantánea</option>{sources.map(source => <option key={source.id} value={source.id}>{source.revision} · {source.fileCount} archivos · {date(source.createdAt)}</option>)}</select></>}
-      {needsTarget && <><label htmlFor="assessment-target">Origen HTTPS verificado</label><select id="assessment-target" value={targetId} onChange={event => setTargetId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona un origen verificado</option>{verifiedTargets.map(target => <option key={target.id} value={target.id}>{target.origin} · {scanProfileLabels[target.scanProfile ?? 'root']}{(target.scanProfile ?? 'root') === 'public_surface' ? ' · máx. 10 GET' : ''} · vence {target.expiresAt ? date(target.expiresAt) : '—'}</option>)}</select></>}
-      {!ready && <p className="customer-field-note">{needsTarget && !hasTarget ? 'Verifica primero un dominio HTTPS autorizado. ' : ''}{needsSource && !hasSource ? 'Sube primero una instantánea de código. ' : ''}{usesImage && !hasImage ? imageSource === 'archive' ? 'Sube primero un archivo de imagen.' : 'Escribe una referencia pública fijada por digest.' : ''}</p>}
+      {needsTarget && <><label htmlFor="assessment-target">Origen HTTPS disponible</label><select id="assessment-target" value={targetId} onChange={event => setTargetId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona un origen HTTPS</option>{availableTargets.map(target => <option key={target.id} value={target.id}>{target.origin} · {scanProfileLabels[target.scanProfile ?? 'root']}{(target.scanProfile ?? 'root') === 'public_surface' ? ' · máx. 10 GET' : ''} · vence {target.expiresAt ? date(target.expiresAt) : '—'}</option>)}</select></>}
+      {!ready && <p className="customer-field-note">{needsTarget && !hasTarget ? 'Añade o renueva un origen HTTPS desde Aplicaciones. ' : ''}{needsSource && !hasSource ? 'Sube primero una instantánea de código. ' : ''}{usesImage && !hasImage ? imageSource === 'archive' ? 'Sube primero un archivo de imagen.' : 'Escribe una referencia pública fijada por digest.' : ''}</p>}
       {error && <p className="customer-form-error" role="alert">{error}</p>}
       <button className="customer-button customer-button-primary" disabled={!canManage || archived || !ready || queue.isPending}>{queue.isPending ? 'Guardando evaluación…' : 'Iniciar evaluación'}</button>
       {archived && <p className="customer-field-note">Reactiva esta aplicación antes de iniciar otra evaluación.</p>}
@@ -783,7 +771,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
       setPageError(activeJob.purpose === 'correction'
         ? `El análisis independiente no finalizó${jobResult.reasonCode ? ` (${jobResult.reasonCode})` : ''}. La instantánea privada se preparó, pero no se validó; no se modificaron el repositorio, la fuente original ni producción.`
         : jobResult.reasonCode === 'assessment_reconciliation_required'
-        ? 'No se pudo confirmar que el escáner haya terminado. Una persona operadora debe comprobarlo antes de revocar o renovar el origen. La autorización sigue activa y no se repetirá este trabajo automáticamente.'
+        ? 'No se pudo confirmar que el escáner haya terminado. Una persona operadora debe comprobarlo antes de revocar o renovar el alcance. El origen sigue activo y no se repetirá este trabajo automáticamente.'
         : jobResult.reasonCode ? `La evaluación no finalizó (${jobResult.reasonCode}).` : 'La evaluación no finalizó. Los informes anteriores siguen disponibles.');
     }
   }, [activeJob, jobResult, queryClient, userId]);
@@ -839,14 +827,14 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
         : applications.isPending ? <Loading label="Cargando aplicaciones…" />
         : applications.error ? <ErrorNotice message={readableError(applications.error)} retry={() => { applications.refetch().catch(caught => setPageError(readableError(caught))); }} />
         : !selectedApplication ? <Onboarding userId={userId} {...(session.user?.displayName ? { displayName: session.user.displayName } : {})} initialOrganizationId={organizationId} canManage={canManage} onWorkspaceCreated={() => undefined} onScanQueued={(scope, jobId) => { queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'applications', scope.organizationId] }).catch(caught => setPageError(readableError(caught))); setSelectedApplicationId(scope.applicationId); setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />
-        : page === 'overview' && sources.data?.length === 0 && images.data?.length === 0 && applicationReports.length === 0 && !activeJob ? <Onboarding userId={userId} {...(session.user?.displayName ? { displayName: session.user.displayName } : {})} initialOrganizationId={organizationId} initialApplicationId={selectedApplication.applicationId} canManage={canManage} onWorkspaceCreated={() => undefined} onScanQueued={(scope, jobId) => { setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />
+        : page === 'overview' && sources.data?.length === 0 && images.data?.length === 0 && targets.data?.length === 0 && applicationReports.length === 0 && !activeJob ? <Onboarding userId={userId} {...(session.user?.displayName ? { displayName: session.user.displayName } : {})} initialOrganizationId={organizationId} initialApplicationId={selectedApplication.applicationId} canManage={canManage} onWorkspaceCreated={() => undefined} onScanQueued={(scope, jobId) => { setActiveJob({ ...scope, jobId, purpose: 'assessment' }); setPage('overview'); }} />
         : <>
           <div className="customer-page-heading"><div><h1>{page === 'overview' ? 'Seguridad de tus aplicaciones' : pageTitle}</h1><p>{page === 'overview' ? 'Evalúa únicamente los activos que tu equipo autoriza y revisa cada conclusión con su evidencia.' : page === 'applications' ? 'Administra el alcance externo y las instantáneas de código de esta aplicación.' : page === 'operations' ? 'Vigila esta aplicación, revisa señales y prepara pasos consultivos según la evidencia vigente.' : 'Historial de evaluaciones e informes con cobertura, observaciones y evidencia.'}</p></div>{selectedApplication.archived && <span className="customer-status customer-status-muted">Aplicación archivada</span>}</div>
 
           {targets.isPending || sources.isPending || images.isPending || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance de la aplicación…" /> : (targets.error || sources.error || images.error || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? images.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
             {page === 'overview' && <>
               {activeJob && <JobStatusBanner purpose={activeJob.purpose} job={jobResult} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} />}
-              <div className="customer-overview-grid"><section className="customer-welcome-card"><h2>{selectedApplication.name}</h2><p>El análisis HTTPS puede funcionar sin acceso al repositorio. El modo combinado requiere tanto una instantánea autorizada como un dominio verificado.</p><div className="customer-overview-stats"><div><strong>{sources.data?.length ?? 0}</strong><span>Instantáneas</span></div><div><strong>{targets.data?.filter(target => target.status === 'verified').length ?? 0}</strong><span>Orígenes verificados</span></div><div><strong>{applicationReports.length}</strong><span>Informes</span></div></div><button className="customer-button customer-button-secondary" onClick={() => setPage('applications')}>Configurar alcance</button></section>
+              <div className="customer-overview-grid"><section className="customer-welcome-card"><h2>{selectedApplication.name}</h2><p>El análisis HTTPS puede funcionar sin acceso al repositorio. El modo combinado requiere una instantánea de código y un origen HTTPS vigente.</p><div className="customer-overview-stats"><div><strong>{sources.data?.length ?? 0}</strong><span>Instantáneas</span></div><div><strong>{targets.data?.filter(target => target.status === 'authorized' && target.expiresAt && Date.parse(target.expiresAt) > Date.now()).length ?? 0}</strong><span>Orígenes activos</span></div><div><strong>{applicationReports.length}</strong><span>Informes</span></div></div><button className="customer-button customer-button-secondary" onClick={() => setPage('applications')}>Configurar alcance</button></section>
                 <AssessmentForm key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} images={images.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} />
               </div>
               {applicationReports.length > 0 && <section className="customer-card customer-next-actions"><div><h2>Convierte el informe en trabajo claro</h2><p>Revisa las recomendaciones, comprueba incidentes y configura vigilancia desde esta aplicación.</p></div><button className="customer-button customer-button-primary" onClick={() => { setSelectedReportId(applicationReports[0]?.id ?? null); setPage('reports'); }}>Ver recomendaciones</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Ver incidentes</button><button className="customer-button customer-button-secondary" onClick={() => setPage('operations')}>Configurar vigilancia</button></section>}

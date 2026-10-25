@@ -217,14 +217,6 @@
 .customer-revoked-targets { display: grid; gap: 8px; margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
 .customer-revoked-targets > summary { color: var(--muted-foreground); cursor: pointer; font-family: var(--mono); font-size: 12px; }
 .customer-revoked-targets > div { display: flex; justify-content: space-between; gap: 8px; color: var(--muted-foreground); font-family: var(--mono); font-size: 12px; }
-.customer-challenge { display: grid; gap: 14px; margin-top: 16px; border: 1px solid var(--foreground); border-radius: 6px; padding: 16px; }
-.customer-challenge strong { color: var(--foreground); font-size: 15px; }
-.customer-challenge p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 13.5px; line-height: 1.6; }
-.customer-challenge dl { display: grid; gap: 10px; margin: 0; font-family: var(--mono); }
-.customer-challenge dl > div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; }
-.customer-challenge dt { color: var(--muted-foreground); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
-.customer-challenge dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--foreground); font-size: 13.5px; }
-.customer-challenge code { overflow-wrap: anywhere; color: var(--brand-ink); font-size: 13.5px; font-weight: 600; }
 .customer-source-list { display: grid; margin: 4px 0 16px; border-top: 1px solid var(--border); }
 .customer-source-list > strong { padding: 12px 0 6px; color: var(--muted-foreground); font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; }
 .customer-source-list > div { display: flex; justify-content: space-between; gap: 12px; align-items: center; border-bottom: 1px solid var(--border); padding: 10px 0; color: var(--foreground); font-size: 13.5px; }
