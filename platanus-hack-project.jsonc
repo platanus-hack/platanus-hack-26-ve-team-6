@@ -3,10 +3,10 @@
   "project-name": "Gotchu",
 
   // Short one-line summary of your project (in Spanish).
-  "project-oneliner-spanish": "Revisa los riesgos de tu aplicación y decide qué corregir con evidencia.",
+  "project-oneliner-spanish": "Encuentra los riesgos de tu app y llega al próximo deploy sabiendo qué corregir.",
 
   // Brief description of your project (in Spanish).
-  "project-description-spanish": "Gotchu revisa código fuente y orígenes HTTPS autorizados, juntos o por separado. Genera informes con evidencia, severidad, confianza y cobertura, vigila cambios y prepara correcciones que pueden publicarse como PR en borrador tras la aprobación exacta del Owner. El escaneo determinista funciona sin IA; la investigación y la corrección con IA son opcionales.",
+  "project-description-spanish": "Tu app ya funciona. Descubre qué se te escapó. Con Gotchu puedes revisar tu web pegando su URL HTTPS, subir una carpeta de código o conectar GitHub. Encuentra riesgos en el código, las dependencias y la configuración web, con pruebas para entender cada hallazgo y decidir qué corregir. Lleva el contexto a tu asistente de código o configura la IA de Gotchu para investigar y preparar correcciones privadas. Empieza por tu propia web, incluso sin compartir su código.",
 
   // Public URL where your project is deployed and running.
   // Must be a valid URL, for example: https://my-project.vercel.app
