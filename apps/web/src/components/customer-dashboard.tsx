@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { z } from 'zod';
-import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
+import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlayIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -41,13 +41,14 @@ import { WorkspacePages } from './workspace-pages';
 import { AssessmentProgress, ReportProgress } from './assessment-progress';
 import { CopyFindingPrompt } from './copy-finding-prompt';
 import { findingPrompt } from './finding-prompt';
-import { ProjectOverview, type ProjectRisk } from './project-overview';
+import { ProjectOverview, type ProjectHistory, type ProjectRisk, type ProjectWatch, type RecentReportRow } from './project-overview';
 import { coverageState, examineSources, nextAction, openFindings, projectSources, type ProjectSource } from './project-risk';
 import { ProjectSources } from './project-sources';
 import { ProjectReports } from './project-reports';
 import { ProjectVigilance } from './project-vigilance';
 import { DashboardShell } from './dashboard-shell';
 import { PageHeader, ScopeSwitcher, SidebarNameForm } from './dashboard-sidebar';
+import { operationsApi } from './operations-client';
 import { ProjectHttpsAudit } from './project-https-audit';
 import { DashboardSectionContext, routePageFromPath } from './dashboard-route-view';
 import './customer-shell.css';
@@ -121,6 +122,14 @@ const rememberedSignInKey = 'gotchu.sign-in-preference';
 const rememberedSignInSchema = z.object({ email: z.string().max(254), method: z.string().min(1).max(128) }).strict();
 const authCsrfResponseSchema = z.object({ csrfToken: z.string().min(1).max(256) }).strict();
 const authRedirectResponseSchema = z.object({ url: z.url() }).strict();
+
+function relativeTime(value: string) {
+  const minutes = Math.round((Date.parse(value) - Date.now()) / 60_000);
+  const format = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
+  if (Math.abs(minutes) < 60) return format.format(minutes, 'minute');
+  if (Math.abs(minutes) < 60 * 24) return format.format(Math.round(minutes / 60), 'hour');
+  return format.format(Math.round(minutes / 1440), 'day');
+}
 
 function date(value: string) {
   return new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
@@ -663,10 +672,10 @@ function AssessmentForm({ organizationId, applicationId, sources, images, target
   return <section className="customer-card customer-assessment-card">
     <div className="customer-card-heading"><div><h2>Nueva evaluación</h2></div></div>
     <form className="customer-form customer-assessment-form" onSubmit={event => { event.preventDefault(); setError(null); queue.mutate(); }}>
-      <label htmlFor="assessment-mode">Perspectiva</label><select id="assessment-mode" value={mode} onChange={event => { const nextMode = event.target.value as AssessmentMode; setMode(nextMode); if (nextMode !== 'internal') setInputKind('source_snapshot'); setError(null); }} disabled={queue.isPending}><option value="internal">Código o imagen</option><option value="external">Dominio HTTPS</option><option value="both">Código + dominio HTTPS</option></select>
+      <div className="customer-segmented" role="radiogroup" aria-label="Qué evaluar">{([['internal', 'Código'], ['external', 'HTTPS'], ['both', 'Ambos']] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={mode === value} className={mode === value ? 'is-on' : undefined} disabled={queue.isPending} onClick={() => { setMode(value); if (value !== 'internal') setInputKind('source_snapshot'); setError(null); }}>{label}</button>)}</div>
       {mode === 'internal' && images.length > 0 && <><label htmlFor="assessment-input-kind">Qué analizar</label><select id="assessment-input-kind" value={inputKind} onChange={event => setInputKind(event.target.value as 'source_snapshot' | 'container_image')} disabled={queue.isPending}><option value="source_snapshot">Código fuente</option><option value="container_image">Imagen de contenedor</option></select></>}
       {usesImage && <><label htmlFor="assessment-image-source">Origen de la imagen</label><select id="assessment-image-source" value={imageSource} onChange={event => setImageSource(event.target.value as 'archive' | 'registry')} disabled={queue.isPending}><option value="archive">Archivo Docker/OCI guardado</option><option value="registry">Referencia de registro público</option></select>{imageSource === 'archive' ? <><label htmlFor="assessment-image-archive">Archivo guardado</label><select id="assessment-image-archive" value={imageId} onChange={event => setImageId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una imagen subida</option>{images.map(image => <option key={image.id} value={image.id}>{image.label} · {image.digest.slice(0, 12)}…</option>)}</select></> : <><label htmlFor="assessment-image-reference">Referencia pública con digest</label><input id="assessment-image-reference" value={registryReference} onChange={event => setRegistryReference(event.target.value)} disabled={queue.isPending} maxLength={512} placeholder="docker.io/library/alpine@sha256:…" /><p className="customer-field-note">docker.io, ghcr.io, quay.io, public.ecr.aws o gcr.io, fijada con digest SHA-256.</p>{registryReference && !parsedRegistryReference.success && <p className="customer-form-error" role="alert">Usa un registro público admitido y una referencia completa fijada por digest.</p>}</>}</>}
-      {needsSource && <><label htmlFor="assessment-source">Instantánea de código</label><select id="assessment-source" value={sourceSnapshotId} onChange={event => setSourceSnapshotId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una instantánea</option>{sources.map(source => <option key={source.id} value={source.id}>{source.revision} · {source.fileCount} archivos · {date(source.createdAt)}</option>)}</select></>}
+      {needsSource && <><label htmlFor="assessment-source">Instantánea de código</label><select id="assessment-source" value={sourceSnapshotId} onChange={event => setSourceSnapshotId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una instantánea</option>{sources.map(source => <option key={source.id} value={source.id}>{/^[0-9a-f]{40}$/.test(source.revision) ? source.revision.slice(0, 7) : source.revision} · {source.fileCount} archivos · {date(source.createdAt)}</option>)}</select></>}
       {needsTarget && <><label htmlFor="assessment-target">Origen HTTPS disponible</label><select id="assessment-target" value={targetId} onChange={event => setTargetId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona un origen HTTPS</option>{availableTargets.map(target => <option key={target.id} value={target.id}>{target.origin} · {scanProfileLabels[target.scanProfile ?? 'root']}{(target.scanProfile ?? 'root') === 'public_surface' ? ' · máx. 10 GET' : ''} · vence {target.expiresAt ? date(target.expiresAt) : '—'}</option>)}</select></>}
       {!ready && <p className="customer-field-note">{needsTarget && !hasTarget ? (availableTargets.length ? 'Elige un origen HTTPS. ' : 'Añade o renueva un origen HTTPS desde Fuentes. ') : ''}{needsSource && !hasSource ? (sources.length ? 'Elige una instantánea. ' : 'Sube primero código. ') : ''}{usesImage && !hasImage ? imageSource === 'archive' ? 'Sube primero un archivo de imagen.' : 'Escribe una referencia pública fijada por digest.' : ''}</p>}
       {error && <p className="customer-form-error" role="alert">{error}</p>}
@@ -897,6 +906,37 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     counts: findings.counts, total: findings.total, coverage: riskCoverage,
     next: nextAction({ sources: riskSources, pending: examination.pending, reports: riskReportData, coverage: riskCoverage }),
   };
+  // Overview: recent report rows (full reports for their severities), history and the watch.
+  const recentSummaries = (reports.data ?? []).slice(0, 4);
+  const recentFull = useQueries({ queries: recentSummaries.map(summary => ({
+    queryKey: ['customer-data', userId, 'report', organizationId, applicationId, summary.id],
+    enabled: page === 'overview' && organizationId !== null && applicationId !== null,
+    queryFn: () => {
+      if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
+      return customerApi.report(organizationId, applicationId, summary.id);
+    },
+    retry: false,
+  })) });
+  const sourceLabel = (summary: CustomerReportSummary) => riskSources.filter(source => source.kind === 'snapshot' ? summary.subject.sourceSnapshotId === source.id : source.kind === 'image' ? summary.subject.containerImageId === source.id : summary.subject.targetId === source.id).map(source => source.label).join(' · ');
+  const recentRows: RecentReportRow[] = recentSummaries.map((summary, index) => {
+    const full = recentFull[index]?.data;
+    const previous = (reports.data ?? [])[index + 1];
+    const order = ['critical', 'high', 'medium', 'low', 'informational', 'unknown'];
+    return {
+      id: summary.id, title: modeLabels[summary.mode], findingCount: summary.findingCount,
+      detail: [date(summary.finishedAt), sourceLabel(summary)].filter(Boolean).join(' · '),
+      delta: previous ? summary.findingCount - previous.findingCount : null,
+      severities: full ? [...full.internal?.findings ?? [], ...full.external?.findings ?? []].map(finding => finding.severity).sort((a, b) => order.indexOf(a) - order.indexOf(b)) : null,
+    };
+  });
+  const history: ProjectHistory = { reportCount: reports.data?.length ?? 0, findingCounts: (reports.data ?? []).map(summary => summary.findingCount) };
+  const watchScope = organizationId && applicationId ? { organizationId, applicationId } : null;
+  const watchCoverage = useQuery({ queryKey: ['customer-data', userId, 'operations', organizationId, applicationId, 'coverage'], enabled: page === 'overview' && watchScope !== null, queryFn: () => { if (!watchScope) throw new Error('Selecciona un proyecto.'); return operationsApi.coverage(watchScope); }, retry: false });
+  const watchAlerts = useQuery({ queryKey: ['customer-data', userId, 'operations', organizationId, applicationId, 'alerts'], enabled: page === 'overview' && watchScope !== null, queryFn: () => { if (!watchScope) throw new Error('Selecciona un proyecto.'); return operationsApi.alerts(watchScope); }, retry: false });
+  const watchConfig = watchCoverage.data?.config;
+  const watch: ProjectWatch = watchCoverage.error ? { state: 'error' } : !watchCoverage.data ? { state: 'loading' }
+    : watchConfig?.enabled ? { state: 'on', intervalHours: Math.round(watchConfig.intervalSeconds / 3600), nextDueAt: watchConfig.nextDueAt, openAlerts: (watchAlerts.data ?? []).filter(alert => alert.state !== 'resolved' && alert.observation.fresh).length }
+    : { state: 'off' };
   const examine = useMutation({
     mutationFn: (source: ProjectSource) => {
       if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
@@ -982,10 +1022,11 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   if (workspaces.isPending) return <main className="gl customer-app-shell"><Loading label="Cargando tus espacios de trabajo…" /></main>;
   if (workspaces.error) return <main className="gl customer-app-shell"><ErrorNotice message={readableError(workspaces.error)} retry={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} /></main>;
 
+  const progress = progressVisible && activeJob && <AssessmentProgress key={activeJob.jobId} purpose={activeJob.purpose} job={jobResult} failure={jobResult?.state === 'failed' ? jobFailureMessage(activeJob.purpose, jobResult) : null} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} onSettled={settleVisibleJob} onDismiss={() => setActiveJob(null)} />;
   const renderRouteSection = () => <>
     {invitationMessage && <div className="customer-success" role="status">{invitationMessage}</div>}
     {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}><XIcon aria-hidden="true" /></button></div>}
-    {progressVisible && activeJob && <AssessmentProgress key={activeJob.jobId} purpose={activeJob.purpose} job={jobResult} failure={jobResult?.state === 'failed' ? jobFailureMessage(activeJob.purpose, jobResult) : null} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} onSettled={settleVisibleJob} onDismiss={() => setActiveJob(null)} />}
+    {workspacePage && progress}
     {operationError && <ErrorNotice message={operationError} retry={() => { setPageError(null); refreshApplicationData(); workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} />}
     {workspacePage && organizationId && workspace ? <WorkspacePages page={page} userId={userId} organizationId={organizationId} role={workspace.role} canManage={canManage} />
     : organizationId && applications.isPending ? <Loading label="Cargando proyectos…" />
@@ -993,24 +1034,26 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     : !organizationId || !selectedApplication ? <FirstProjectEmptyState canManage={canManage || !organizationId} onCreateProject={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId } : {} }); }} onAnalyzeWeb={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId, fuente: 'web' } : { fuente: 'web' } }); }} />
     : <>
       <PageHeader
-        title={pageTitle}
-        description={pageDescriptions[page] ?? (applicationReports[0] ? <>Último informe <strong>{date(applicationReports[0].finishedAt)}</strong> · {modeLabels[applicationReports[0].mode]}</> : 'Todavía no hay informes en este proyecto.')}
+        title={page === 'overview' ? selectedApplication.name : pageTitle}
+        description={pageDescriptions[page] ?? (applicationReports[0] ? <>Última evaluación <strong>{relativeTime(applicationReports[0].finishedAt)}</strong> · {modeLabels[applicationReports[0].mode].toLowerCase()} {sourceLabel(applicationReports[0]) && <strong>{sourceLabel(applicationReports[0])}</strong>}</> : 'Todavía no hay informes en este proyecto.')}
         status={selectedApplication.archived ? <span className="customer-status customer-status-muted">Proyecto archivado</span> : null}
-        actions={page === 'overview' && canManage && !selectedApplication.archived ? <button className="customer-button" type="button" onClick={() => setPage('applications')}><PlusIcon aria-hidden="true" />Añadir fuente</button> : null}
+        actions={page === 'overview' && canManage && !selectedApplication.archived ? <>
+          <button className="customer-button" type="button" onClick={() => setPage('applications')}><PlusIcon aria-hidden="true" />Añadir fuente</button>
+          <button className="customer-button customer-button-primary" type="button" onClick={() => { const field = document.querySelector<HTMLElement>('.customer-assessment-card button, .customer-assessment-card select'); field?.scrollIntoView({ block: 'center' }); field?.focus(); }}><PlayIcon aria-hidden="true" />Nueva evaluación</button>
+        </> : null}
       />
+      {progress}
       {targets.isPending || (needsSourceData && (sources.isPending || images.isPending)) || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance del proyecto…" /> : (targets.error || (needsSourceData && (sources.error || images.error)) || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? images.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
         {page === 'overview' && <ProjectOverview
-          risk={risk}
-          onAddSource={() => setPage('applications')}
+          risk={risk} history={history} watch={watch} recentReports={recentRows}
+          onOpenReport={reportId => { void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: selectedApplication.applicationId, reportId } }); }}
           onOpenSources={() => setPage('applications')}
+          onOpenReports={() => setPage('reports')}
+          onOpenWatch={() => setPage('operations')}
           onExamine={source => { examine.mutate(source); }}
           examining={examine.isPending}
           examineError={examine.error ? readableError(examine.error) : null}
-          onOpenReport={reportId => { void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: selectedApplication.applicationId, reportId } }); }}
-          onRetry={() => refreshApplicationData()}
-          onViewReports={() => setPage('reports')}
           assessmentForm={<AssessmentForm key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} images={images.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} onAddSource={() => setPage('applications')} />}
-          recentReports={applicationReports.length === 0 ? <div className="customer-empty-inline">Este proyecto aún no tiene informes.</div> : <ReportList reports={applicationReports.slice(0, 4)} selectedId={visibleReportId} organizationId={organizationId} applicationId={selectedApplication.applicationId} />}
         />}
         {page === 'applications' && <ProjectSources
           {...(workspace?.name ? { workspaceName: workspace.name } : {})}
@@ -1021,7 +1064,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
           onSelect={id => { void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: organizationId, projectId: id } }); }}
         >
           <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><ContainerImageEnrollment key={`${organizationId}:${selectedApplication.applicationId}:images`} organizationId={organizationId} applicationId={selectedApplication.applicationId} images={images.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /></div>
-          <GitHubRepositoryPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:github`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} onScanQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPage('overview'); setNotice('La instantánea de GitHub está guardada y la primera evaluación se ejecuta en segundo plano.'); refreshApplicationData(); }} />
+          <GitHubRepositoryPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:github`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} onScanQueued={(jobId, monitoringEnabled) => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPage('overview'); setNotice(monitoringEnabled ? 'La primera evaluación del repositorio se ejecuta en segundo plano. La vigilancia quedó activada: Gotchu lo revisará cada 6 horas.' : 'La instantánea de GitHub está guardada y la primera evaluación se ejecuta en segundo plano.'); refreshApplicationData(); }} />
           <ContextPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} isOwner={workspace?.role === 'owner'} archived={selectedApplication.archived} analyzedDigest={applicationReports[0]?.subject.sourceDigest ?? null} />
           <InvestigationModelSettings key={`${organizationId}:investigation-model`} organizationId={organizationId} isOwner={workspace?.role === 'owner'} />
           <ApprovalPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:actions`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} isOwner={workspace?.role === 'owner'} />
@@ -1051,7 +1094,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   return <DashboardSectionContext.Provider value={renderRouteSection}><DashboardShell brand={<Brand />} menuOpen={menuOpen} onToggleMenu={() => setMenuOpen(value => !value)} onCloseMenu={() => setMenuOpen(false)} sidebar={
     <>
       {workspace ? <div className="customer-scope">
-        <ScopeSwitcher kind="Espacio de trabajo" title={workspace.name} subtitle={roleLabels[workspace.role]}
+        <ScopeSwitcher kind="Espacio de trabajo" title={workspace.name} subtitle={applications.data ? `${roleLabels[workspace.role]} · ${applications.data.length} ${applications.data.length === 1 ? "proyecto" : "proyectos"}` : roleLabels[workspace.role]}
           options={(workspaces.data ?? []).map(item => ({ id: item.id, label: item.name, meta: roleLabels[item.role] }))} currentId={workspace.id}
           onSelect={value => { setNotice(null); setSidebarForm(null); void navigate({ to: '/w/$workspaceId', params: { workspaceId: value } }); }}
           actions={[{ id: 'workspace-create', label: 'Nuevo espacio de trabajo', icon: 'plus' }, ...(canManage ? [{ id: 'workspace-rename', label: 'Cambiar nombre', icon: 'rename' as const }] : [])]}

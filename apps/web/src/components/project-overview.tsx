@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
-import { ArrowRightIcon, CheckIcon } from 'lucide-react';
+import { ArrowUpRightIcon, ChevronRightIcon } from 'lucide-react';
+import type { AssessmentFinding } from '@gotchu/contracts';
 import { SEVERITIES, type NextAction, type ProjectSource, type SeverityCounts } from './project-risk';
 
-const severityNames: Record<(typeof SEVERITIES)[number], string> = {
-  critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja', informational: 'Informativa', unknown: 'Sin evaluar',
+const severityNames: Record<(typeof SEVERITIES)[number], [string, string]> = {
+  critical: ['crítica', 'críticas'], high: ['alta', 'altas'], medium: ['media', 'medias'], low: ['baja', 'bajas'], informational: ['informativa', 'informativas'], unknown: ['sin evaluar', 'sin evaluar'],
 };
 
 export interface ProjectRisk {
@@ -17,99 +18,129 @@ export interface ProjectRisk {
   next: NextAction;
 }
 
-/** Risk first: open findings by severity, how much of the project they speak for, and the one thing to do next. */
-export function ProjectOverview({ risk, onAddSource, onExamine, examining, examineError, onOpenReport, onOpenSources, onRetry, assessmentForm, recentReports, onViewReports }: {
+export interface ProjectHistory { reportCount: number; findingCounts: readonly number[] }
+export type ProjectWatch =
+  | { state: 'loading' | 'error' | 'off' }
+  | { state: 'on'; intervalHours: number; nextDueAt: string; openAlerts: number };
+export interface RecentReportRow { id: string; title: string; detail: string; findingCount: number; delta: number | null; severities: readonly AssessmentFinding['severity'][] | null }
+
+/** Four tiles: how risky, how much of the project was examined, what changed, whether it is watched; then reports and a new assessment. */
+export function ProjectOverview({ risk, history, watch, recentReports, onOpenReport, onOpenSources, onOpenReports, onOpenWatch, onExamine, examining, examineError, assessmentForm }: {
   risk: ProjectRisk;
-  onAddSource: () => void;
+  history: ProjectHistory;
+  watch: ProjectWatch;
+  recentReports: readonly RecentReportRow[];
+  onOpenReport: (reportId: string) => void;
+  onOpenSources: () => void;
+  onOpenReports: () => void;
+  onOpenWatch: () => void;
   onExamine: (source: ProjectSource) => void;
   examining: boolean;
   examineError: string | null;
-  onOpenReport: (reportId: string) => void;
-  onOpenSources: () => void;
-  onRetry: () => void;
   assessmentForm: ReactNode;
-  recentReports: ReactNode;
-  onViewReports: () => void;
 }) {
-  const max = Math.max(1, ...SEVERITIES.map(severity => risk.counts[severity]));
-  const examinedIds = new Set(risk.examined.map(item => `${item.source.kind}:${item.source.id}`));
+  const ready = risk.state === 'ready';
+  const latestReport = recentReports[0]?.id;
+  const severityParts = SEVERITIES.filter(severity => risk.counts[severity] > 0).map(severity => `${risk.counts[severity]} ${severityNames[severity][risk.counts[severity] === 1 ? 0 : 1]}`);
+  const lastDelta = history.findingCounts.length > 1 ? (history.findingCounts[0] ?? 0) - (history.findingCounts[1] ?? 0) : null;
   return <>
-    <div className="customer-risk-grid" aria-busy={risk.state === 'loading'}>
-      <section className="customer-risk-tile" aria-labelledby="risk-findings-title">
-        <h2 id="risk-findings-title">Observaciones abiertas</h2>
-        {risk.state === 'error' ? <p className="customer-risk-note">No se pudieron cargar los informes. <button className="customer-link-button" type="button" onClick={onRetry}>Reintentar</button></p>
-          : <>
-            <p className="customer-risk-figure"><strong>{risk.state === 'loading' ? '—' : risk.total}</strong><span>{risk.examined.length === 0 ? 'sin informes todavía' : 'en los últimos informes de cada fuente'}</span></p>
-            <ul className="customer-severity-bars">
-              {SEVERITIES.map(severity => <li key={severity} data-severity={severity} className={risk.counts[severity] === 0 ? 'is-zero' : undefined}>
-                <span>{severityNames[severity]}</span>
-                <span className="customer-severity-track" aria-hidden="true"><i style={{ width: `${(risk.counts[severity] / max) * 100}%` }} /></span>
-                <strong>{risk.counts[severity]}</strong>
-              </li>)}
-            </ul>
-          </>}
-      </section>
-
-      <section className="customer-risk-tile" aria-labelledby="risk-coverage-title">
-        <div className="customer-risk-head">
-          <h2 id="risk-coverage-title">Cobertura</h2>
-          {risk.state === 'ready' && <span className={`customer-coverage-status is-${risk.coverage}`}>{risk.coverage === 'complete' ? 'Completa' : risk.coverage === 'partial' ? 'Parcial' : 'Sin fuentes'}</span>}
-        </div>
-        <p className="customer-risk-figure"><strong>{risk.examined.length}<small> de {risk.sources.length}</small></strong><span>{risk.sources.length === 1 ? 'fuente examinada' : 'fuentes examinadas'}</span></p>
-        {risk.sources.length > 0 && <ul className="customer-coverage-list">
-          {risk.sources.map(source => {
-            const done = examinedIds.has(`${source.kind}:${source.id}`);
-            const date = risk.examined.find(item => item.source.kind === source.kind && item.source.id === source.id)?.reportDate;
-            return <li key={`${source.kind}:${source.id}`} className={done ? 'is-done' : undefined}>
-              <span className="customer-coverage-mark" aria-hidden="true">{done && <CheckIcon />}</span>
-              <span><strong>{source.label}</strong><small>{source.detail}</small></span>
-              <small>{done ? date : 'Pendiente'}</small>
-            </li>;
-          })}
-        </ul>}
-        {risk.state === 'ready' && risk.coverage === 'partial' && risk.pending.length === 0 && <p className="customer-risk-note">Algún análisis terminó con cobertura parcial; revisa «Qué se evaluó» en el informe.</p>}
-      </section>
-
-      <section className="customer-risk-tile customer-next-step" aria-labelledby="risk-next-title">
-        <h2 id="risk-next-title">Siguiente paso</h2>
-        {risk.state === 'ready' && <NextStep next={risk.next} examining={examining} onAddSource={onAddSource} onExamine={onExamine} onOpenReport={onOpenReport} onOpenSources={onOpenSources} />}
-        {examineError && <p className="customer-form-error" role="alert">{examineError}</p>}
-      </section>
+    <div className="customer-tiles" aria-busy={!ready}>
+      <Tile label="Observaciones" onOpen={latestReport ? () => onOpenReport(latestReport) : undefined}
+        figure={ready ? risk.total : '—'} sub={risk.examined.length === 0 ? 'sin informes todavía' : 'en los últimos informes'}
+        chart={<SeverityColumns counts={risk.counts} />}
+        foot={risk.state === 'error' ? 'No se pudieron cargar los informes.' : severityParts.length ? <><b>{severityParts[0]}</b>{severityParts.slice(1).map(part => ` · ${part}`).join('')}</> : 'Sin observaciones abiertas'} />
+      <Tile label="Cobertura" onOpen={onOpenSources}
+        figure={<>{risk.examined.length}<small> / {risk.sources.length}</small></>} sub={risk.sources.length === 1 ? 'fuente examinada' : 'fuentes examinadas'}
+        chart={<CoverageCells sources={risk.sources} pending={risk.pending} />}
+        foot={!ready ? 'Comprobando cobertura…' : <>
+          <b className={`customer-tile-state is-${risk.coverage}`}>{risk.coverage === 'complete' ? 'Completa' : risk.coverage === 'partial' ? 'Parcial' : 'Sin fuentes'}</b>
+          <NextStep next={risk.next} examining={examining} onExamine={onExamine} onOpenSources={onOpenSources} onOpenReport={onOpenReport} />
+        </>} />
+      <Tile label="Historial" onOpen={onOpenReports}
+        figure={history.reportCount} sub={history.reportCount === 1 ? 'informe guardado' : 'informes guardados'}
+        chart={<HistoryColumns counts={history.findingCounts} />}
+        foot={lastDelta === null ? 'Observaciones por informe' : <>Observaciones por informe · <b>{lastDelta > 0 ? `+${lastDelta}` : lastDelta === 0 ? 'igual' : `−${Math.abs(lastDelta)}`}</b> desde el anterior</>} />
+      <Tile label="Vigilancia" onOpen={onOpenWatch}
+        figure={watch.state === 'on' ? <>{watch.intervalHours}<small> h</small></> : '—'} sub={watch.state === 'on' ? 'revisión periódica' : watch.state === 'off' ? 'desactivada' : watch.state === 'error' ? 'no disponible' : 'cargando…'}
+        chart={<AlertCells open={watch.state === 'on' ? watch.openAlerts : 0} />}
+        foot={watch.state === 'on' ? <>Próxima revisión <b>{new Intl.DateTimeFormat('es', { hour: '2-digit', minute: '2-digit' }).format(new Date(watch.nextDueAt))}</b> · {watch.openAlerts} {watch.openAlerts === 1 ? 'alerta vigente' : 'alertas vigentes'}</> : watch.state === 'off' ? <button className="customer-link-button" type="button" onClick={onOpenWatch}>Activar revisiones periódicas</button> : watch.state === 'error' ? 'No se pudo cargar la vigilancia' : '—'} />
     </div>
+    {examineError && <p className="customer-form-error" role="alert">{examineError}</p>}
 
     <div className="customer-overview-split">
-      <section className="customer-overview-reports" aria-labelledby="recent-reports-title">
-        <div className="customer-section-head"><h2 id="recent-reports-title">Informes recientes</h2><button className="customer-link-button" type="button" onClick={onViewReports}>Ver todos</button></div>
-        {recentReports}
+      <section aria-labelledby="recent-reports-title">
+        <div className="customer-section-head"><div><h2 id="recent-reports-title">Informes recientes</h2><p>Cada informe conserva su evidencia, cobertura y límites.</p></div>{recentReports.length > 0 && <button className="customer-link-button" type="button" onClick={onOpenReports}>Ver todos</button>}</div>
+        {recentReports.length === 0 ? <p className="customer-empty-inline">Este proyecto aún no tiene informes.</p> : <>
+          <ul className="customer-report-rows">{recentReports.map(report => <li key={report.id}>
+            <button type="button" onClick={() => onOpenReport(report.id)}>
+              <i className="customer-report-mark" aria-hidden="true" />
+              <span className="customer-report-row-text"><strong>{report.title}</strong><small>{report.detail}</small></span>
+              <SeveritySquares severities={report.severities} total={report.findingCount} />
+              <span className="customer-report-row-count"><strong>{report.findingCount}</strong><small>{report.delta === null ? '—' : report.delta > 0 ? `+${report.delta}` : report.delta === 0 ? '=' : `−${Math.abs(report.delta)}`}</small></span>
+              <ChevronRightIcon aria-hidden="true" />
+            </button>
+          </li>)}</ul>
+          <p className="customer-report-legend"><span><i className="is-high" />Alta</span><span><i className="is-medium" />Media</span><span><i />Sin evaluar</span></p>
+        </>}
       </section>
       {assessmentForm}
     </div>
   </>;
 }
 
-function NextStep({ next, examining, onAddSource, onExamine, onOpenReport, onOpenSources }: {
-  next: NextAction; examining: boolean;
-  onAddSource: () => void; onExamine: (source: ProjectSource) => void; onOpenReport: (reportId: string) => void; onOpenSources: () => void;
+function Tile({ label, onOpen, figure, sub, chart, foot }: { label: string; onOpen: (() => void) | undefined; figure: ReactNode; sub: string; chart: ReactNode; foot: ReactNode }) {
+  return <section className="customer-tile" aria-label={label}>
+    <div className="customer-tile-body">
+      <h2 className="customer-tile-label">{label}{onOpen && <button type="button" className="customer-tile-open" aria-label={`Abrir ${label.toLowerCase()}`} onClick={onOpen}><ArrowUpRightIcon aria-hidden="true" /></button>}</h2>
+      <p className="customer-tile-figure">{figure}</p>
+      <p className="customer-tile-sub">{sub}</p>
+      <div className="customer-tile-chart" aria-hidden="true">{chart}</div>
+    </div>
+    <div className="customer-tile-foot">{foot}</div>
+    <i className="customer-tile-ticks" aria-hidden="true" />
+  </section>;
+}
+
+/** One column per severity, a cell per finding (ten at most): ink for critical/high, magenta for medium/low. */
+function SeverityColumns({ counts }: { counts: SeverityCounts }) {
+  return <span className="customer-px">{SEVERITIES.map(severity => <span key={severity} className="customer-px-col">
+    {Array.from({ length: 10 }, (_, index) => <i key={index} className={index < Math.min(10, counts[severity]) ? severity === 'critical' || severity === 'high' ? 'is-hot' : severity === 'medium' || severity === 'low' ? 'is-on' : 'is-mute' : undefined} />)}
+  </span>)}</span>;
+}
+
+/** Findings per report, oldest left; the latest report is the magenta column. */
+function HistoryColumns({ counts }: { counts: readonly number[] }) {
+  const shown = counts.slice(0, 10).reverse();
+  const max = Math.max(1, ...shown);
+  return <span className="customer-px">{shown.map((count, column) => <span key={column} className="customer-px-col">
+    {Array.from({ length: 10 }, (_, index) => <i key={index} className={index < Math.ceil((count / max) * 10) ? column === shown.length - 1 ? 'is-on' : 'is-hot' : undefined} />)}
+  </span>)}</span>;
+}
+
+function CoverageCells({ sources, pending }: { sources: readonly ProjectSource[]; pending: readonly ProjectSource[] }) {
+  const pendingKeys = new Set(pending.map(source => `${source.kind}:${source.id}`));
+  return <span className="customer-cells">{sources.slice(0, 18).map(source => <i key={`${source.kind}:${source.id}`} className={pendingKeys.has(`${source.kind}:${source.id}`) ? 'is-pending' : 'is-on'} />)}</span>;
+}
+
+function AlertCells({ open }: { open: number }) {
+  return <span className="customer-cells">{Array.from({ length: 18 }, (_, index) => <i key={index} className={index < open ? 'is-on' : undefined} />)}</span>;
+}
+
+function SeveritySquares({ severities, total }: { severities: readonly AssessmentFinding['severity'][] | null; total: number }) {
+  const cells = severities ?? Array.from({ length: total }, () => 'unknown' as const);
+  return <span className="customer-sev-squares" aria-hidden="true">{cells.slice(0, 12).map((severity, index) => <i key={index} className={severity === 'critical' || severity === 'high' ? 'is-high' : severity === 'medium' || severity === 'low' ? 'is-medium' : undefined} />)}</span>;
+}
+
+function NextStep({ next, examining, onExamine, onOpenSources, onOpenReport }: {
+  next: NextAction; examining: boolean; onExamine: (source: ProjectSource) => void; onOpenSources: () => void; onOpenReport: (reportId: string) => void;
 }) {
   switch (next.kind) {
-    case 'add_source': return <>
-      <p className="customer-next-copy">Añade el código, una imagen o un origen HTTPS para tener la primera lectura del riesgo.</p>
-      <button className="customer-button customer-button-primary" type="button" onClick={onAddSource}>Añadir una fuente<ArrowRightIcon aria-hidden="true" /></button>
-    </>;
-    case 'examine': return <>
-      <p className="customer-next-copy"><strong>{next.source.label}</strong> todavía no tiene informe. Evalúala para que la cobertura cuente toda la aplicación.</p>
-      {next.source.kind === 'image'
-        ? <button className="customer-button customer-button-primary" type="button" onClick={onOpenSources}>Evaluar la imagen<ArrowRightIcon aria-hidden="true" /></button>
-        : <button className="customer-button customer-button-primary" type="button" disabled={examining} onClick={() => onExamine(next.source)}>{examining ? 'Iniciando…' : 'Evaluar ahora'}<ArrowRightIcon aria-hidden="true" /></button>}
-    </>;
-    case 'review': return <>
-      <p className="customer-next-copy">Hay <strong>{next.count} {next.count === 1 ? 'observación' : 'observaciones'} {next.severity === 'critical' ? (next.count === 1 ? 'crítica' : 'críticas') : (next.count === 1 ? 'alta' : 'altas')}</strong>. Revisa su evidencia antes que el resto.</p>
-      <button className="customer-button customer-button-primary" type="button" onClick={() => onOpenReport(next.reportId)}>Revisar el informe<ArrowRightIcon aria-hidden="true" /></button>
-    </>;
-    case 'deepen': return <>
-      <p className="customer-next-copy">No hay observaciones altas, pero algún análisis quedó incompleto. Revisa qué faltó en tus fuentes.</p>
-      <button className="customer-button" type="button" onClick={onOpenSources}>Ver fuentes<ArrowRightIcon aria-hidden="true" /></button>
-    </>;
-    case 'clear': return <p className="customer-next-copy">Todas las fuentes tienen un informe completo y no hay observaciones altas ni críticas. Vuelve a evaluar cuando cambie el código o el origen.</p>;
+    case 'add_source': return <> · <button className="customer-link-button" type="button" onClick={onOpenSources}>Añadir una fuente</button></>;
+    case 'examine': return <> · {next.source.kind === 'image'
+      ? <button className="customer-link-button" type="button" onClick={onOpenSources}>Evaluar {next.source.label}</button>
+      : <button className="customer-link-button" type="button" disabled={examining} onClick={() => onExamine(next.source)}>{examining ? 'Iniciando…' : `Evaluar ${next.source.label}`}</button>}</>;
+    case 'review': return <> · <button className="customer-link-button" type="button" onClick={() => onOpenReport(next.reportId)}>Revisar {next.count} {next.severity === 'critical' ? (next.count === 1 ? 'crítica' : 'críticas') : (next.count === 1 ? 'alta' : 'altas')}</button></>;
+    case 'deepen': return <> · <button className="customer-link-button" type="button" onClick={onOpenSources}>Ver qué faltó</button></>;
+    case 'clear': return <> · sin altas ni críticas</>;
   }
 }

@@ -13,7 +13,7 @@ export type SeverityCounts = Record<AssessmentFinding['severity'], number>;
 
 export function projectSources(input: { sources: readonly CustomerSourceSummary[]; images: readonly CustomerContainerImageSummary[]; targets: readonly CustomerTarget[] }): ProjectSource[] {
   return [
-    ...input.sources.map(source => ({ kind: 'snapshot' as const, id: source.id, label: source.revision, detail: `Código · ${source.fileCount} ${source.fileCount === 1 ? 'archivo' : 'archivos'}` })),
+    ...input.sources.map(source => ({ kind: 'snapshot' as const, id: source.id, label: /^[0-9a-f]{40}$/.test(source.revision) ? source.revision.slice(0, 7) : source.revision, detail: `Código · ${source.fileCount} ${source.fileCount === 1 ? 'archivo' : 'archivos'}` })),
     ...input.images.map(image => ({ kind: 'image' as const, id: image.id, label: image.label, detail: 'Imagen de contenedor' })),
     // Revoked or expired origins can no longer be assessed, so they do not count against coverage.
     ...input.targets.filter(target => target.status === 'authorized').map(target => ({ kind: 'target' as const, id: target.id, label: target.origin.replace(/^https:\/\//, ''), detail: 'Origen HTTPS' })),
