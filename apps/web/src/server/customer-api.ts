@@ -120,7 +120,7 @@ export function createCustomerApi(options: {
   openRouterLogins?: ReturnType<typeof createOpenRouterLogins>;
 }) {
   const handleGitHub = createGitHubApi({ origin: options.origin, ...(options.githubAppFile ? { appFile: options.githubAppFile } : {}), ...(options.githubAppSlug ? { appSlug: options.githubAppSlug } : {}), ...(options.singleAppGitHub ? { singleApp: options.singleAppGitHub } : {}),
-    services: options.services?.github && options.services.operations ? { github: options.services.github, enableDefaultMonitoring: options.services.operations.enableDefault, uploadSource: options.services.uploadSource,
+    services: options.services?.github ? { github: options.services.github, ...(options.services.operations ? { enableDefaultMonitoring: options.services.operations.enableDefault } : {}), uploadSource: options.services.uploadSource,
       ...(options.services.uploadCapturedSource ? { uploadCapturedSource: options.services.uploadCapturedSource } : {}), queue: options.services.queue } : null });
   return async (request: Request): Promise<Response> => {
     try {

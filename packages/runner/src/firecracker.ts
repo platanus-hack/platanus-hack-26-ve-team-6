@@ -15,7 +15,7 @@ import { readLocalInputObject } from './input-store.js';
 
 export interface RunnerOptions {
   readonly resolveInput: (reference: RunnerJob['input'], scope: { organizationId: string; jobId: string }) => Promise<Uint8Array>;
-  readonly cacheDir?: string;
+  readonly cacheDir?: string | undefined;
   readonly maxConcurrent?: number;
 }
 

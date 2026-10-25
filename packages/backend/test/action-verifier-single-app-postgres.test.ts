@@ -42,25 +42,25 @@ live('current GitHub writer checks for both PR kinds on real PostgreSQL', () => 
     const prepared = await prepare(kind);
     const resolveWriter = vi.fn(async () => prepared.installationId);
     const verifier = prepared.verifier({ writerInstallationId: 'wrong-legacy-installation', writerInstallationIdFor: resolveWriter });
-    const active = await verifier.verify(prepared.action);
+    const active = await verifier.verify(prepared.action, { phase: 'execution' });
     expect(active.blockingReasons).not.toContain('repository_write_access_not_granted');
     expect(active.blockingReasons).not.toContain('github_connection_unavailable');
     expect(resolveWriter).toHaveBeenCalledWith({ organizationId: f.a.organizationId, applicationId: f.a.applicationId,
       repositoryKey: prepared.repositoryKey, repositoryLinkId: prepared.repositoryLinkId });
     // Keep the old link/grant deliberately to exercise installation revalidation itself.
     await f.admin.query("UPDATE gotchu.github_installations SET state='revoked' WHERE organization_id=$1 AND installation_id=$2", [f.a.organizationId, prepared.installationId]);
-    expect((await verifier.verify(prepared.action)).blockingReasons).toContain('github_connection_unavailable');
+    expect((await verifier.verify(prepared.action, { phase: 'execution' })).blockingReasons).toContain('github_connection_unavailable');
   });
 
   it.each(['source_patch_pull_request', 'dependency_pull_request'] as const)('does not revive a denied scoped writer through the legacy property for %s', async kind => {
     const prepared = await prepare(kind);
     for (const resolver of [async () => null, async () => 'different-installation', async (): Promise<string | null> => { throw new Error('unavailable'); }]) {
       const verifier = prepared.verifier({ writerInstallationId: prepared.installationId, writerInstallationIdFor: resolver });
-      expect((await verifier.verify(prepared.action)).blockingReasons).toContain('repository_write_access_not_granted');
+      expect((await verifier.verify(prepared.action, { phase: 'execution' })).blockingReasons).toContain('repository_write_access_not_granted');
     }
-    expect((await prepared.verifier({ writerInstallationId: prepared.installationId }).verify(prepared.action)).blockingReasons)
+    expect((await prepared.verifier({ writerInstallationId: prepared.installationId }).verify(prepared.action, { phase: 'execution' })).blockingReasons)
       .not.toContain('repository_write_access_not_granted');
-    expect((await prepared.verifier({ writerInstallationId: 'different-installation' }).verify(prepared.action)).blockingReasons)
+    expect((await prepared.verifier({ writerInstallationId: 'different-installation' }).verify(prepared.action, { phase: 'execution' })).blockingReasons)
       .toContain('repository_write_access_not_granted');
   });
 });

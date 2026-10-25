@@ -34,6 +34,8 @@ async function callbackFixture(options: FixtureOptions = {}) {
     }),
     bind: vi.fn(async () => ({ installationId: '174788349', accountLogin: 'fixture-owner', state: 'active' as const, connectedAt: new Date().toISOString() })),
     list: vi.fn(async () => []), revoke: vi.fn(async () => undefined), listRepositoryLinks: vi.fn(async () => []),
+    consumeSingleAppState: vi.fn(async () => { throw new Error('No single-app state expected'); }), bindSingleApp: vi.fn(async () => { throw new Error('No single-app bind expected'); }),
+    importCapturedSource: vi.fn(async () => undefined),
     createRepositoryLink: vi.fn(async () => { throw new Error('No source read is expected'); }),
   } satisfies Backend['github'];
   const calls: string[] = [];

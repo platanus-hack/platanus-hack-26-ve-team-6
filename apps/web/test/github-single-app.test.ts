@@ -23,15 +23,19 @@ const connection = { installationId: '174788349', accountLogin: 'fixture-owner',
 const source = { organizationId, applicationId, id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', digest, revision: snapshot.revision, fileCount: 1, createdAt: new Date(0).toISOString() };
 const repositoryLink = { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', applicationId, repositoryKey: 'gh-101', fullName: repository.fullName, defaultBranch: repository.defaultBranch, readAccess: 'granted' as const, writeAccess: 'not_granted' as const };
 
-const chooseResult = githubBrokerResponseSchema.parse({
+const parsedChoose = githubBrokerResponseSchema.parse({
   operation: 'authorize',
   result: { kind: 'choose', organizationId, installations: [{ id: 174788349, account: { id: 101, login: 'fixture-owner', type: 'User' } }] },
 });
+if (parsedChoose.operation !== 'authorize') throw new Error('Expected an authorize fixture');
+const chooseResult = parsedChoose;
 if (chooseResult.operation !== 'authorize') throw new Error('Invalid authorize fixture');
-const capturedResult = githubBrokerResponseSchema.parse({
+const parsedCapture = githubBrokerResponseSchema.parse({
   operation: 'readRepository',
   result: { kind: 'snapshot', snapshot, digest, repository, installationId: connection.installationId, appId: app.id, treeSha: '2'.repeat(40) },
 });
+if (parsedCapture.operation !== 'readRepository') throw new Error('Expected a readRepository fixture');
+const capturedResult = parsedCapture;
 if (capturedResult.operation !== 'readRepository') throw new Error('Invalid snapshot fixture');
 
 let tempDirectory: string | undefined;
@@ -61,6 +65,7 @@ function fixture(options: { purpose?: 'authorize' | 'install' | 'choose'; broker
     uploadSource: vi.fn(async () => { throw new Error('Single-App captures must preserve provenance'); }),
     uploadCapturedSource: vi.fn(async () => { events.push('upload'); return source; }),
     queue: vi.fn(async () => { events.push('queue'); return { jobId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }; }),
+    enableDefaultMonitoring: vi.fn(async () => false),
   };
   const broker = {
     authorize: vi.fn(async () => options.brokerAuthorizeResult ?? chooseResult),
@@ -87,7 +92,7 @@ describe('single-app GitHub routing', () => {
       deleteSource: unused, listContainerImages: unused, uploadContainerImage: unused,
       deleteContainerImage: unused, listReports: unused, getReport: unused,
       recordReportDownload: unused, job: unused, ...services,
-      github: { ...github, consumeSingleAppState: unused, bindSingleApp: unused },
+      github: { ...github, consumeSingleAppState: unused, bindSingleApp: unused, listRepositoryLinks: unused },
     };
     const handler = createCustomerApi({
       origin, services: customerServices, registrationEnabled: false, providers: [],

@@ -67,7 +67,7 @@ describe('npm lockfile fetch phase (unit)', () => {
         const bytes = payloads.get(key);
         if (!bytes) throw new Error(`Unexpected tarball ${key}`);
         fetched.push(key);
-        return new Response(bytes);
+        return new Response(new Uint8Array(bytes));
       },
     });
     const manifest = result.tarballs.map(({ name, sha256 }) => ({ name, sha256 })).sort((a, b) => a.name.localeCompare(b.name));

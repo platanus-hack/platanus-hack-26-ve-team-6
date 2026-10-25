@@ -24,7 +24,7 @@ export async function main() {
   });
   const shutdown = new AbortController();
   const runnerGate = async (gateOptions: Parameters<typeof checkRunnerGate>[0] = {}) => {
-    if (process.env.GOTCHU_VALIDATOR_FORCE_GATE_CLOSED === '1') return { status: 'closed', reason: 'Runner gate closed by validator configuration.' };
+    if (process.env.GOTCHU_VALIDATOR_FORCE_GATE_CLOSED === '1') return { status: 'closed' as const, reason: 'Runner gate closed by validator configuration.' };
     return checkRunnerGate(gateOptions);
   };
   const worker = createValidationWorker({ database, key, concurrency: 1, shutdownSignal: shutdown.signal, runnerCacheDir, runnerGate,

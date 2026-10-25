@@ -30,7 +30,7 @@ const imageLockSchema = z.object({
 }).passthrough();
 
 export interface RunnerGateOptions {
-  readonly cacheDir?: string;
+  readonly cacheDir?: string | undefined;
   readonly packageRoot?: string;
   readonly sandboxConfigPath?: string;
   readonly kvmPath?: string;

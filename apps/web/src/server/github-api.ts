@@ -16,7 +16,8 @@ const accessTokenSchema = z.object({ token: z.string().min(1), expires_at: z.iso
 const oauthTokenSchema = z.object({ access_token: z.string().min(1), token_type: z.literal('bearer'), scope: z.string().optional() }).passthrough();
 type GithubServices = {
   github: Pick<Backend['github'], 'workspaceName' | 'createState' | 'consumeState' | 'bind' | 'list' | 'revoke' | 'createRepositoryLink' | 'importCapturedSource'>;
-  enableDefaultMonitoring: Backend['operations']['enableDefault'];
+  /** Absent when monitoring is not configured; connecting a repository then never turns a watch on. */
+  enableDefaultMonitoring?: Backend['operations']['enableDefault'];
 } & Pick<NonNullable<CustomerServices>, 'uploadSource' | 'uploadCapturedSource' | 'queue'>;
 type AppCredentials = z.infer<typeof appFileSchema>;
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
@@ -248,7 +249,7 @@ export function createGitHubApi(options: { origin: string; appFile?: string; app
           const source = await services.uploadSource(identity, { organizationId, applicationId, authorized: true, snapshot: observation.snapshot });
           const link = await services.github.createRepositoryLink(identity, { organizationId, applicationId, installationId, repositoryId, fullName: repository.full_name, defaultBranch: repository.default_branch });
           const queued = await services.queue(identity, { organizationId, applicationId, mode: 'internal', sourceSnapshotId: source.id, targetId: null, idempotencyKey: `github-first-scan:${installationId}:${repository.id}:${observation.commit.sha}` });
-          const monitoringEnabled = await services.enableDefaultMonitoring(identity, { organizationId, applicationId, repositoryKey: link.repositoryKey });
+          const monitoringEnabled = services.enableDefaultMonitoring ? await services.enableDefaultMonitoring(identity, { organizationId, applicationId, repositoryKey: link.repositoryKey }) : false;
           return send({ repository: githubRepositorySchema.parse({ id: repository.id, fullName: repository.full_name, defaultBranch: repository.default_branch, private: repository.private, archived: repository.archived }), link, source, jobId: queued.jobId, monitoringEnabled }, 201);
         } catch (error) {
           if (error instanceof HttpError && [401, 403, 404].includes(error.status)) await services.github.revoke(identity, organizationId, installationId);

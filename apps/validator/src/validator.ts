@@ -55,7 +55,7 @@ async function waitForReconciliationOrShutdown(signal?: AbortSignal): Promise<vo
 export interface ValidationWorkerOptions {
   readonly database: Database;
   readonly key: ValidatorKey;
-  readonly runnerCacheDir?: string;
+  readonly runnerCacheDir?: string | undefined;
   readonly dockerImageDigest?: string;
   readonly executionEnabled?: boolean;
   readonly runnerGate?: typeof checkRunnerGate;

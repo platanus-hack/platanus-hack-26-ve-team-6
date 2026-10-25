@@ -36,7 +36,7 @@ async function modelRequestFixture(remainingTokens: number) {
     else if (text.includes('FROM gotchu.gateway_read_calls')) rows = [];
     else if (text.includes('SELECT model_opt_in,model_budget_micros')) rows = [organizationLimits];
     else if (text.includes('FROM gotchu.investigation_model_settings WHERE')) rows = [modelSettings];
-    else if (text.includes('SELECT run_id,amount_micros,reserved_tokens,charged_micros')) rows = [{ run_id: runId, amount_micros: '10000', reserved_tokens: String(remainingTokens), charged_micros: null, charged_tokens: null }];
+    else if (text.includes('SELECT run_id,amount_micros,reserved_tokens,')) rows = [{ run_id: runId, amount_micros: '10000', reserved_tokens: String(remainingTokens), token_limit_enforced: true, charged_micros: null, charged_tokens: null, input_tokens: null, output_tokens: null }];
     else if (text.includes('FROM gotchu.model_reservations')) rows = [];
     else if (text.includes('SELECT model_calls,reserved_micros')) rows = [{ model_calls: 0, reserved_micros: '0', spent_micros: '0', tokens_reserved: '0', tokens_spent: '0' }];
     else if (text.includes('INSERT INTO gotchu.model_reservations')) state.reserveCount++;
@@ -57,7 +57,7 @@ async function modelRequestFixture(remainingTokens: number) {
     .setProtectedHeader({ alg: 'EdDSA' }).setIssuer('gotchu-run-capability-issuer').setAudience('gotchu-investigation-worker')
     .setSubject(runId).setJti(randomUUID()).setIssuedAt(issuedAt).setExpirationTime(issuedAt + 300).sign(privateKey);
   const modelPort: ModelPort = { complete: async request => {
-    state.requestMaxOutputTokens = request.maxOutputTokens;
+    state.requestMaxOutputTokens = request.maxOutputTokens ?? 0;
     return { output: { ok: true }, inputTokens: 1, outputTokens: 1 };
   } };
   const gateway = createGatewayService({ database, capabilityPublicKey: publicKey, modelPort,
