@@ -144,6 +144,7 @@ jobs:
           PY
 
   prod-source:
+    name: ${{ github.event_name == 'pull_request' && github.base_ref == 'prod' && 'prod-source' || 'prod-source-not-required' }}
     if: github.event_name == 'pull_request' && github.base_ref == 'prod'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

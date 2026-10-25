@@ -6,7 +6,7 @@
 
 1. Merge a feature PR into main after `required-checks` passes. This gate requires every selected CI job to succeed; jobs run in parallel according to the affected packages.
 2. Successful main CI opens or updates **Release main to production**. Review its current diff. GitHub may require **Approve workflows to run** for checks on a bot-created PR; approve those checks before merging.
-3. Merge the promotion PR after its checks pass. `prod-source` permits only this repository's main branch. Neither promotion nor deployment merges PRs automatically.
+3. Merge the promotion PR after its checks pass. `prod-source` permits only this repository's main branch and is emitted only for a PR into prod; unrelated CI uses a different check name so its skipped job cannot satisfy this protection. Neither promotion nor deployment merges PRs automatically.
 4. **Deploy production** runs the complete CI again for the exact prod commit. A separate job builds a Linux/amd64 archive with production dependencies and verifies workspace imports outside the checkout.
 5. A minimal delivery job uses temporary AWS credentials, conditionally creates the immutable release object, checks that prod has not advanced, sends the fixed SSM command and waits for the host outcome. Deployment success requires the actual host command to finish successfully.
 
