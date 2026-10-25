@@ -1,6 +1,8 @@
 import {
   CapabilityError,
   GatewayUnavailableError,
+  aiCorrectionInputSchema,
+  runBoundedCorrection,
   runBoundedInvestigation,
   verifyRunCapability,
   type InvestigationLimits,
@@ -64,7 +66,8 @@ export function createInvestigationWorkerService(options: CreateWorkerServiceOpt
         if (error instanceof CapabilityError) throw new WorkerServiceError(401, 'invalid_capability');
         throw new WorkerServiceError(503, 'gateway_unavailable');
       }
-      return runBoundedInvestigation(rawInput, {
+      const run = aiCorrectionInputSchema.safeParse(rawInput).success ? runBoundedCorrection : runBoundedInvestigation;
+      return run(rawInput, {
         capability: verified,
         readTools: gateways.readTools,
         model: gateways.model,
