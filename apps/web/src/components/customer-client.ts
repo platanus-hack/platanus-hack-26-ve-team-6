@@ -260,16 +260,12 @@ export const customerApi = {
   retentionPolicy: (organizationId: string) => request(`${organizationPath(organizationId)}/retention`, workspaceRetentionPolicySchema),
   updateRetentionPolicy: (organizationId: string, policy: unknown) => request(`${organizationPath(organizationId)}/retention`, workspaceRetentionPolicySchema, { method: 'PUT', ...jsonBody(workspaceRetentionPolicyInputSchema.parse(policy)) }),
   targets: (organizationId: string, applicationId: string) => request(`${applicationPath(organizationId, applicationId)}/targets`, targetListSchema),
-  enrollTarget: (input: { organizationId: string; applicationId: string; origin: string; authorized: true; scanProfile?: CustomerScanProfile }) => {
-    const { organizationId, applicationId, origin, authorized, scanProfile } = input;
-    const validated = customerEnrollTargetSchema.parse({ organizationId, applicationId, origin, authorized, ...(scanProfile === undefined ? {} : { scanProfile }) });
+  enrollTarget: (input: { organizationId: string; applicationId: string; origin: string; scanProfile?: CustomerScanProfile }) => {
+    const { organizationId, applicationId, origin, scanProfile } = input;
+    const validated = customerEnrollTargetSchema.parse({ organizationId, applicationId, origin, ...(scanProfile === undefined ? {} : { scanProfile }) });
     return request(`${applicationPath(organizationId, applicationId)}/targets`, customerEnrollmentSchema, {
-      method: 'POST', ...jsonBody({ origin: validated.origin, authorized: validated.authorized, ...(validated.scanProfile === undefined ? {} : { scanProfile: validated.scanProfile }) }),
+      method: 'POST', ...jsonBody({ origin: validated.origin, ...(validated.scanProfile === undefined ? {} : { scanProfile: validated.scanProfile }) }),
     });
-  },
-  verifyTarget: (organizationId: string, applicationId: string, targetId: string) => {
-    const input = customerTargetSchema.pick({ organizationId: true, applicationId: true, id: true }).parse({ organizationId, applicationId, id: targetId });
-    return request(`${applicationPath(input.organizationId, input.applicationId)}/targets/${encodeURIComponent(input.id)}/verify`, customerTargetSchema, { method: 'POST', ...jsonBody({}) });
   },
   revokeTarget: (organizationId: string, applicationId: string, targetId: string) => {
     const input = customerTargetSchema.pick({ organizationId: true, applicationId: true, id: true }).parse({ organizationId, applicationId, id: targetId });

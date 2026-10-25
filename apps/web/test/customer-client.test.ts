@@ -85,6 +85,20 @@ describe('customer API client', () => {
     await expect(result).rejects.toMatchObject({ status: 200, code: 'invalid_response' });
   });
 
+  it('submits an HTTPS origin and finite profile without a customer attestation', async () => {
+    const target = {
+      organizationId, applicationId, id: targetId, origin: 'https://example.com', version: 1,
+      status: 'authorized', requestedBy: 'credentials:account-id', requestedAt: '2026-10-25T12:00:00.000Z',
+      authorizedAt: '2026-10-25T12:00:00.000Z', expiresAt: '2026-11-01T12:00:00.000Z', scanProfile: 'root',
+    };
+    fetchMock.mockResolvedValueOnce(json({ target }, 201));
+
+    await expect(customerApi.enrollTarget({ organizationId, applicationId, origin: 'https://example.com', scanProfile: 'root' })).resolves.toEqual({ target });
+    const [path, init] = fetchMock.mock.calls[0] ?? [];
+    expect(path).toBe(`/api/customer/workspaces/${organizationId}/applications/${applicationId}/targets`);
+    expect(JSON.parse(String(init?.body))).toEqual({ origin: 'https://example.com', scanProfile: 'root' });
+  });
+
   it('rejects recommendations returned for a different application', async () => {
     fetchMock.mockResolvedValueOnce(json({ ...recommendationsResponse, scope: { ...reportScope, applicationId: targetId } }));
 
