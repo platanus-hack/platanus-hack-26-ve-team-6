@@ -7,12 +7,16 @@ import { githubConnectResponseSchema, githubConnectionSchema, githubRepositorySc
 import type { CustomerServices } from './customer-api.js';
 import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } from './http.js';
 import { githubConsentPage, githubUserInstallations, requireGitHubInstallationOwner } from './github-authorization.js';
+import { createSingleAppGitHubApi, type SingleGitHubPublicApp } from './github-single-app.js';
+import type { SingleAppGitHubBroker } from './github-broker-client.js';
 
 const appFileSchema = z.object({ id: z.preprocess(value => typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : value, z.string().regex(/^\d+$/)), slug: z.string().regex(/^[a-z0-9-]+$/i).optional(), clientId: z.string().min(1), clientSecret: z.string().min(1), privateKeyPem: z.string().min(1), webhookSecret: z.string().min(1) }).passthrough();
 const repositoryListSchema = z.object({ repositories: z.array(z.object({ id: z.number().int().positive(), full_name: z.string().min(3).max(200), default_branch: z.string().min(1).max(200), private: z.boolean(), archived: z.boolean() }).passthrough()).max(1000), total_count: z.number().int().nonnegative() }).passthrough();
 const accessTokenSchema = z.object({ token: z.string().min(1), expires_at: z.iso.datetime() }).passthrough();
 const oauthTokenSchema = z.object({ access_token: z.string().min(1), token_type: z.literal('bearer'), scope: z.string().optional() }).passthrough();
-type GithubServices = { github: Backend['github'] } & Pick<NonNullable<CustomerServices>, 'uploadSource' | 'queue'>;
+type GithubServices = {
+  github: Pick<Backend['github'], 'workspaceName' | 'createState' | 'consumeState' | 'bind' | 'list' | 'revoke' | 'createRepositoryLink' | 'importCapturedSource'>;
+} & Pick<NonNullable<CustomerServices>, 'uploadSource' | 'queue'>;
 type AppCredentials = z.infer<typeof appFileSchema>;
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
@@ -87,9 +91,16 @@ export async function mintGitHubInstallationToken(installationId: string, appFil
   return installationToken(installationId, await readApp(appFile));
 }
 
-export function createGitHubApi(options: { origin: string; appFile?: string; appSlug?: string; services: GithubServices | null; fetchImplementation?: typeof fetch }) {
+export function createGitHubApi(options: { origin: string; appFile?: string; appSlug?: string; services: GithubServices | null; fetchImplementation?: typeof fetch; singleApp?: { publicApp: SingleGitHubPublicApp; broker: SingleAppGitHubBroker } }) {
   const fetcher = options.fetchImplementation ?? fetch;
+  const singleAppHandler = options.singleApp ? createSingleAppGitHubApi({
+    origin: options.origin,
+    publicApp: options.singleApp.publicApp,
+    broker: options.singleApp.broker,
+    services: options.services,
+  }) : null;
   return async (request: Request, identity: Identity | null, cookies: readonly string[] = []): Promise<Response | null> => {
+    if (singleAppHandler) return singleAppHandler(request, identity, cookies);
     const url = new URL(request.url);
     const path = url.pathname.split('/').filter(Boolean);
     const isConnect = url.pathname === '/api/customer/github/connect';

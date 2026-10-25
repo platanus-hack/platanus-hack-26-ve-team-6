@@ -33,6 +33,8 @@ import { handleTriageApi } from './triage-api.js';
 import { handleMembersApi } from './members-api.js';
 import { handleActionsApi } from './actions-api.js';
 import { createGitHubApi } from './github-api.js';
+import type { SingleGitHubPublicApp } from './github-single-app.js';
+import type { SingleAppGitHubBroker } from './github-broker-client.js';
 import { handleWorkflowExceptionsApi } from './workflow-exceptions-api.js';
 import { handleProtectionApi } from './protection-api.js';
 import { handleNotificationsApi } from './notifications-api.js';
@@ -113,10 +115,11 @@ export function createCustomerApi(options: {
   selfHostSetup?: boolean;
   providers: readonly { id: string; name: string; type: string }[];
   githubAppFile?: string; githubAppSlug?: string;
+  singleAppGitHub?: { publicApp: SingleGitHubPublicApp; broker: SingleAppGitHubBroker };
   providerConnections?: ReturnType<typeof createProviderConnections>;
   openRouterLogins?: ReturnType<typeof createOpenRouterLogins>;
 }) {
-  const handleGitHub = createGitHubApi({ origin: options.origin, ...(options.githubAppFile ? { appFile: options.githubAppFile } : {}), ...(options.githubAppSlug ? { appSlug: options.githubAppSlug } : {}),
+  const handleGitHub = createGitHubApi({ origin: options.origin, ...(options.githubAppFile ? { appFile: options.githubAppFile } : {}), ...(options.githubAppSlug ? { appSlug: options.githubAppSlug } : {}), ...(options.singleAppGitHub ? { singleApp: options.singleAppGitHub } : {}),
     services: options.services?.github ? { github: options.services.github, uploadSource: options.services.uploadSource, queue: options.services.queue } : null });
   return async (request: Request): Promise<Response> => {
     try {
