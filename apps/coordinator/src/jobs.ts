@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { aggregateAuthFailures, investigationResultSchema, safeCheckpointSchema, type AuthFailureEvent, type InvestigationResult } from '@gotchu/agent';
-import { BackendError, completeJob, createRunService, enqueue, enqueueNotificationEvent, type Backend, type JobClaim } from '@gotchu/backend';
+import { BackendError, completeAiCorrectionForJob, failAiCorrectionForJob, completeJob, createRunService, enqueue, enqueueNotificationEvent, type Backend, type JobClaim } from '@gotchu/backend';
 import { jobEnvelopeSchema, securityEventSchema, type JobEnvelope } from '@gotchu/contracts';
 import type { Database, Transaction } from '@gotchu/database';
 import { z } from 'zod';
@@ -16,7 +16,7 @@ const investigationPayloadSchema = z.union([
   z.object({ incidentId: z.uuid(), evidenceIds: z.array(z.uuid()).min(1).max(20) }).strict(),
   z.object({ version: z.literal(2), subject: z.object({
     kind: z.enum(['finding', 'alert', 'incident']), subjectId: z.uuid(), reportId: z.uuid().optional(),
-  }).strict(), evidenceIds: z.array(z.uuid()).min(1).max(20), resumeOf: z.uuid().optional() }).strict(),
+  }).strict(), evidenceIds: z.array(z.uuid()).min(1).max(20), resumeOf: z.uuid().optional(), correctionId: z.uuid().optional() }).strict(),
 ]);
 type D11InvestigationPayload = Extract<z.infer<typeof investigationPayloadSchema>, { version: 2 }>;
 const projectionPayloadSchema = z.discriminatedUnion('kind', [
@@ -115,6 +115,51 @@ export async function finalizeInvestigation(dependencies: CoordinatorDependencie
         AND j.lease_token=$5 AND j.state='running' AND j.lease_until>clock_timestamp() FOR UPDATE OF r,j`, [organizationId, applicationId, runId, jobId, claim.leaseToken]);
     const run = locked.rows[0];
     if (!run) throw new BackendError('stale_lease', 'Investigation finalization requires the current job claim', 409);
+    const payload = investigationPayloadSchema.parse(claim.payload);
+    const correctionScope = { organizationId, applicationId, jobId, leaseToken: claim.leaseToken };
+    if ('version' in payload && payload.correctionId) {
+      if (BigInt(run.reserved_micros) !== 0n || BigInt(run.tokens_reserved) !== 0n) {
+        await failAiCorrectionForJob(tx, { ...correctionScope, reasonCode: 'correction_reconciliation_required' });
+        await failJob(tx, claim, 'investigation_reconciliation_required');
+        return;
+      }
+      // A validated private patch survives a lost worker response. Apply it once,
+      // together with its rescan, validation request and durable job completion.
+      await tx.query('SAVEPOINT prepare_ai_candidate');
+      try {
+        const prepared = await completeAiCorrectionForJob(tx, { ...correctionScope, runId });
+        if (prepared) {
+          const usage = await tx.query<{ model_calls: number; tool_calls: number; tokens: string; spend: string }>(`SELECT r.model_calls,r.tool_calls,
+            COALESCE(sum(m.charged_tokens),0)::text AS tokens,COALESCE(sum(m.charged_micros),0)::text AS spend
+            FROM gotchu.agent_runs r LEFT JOIN gotchu.model_reservations m ON m.organization_id=r.organization_id AND m.run_id=r.id
+            WHERE r.organization_id=$1 AND r.application_id=$2 AND r.id=$3 GROUP BY r.id`, [organizationId, applicationId, runId]);
+          const totals = usage.rows[0];
+          if (!totals) throw new BackendError('correction_run_unavailable', 'Correction usage is unavailable', 409);
+          completion = { status: 'result', result: investigationResultSchema.parse({
+            status: 'investigated', assessment: 'candidate_issue', summary: prepared.summary ?? 'Cambios privados preparados; falta validación independiente.',
+            citedEvidenceIds: payload.evidenceIds, hypotheses: [],
+            candidateSuggestion: { kind: 'source_change', summary: prepared.summary?.slice(0, 500) ?? 'Cambios privados preparados.',
+              path: prepared.diff[0]?.path ?? null, evidenceIds: payload.evidenceIds, implications: prepared.implications,
+              risks: prepared.risks, validationPlan: prepared.validationPlan, validationRequired: 'D05' },
+            reasonCode: 'completed', independentVerification: 'not_verified',
+            counters: { modelCalls: totals.model_calls, additionalReadToolCalls: totals.tool_calls,
+              tokensUsed: Number(totals.tokens), spendMicroUsd: Number(totals.spend),
+              activeMs: completion.status === 'result' ? completion.result.counters.activeMs : 0 },
+          }) };
+        } else {
+          const reasonCode = completion.status === 'result' && completion.result.reasonCode !== 'completed'
+            ? completion.result.reasonCode : 'correction_patch_unavailable';
+          await failAiCorrectionForJob(tx, { ...correctionScope, reasonCode });
+          completion = { status: 'failed', reasonCode };
+        }
+        await tx.query('RELEASE SAVEPOINT prepare_ai_candidate');
+      } catch (error) {
+        await tx.query('ROLLBACK TO SAVEPOINT prepare_ai_candidate');
+        if (!(error instanceof BackendError)) throw error;
+        await failAiCorrectionForJob(tx, { ...correctionScope, reasonCode: error.code });
+        completion = { status: 'failed', reasonCode: error.code };
+      }
+    }
     if (run.state === 'running') {
       if (BigInt(run.reserved_micros) !== 0n || BigInt(run.tokens_reserved) !== 0n) {
         await failJob(tx, claim, 'investigation_reconciliation_required');
@@ -139,6 +184,14 @@ async function investigate(dependencies: CoordinatorDependencies, claim: JobClai
   const payload = investigationPayloadSchema.parse(claim.payload);
   const { organizationId, applicationId, id: jobId } = claim.envelope;
   const run = await dependencies.backend.runs.start({ organizationId, applicationId, jobId, leaseToken: claim.leaseToken });
+  if ('version' in payload && payload.correctionId) {
+    try { await dependencies.backend.aiCorrections.markRunning({ organizationId, applicationId, jobId, leaseToken: claim.leaseToken }); }
+    catch (error) {
+      if (!(error instanceof BackendError)) throw error;
+      await finalizeInvestigation(dependencies, claim, run.runId, { status: 'failed', reasonCode: error.code });
+      return;
+    }
+  }
   const currentRun = await dependencies.backend.runs.load({ organizationId, runId: run.runId });
   const saved = safeCheckpointSchema.safeParse(currentRun.checkpoint);
   const checkpoint = saved.success ? saved.data : undefined;
