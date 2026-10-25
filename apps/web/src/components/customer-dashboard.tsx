@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { z } from 'zod';
-import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, HouseIcon, LogOutIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
+import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, HouseIcon, LogOutIcon, PlusIcon, RadarIcon, ScaleIcon, SparklesIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -31,7 +31,7 @@ import { membersApi } from './members-client';
 import { ApprovalPanel } from './approval-panel';
 import { GitHubRepositoryPanel } from './onboarding';
 import { WorkflowExceptions } from './workflow-exceptions';
-import { InvestigationActionButton, InvestigationModelSettings } from './investigations-panel';
+import { InvestigationActionButton } from './investigations-panel';
 import { DependencyInventoryPanel } from './customer-supply-chain';
 import { GotchuMark } from './gotchu-mark';
 import { DotPlate } from './dot-field/dot-plate';
@@ -49,13 +49,13 @@ import './customer-shell.css';
 import './customer-report.css';
 import './customer-operations.css';
 
-export type DashboardPage = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
+export type DashboardPage = 'overview' | 'applications' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model';
 type Page = DashboardPage;
-type WorkspacePage = Extract<Page, 'members' | 'decision-records' | 'license-policy' | 'retention-policy'>;
+type WorkspacePage = Extract<Page, 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model'>;
 type ActiveJob = { organizationId: string; applicationId: string; jobId: string; purpose: 'assessment' | 'correction' };
 
 function isWorkspacePage(page: Page): page is WorkspacePage {
-  return page === 'members' || page === 'decision-records' || page === 'license-policy' || page === 'retention-policy';
+  return page === 'members' || page === 'decision-records' || page === 'license-policy' || page === 'retention-policy' || page === 'investigation-model';
 }
 
 function readLastProjectPath() {
@@ -68,6 +68,7 @@ const pages: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'applications', label: 'Fuentes', icon: AppWindowIcon },
   { id: 'operations', label: 'Vigilancia', icon: RadarIcon },
   { id: 'reports', label: 'Informes', icon: FileTextIcon },
+  { id: 'investigation-model', label: 'Modelos de IA', icon: SparklesIcon },
   { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
   { id: 'retention-policy', label: 'Retención', icon: ArchiveIcon },
   { id: 'members', label: 'Equipo', icon: UsersIcon },
@@ -79,12 +80,13 @@ function DashboardNavLink({ page, organizationId, applicationId, onNavigate }: {
   const content = <><Icon aria-hidden="true" />{pages.find(item => item.id === page)?.label}</>;
   const common = { className: 'customer-nav-item', activeOptions: { exact: page !== 'reports' }, activeProps: { className: 'customer-nav-item is-active', 'aria-current': 'page' as const }, onClick: onNavigate };
   if (!organizationId) return null;
-  if (page !== 'members' && page !== 'decision-records' && page !== 'license-policy' && page !== 'retention-policy' && !applicationId) return null;
+  if (!isWorkspacePage(page) && !applicationId) return null;
   switch (page) {
     case 'overview': return <Link {...common} to="/w/$workspaceId/p/$projectId" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'applications': return <Link {...common} to="/w/$workspaceId/p/$projectId/fuentes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'operations': return <Link {...common} to="/w/$workspaceId/p/$projectId/vigilancia" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'reports': return <Link {...common} to="/w/$workspaceId/p/$projectId/informes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
+    case 'investigation-model': return <Link {...common} to="/w/$workspaceId/modelos" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'license-policy': return <Link {...common} to="/w/$workspaceId/licencias" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'retention-policy': return <Link {...common} to="/w/$workspaceId/retencion" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'members': return <Link {...common} to="/w/$workspaceId/equipo" params={{ workspaceId: organizationId }}>{content}</Link>;
@@ -976,7 +978,6 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
           <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><ContainerImageEnrollment key={`${organizationId}:${selectedApplication.applicationId}:images`} organizationId={organizationId} applicationId={selectedApplication.applicationId} images={images.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /></div>
           <GitHubRepositoryPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:github`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} onScanQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPage('overview'); setNotice('La instantánea de GitHub está guardada y la primera evaluación se ejecuta en segundo plano.'); refreshApplicationData(); }} />
           <ContextPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} isOwner={workspace?.role === 'owner'} archived={selectedApplication.archived} analyzedDigest={applicationReports[0]?.subject.sourceDigest ?? null} />
-          <InvestigationModelSettings key={`${organizationId}:investigation-model`} organizationId={organizationId} isOwner={workspace?.role === 'owner'} />
           <ApprovalPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:actions`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} isOwner={workspace?.role === 'owner'} />
           <WorkflowExceptions userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} isOwner={workspace?.role === 'owner'} />
           <ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('El proyecto se actualizó.'); }} />

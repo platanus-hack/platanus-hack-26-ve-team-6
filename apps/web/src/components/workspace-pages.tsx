@@ -1,8 +1,9 @@
 import { DecisionRecordHistory } from './decision-record-history';
 import { LicensePolicyPanel, RetentionPolicyPanel } from './customer-supply-chain';
+import { InvestigationModelSettings } from './investigations-panel';
 import { MembersPanel } from './members-panel';
 
-type WorkspacePage = 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
+type WorkspacePage = 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model';
 
 export function WorkspacePages({ page, userId, organizationId, role, canManage }: {
   page: WorkspacePage;
@@ -11,6 +12,10 @@ export function WorkspacePages({ page, userId, organizationId, role, canManage }
   role: 'owner' | 'operator' | 'viewer';
   canManage: boolean;
 }) {
+  if (page === 'investigation-model') return <>
+    <div className="customer-page-heading"><div><h1>Modelos de IA</h1></div></div>
+    <InvestigationModelSettings key={`${userId}:${organizationId}`} organizationId={organizationId} isOwner={role === 'owner'} />
+  </>;
   if (page === 'members') return <MembersPanel key={`${userId}:${organizationId}`} organizationId={organizationId} userId={userId} role={role} />;
   if (page === 'decision-records') return <>
     <div className="customer-page-heading"><div><h1>Decisiones</h1></div></div>
