@@ -187,6 +187,17 @@ export async function runCustomerAssessmentPipeline(
       if (!input || !startedAt || internal === undefined || external === undefined || !comparison) {
         throw new Error('assessment_pipeline_not_compared');
       }
+      const scopeLimitation = input.inputKind === 'container_image'
+        ? 'The report scans an immutable image archive or digest-pinned public image. It does not prove the image is deployed or running; unsupported OS and language package coverage remains unknown.'
+        : input.target?.scanProfile === 'public_surface'
+          ? input.mode === 'both'
+            ? 'Bounded static source and independent public-surface HTTPS observations within the explicitly consented origin, not a comprehensive audit or company asset inventory. Unknown coverage remains unknown.'
+            : 'Bounded public-surface HTTPS observations within the explicitly consented origin, not a comprehensive audit or company asset inventory. Unknown coverage remains unknown.'
+          : input.mode === 'internal'
+            ? 'Bounded static source observations only; no HTTPS target was assessed. Unknown coverage remains unknown.'
+            : input.mode === 'external'
+              ? 'Bounded independent root HTTPS observations only within the explicitly consented origin, not a comprehensive audit or proof of safety. Unknown coverage remains unknown.'
+              : 'Bounded static source and independent root HTTPS observations within the explicitly consented origin, not a comprehensive audit or proof of safety. Unknown coverage remains unknown.';
       const report = customerAssessmentReportSchema.parse({
         version: 2,
         id: randomUUID(),
@@ -204,12 +215,10 @@ export async function runCustomerAssessmentPipeline(
         responseMode: 'observation',
         actionsPerformed: [],
         limitations: [
-          input.inputKind === 'container_image'
-            ? 'The report scans an immutable image archive or digest-pinned public image. It does not prove the image is deployed or running; unsupported OS and language package coverage remains unknown.'
-            : input.target?.scanProfile === 'public_surface'
-            ? 'Bounded static and independent public-surface HTTPS observations within the explicitly consented origin, not a comprehensive audit or company asset inventory. Unknown coverage remains unknown.'
-            : 'Bounded static and independent root HTTPS observations, not a comprehensive audit or proof of safety. Unknown coverage remains unknown.',
-          'Uploaded source is not proven to match deployment. Version matches and banners never establish exploitation.',
+          scopeLimitation,
+          input.source
+            ? 'Uploaded source is not proven to match deployment. Version matches and banners never establish exploitation.'
+            : 'Banners and version matches never establish exploitation.',
           'No customer-code execution, provider writes, remediation, monitoring or cloud deployment.',
         ],
       });
