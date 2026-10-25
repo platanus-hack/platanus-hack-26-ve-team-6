@@ -14,7 +14,7 @@ const singleAppCredentialSchema = z.object({
   clientSecret: z.string().min(1).max(4096),
   slug: singleGitHubPublicAppSchema.shape.slug,
   privateKeyPem: z.string().min(100).max(32_000),
-}).strict();
+}).strip();
 const targetSchema=z.object({installationId:z.union([z.string().regex(/^[0-9]+$/),z.number().int().positive()]).transform(String),owner:z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/),repository:z.string().min(1).max(100)}).strict();
 export type GitHubWriterCredentials = z.infer<typeof credentialSchema> & z.infer<typeof targetSchema>;
 
