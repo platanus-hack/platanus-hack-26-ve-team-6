@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { CustomerAssessmentReport } from '@gotchu/contracts';
+import { investigationProviderCatalog, type CustomerAssessmentReport } from '@gotchu/contracts';
 import type { Transaction } from '@gotchu/database';
 import { audit, canonicalJson, sha256 } from './core.js';
 import { enqueue } from './jobs.js';
@@ -18,8 +18,9 @@ export async function enqueueAutomaticSourceInvestigations(tx: Transaction, repo
     JOIN gotchu.applications a ON a.organization_id=o.id AND a.id=$2
     WHERE s.organization_id=$1 AND s.automatic_source_investigations AND s.consent_to_external_processing
       AND s.data_scopes ? 'finding_details' AND s.secret_ref IS NOT NULL AND o.model_opt_in AND NOT a.archived
-      AND o.model_token_budget>o.model_tokens_spent+o.model_tokens_reserved
-      AND o.model_budget_micros>o.model_spent_micros+o.model_reserved_micros`, [report.organizationId, report.applicationId]);
+      AND (s.provider_preset_id=ANY($3::text[]) OR o.model_token_budget>o.model_tokens_spent+o.model_tokens_reserved)
+      AND o.model_budget_micros>o.model_spent_micros+o.model_reserved_micros`, [report.organizationId, report.applicationId,
+        investigationProviderCatalog.filter(preset => preset.billing === 'subscription').map(preset => preset.id)]);
   if (!enabled.rowCount) return;
   await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`automatic-investigations:${report.organizationId}:${report.applicationId}`]);
   const active = await tx.query<{ count: string }>(`SELECT count(*)::text AS count FROM gotchu.jobs
