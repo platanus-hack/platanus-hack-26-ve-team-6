@@ -10,13 +10,14 @@ export function ProviderConnectionButton({ organizationId, provider, disabled, p
   const [connection, setConnection] = useState<ProviderConnection | null>(null);
   const [authorizationCode, setAuthorizationCode] = useState('');
   const label = provider === 'codex' ? 'ChatGPT' : provider === 'claude_code' ? 'Claude' : 'OpenRouter';
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<'code' | 'link' | null>(null);
+  const [anotherDevice, setAnotherDevice] = useState(false);
   const popup = useRef<Window | null>(null);
   const notified = useRef<string | null>(null);
   const start = useMutation({
     mutationFn: async () => { await prepare(); return customerApi.startProviderConnection(organizationId, provider); },
     onSuccess: value => {
-      setConnection(value); setCopied(false);
+      setConnection(value); setCopied(null);
       if (value.status === 'pending' && popup.current && !popup.current.closed) popup.current.location.replace(value.verificationUrl);
     },
     onError: () => { popup.current?.close(); },
@@ -53,21 +54,28 @@ export function ProviderConnectionButton({ organizationId, provider, disabled, p
     onSuccess: () => { setAuthorizationCode(''); void poll.refetch(); },
   });
   const error = start.error ?? poll.error ?? cancel.error ?? submitCode.error;
+  function connect(fromAnotherDevice: boolean) {
+    setAnotherDevice(fromAnotherDevice);
+    // Only same-device sign-in opens a popup during the click. Device-code sign-in
+    // waits headlessly while the owner authorizes from any other computer.
+    popup.current = fromAnotherDevice ? null : window.open('about:blank', '_blank');
+    if (popup.current) popup.current.opener = null;
+    setConnection(null); start.mutate();
+  }
   return <div className="customer-provider-connection">
     <p>Conecta tu cuenta {label} para usar {provider === 'openrouter' ? 'tus créditos' : 'tu suscripción'}. La sesión se guarda sólo en el servidor de Gotchu. Si ya autorizaste datos, comprobaremos la conexión al volver.</p>
-    <button type="button" className="customer-button customer-button-primary" disabled={disabled || pending} onClick={() => {
-      // Open during the click so popup blockers do not interrupt the asynchronous ceremony.
-      popup.current = window.open('about:blank', '_blank');
-      if (popup.current) popup.current.opener = null;
-      setConnection(null); start.mutate();
-    }}>{start.isPending ? 'Preparando conexión…' : `Conectar ${label}`}</button>
+    <button type="button" className="customer-button customer-button-primary" disabled={disabled || pending} onClick={() => connect(false)}>{start.isPending ? 'Preparando conexión…' : `Conectar ${label}`}</button>
+    {provider === 'codex' && <button type="button" className="customer-button" disabled={disabled || pending} onClick={() => connect(true)}>Conectar desde otro dispositivo</button>}
     {current?.status === 'pending' && <div role="status" aria-live="polite">
-      <p>Autoriza la conexión en {label}:</p>
+      <p>{anotherDevice ? 'Abre este enlace en el equipo que prefieras e introduce el código en la página oficial de OpenAI:' : `Autoriza la conexión en ${label}:`}</p>
       {current.userCode && <p><code className="customer-provider-device-code">{current.userCode}</code>{' '}
         <button type="button" className="customer-button" onClick={() => {
-          void navigator.clipboard.writeText(current.userCode ?? '').then(() => setCopied(true)).catch(() => setCopied(false));
-        }}>{copied ? 'Código copiado' : 'Copiar código'}</button></p>}
-      <p><a href={current.verificationUrl} target="_blank" rel="noopener noreferrer">Abrir {label} para autorizar</a></p>
+          void navigator.clipboard.writeText(current.userCode ?? '').then(() => setCopied('code')).catch(() => setCopied(null));
+        }}>{copied === 'code' ? 'Código copiado' : 'Copiar código'}</button></p>}
+      <p><a href={current.verificationUrl} target="_blank" rel="noopener noreferrer">{anotherDevice ? current.verificationUrl : `Abrir ${label} para autorizar`}</a></p>
+      {anotherDevice && <button type="button" className="customer-button" onClick={() => {
+        void navigator.clipboard.writeText(current.verificationUrl).then(() => setCopied('link')).catch(() => setCopied(null));
+      }}>{copied === 'link' ? 'Enlace copiado' : 'Copiar enlace'}</button>}
       <p>Gotchu detectará la conexión automáticamente. El código caduca en diez minutos.{provider === 'codex' && ' Si OpenAI lo solicita, habilita el acceso por código de dispositivo en la seguridad de tu cuenta ChatGPT.'}</p>
       {current.acceptsCode && <>
         <label htmlFor="provider-authorization-code">Si Claude muestra un código, pégalo aquí</label>

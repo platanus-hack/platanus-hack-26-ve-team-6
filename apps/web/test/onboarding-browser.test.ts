@@ -205,6 +205,39 @@ globalThis.fetch = async (input, init) => {
     expect(await page.getByLabel('Modelo', { exact: true }).inputValue()).toBe('__custom__');
   }, 60_000);
 
+  it('connects Codex from another device without opening a server browser (controlled authorization response)', async () => {
+    await page.context().clearCookies();
+    await signIn(page, origin, `headless-codex-${randomUUID()}@example.test`);
+    const workspace = customerWorkspaceSchema.parse(await page.evaluate(async () => {
+      const response = await fetch('/api/customer/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Headless connection fixture' }) });
+      if (!response.ok) throw new Error('Workspace fixture could not be created');
+      return await response.json();
+    }));
+    await page.goto(`${origin}/w/${workspace.id}/modelos`);
+    await page.getByLabel('Proveedor', { exact: true }).selectOption('codex');
+    const connectionId = randomUUID(); let connected = false;
+    const connectionPath = `${origin}/api/customer/workspaces/${workspace.id}/investigation-model/codex/connections`;
+    const pending = { id: connectionId, status: 'pending', verificationUrl: 'https://auth.openai.com/codex/device', userCode: 'TEST-1234', acceptsCode: false, expiresAt: new Date(Date.now() + 600_000).toISOString() };
+    // Authorization is controlled here; settings, membership and rendering use the real app.
+    await page.route(connectionPath, route => route.fulfill({ status: 201, json: pending }));
+    await page.route(`${connectionPath}/${connectionId}`, route => route.fulfill({ json: connected ? { id: connectionId, status: 'connected' } : pending }));
+    try {
+      const tabsBefore = page.context().pages().length;
+      await page.getByRole('button', { name: 'Conectar desde otro dispositivo', exact: true }).click();
+      await page.getByText('TEST-1234', { exact: true }).waitFor();
+      expect(page.context().pages()).toHaveLength(tabsBefore);
+      expect(await page.getByRole('link', { name: pending.verificationUrl, exact: true }).getAttribute('href')).toBe(pending.verificationUrl);
+      expect(await page.getByRole('button', { name: 'Copiar enlace', exact: true }).count()).toBe(1);
+      expect(await page.getByRole('button', { name: 'Conectar desde otro dispositivo', exact: true }).isDisabled()).toBe(true);
+      connected = true;
+      await page.getByText('ChatGPT conectado en este espacio.', { exact: true }).waitFor();
+      expect(page.context().pages()).toHaveLength(tabsBefore);
+      expect(await page.getByLabel('Autorizo el procesamiento externo de las categorías seleccionadas').isChecked()).toBe(false);
+    } finally {
+      await page.unroute(connectionPath); await page.unroute(`${connectionPath}/${connectionId}`);
+    }
+  }, 60_000);
+
   it('analyzes a requested HTTPS scope from the first workspace and rejects it after expiry', async () => {
     await page.context().clearCookies();
     await page.goto(origin);
