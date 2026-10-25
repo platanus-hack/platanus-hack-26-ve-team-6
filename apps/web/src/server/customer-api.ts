@@ -26,7 +26,6 @@ import { type Identity, type Backend } from '@gotchu/backend';
 import { prepareCorrectionRequestSchema, prepareCorrectionResponseSchema, reportRecommendationsResponseSchema, type PrepareCorrectionRequest, type PrepareCorrectionResponse, type ReportRecommendationsResponse } from '@gotchu/scenarios/contracts';
 import type { AuthService } from './auth.js';
 import { localRegistrationSchema, type LocalAccounts } from './local-accounts.js';
-import { handleStepUpApi } from './step-up-api.js';
 import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } from './http.js';
 import { handleContextApi } from './context-api.js';
 import { handleTriageApi } from './triage-api.js';
@@ -42,7 +41,6 @@ import type { createProviderConnections } from './provider-connections.js';
 import type { createOpenRouterLogins } from './openrouter-login.js';
 
 export interface CustomerServices {
-  stepUp?: NonNullable<Backend['stepUp']>;
   corrections?: {
     recommendations(identity: Identity, input: { organizationId: string; applicationId: string; reportId: string }): Promise<ReportRecommendationsResponse>;
     prepare(identity: Identity, input: PrepareCorrectionRequest & { organizationId: string; applicationId: string; reportId: string }): Promise<PrepareCorrectionResponse>;
@@ -193,15 +191,6 @@ export function createCustomerApi(options: {
         const isAccept = url.pathname === '/api/customer/invitations/accept' && request.method === 'POST';
         const email = isAccept ? await options.auth.accountEmail(session.userId) : null;
         const response = await handleMembersApi(request, identity, email, services.members, options.origin);
-        if (response) {
-          for (const cookie of session.cookies) response.headers.append('set-cookie', cookie);
-          return response;
-        }
-      }
-      if (url.pathname.startsWith('/api/customer/step-up/')) {
-        const stepUp = services.stepUp;
-        if (!stepUp) throw new HttpError(503, 'step_up_not_configured', 'La verificación en dos pasos no está configurada.');
-        const response = await handleStepUpApi(request, identity, stepUp);
         if (response) {
           for (const cookie of session.cookies) response.headers.append('set-cookie', cookie);
           return response;
@@ -518,10 +507,6 @@ export function createCustomerApi(options: {
       throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
     } catch (error) {
       const response = errorResponse(error);
-      if (new URL(request.url).pathname.startsWith('/api/customer/step-up/')) {
-        const headers = new Headers(response.headers); headers.set('Cache-Control', 'private, no-store');
-        return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-      }
       return response;
     }
   };

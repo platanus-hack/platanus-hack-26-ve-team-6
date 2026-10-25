@@ -33,7 +33,7 @@ export async function handleActionsApi(request: Request, identity: Identity, act
     const proposalId = parse(id, parts[7]);
     if (parts[8] === 'eligibility') return json(await actions.getEligibility(identity, { ...scope, proposalId }));
     if (parts[8] === 'approve') {
-      const input = parse(proposalIdSchema.extend({ stepUpProof: z.string().min(1).max(4096).optional() }), await readJson(request));
+      const input = parse(proposalIdSchema, await readJson(request));
       if (input.proposalId !== proposalId) throw new HttpError(400, 'invalid_input', 'La propuesta del cuerpo no coincide con la ruta.');
       return json(await actions.approve(identity, { ...scope, ...input }));
     }

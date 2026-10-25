@@ -17,7 +17,6 @@ import { createFileEventCredentials } from './event-credentials.js';
 import { createNotificationWebhookValidator } from './notification-dns.js';
 import { resolve } from 'node:path';
 import { createGitHubRepositoryReader, createLocalGitRepositoryReader, loadMonitoringRepositoryCatalog } from '@gotchu/monitoring';
-import { isIP } from 'node:net';
 import { investigationModelProbeResultSchema, singleGitHubPublicAppSchema } from '@gotchu/contracts';
 import { createSingleAppGitHubBroker } from './github-broker-client.js';
 import type { SingleGitHubPublicApp } from './github-single-app.js';
@@ -164,7 +163,7 @@ function execute(backend: Backend, identity: { userId: string }, operation: ApiO
     case 'coverage.get': return backend.web.getCoverage(identity, { organizationId: operation.organizationId, applicationId: operation.applicationId });
     case 'proposals.list': return backend.web.listProposals(identity, { organizationId: operation.organizationId, applicationId: operation.applicationId });
     case 'job.get': return backend.web.getJob(identity, { organizationId: operation.organizationId, jobId: operation.jobId });
-    case 'proposal.approve': return backend.proposals.approve(identity, { organizationId: operation.organizationId, proposalId: operation.proposalId, actionHash: operation.actionHash, stepUpProof: operation.stepUpProof });
+    case 'proposal.approve': return backend.proposals.approve(identity, { organizationId: operation.organizationId, proposalId: operation.proposalId, actionHash: operation.actionHash });
     default: { const exhaustive: never = operation; throw new Error(`Unsupported operation: ${String(exhaustive)}`); }
   }
 }
@@ -187,17 +186,6 @@ export function createBackendApi(options: { auth: AuthService; origin: string; w
   });
 }
 
-export function resolveWebAuthnConfiguration(configuredOrigin: URL, configuredRpID: string | undefined) {
-  const defaultRpID = ['127.0.0.1', '[::1]'].includes(configuredOrigin.hostname) ? 'localhost' : configuredOrigin.hostname;
-  const rpID = z.string().min(1).max(253).parse(configuredRpID ?? defaultRpID).toLowerCase();
-  const matchesOrigin = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/i.test(rpID)
-    && isIP(rpID) === 0
-    && (configuredOrigin.hostname === rpID || configuredOrigin.hostname.endsWith(`.${rpID}`));
-  if (configuredRpID !== undefined && !matchesOrigin) throw new Error('GOTCHU_WEBAUTHN_RP_ID must match the configured application origin');
-  if (!matchesOrigin) return undefined;
-  return { rpID, origin: configuredOrigin.origin, rpName: 'Gotchu' };
-}
-
 export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const configuredOrigin = new URL(env.PUBLIC_APP_URL ?? 'http://localhost:3000');
   if (configuredOrigin.username || configuredOrigin.password || configuredOrigin.pathname !== '/' || configuredOrigin.search || configuredOrigin.hash
@@ -216,7 +204,6 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
       bearerToken: env.GOTCHU_EXECUTOR_INTERNAL_TOKEN ?? '',
     })
     : undefined;
-  const webAuthn = resolveWebAuthnConfiguration(configuredOrigin, env.GOTCHU_WEBAUTHN_RP_ID);
   const apiDatabase = env.GOTCHU_API_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_API_DATABASE_URL, role: 'gotchu_api', max: 5 }) : null;
   const ingestDatabase = env.GOTCHU_INGEST_DATABASE_URL ? createDatabase({ connectionString: env.GOTCHU_INGEST_DATABASE_URL, role: 'gotchu_ingest', max: 5 }) : null;
   const selfHostMode = env.GOTCHU_AUTH_MODE === 'self_host';
@@ -315,9 +302,8 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   }, validationFacts: {
     getFacts: input => validationService?.getValidationFacts(input) ?? Promise.resolve(null),
   } }) : undefined;
-  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(dependencyValidationSandbox ? { dependencyValidationSandbox } : {}), ...(webAuthn ? { webAuthn: { ...webAuthn, ...(accounts ? { verifyPassword: (userId: string, password: string) => accounts.reauthenticate(userId, password) } : {}) } } : {}), webhookValidator: createNotificationWebhookValidator(dnsServers), modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true' }), ...(notificationSecrets ? { notificationSecrets } : {}), ...(modelSecrets ? { modelSecrets } : {}), ...(modelProbeClient ? { modelProbeClient } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(verifyRepositoryWriteAccess ? { repositoryWriteAccessVerifier: verifyRepositoryWriteAccess } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
-  const stepUp = web?.stepUp;
-  const settings = authSettings(env, accounts, stepUp ? userId => stepUp.invalidateSession(userId) : undefined);
+  const web = apiDatabase ? createBackend({ database: apiDatabase, ...(dependencyValidationSandbox ? { dependencyValidationSandbox } : {}), webhookValidator: createNotificationWebhookValidator(dnsServers), modelEndpointValidator: createModelEndpointValidator({ allowSelfHostedEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true' }), ...(notificationSecrets ? { notificationSecrets } : {}), ...(modelSecrets ? { modelSecrets } : {}), ...(modelProbeClient ? { modelProbeClient } : {}), ...(actionVerifier ? { actionVerifier } : {}), ...(verifyRepositoryWriteAccess ? { repositoryWriteAccessVerifier: verifyRepositoryWriteAccess } : {}), ...(eventCredentials ? { eventCredentials } : {}) }) : null;
+  const settings = authSettings(env, accounts);
   const auth = createAuthService(settings);
   const configuredCredentials = credentialStore(env.GOTCHU_EVENT_SIGNING_KEYS_JSON);
   const credentials: CredentialStore | undefined = eventCredentials || configuredCredentials ? { getSigningSecret: async reference => {
@@ -329,7 +315,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
   const openRouterLogins = web ? createOpenRouterLogins(origin, web.investigationModels) : undefined;
-  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, protection: web.protection, operations: web.operations, decisionRecords: web.decisionRecords, corrections: web.corrections, aiCorrections: web.aiCorrections, context: web.context, triage: web.triage, investigationModels: web.investigationModels, investigations: web.investigations,
+  const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, telemetry: web.telemetry, protection: web.protection, operations: web.operations, decisionRecords: web.decisionRecords, corrections: web.corrections, aiCorrections: web.aiCorrections, context: web.context, triage: web.triage, investigationModels: web.investigationModels, investigations: web.investigations,
     members: web.members,
     github: web.github,
     notifications: web.notifications,
@@ -370,7 +356,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
       return {
         ready,
         dependencies: { apiDatabase: apiDatabaseReady, intakeDatabase: intakeDatabaseReady, signIn: auth.enabled },
-        capabilities: { eventSigningKeys: Boolean(credentials), notificationWebhookSecrets:Boolean(notificationSecrets), modelCredentialStore: Boolean(modelSecrets), freshSecondFactorApproval: Boolean(web?.stepUp), githubWrites: false, customerCodeExecution: false, deployedAwsCoverage: false },
+        capabilities: { eventSigningKeys: Boolean(credentials), notificationWebhookSecrets:Boolean(notificationSecrets), modelCredentialStore: Boolean(modelSecrets), githubWrites: false, customerCodeExecution: false, deployedAwsCoverage: false },
       };
     },
     async close() { await Promise.all([apiDatabase?.close(), ingestDatabase?.close()]); },
