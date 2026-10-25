@@ -64,7 +64,7 @@ const dependencyReasonLabels: Record<NonNullable<DependencyFixRecommendation['re
   lockfile_change_out_of_scope: 'La actualización modificaría otras entradas del lockfile.',
 };
 const validationStateLabels: Record<NonNullable<DependencyFixRecommendation['validationState']>, string> = {
-  queued: 'En cola', running: 'Validando en el entorno aislado', passed: 'Validación aprobada', failed: 'La validación encontró una regresión',
+  queued: 'En cola', running: 'Validando en el entorno aislado', passed: 'Validación aprobada', failed: 'La validación no pasó',
   inconclusive: 'Validación inconclusa', quarantined: 'Ejecución en cuarentena', expired: 'Validación vencida',
 };
 
