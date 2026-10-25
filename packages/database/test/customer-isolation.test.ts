@@ -12,7 +12,7 @@ live('customer schema privilege and RLS boundaries on real Postgres', () => {
   it('keeps forced RLS on all customer tables and isolates sources/targets', async () => {
     const sourceId = randomUUID(); const targetId = randomUUID();
     await f.admin.query("INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor) VALUES ($1,$2,$3,$4,$5::jsonb,$6)", [f.a.organizationId, f.a.applicationId, sourceId, 'a'.repeat(64), JSON.stringify({ revision: 'r', files: [{ path: 'a.ts', content: '' }] }), f.a.userId]);
-    await f.admin.query("INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,consent_actor,challenge_hash,challenge_expires_at) VALUES ($1,$2,$3,'https://acme.com',1,'pending',$4,$5,now()+interval '30 minutes')", [f.a.organizationId, f.a.applicationId, targetId, f.a.userId, 'b'.repeat(64)]);
+    await f.admin.query("INSERT INTO gotchu.customer_targets(organization_id,application_id,id,origin,version,status,requested_by,authorized_at,expires_at) VALUES ($1,$2,$3,'https://acme.com',1,'authorized',$4,now(),now()+interval '7 days')", [f.a.organizationId, f.a.applicationId, targetId, f.a.userId]);
     await f.admin.query('INSERT INTO gotchu.customer_license_policies(organization_id,allow_licenses,deny_licenses,review_licenses,updated_by) VALUES ($1,$2,$3,$4,$5)', [f.a.organizationId, ['MIT'], [], ['UNKNOWN'], f.a.userId]);
     for (const role of ['gotchu_api', 'gotchu_coordinator'] as const) {
       for (const table of ['customer_sources', 'customer_targets', 'customer_requests', 'customer_reports'] as const) {
@@ -65,7 +65,7 @@ live('customer schema privilege and RLS boundaries on real Postgres', () => {
     }
     await expect(f.databases.gotchu_api.tenant(f.a.organizationId, tx => tx.query('INSERT INTO gotchu.customer_reports DEFAULT VALUES'))).rejects.toMatchObject({ code: '42501' });
     await expect(f.databases.gotchu_coordinator.tenant(f.a.organizationId, tx => tx.query('INSERT INTO gotchu.customer_sources DEFAULT VALUES'))).rejects.toMatchObject({ code: '42501' });
-    await expect(f.databases.gotchu_coordinator.tenant(f.a.organizationId, tx => tx.query("UPDATE gotchu.customer_targets SET status='verified' WHERE organization_id=$1", [f.a.organizationId]))).rejects.toMatchObject({ code: '42501' });
+    await expect(f.databases.gotchu_coordinator.tenant(f.a.organizationId, tx => tx.query("UPDATE gotchu.customer_targets SET status='authorized' WHERE organization_id=$1", [f.a.organizationId]))).rejects.toMatchObject({ code: '42501' });
     expect((await f.databases.gotchu_api.tenant(f.a.organizationId, tx => tx.query('SELECT gotchu.lock_customer_organization($1) AS locked', [f.b.organizationId]))).rows).toEqual([{ locked: false }]);
   });
 });
