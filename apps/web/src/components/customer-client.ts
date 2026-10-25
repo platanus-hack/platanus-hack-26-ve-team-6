@@ -440,7 +440,7 @@ export const customerApi = {
   workflowExceptionHash(input:{organizationId:string;applicationId:string;repositoryLinkId:string;workflowPath:string;rule:string;justification:string}) {
     return request(`${applicationPath(input.organizationId,input.applicationId)}/workflow-exceptions/hash`,z.object({actionHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),{method:'POST',...jsonBody(input)});
   },
-  createWorkflowException(input:{organizationId:string;applicationId:string;repositoryLinkId:string;workflowPath:string;rule:string;justification:string;stepUpProof:string}) {
+  createWorkflowException(input:{organizationId:string;applicationId:string;repositoryLinkId:string;workflowPath:string;rule:string;justification:string;actionHash:string}) {
     return request(`${applicationPath(input.organizationId,input.applicationId)}/workflow-exceptions`,z.object({id:z.uuid(),version:z.number().int().positive(),workflowPath:z.string(),rule:z.string(),justification:z.string(),createdBy:z.string(),createdAt:z.iso.datetime()}).strict(),{method:'POST',...jsonBody(input)},201);
   },
   removeWorkflowException(input:{organizationId:string;applicationId:string;repositoryLinkId:string;id:string;version:number}) {

@@ -1,6 +1,6 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CustomerApiError, customerApi } from './customer-client';
-import { requestStepUp } from './step-up-client';
+import { contextClient } from './context-client';
 
 const stateLabels: Record<string, string> = {
   proposed: 'Propuesta recibida', eligible: 'Lista para autorización', ineligible: 'Bloqueada', approved: 'Autorizada · en espera del ejecutor', expired: 'Autorización caducada', invalidated: 'Propuesta invalidada',
@@ -19,6 +19,8 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
     queryKey: key, queryFn: () => customerApi.actionProposals(organizationId, applicationId), retry: false,
     refetchInterval: query => query.state.data?.some(proposal => ['approved','executing','uncertain','reconciliation_required'].includes(proposal.state)) ? 5_000 : false,
   });
+  const contextKey = ['customer-data', userId, 'context', organizationId, applicationId];
+  const context = useQuery({ queryKey: contextKey, queryFn: () => contextClient.list(organizationId, applicationId), enabled: isOwner && Boolean(proposals.data?.length), retry: false });
   const eligibility = useQueries({ queries: (proposals.data ?? []).map(proposal => ({
     queryKey: ['customer-data', userId, 'action-eligibility', organizationId, applicationId, proposal.id],
     queryFn: () => customerApi.getActionEligibility(organizationId, applicationId, proposal.id),
@@ -28,10 +30,17 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
   })) });
   const refresh = () => client.invalidateQueries({ queryKey: key });
   const approve = useMutation({
-    mutationFn: async (proposal: NonNullable<typeof proposals.data>[number]) => {
-      const stepUpProof = await requestStepUp(organizationId, proposal.actionHash);
-      return customerApi.approveAction({ organizationId, applicationId, proposalId: proposal.id, actionHash: proposal.actionHash, stepUpProof });
-    }, onSuccess: refresh,
+    mutationFn: (proposal: NonNullable<typeof proposals.data>[number]) => customerApi.approveAction({ organizationId, applicationId, proposalId: proposal.id, actionHash: proposal.actionHash }),
+    onSuccess: refresh,
+  });
+  const grantWriteAccess = useMutation({
+    mutationFn: async (input: { proposalId: string; repositoryLinkId: string }) => {
+      const scope = { organizationId, applicationId, repositoryLinkId: input.repositoryLinkId, grant: true };
+      const confirmation = await contextClient.repositoryWriteAccessChallenge(scope);
+      await contextClient.setRepositoryWriteAccess({ ...scope, actionHash: confirmation.actionHash });
+      return customerApi.getActionEligibility(organizationId, applicationId, input.proposalId);
+    },
+    onSettled: () => Promise.all([refresh(), client.invalidateQueries({ queryKey: contextKey }), client.invalidateQueries({ queryKey: ['customer-data', userId, 'action-eligibility', organizationId, applicationId] })]),
   });
   const checkEligibility = useMutation({
     mutationFn: (proposalId: string) => customerApi.getActionEligibility(organizationId, applicationId, proposalId),
@@ -40,7 +49,7 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
   const cancel = useMutation({ mutationFn: (proposalId: string) => customerApi.cancelAction({ organizationId, applicationId, proposalId }), onSuccess: refresh });
   return <section className="customer-card customer-panel" aria-labelledby="action-approvals-title">
     <div className="customer-card-heading"><div><h2 id="action-approvals-title">Propuestas de cambio</h2></div></div>
-    <p>Cada aprobación autoriza esta propuesta exacta y requiere un segundo factor.</p>
+    <p>Revisa el cambio y aprueba su publicación como PR borrador. Solo una persona propietaria puede autorizarla.</p>
     {proposals.isPending && <div className="customer-loading" role="status">Cargando propuestas…</div>}
     {proposals.error && <div className="customer-error" role="alert"><p>{errorMessage(proposals.error)}</p><button className="customer-link-button" onClick={() => { proposals.refetch().catch(() => undefined); }}>Reintentar</button></div>}
     {proposals.data?.length === 0 && <div className="customer-empty-inline">Todavía no hay propuestas para este proyecto.</div>}
@@ -49,6 +58,11 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
       const isPullRequestAction = proposal.kind === 'source_patch_pull_request' || proposal.kind === 'dependency_pull_request';
       const canApprovePr = isOwner && isPullRequestAction && proposal.state === 'eligible' && serverEligibility?.status === 'eligible';
       const eligibilityReasons = serverEligibility?.status === 'ineligible' ? serverEligibility.blockingReasons : proposal.blockingReasons;
+      const targetId = repositoryLinkId(proposal.target);
+      const repository = context.data?.repositoryLinks.find(item => item.id === targetId);
+      const canGrant = isOwner && canManage && repository && !repository.revoked && repository.state === 'verified'
+        && repository.readAccess === 'granted' && repository.writeAccess !== 'granted'
+        && ['proposed', 'ineligible', 'eligible'].includes(proposal.state);
       return <article className="customer-approval" id={`action-${proposal.actionHash}`} key={proposal.id}>
       <div className="customer-approval-heading"><h3>{proposal.effect}</h3><span className="customer-status">{stateLabels[proposal.state] ?? proposal.state}</span></div>
       <p><strong>Alcance:</strong> {proposal.scope}</p>
@@ -58,14 +72,17 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
       <h4>Comprobaciones</h4><ul>{proposal.validations.map(fact => <li key={fact.label}>{fact.label === 'reanálisis objetivo' ? 'reanálisis objetivo' : fact.label}: {fact.state === 'passed' ? 'pasó' : fact.state === 'failed' ? 'falló' : 'pendiente'}</li>)}</ul>
       <ul>{proposal.limits.map(limit => <li key={limit}>{limit}</li>)}</ul>
       {eligibilityReasons.length > 0 && <div className="customer-field-note"><strong>Qué falta</strong><ul>{eligibilityReasons.map(reason => <li key={reason}>{reason}</li>)}</ul></div>}
+      {canGrant && <div><p>Permite publicar ramas y PR en este repositorio. Cada cambio seguirá necesitando tu aprobación; este permiso no autoriza fusionar ni desplegar.</p><button className="customer-button" type="button" disabled={grantWriteAccess.isPending} onClick={() => grantWriteAccess.mutate({ proposalId: proposal.id, repositoryLinkId: repository.id })}>{grantWriteAccess.isPending ? 'Confirmando permiso…' : 'Permitir publicación de PR'}</button></div>}
+      {context.error && isOwner && <p className="customer-form-error" role="alert">No se pudo consultar el permiso del repositorio. <button className="customer-link-button" type="button" onClick={() => { void context.refetch(); }}>Reintentar</button></p>}
       <div className="customer-approval-actions">
         {canManage && isOwner && ['proposed','ineligible'].includes(proposal.state) && isPullRequestAction && <button className="customer-link-button" type="button" disabled={checkEligibility.isPending} onClick={() => checkEligibility.mutate(proposal.id)}>{checkEligibility.isPending ? 'Comprobando requisitos…' : 'Comprobar requisitos'}</button>}
-        {canManage && proposal.state !== 'approved' && !['executing','succeeded','failed','uncertain','reconciliation_required','invalidated','expired'].includes(proposal.state) && <button className="customer-button" type="button" disabled={!canApprovePr || approve.isPending} title={!isOwner ? 'Solo una persona propietaria puede aprobar.' : eligibility[index]?.isPending ? 'Comprobando los requisitos actuales.' : eligibilityReasons[0] ?? (!isPullRequestAction ? 'Esta acción no está disponible en esta fase.' : 'La propuesta todavía no es elegible.')} onClick={() => approve.mutate(proposal)}>{approve.isPending ? 'Solicitando verificación…' : buttonLabels[proposal.kind] ?? 'Acción no disponible'}</button>}
+        {canManage && proposal.state !== 'approved' && !['executing','succeeded','failed','uncertain','reconciliation_required','invalidated','expired'].includes(proposal.state) && <button className="customer-button" type="button" disabled={!canApprovePr || approve.isPending} title={!isOwner ? 'Solo una persona propietaria puede aprobar.' : eligibility[index]?.isPending ? 'Comprobando los requisitos actuales.' : eligibilityReasons[0] ?? (!isPullRequestAction ? 'Esta acción no está disponible en esta fase.' : 'La propuesta todavía no es elegible.')} onClick={() => approve.mutate(proposal)}>{approve.isPending ? 'Guardando aprobación…' : buttonLabels[proposal.kind] ?? 'Acción no disponible'}</button>}
         {canManage && ['proposed','eligible','ineligible'].includes(proposal.state) && <button className="customer-link-button" type="button" disabled={cancel.isPending} onClick={() => cancel.mutate(proposal.id)}>Cancelar propuesta</button>}
         {eligibility[index]?.error && <p className="customer-form-error" role="alert">{errorMessage(eligibility[index].error)}</p>}
         {checkEligibility.error && checkEligibility.variables === proposal.id && <p className="customer-form-error" role="alert">{errorMessage(checkEligibility.error)}</p>}
         {approve.error && approve.variables?.id === proposal.id && <p className="customer-form-error" role="alert">{errorMessage(approve.error)}</p>}
         {cancel.error && cancel.variables === proposal.id && <p className="customer-form-error" role="alert">{errorMessage(cancel.error)}</p>}
+        {grantWriteAccess.error && grantWriteAccess.variables?.proposalId === proposal.id && <p className="customer-form-error" role="alert">{errorMessage(grantWriteAccess.error)}</p>}
       </div>
       <h4>Seguimiento del efecto</h4>
       <p>Estado del ejecutor: {proposal.execution.status ? stateLabels[proposal.execution.status] : 'sin ejecución registrada'}.</p>
@@ -78,6 +95,10 @@ export function ApprovalPanel({ userId, organizationId, applicationId, canManage
     </article>;
     })}
   </section>;
+}
+
+function repositoryLinkId(target: unknown) {
+  return target && typeof target === 'object' && 'repositoryLinkId' in target && typeof target.repositoryLinkId === 'string' ? target.repositoryLinkId : undefined;
 }
 
 function targetLabel(target: unknown) {

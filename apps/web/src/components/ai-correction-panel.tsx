@@ -112,7 +112,7 @@ function CorrectionForSource({ organizationId, applicationId, reportId, findingI
       if (canPrepare && authorizedContext === consentContext) prepare.mutate();
     }}>
       <p>Se enviarán detalles del hallazgo y hasta 4 archivos de código acotados de esta instantánea a <strong>{providerName} · {model?.modelId}</strong>. La preparación consume presupuesto y tokens del espacio.</p>
-      <p>La IA preparará cambios reales en una instantánea privada. El código no se ejecutará ni se escribirá en el repositorio. Una PR requiere validación independiente, aprobación humana exacta con segundo factor y un ejecutor independiente habilitado.</p>
+      <p>La IA preparará cambios reales en una instantánea privada. El código no se ejecutará ni se escribirá en el repositorio. Una PR requiere validación independiente, aprobación del propietario y un ejecutor independiente habilitado.</p>
       <p className="customer-field-note">Fuente fijada: <code>{sourceDigest}</code></p>
       <label className="customer-checkbox"><input type="checkbox" required checked={authorizedContext === consentContext} disabled={!canPrepare} onChange={event => setAuthorizedContext(event.target.checked ? consentContext : null)} /><span>Autorizo compartir estos archivos con el proveedor seleccionado y consumir el presupuesto para preparar cambios privados.</span></label>
       <div className="customer-investigation-action"><Button type="submit" size="sm" disabled={!canPrepare || authorizedContext !== consentContext}>{prepare.isPending ? 'Solicitando corrección…' : 'Confirmar preparación privada'}</Button><Button type="button" variant="outline" size="sm" disabled={prepare.isPending} onClick={() => { setConfirming(false); setAuthorizedContext(null); prepare.reset(); }}>Volver</Button></div>
@@ -141,7 +141,7 @@ function CorrectionForSource({ organizationId, applicationId, reportId, findingI
       </>}
       {item.state === 'prepared' && item.candidateSourceId && <>
         <CorrectionCandidateStatus key={item.candidateSourceId} organizationId={organizationId} applicationId={applicationId} candidateId={item.candidateSourceId} correction={item} />
-        <CorrectionProposal key={item.candidateSourceId} organizationId={organizationId} applicationId={applicationId} candidateId={item.candidateSourceId} canManage={canManage} />
+        <CorrectionProposal key={item.candidateSourceId} organizationId={organizationId} applicationId={applicationId} reportId={reportId} candidateId={item.candidateSourceId} canManage={canManage} />
       </>}
       {item.state === 'prepared' && !item.candidateSourceId && <p>No hay una instantánea candidata disponible para preparar una PR. Hace falta revisar el resultado guardado.</p>}
     </li>)}</ol>}
@@ -245,7 +245,7 @@ function CorrectionCandidateStatus({ organizationId, applicationId, candidateId,
   </div>;
 }
 
-function CorrectionProposal({ organizationId, applicationId, candidateId, canManage }: { organizationId: string; applicationId: string; candidateId: string; canManage: boolean }) {
+function CorrectionProposal({ organizationId, applicationId, reportId, candidateId, canManage }: { organizationId: string; applicationId: string; reportId: string; candidateId: string; canManage: boolean }) {
   const client = useQueryClient();
   const proposal = useMutation({
     mutationFn: () => customerApi.proposeCorrectionAction({ organizationId, applicationId, candidateId }),
@@ -258,15 +258,15 @@ function CorrectionProposal({ organizationId, applicationId, candidateId, canMan
     queryFn: () => customerApi.actionProposals(organizationId, applicationId), enabled: proposalId !== undefined, retry: false,
   });
   const savedProposal = proposals.data?.find(item => item.id === proposalId);
-  const sourcesLink = `/w/${organizationId}/p/${applicationId}/fuentes#${proposal.data ? `action-${proposal.data.actionHash}` : 'action-approvals-title'}`;
+  const proposalsLink = `/w/${organizationId}/p/${applicationId}/informes/${reportId}#${proposal.data ? `action-${proposal.data.actionHash}` : 'action-approvals-title'}`;
   return <div>
-    <p>La PR requiere un repositorio y commit verificados, validación independiente en un entorno aislado, un ejecutor habilitado y aprobación exacta con segundo factor en Fuentes.</p>
+    <p>La PR requiere un repositorio y commit verificados, validación independiente en un entorno aislado, un ejecutor habilitado y tu aprobación del cambio exacto.</p>
     {!proposal.data && <Button variant="outline" size="sm" disabled={!canManage || proposal.isPending} onClick={() => proposal.mutate()}>{proposal.isPending ? 'Preparando propuesta de PR…' : 'Preparar propuesta de PR'}</Button>}
     {proposal.error && <p className="customer-form-error" role="alert">PR bloqueada: {errorText(proposal.error)}</p>}
     {proposal.data && <p role="status">Propuesta de PR guardada. Revisa sus requisitos y el cambio exacto antes de aprobar.</p>}
     {proposalId && proposals.isPending && <p role="status">Consultando requisitos guardados…</p>}
     {proposals.error && <div role="alert"><p>No se pudieron consultar los requisitos: {errorText(proposals.error)}</p><Button variant="outline" size="sm" onClick={() => { void proposals.refetch(); }}>Reintentar carga de requisitos</Button></div>}
     {savedProposal?.blockingReasons.length ? <><h4>Requisitos pendientes</h4><ul>{savedProposal.blockingReasons.map(reason => <li key={reason}>{reason}</li>)}</ul></> : null}
-    <a className={buttonVariants({ variant: 'link', size: 'sm' })} href={sourcesLink}>Fuentes · Propuestas de cambio</a>
+    <a className={buttonVariants({ variant: 'link', size: 'sm' })} href={proposalsLink}>Revisar propuestas de cambio</a>
   </div>;
 }
