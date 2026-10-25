@@ -57,7 +57,7 @@ describe('inert OpenAPI inventory', () => {
   });
 });
 
-it.each([false, true])('executes real bounded API scenarios through LangGraph (corrected=%s)', async corrected => {
+it.each([{ corrected: false, templated: false }, { corrected: true, templated: false }, { corrected: true, templated: true }])('executes real bounded API scenarios through LangGraph (corrected=$corrected, template=$templated)', async ({ corrected, templated }) => {
   const seen: Array<{ method: string | undefined; path: string | undefined }> = [];
   const server = createServer({ cert, key }, (req, res) => {
     seen.push({ method: req.method, path: req.url });
@@ -68,7 +68,7 @@ it.each([false, true])('executes real bounded API scenarios through LangGraph (c
     if (req.method === 'OPTIONS') return res.writeHead(204, { ...cors, allow: 'GET, HEAD, OPTIONS', 'access-control-allow-methods': 'GET', 'access-control-allow-headers': 'authorization', 'set-cookie': 'PRIVATE_COOKIE' }).end();
     if (req.method === 'HEAD') return res.writeHead(req.url === '/api/account' ? 401 : 200, cors).end();
     if (req.url === '/openapi.json') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
-      openapi: '3.0.3', info: schemaInfo, security: [{ bearer: [] }], paths: { '/api/account': { get: { ...operation, description: 'PRIVATE_SCHEMA_TEXT' } } },
+      openapi: '3.0.3', info: schemaInfo, security: [{ bearer: [] }], paths: { '/api/account': { get: { ...operation, description: 'PRIVATE_SCHEMA_TEXT' } }, ...(templated ? { '/users/{id}': { get: operation } } : {}) },
     }));
     res.writeHead(404, { 'content-type': 'text/plain', server: 'PRIVATE_BANNER' }).end(corrected ? 'not found' : 'Error: PRIVATE_ERROR_TEXT\n    at handler (/private/server.ts:10:22)');
   });
@@ -91,6 +91,7 @@ it.each([false, true])('executes real bounded API scenarios through LangGraph (c
     expect(report.external?.findings.map(item => item.ruleId).sort()).toEqual(corrected ? [] : ['api.credentialed-probe-origin', 'api.error-detail']);
     expect(report.external?.findings.every(item => item.exploitability === 'unknown')).toBe(true);
     expect(report.external?.coverage.find(item => item.capability === 'api_auth_boundary')?.state).toBe('inspected');
+    expect(report.external?.coverage.find(item => item.capability === 'api_endpoint_mapping')?.state).toBe(templated ? 'unavailable' : 'inspected');
     expect(JSON.stringify(report)).not.toMatch(/PRIVATE_(?:COOKIE|SCHEMA_TEXT|ERROR_TEXT|BANNER)/);
     expect(report.external?.snapshotRef.endsWith(':api_checks')).toBe(true);
     assertReportBinding(request, report);
