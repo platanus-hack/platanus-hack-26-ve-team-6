@@ -25,12 +25,6 @@ typography:
     fontWeight: 700
     lineHeight: 0.9
     letterSpacing: "-0.015em"
-  display-closing:
-    fontFamily: "'Gotchu Display', sans-serif"
-    fontSize: "clamp(44px, 9.4vw, 148px)"
-    fontWeight: 700
-    lineHeight: 0.9
-    letterSpacing: "-0.015em"
   display:
     fontFamily: "'Gotchu Display', sans-serif"
     fontSize: "clamp(36px, 5.6vw, 88px)"
@@ -254,8 +248,7 @@ Four brand colours (magenta, graphite, porcelain, silver) over two absolute grou
 
 ### Hierarchy
 - **Display hero** (700, clamp(46px, 7.4vw, 124px), 0.9, uppercase): the two-line h1; the second line carries the big highlighter.
-- **Display closing** (700, clamp(44px, 9.4vw, 148px), 0.9, uppercase): the closing headline above the dot wordmark.
-- **Display** (700, clamp(36px, 5.6vw, 88px), 0.94, uppercase, max 16ch): every section headline, two lines.
+- **Display** (700, clamp(36px, 5.6vw, 88px), 0.94, uppercase, max 16ch): every section headline, two lines. The closing runs four lines at full width: the question, then “we Gotchu.” on the big highlighter after a 0.45em pause.
 - **Headline** (700, clamp(28px, 4.4vw, 64px), 1.02, uppercase): glossary terms; scope column names run clamp(34px, 4vw, 56px)/1.
 - **Title** (700, clamp(18px, 1.9vw, 24px), 1.1, uppercase): ruled list items; footer line clamp(22px, 3vw, 40px).
 - **Question** (600, clamp(20px, 2.3vw, 30px), 1.1, uppercase display): FAQ triggers.
@@ -339,6 +332,12 @@ Each line unmasks upward from a clip (800ms `cubic-bezier(.23, 1, .32, 1)`, 90ms
 ### Plates
 - **ASCII plates:** `pre` art in mono clamp(9.5px, 2.4vw, 12.5px)/1.18 in foreground with the `◆` finding in action/pink ink. The Venn plate slides its two circles together (900ms), then fills the lens row by row with the body band and clips its labels in; the "Señales compartidas" label is bold.
 - **Dot fields:** canvas plates of square pixels and mono glyphs in six theme tones (`--dot-1` to `--dot-6`). Particles fly in on first view, ripple from a fine pointer within 120px, gather on `data-catch`, and sleep off screen, in hidden tabs, when paused and under reduced motion (which paints the settled frame). No React state per frame.
+
+### Charts
+Structure, never results. Square pixels (2px radius) in `--dot-6` at rest and foreground when they apply; magenta marks the active or hovered state.
+- **Review matrix:** a semantic table of review × source. Display-uppercase review names with one muted line, then a 24–36px pixel per source; pixels grow in row by row on reveal. Under 700px the source labels stay as one header row and each review's pixels sit beneath its name.
+- **Fix track:** five 48px outlined nodes with lucide icons joined by 2px connectors that fill with magenta as a diamond travels the rail (desktop) on reveal; vertical under 900px.
+- **Interval day:** outline toggles for 1, 6, 12 and 24 h above 24 hour bars; re-check hours rise in magenta, the rest rest at 28% in dust, and the caption counts re-checks per day.
 
 ### Ruled lists and exhibits
 - **Ruled list:** rows between 1px hairlines; display uppercase items led by a mono letter, or text-face facts led by the 8px magenta diamond.
