@@ -181,7 +181,7 @@ export function InvestigationModelSettings({ organizationId, isOwner }: { organi
       </label>)}
     </fieldset>
     <label className="customer-investigation-consent"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} disabled={!isOwner || save.isPending || testConnection.isPending} />Autorizo el procesamiento externo de las categorías seleccionadas</label>
-    {subscription && <p className="customer-field-note">Las llamadas no tienen coste por token en Gotchu. El presupuesto en dinero sólo limita proveedores con clave API y debe mantenerse por encima de lo ya gastado.</p>}
+    {subscription && <p className="customer-field-note">Con suscripción, cada llamada se descuenta de los límites de tu plan y cuesta $0 en Gotchu. Aun así, el presupuesto en dinero del espacio debe quedar por encima de lo ya gastado con proveedores de clave API, o las investigaciones se bloquean.</p>}
     <div className="customer-investigation-budget-grid">
       {!subscription && <>
       <label htmlFor="investigation-input-rate">Entrada · micro USD por millón de tokens<input id="investigation-input-rate" type="number" min="0" max="1000000000" step="1" value={inputRate} onChange={event => setInputRate(event.target.value)} disabled={!isOwner || save.isPending || testConnection.isPending} /></label>
