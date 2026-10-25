@@ -47,6 +47,33 @@ export async function loadSingleAppRepository(tx: Transaction, scope: { organiza
     defaultBranch: row.default_branch, installationId: row.installation_id, appId: row.app_id };
 }
 
+/** Shared trusted import transaction; stored bytes and current authority are checked before binding. */
+export async function bindCapturedSource(tx: Transaction, identity: Identity, value: z.infer<typeof githubCapturedSourceInputSchema>): Promise<void> {
+  await authorize(tx, value.organizationId, identity, ['owner', 'operator']);
+  const repository = await loadSingleAppRepository(tx, { organizationId: value.organizationId,
+    applicationId: value.applicationId, repositoryLinkId: value.repositoryLinkId }, value.appId);
+  if (repository.installationId !== value.installationId || repository.repositoryId !== value.repositoryId) {
+    throw new BackendError('github_source_scope_mismatch', 'La captura no corresponde al repositorio autorizado.', 409);
+  }
+  const result = await tx.query<{ body: unknown; digest: string; deleted_at: Date | null }>(
+    'SELECT body,digest,deleted_at FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND id=$3',
+    [value.organizationId, value.applicationId, value.sourceSnapshotId]);
+  const source = result.rows[0];
+  const snapshot = customerSourceSnapshotSchema.safeParse(source?.body);
+  if (!source || source.deleted_at !== null || !snapshot.success || snapshot.data.revision !== value.commitSha
+    || source.digest !== value.digest || sha256(canonicalJson(snapshot.data)) !== value.digest) {
+    throw new BackendError('github_source_digest_mismatch', 'La fuente almacenada no coincide con la captura de GitHub.', 409);
+  }
+  const bound = await tx.query<{ imported: boolean }>('SELECT gotchu.github_import_captured_source($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS imported',
+    [value.organizationId, value.applicationId, identity.userId, value.repositoryLinkId, value.sourceSnapshotId,
+      value.appId, value.installationId, String(value.repositoryId), value.commitSha, value.treeSha, value.digest]);
+  if (!bound.rows[0]?.imported) throw new BackendError('github_source_binding_conflict', 'La fuente ya tiene otra identidad de repositorio o perdió su autorización.', 409);
+  await audit(tx, value.organizationId, identity.userId, 'github.source_imported', value.sourceSnapshotId, {
+    applicationId: value.applicationId, repositoryLinkId: value.repositoryLinkId, appId: value.appId,
+    installationId: value.installationId, repositoryId: value.repositoryId, commitSha: value.commitSha, treeSha: value.treeSha, digest: value.digest,
+  });
+}
+
 export function createGitHubConnectionService(deps: BaseDependencies) {
   return {
     async workspaceName(identity: Identity, organizationId: string): Promise<string> {
@@ -123,31 +150,7 @@ export function createGitHubConnectionService(deps: BaseDependencies) {
     async importCapturedSource(identity: Identity, input: unknown): Promise<void> {
       if (deps.database.role !== 'gotchu_api') throw new BackendError('forbidden', 'Captured source import requires the API role', 403);
       const value = parse(githubCapturedSourceInputSchema, input);
-      await deps.database.tenant(value.organizationId, async tx => {
-        await authorize(tx, value.organizationId, identity, ['owner', 'operator']);
-        const repository = await loadSingleAppRepository(tx, { organizationId: value.organizationId,
-          applicationId: value.applicationId, repositoryLinkId: value.repositoryLinkId }, value.appId);
-        if (repository.installationId !== value.installationId || repository.repositoryId !== value.repositoryId) {
-          throw new BackendError('github_source_scope_mismatch', 'La captura no corresponde al repositorio autorizado.', 409);
-        }
-        const result = await tx.query<{ body: unknown; digest: string; deleted_at: Date | null }>(
-          'SELECT body,digest,deleted_at FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND id=$3',
-          [value.organizationId, value.applicationId, value.sourceSnapshotId]);
-        const source = result.rows[0];
-        const snapshot = customerSourceSnapshotSchema.safeParse(source?.body);
-        if (!source || source.deleted_at !== null || !snapshot.success || snapshot.data.revision !== value.commitSha
-          || source.digest !== value.digest || sha256(canonicalJson(snapshot.data)) !== value.digest) {
-          throw new BackendError('github_source_digest_mismatch', 'La fuente almacenada no coincide con la captura de GitHub.', 409);
-        }
-        const bound = await tx.query<{ imported: boolean }>('SELECT gotchu.github_import_captured_source($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS imported',
-          [value.organizationId, value.applicationId, identity.userId, value.repositoryLinkId, value.sourceSnapshotId,
-            value.appId, value.installationId, String(value.repositoryId), value.commitSha, value.treeSha, value.digest]);
-        if (!bound.rows[0]?.imported) throw new BackendError('github_source_binding_conflict', 'La fuente ya tiene otra identidad de repositorio o perdió su autorización.', 409);
-        await audit(tx, value.organizationId, identity.userId, 'github.source_imported', value.sourceSnapshotId, {
-          applicationId: value.applicationId, repositoryLinkId: value.repositoryLinkId, appId: value.appId,
-          installationId: value.installationId, repositoryId: value.repositoryId, commitSha: value.commitSha, treeSha: value.treeSha, digest: value.digest,
-        });
-      });
+      await deps.database.tenant(value.organizationId, tx => bindCapturedSource(tx, identity, value));
     },
     async list(identity: Identity, input: unknown): Promise<GitHubConnection[]> {
       const scope = parse(githubScopeSchema, input);

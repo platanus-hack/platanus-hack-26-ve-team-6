@@ -88,7 +88,7 @@ live('captured-source deduplication across GitHub authority changes', () => {
     await expect(importCapture(capture)).resolves.toEqual(source);
   });
 
-  it('reuses matching pre-063 bindings and separates concurrent unbound captures by full provenance', async () => {
+  it('reuses matching pre-063 bindings and atomically binds concurrent captures by full provenance', async () => {
     const capture = await connect();
     const original = await customers.uploadSource(actor(), upload());
     await github.importCapturedSource(actor(), { ...capture, sourceSnapshotId: original.id });
@@ -100,6 +100,7 @@ live('captured-source deduplication across GitHub authority changes', () => {
       customers.uploadCapturedSource(actor(), upload(), changed),
       customers.uploadCapturedSource(actor(), upload(), different),
     ]);
+    expect(await bindings()).toHaveLength(3);
     expect(first.id).toBe(retry.id);
     expect(first.id).not.toBe(original.id);
     expect(other.id).not.toBe(first.id);

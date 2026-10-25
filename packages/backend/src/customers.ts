@@ -21,7 +21,7 @@ import { audit, authorize, BackendError, canonicalJson, identitySchema, parse, s
 import { DEMO_ASSESSMENT_SCOPE } from './demo.js';
 import { completeJob, enqueue } from './jobs.js';
 import { enqueueAutomaticSourceInvestigations } from './automatic-source-investigations.js';
-import { loadSingleAppRepository } from './github-connections.js';
+import { bindCapturedSource, loadSingleAppRepository } from './github-connections.js';
 
 export type CustomerDependencies = BaseDependencies;
 export const CUSTOMER_MAX_UNFINISHED = 3;
@@ -206,7 +206,10 @@ export function createCustomerService(deps: CustomerDependencies) {
             WHERE organization_id=$1 AND application_id=$2 AND digest=$3 AND deleted_at IS NULL
             ORDER BY created_at,id LIMIT 1`, [value.organizationId, value.applicationId, digest]);
       const existing = prior.rows[0];
-      if (existing) return sourceSummary(value, existing.id, digest, snapshot, existing.created_at);
+      if (existing) {
+        if (capture) await bindCapturedSource(tx, actor, { ...capture, sourceSnapshotId: existing.id });
+        return sourceSummary(value, existing.id, digest, snapshot, existing.created_at);
+      }
       const count = await tx.query<{ count: number }>('SELECT count(*)::int AS count FROM gotchu.customer_sources WHERE organization_id=$1 AND application_id=$2 AND deleted_at IS NULL', [value.organizationId, value.applicationId]);
       if ((count.rows[0]?.count ?? CUSTOMER_MAX_SOURCES) >= CUSTOMER_MAX_SOURCES) throw new BackendError('source_limit', 'Application snapshot limit reached', 429);
       const daily = await tx.query<{ count: number }>("SELECT count(*)::int AS count FROM gotchu.customer_sources WHERE organization_id=$1 AND created_at>clock_timestamp()-interval '1 day'", [value.organizationId]);
@@ -216,6 +219,7 @@ export function createCustomerService(deps: CustomerDependencies) {
       const result = await tx.query<{ created_at: Date }>('INSERT INTO gotchu.customer_sources(organization_id,application_id,id,digest,body,consent_actor,capture_key) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7) RETURNING created_at', [value.organizationId, value.applicationId, id, digest, serialized, actor.userId, captureKey]);
       const row = result.rows[0]; if (!row) throw new Error('Source insert returned no row');
       await audit(tx, value.organizationId, actor.userId, 'source.uploaded', id, { digest });
+      if (capture) await bindCapturedSource(tx, actor, { ...capture, sourceSnapshotId: id });
       return sourceSummary(value, id, digest, snapshot, row.created_at);
     });
   }
@@ -347,7 +351,7 @@ export function createCustomerService(deps: CustomerDependencies) {
     uploadSource(identity: Identity, input: z.input<typeof customerUploadSourceSchema>): Promise<CustomerSourceSummary> {
       return storeSource(identity, input);
     },
-    /** Server-only: provenance must come from an authenticated broker capture, never an HTTP upload body. */
+    /** Server-only: atomically stores and binds an authenticated broker capture, never an HTTP upload body. */
     async uploadCapturedSource(identity: Identity, input: z.input<typeof customerUploadSourceSchema>, capture: unknown): Promise<CustomerSourceSummary> {
       if (deps.database.role !== 'gotchu_api') throw new BackendError('forbidden', 'Captured source upload requires the API role', 403);
       return storeSource(identity, input, parse(capturedSourceProvenanceSchema, capture));
