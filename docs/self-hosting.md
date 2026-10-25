@@ -38,18 +38,22 @@ Semgrep está fijado en 1.182.0 por digest. La validación local Linux/amd64 cub
 
 ## Investigación con IA
 
-`./gotchu up` arranca el gateway y el worker de investigación junto al resto de servicios. Una persona Owner abre **Aplicaciones → Modelo y consentimiento**, elige un proveedor, pega su credencial, marca las categorías de datos que autoriza y guarda. El modelo sugerido puede cambiarse o escribirse como texto libre. La credencial se almacena sólo en el servidor (`.gotchu/model-secrets`); Gotchu exige consentimiento explícito por categoría y conserva los límites de gasto y tokens. **Probar conexión** envía una solicitud mínima por el gateway y muestra un resultado breve.
+`./gotchu up` arranca el gateway y el worker de investigación junto al resto de servicios. Una persona Owner abre **Modelos de IA** en el menú del espacio, elige un proveedor, conecta su cuenta o introduce su clave y marca las categorías de datos que autoriza. La página está disponible aunque todavía no haya proyectos. El modelo sugerido puede cambiarse o escribirse como texto libre. La credencial se almacena sólo en el servidor (`.gotchu/model-secrets`); Gotchu exige consentimiento explícito por categoría y conserva los límites de gasto y tokens. **Probar conexión** envía una solicitud mínima por el gateway y muestra un resultado breve.
 
 ### Con tu suscripción de Claude o ChatGPT
 
 Claude Code y Codex usan tu suscripción en lugar de una clave API: el gateway ejecuta el CLI oficial sin herramientas, en un directorio temporal vacío y con un `HOME` propio. El host que ejecuta `./gotchu up` necesita el CLI instalado y en el `PATH` (o `GOTCHU_CLAUDE_CODE_BIN` / `GOTCHU_CODEX_BIN` en `.gotchu/.env`); `./gotchu doctor` indica si los encuentra.
 
-- **Claude Code (Pro o Max).** Ejecuta `claude setup-token`, inicia sesión y pega el token `sk-ant-oat01-…`. Dura un año y se revoca desde claude.ai.
-- **Codex (ChatGPT).** Crea una sesión sólo para Gotchu con `CODEX_HOME=~/.codex-gotchu codex login` (o `codex login --device-auth` sin navegador) y pega el contenido de `~/.codex-gotchu/auth.json`. No reutilices la sesión de tu terminal: Codex rota su token de renovación y dos copias de la misma sesión se invalidan entre sí. El gateway guarda la sesión renovada en el mismo almacén.
+- **Claude Code (Pro o Max).** Pulsa **Conectar Claude**. Gotchu inicia `claude setup-token` en una sesión privada y abre la autorización de Claude. Si el proveedor muestra un código, pégalo en **Completar autorización** dentro de Gotchu. La utilidad Linux `script` debe estar instalada. La conexión manual queda en una sección desplegable.
+- **Codex (ChatGPT).** Pulsa **Conectar ChatGPT**. Gotchu abre la página oficial de OpenAI y muestra un código corto que puedes copiar. Autoriza tu cuenta y vuelve a Gotchu: la sesión se guarda automáticamente sin copiar `auth.json` ni reutilizar la sesión de otra terminal. Si OpenAI lo solicita, activa la autorización por dispositivo en la seguridad de tu cuenta. El gateway conserva las renovaciones en el almacén privado.
 
 No hay precio por token: el uso se descuenta de los límites de tu suscripción y Gotchu sólo aplica el presupuesto de tokens. La prueba de conexión reserva más tokens que con una clave API porque cada CLI añade su propio prompt (unos 0,4 k en Claude Code y unos 6 k en Codex); una investigación con Codex suele usar unos 14 k de los 20 k permitidos por ejecución.
 
+Los intentos caducan en diez minutos y se pueden cancelar. Sólo la persona Owner que los inició puede completarlos. Conectar una cuenta conserva los permisos y presupuestos existentes; si ya autorizaste datos, Gotchu prueba el modelo al terminar. El flujo integrado con CLI está limitado a instalaciones locales: un servicio alojado necesita una integración registrada de [Sign in with ChatGPT](https://developers.openai.com/siwc), y no reutiliza el cliente de autenticación de Codex.
+
 ### Con clave API
+
+**Conectar OpenRouter** abre su autorización oficial con PKCE y guarda la clave recibida sólo en el servidor. Los demás proveedores ofrecen **Obtener clave** para abrir su página de credenciales; introduce una clave en el campo privado y pulsa **Guardar y probar conexión**. Para un endpoint personalizado, usa las credenciales de tu propia instalación. Ninguna de estas conexiones autoriza escribir en repositorios.
 
 | Proveedor | Modelo inicial o sugerencias | Documentación oficial |
 | --- | --- | --- |
