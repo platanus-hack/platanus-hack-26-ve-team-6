@@ -48,6 +48,7 @@ import { ProjectReports } from './project-reports';
 import { ProjectVigilance } from './project-vigilance';
 import { DashboardShell } from './dashboard-shell';
 import { PageHeader, ScopeSwitcher, SidebarNameForm } from './dashboard-sidebar';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { operationsApi } from './operations-client';
 import { ProjectHttpsAudit } from './project-https-audit';
 import { DashboardSectionContext, routePageFromPath } from './dashboard-route-view';
@@ -1128,7 +1129,18 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
         {pages.slice(5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}
       </nav>}
       <div className="customer-sidebar-bottom">
-        <div className="customer-user-row"><span className="customer-user-avatar" aria-hidden="true">{(session.user?.displayName?.trim()[0] ?? 'U').toUpperCase()}</span><span title={session.user?.displayName}><strong>{session.user?.displayName ?? 'Sesión activa'}</strong>{workspace && <small>{roleLabels[workspace.role]}</small>}</span><ThemeSwitch /><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOutIcon aria-hidden="true" /></button></div>
+        <div className="customer-user-row">
+          <DropdownMenu>
+            <DropdownMenuTrigger className="customer-user-trigger" aria-label="Cuenta">
+              <span className="customer-user-avatar" aria-hidden="true">{(session.user?.displayName?.trim()[0] ?? 'U').toUpperCase()}</span>
+              <span className="customer-user-text"><strong>{session.user?.displayName?.split('@')[0] ?? 'Sesión activa'}</strong><small>{session.user?.displayName?.includes('@') ? session.user.displayName : workspace ? roleLabels[workspace.role] : ''}</small></span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="customer-switcher-menu">
+              <DropdownMenuItem disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOutIcon aria-hidden="true" />Cerrar sesión</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <ThemeSwitch />
+        </div>
       </div>
     </>
   }>

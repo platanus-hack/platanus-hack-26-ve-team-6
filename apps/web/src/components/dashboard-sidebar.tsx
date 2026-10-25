@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { CheckIcon, ChevronsUpDownIcon, PencilIcon, PlusIcon } from 'lucide-react';
+import { CheckIcon, ChevronDownIcon, PencilIcon, PlusIcon } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuGroupLabel, DropdownMenuItem,
   DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuRadioItemIndicator, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -27,7 +27,7 @@ export function ScopeSwitcher({ kind, title, subtitle, options, currentId, onSel
     <DropdownMenuTrigger className={`customer-switcher${compact ? ' is-compact' : ''}`} aria-label={`Cambiar ${kind}: ${title}`}>
       {!compact && <span className="customer-switcher-mark" aria-hidden="true">{title.trim()[0]?.toUpperCase() ?? '·'}</span>}
       <span className="customer-switcher-text"><strong>{title}</strong>{subtitle && <small>{subtitle}</small>}</span>
-      <ChevronsUpDownIcon aria-hidden="true" />
+      <ChevronDownIcon aria-hidden="true" />
     </DropdownMenuTrigger>
     <DropdownMenuContent align="start" className="customer-switcher-menu">
       <DropdownMenuGroup>
