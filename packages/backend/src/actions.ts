@@ -592,8 +592,6 @@ export function createActionService(deps: ActionDependencies) {
         const current = state.rows[0];
         if (!current || current.writes_frozen) throw new BackendError('writes_frozen', 'Provider writes are frozen pending reconciliation', 409);
         await authorize(tx, value.organizationId, identity, ['owner'], value.applicationId);
-        const application = await tx.query('SELECT id FROM gotchu.applications WHERE organization_id=$1 AND id=$2 AND NOT archived FOR SHARE', [value.organizationId,value.applicationId]);
-        if (!application.rowCount) throw new BackendError('not_found', 'Active application not found', 404);
         const stored = await tx.query<{ body: unknown; action_hash: string; recovery_epoch: string; state: string; invalidated_at: Date | null; adapter_available: boolean }>(`SELECT p.body,p.action_hash,p.recovery_epoch,p.state,p.invalidated_at,c.adapter_available FROM gotchu.proposals p JOIN gotchu.action_capabilities c ON c.kind=p.kind WHERE p.organization_id=$1 AND p.application_id=$2 AND p.id=$3 AND p.version=2 FOR UPDATE OF p`, [value.organizationId,value.applicationId,value.proposalId]);
         const row = stored.rows[0];
         if (!row || row.invalidated_at) throw new BackendError('not_found', 'Action proposal not found or invalidated', 404);
@@ -618,6 +616,9 @@ export function createActionService(deps: ActionDependencies) {
           await tx.query("UPDATE gotchu.proposals SET state='ineligible',blocking_reasons=$3::jsonb WHERE organization_id=$1 AND id=$2", [value.organizationId,value.proposalId,JSON.stringify(reasons)]);
           return new BackendError('proposal_ineligible', `La propuesta no puede aprobarse: ${reasons.join('; ')}`, 409);
         }
+        // Broker authorization takes its own application lock. Lock locally only after it returns.
+        const application = await tx.query('SELECT id FROM gotchu.applications WHERE organization_id=$1 AND id=$2 AND NOT archived FOR SHARE', [value.organizationId,value.applicationId]);
+        if (!application.rowCount) throw new BackendError('not_found', 'Active application not found', 404);
         const authorizationMethod = 'owner_session';
         const expiresAt = new Date(clock.now().getTime() + APPROVAL_TTL_MS);
         const approvalId = randomUUID();
