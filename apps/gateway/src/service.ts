@@ -17,6 +17,7 @@ import { GatewayError } from './errors.js';
 import { createModelPort, ModelProviderError, type ModelCompletion, type ModelCompletionRequest, type ModelPort } from './model-provider.js';
 import { buildInvestigationReadMenu, INVESTIGATION_SYSTEM_INSTRUCTION, investigationReadDataScope, MAX_ADDITIONAL_TOOL_CALLS } from './investigation-prompt.js';
 import { boundedInvestigationContext } from './investigation-context.js';
+import { recordValidatedModelReply, recoverTrustedCheckpoint } from './model-recovery.js';
 
 const runRowSchema = z.object({
   applicationId: z.uuid(), state: z.enum(['pending', 'running', 'succeeded', 'unavailable', 'failed']),
@@ -323,14 +324,16 @@ export function createGatewayService(options: {
       if (operation === 'checkpoint.load') {
         const loaded = await runs.load({ organizationId, runId });
         return { version: loaded.checkpointVersion, checkpoint: loaded.checkpoint === null ? null
-          : sanitizeCheckpoint(loaded.checkpoint, capability, allowedEvidence, loaded) };
+          : 'version' in job && job.correctionId ? sanitizeCheckpoint(loaded.checkpoint, capability, allowedEvidence, loaded)
+            : await recoverTrustedCheckpoint(tx, scope, loaded.checkpoint, allowedEvidence, loaded) };
       }
       if (operation === 'checkpoint.save') {
         const input = checkpointRequestSchema.parse(request.body);
         if (input.organizationId !== organizationId) throw new GatewayError('capability_scope_mismatch', 403);
         if (input.checkpoint.sequence !== input.expectedVersion + 1) throw new GatewayError('stale_checkpoint', 409);
         const loaded = await runs.load({ organizationId, runId });
-        const checkpoint = sanitizeCheckpoint(input.checkpoint, capability, allowedEvidence, loaded);
+        const checkpoint = 'version' in job && job.correctionId ? sanitizeCheckpoint(input.checkpoint, capability, allowedEvidence, loaded)
+          : await recoverTrustedCheckpoint(tx, scope, input.checkpoint, allowedEvidence, loaded);
         return runs.checkpoint({ organizationId, runId, expectedVersion: input.expectedVersion, checkpoint });
       }
       const body = operation === 'input' ? inputRequestSchema.parse(request.body) : readRequestSchema.parse(request.body);
@@ -402,14 +405,16 @@ function sanitizeCheckpoint(
 ): SafeInvestigationCheckpoint {
   const checkpoint = safeCheckpointSchema.parse(raw);
   assertCapabilityScope(capability, checkpoint.scope);
-  if (checkpoint.result?.citedEvidenceIds.some(id => !evidenceIds.includes(id))) throw new GatewayError('capability_read_denied', 403);
-  // Checkpoints are agent progress, never authorization. Replace free text rather than
-  // promising heuristic secret redaction. Model spending is disabled in this service.
+  const references = checkpoint.result ? [...checkpoint.result.citedEvidenceIds,
+    ...checkpoint.result.hypotheses.flatMap(item => item.evidenceIds), ...(checkpoint.result.candidateSuggestion?.evidenceIds ?? [])] : [];
+  if (references.some(id => !evidenceIds.includes(id))) throw new GatewayError('capability_read_denied', 403);
+  // Coding progress cannot supply trusted prose. The server-owned private patch
+  // restores the actual explanation when the coordinator prepares the candidate.
   return safeCheckpointSchema.parse({
     ...checkpoint, modelCalls: counters.modelCalls, additionalReadToolCalls: counters.toolCalls,
     tokensUsed: 0, spendMicroUsd: 0,
     ...(checkpoint.result ? { result: {
-      ...checkpoint.result, summary: 'Agent progress recorded; independent verification is unavailable.',
+      ...checkpoint.result, summary: 'Progreso guardado; la validación independiente sigue pendiente.', hypotheses: [], candidateSuggestion: null,
       counters: { ...checkpoint.result.counters, modelCalls: counters.modelCalls,
         additionalReadToolCalls: counters.toolCalls, tokensUsed: 0, spendMicroUsd: 0 },
     } } : {}),
@@ -729,7 +734,11 @@ async function invokeModel(
       dataScopes: parsed.data.data_scopes, reads: evidence.map(item => ({ tool: item.tool, evidenceId: item.record.evidenceId, callType: item.callType })) });
     const subject = 'version' in authorized.job ? authorized.job.subject : { kind: 'incident' as const, subjectId: authorized.job.incidentId };
     const context = boundedInvestigationContext(subject, evidence, menu);
-    return { config: parsed.data, userContext: context, instruction: INVESTIGATION_SYSTEM_INSTRUCTION, correctionId: null };
+    // The bounded envelope can omit records, so do not authorize citations using
+    // the larger read ledger when persisting the provider's reply.
+    const sent = z.object({ evidence: z.array(z.object({ record: z.object({ evidenceId: z.uuid() }) })) }).parse(JSON.parse(context));
+    return { config: parsed.data, userContext: context, instruction: INVESTIGATION_SYSTEM_INSTRUCTION, correctionId: null,
+      loadedEvidenceIds: [...new Set(sent.evidence.map(item => item.record.evidenceId))] };
   });
 
   const secretRef = settings.config.secret_ref;
@@ -834,6 +843,8 @@ async function invokeModel(
     if (correctionId) {
       const patch = aiCorrectionPatchSchema.safeParse(completion.output);
       if (patch.success) await authorized.database.tenant(scope.organizationId, tx => storeAiCorrectionPatch(tx, { ...scope, correctionId }, patch.data));
+    } else {
+      await authorized.database.tenant(scope.organizationId, tx => recordValidatedModelReply(tx, scope, input.reservationId, completion.output, settings.loadedEvidenceIds ?? []));
     }
     return { output: completion.output, usage: { inputTokens: completion.inputTokens, outputTokens: completion.outputTokens, totalTokens, spendMicroUsd: cost } };
   } catch (error) {
