@@ -282,7 +282,8 @@ export function createOperationsService(deps: BaseDependencies) {
         const authorization = await tx.query<{ valid: boolean }>(`SELECT
           EXISTS(SELECT 1 FROM gotchu.memberships u WHERE u.organization_id=m.organization_id AND u.user_id=m.author_id AND u.role IN ('owner','operator'))
           AND (m.source_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_sources s WHERE s.organization_id=m.organization_id AND s.application_id=m.application_id AND s.id=m.source_id AND s.deleted_at IS NULL))
-          AND (m.target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='authorized' AND t.expires_at>clock_timestamp())) AS valid
+          AND (m.target_id IS NULL OR EXISTS(SELECT 1 FROM gotchu.customer_targets t WHERE t.organization_id=m.organization_id AND t.application_id=m.application_id AND t.id=m.target_id AND t.version=m.target_version AND t.status='authorized' AND t.expires_at>clock_timestamp()))
+          AND gotchu.monitor_repository_current(m.organization_id,m.application_id,m.repository_key) AS valid
           FROM gotchu.operation_monitors m WHERE m.organization_id=$1 AND m.application_id=$2`, [value.organizationId, value.applicationId]);
         const scopeCurrent = authorization.rows[0]?.valid ?? false;
         const gaps = await tx.query<{ capability: string; reason: string }>(`SELECT capability,reason FROM gotchu.coverage WHERE organization_id=$1 AND application_id=$2
