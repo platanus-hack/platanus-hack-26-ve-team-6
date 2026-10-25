@@ -225,7 +225,7 @@
 .customer-card { min-width: 0; padding: 20px 0 0; }
 .customer-card-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 14px; }
 .customer-card-heading > div { min-width: 0; flex: 1 1 auto; }
-.customer-card-heading h2 { margin: 0; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: clamp(18px, 1.9vw, 24px); font-weight: 700; letter-spacing: -.005em; line-height: 1.1; text-transform: uppercase; }
+.customer-card-heading h2 { margin: 0; color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: -.005em; line-height: 1.1; text-transform: uppercase; }
 .customer-card-heading .customer-eyebrow { margin: 6px 0 0; }
 .customer-card > .customer-card-heading + .customer-form { margin-top: 16px; }
 .customer-assessment-card > .customer-card-heading + .customer-button { align-self: flex-start; margin-top: 16px; }
@@ -494,3 +494,25 @@
   .customer-report-rows button { grid-template-columns: 8px minmax(0, 1fr) 40px 16px; }
   .customer-sev-squares { display: none; }
 }
+
+/* Fuentes: what can be assessed first; project settings as rows that open in place. */
+.customer-settings { margin-top: 44px; }
+.customer-settings-row { border-top: 1px solid var(--hair); }
+.customer-settings-row:last-child { border-bottom: 1px solid var(--hair); }
+.customer-settings-row > summary { display: grid; grid-template-columns: minmax(0, 1fr) 16px; gap: 2px 16px; align-items: center; padding: 14px 4px; cursor: pointer; list-style: none; }
+.customer-settings-row > summary::-webkit-details-marker { display: none; }
+.customer-settings-row > summary::after { grid-column: 2; grid-row: 1 / 3; width: 8px; height: 8px; border-right: 1.5px solid var(--muted-foreground); border-bottom: 1.5px solid var(--muted-foreground); content: ''; transform: rotate(-45deg); transition: transform 160ms var(--ease); }
+.customer-settings-row[open] > summary::after { transform: rotate(45deg); }
+.customer-settings-row > summary:hover { background: var(--muted); }
+.customer-settings-row > summary:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--foreground); }
+.customer-settings-row > summary strong { color: var(--foreground); font-size: 14px; font-weight: 600; }
+.customer-settings-row > summary small { color: var(--muted-foreground); font-size: 12.5px; }
+.customer-settings-row > :not(summary) { margin: 4px 0 24px; }
+/* The row already names the panel. */
+.customer-settings-row > .customer-card > .customer-card-heading h2 { display: none; }
+
+/* Fuentes: each way to add a source is a framed panel in a 2×2 grid. */
+.customer-asset-grid { gap: 16px; margin-top: 0; align-items: stretch; }
+.customer-asset-grid > .customer-card { margin: 0; border: 1px solid var(--hair); border-radius: 12px; padding: 20px; }
+/* Buttons that sit side by side share one height. */
+.customer-page-actions .customer-button, .customer-ops-alert-actions .customer-button, .customer-ops-alert-resolve .customer-button { min-height: 40px; padding: 8px 16px; font-size: 14.5px; }

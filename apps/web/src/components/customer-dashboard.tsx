@@ -43,7 +43,6 @@ import { CopyFindingPrompt } from './copy-finding-prompt';
 import { findingPrompt } from './finding-prompt';
 import { ProjectOverview, type ProjectHistory, type ProjectRisk, type ProjectWatch, type RecentReportRow } from './project-overview';
 import { coverageState, examineSources, nextAction, openFindings, projectSources, type ProjectSource } from './project-risk';
-import { ProjectSources } from './project-sources';
 import { ProjectReports } from './project-reports';
 import { ProjectVigilance } from './project-vigilance';
 import { DashboardShell } from './dashboard-shell';
@@ -326,21 +325,6 @@ function AuthPanel({ session, onAuthenticated, initialRegistering = false }: { s
       {!session.localAuthEnabled && oauthProviders.length === 0 && <div className="customer-inline-error" role="status">El inicio de sesión todavía no está configurado para este entorno.</div>}
       <nav className="customer-auth-legal" aria-label="Información legal">Consulta los <a href="/terms">Términos de uso</a> y el <a href="/privacy">Aviso de privacidad</a>.</nav>
   </AuthShell>;
-}
-
-function ApplicationCreate({ organizationId, onCreated, disabled }: { organizationId: string; onCreated: (id: string) => void; disabled: boolean }) {
-  const [name, setName] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const create = useMutation({
-    mutationFn: () => customerApi.createApplication(organizationId, name),
-    onSuccess: application => { setName(''); setError(null); onCreated(application.applicationId); },
-    onError: caught => setError(readableError(caught)),
-  });
-  return <form className="customer-inline-create" onSubmit={event => { event.preventDefault(); setError(null); create.mutate(); }}>
-    <label htmlFor="new-application">Nuevo proyecto</label>
-    <div className="customer-inline-control"><input id="new-application" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre del proyecto" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Nuevo proyecto"><PlusIcon aria-hidden="true" /></button></div>
-    {error && <p className="customer-form-error" role="alert">{error}</p>}
-  </form>;
 }
 
 function ApplicationSettings({ organizationId, applicationId, name, archived, canManage, onSaved }: { organizationId: string; applicationId: string; name: string; archived: boolean; canManage: boolean; onSaved: () => void }) {
@@ -1056,23 +1040,22 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
           examineError={examine.error ? readableError(examine.error) : null}
           assessmentForm={<AssessmentForm key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} images={images.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} onAddSource={() => setPage('applications')} />}
         />}
-        {page === 'applications' && <ProjectSources
-          {...(workspace?.name ? { workspaceName: workspace.name } : {})}
-          projects={applications.data ?? []}
-          selectedProjectId={selectedApplication.applicationId}
-          dateLabel={date}
-          createControl={canManage && <ApplicationCreate organizationId={organizationId} disabled={false} onCreated={id => { applications.refetch().catch(caught => setPageError(readableError(caught))); void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: organizationId, projectId: id } }); }} />}
-          onSelect={id => { void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: organizationId, projectId: id } }); }}
-        >
-          <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><ContainerImageEnrollment key={`${organizationId}:${selectedApplication.applicationId}:images`} organizationId={organizationId} applicationId={selectedApplication.applicationId} images={images.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /></div>
-          <GitHubRepositoryPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:github`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} onScanQueued={(jobId, monitoringEnabled) => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPage('overview'); setNotice(monitoringEnabled ? 'La primera evaluación del repositorio se ejecuta en segundo plano. La vigilancia quedó activada: Gotchu lo revisará cada 6 horas.' : 'La instantánea de GitHub está guardada y la primera evaluación se ejecuta en segundo plano.'); refreshApplicationData(); }} />
-          <ContextPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} isOwner={workspace?.role === 'owner'} archived={selectedApplication.archived} analyzedDigest={applicationReports[0]?.subject.sourceDigest ?? null} />
-          <InvestigationModelSettings key={`${organizationId}:investigation-model`} organizationId={organizationId} isOwner={workspace?.role === 'owner'} />
-          <ApprovalPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:actions`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} isOwner={workspace?.role === 'owner'} />
-          <WorkflowExceptions userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} isOwner={workspace?.role === 'owner'} />
-          <ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('El proyecto se actualizó.'); }} />
-          {canManage && <StepUpPanel key={`${userId}:${organizationId}`} organizationId={organizationId} />}
-        </ProjectSources>}
+        {page === 'applications' && <>
+          <section aria-labelledby="sources-add-title">
+            <div className="customer-section-head"><div><h2 id="sources-add-title">Añadir o actualizar fuentes</h2><p>Lo que Gotchu puede evaluar: código, imágenes, orígenes HTTPS y repositorios de GitHub.</p></div></div>
+            <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><ContainerImageEnrollment key={`${organizationId}:${selectedApplication.applicationId}:images`} organizationId={organizationId} applicationId={selectedApplication.applicationId} images={images.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} />
+            <GitHubRepositoryPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:github`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} onScanQueued={(jobId, monitoringEnabled) => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPage('overview'); setNotice(monitoringEnabled ? 'La primera evaluación del repositorio se ejecuta en segundo plano. La vigilancia quedó activada: Gotchu lo revisará cada 6 horas.' : 'La instantánea de GitHub está guardada y la primera evaluación se ejecuta en segundo plano.'); refreshApplicationData(); }} /></div>
+          </section>
+          <section className="customer-settings" aria-labelledby="project-settings-title">
+            <div className="customer-section-head"><div><h2 id="project-settings-title">Ajustes del proyecto</h2><p>Ábrelos cuando los necesites.</p></div></div>
+            <details className="customer-settings-row"><summary><strong>Entornos y recursos vinculados</strong><small>Servicios, despliegues, repositorios y orígenes declarados.</small></summary><ContextPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} isOwner={workspace?.role === 'owner'} archived={selectedApplication.archived} analyzedDigest={applicationReports[0]?.subject.sourceDigest ?? null} /></details>
+            <details className="customer-settings-row"><summary><strong>Modelo y consentimiento</strong><small>Proveedor, datos autorizados y presupuesto para investigar con IA.</small></summary><InvestigationModelSettings key={`${organizationId}:investigation-model`} organizationId={organizationId} isOwner={workspace?.role === 'owner'} /></details>
+            <details className="customer-settings-row"><summary><strong>Propuestas de cambio</strong><small>Aprobaciones exactas con segundo factor.</small></summary><ApprovalPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:actions`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} isOwner={workspace?.role === 'owner'} /></details>
+            <details className="customer-settings-row"><summary><strong>Excepciones de GitHub Actions</strong><small>Reglas de flujos de trabajo aceptadas con justificación.</small></summary><WorkflowExceptions userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} isOwner={workspace?.role === 'owner'} /></details>
+            <details className="customer-settings-row"><summary><strong>Datos del proyecto</strong><small>Nombre y archivo del proyecto.</small></summary><ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('El proyecto se actualizó.'); }} /></details>
+            {canManage && <details className="customer-settings-row"><summary><strong>Verificación en dos pasos</strong><small>Factores para confirmar aprobaciones.</small></summary><StepUpPanel key={`${userId}:${organizationId}`} organizationId={organizationId} /></details>}
+          </section>
+        </>}
         {page === 'https-audit' && <ProjectHttpsAudit
           key={`${organizationId}:${selectedApplication.applicationId}:https`}
           organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} reports={applicationReports}

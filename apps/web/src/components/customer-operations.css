@@ -308,7 +308,7 @@
 .customer-incident-section details > p:first-of-type { margin-top: 0; }
 .customer-incident-status { display: grid; gap: 6px; min-width: 160px; }
 .customer-incident-list { display: grid; gap: 16px; }
-.customer-incident-list > h2 { margin: 0; font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: 20px; font-weight: 700; letter-spacing: -.005em; text-transform: uppercase; }
+.customer-incident-list > h2 { margin: 0; font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: -.005em; text-transform: uppercase; }
 .customer-incident-history { font-family: var(--mono); font-size: 12.5px; }
 
 @media (max-width: 800px) {
@@ -339,7 +339,7 @@
 }
 
 /* Bare headings, labels and details directly inside a panel. */
-.customer-panel > h2 { color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: .04em; line-height: 1.2; text-transform: uppercase; }
+.customer-panel > h2 { color: var(--foreground); font-family: 'Gotchu Display', 'Gotchu Text', sans-serif; font-size: 16px; font-weight: 700; letter-spacing: .04em; line-height: 1.2; text-transform: uppercase; }
 .customer-panel > label, .customer-panel details > label { display: grid; gap: 6px; }
 .customer-panel details > label { margin-top: 10px; }
 .customer-panel details form, .customer-panel details > p { margin-bottom: 0; }
