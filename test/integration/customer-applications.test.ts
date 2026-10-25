@@ -15,10 +15,10 @@ import { createScannerServer, signScannerBody } from '@gotchu/scanner';
 import { httpRequestEvent, signEventBatch } from '@gotchu/sdk';
 import { prepareCorrectionResponseSchema, reportRecommendationsResponseSchema } from '@gotchu/scenarios/contracts';
 import {
-  customerApplicationSchema, customerAssessmentReportSchema, customerEnrollmentSchema,
+  apiCheckEvidenceSchema, customerApplicationSchema, customerAssessmentReportSchema, customerEnrollmentSchema,
   customerReportSummarySchema, customerSourceSummarySchema, customerTargetSchema, customerWorkspaceSchema,
   telemetryConnectionSchema, operationAlertSchema, operationCoverageSchema, monitorConfigSchema,
-  type CustomerAssessmentReport, type CustomerSourceSnapshot,
+  type CustomerAssessmentReport, type CustomerSourceSnapshot, type CustomerScanProfile,
 } from '../../packages/contracts/src/index.js';
 import { fixture, liveUrl, present } from '../../packages/database/test/support.js';
 
@@ -102,6 +102,7 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
   let realEngine: ReturnType<typeof createCustomerAssessmentRunner>;
   let corrected = false;
   let publicSurfaceFixture = false;
+  let apiChecksFixture = false;
   let holdHttpsLookup: (() => Promise<void>) | undefined;
   const httpsRequests: Array<{ method: string | undefined; path: string | undefined; hostname: string | undefined; hasCredentials: boolean }> = [];
   const lookups: string[] = [];
@@ -165,6 +166,13 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
     const tls = createTlsServer({ cert, key }, (request, response) => {
       httpsRequests.push({ method: request.method, path: request.url, hostname: request.headers.host, hasCredentials: Boolean(request.headers.cookie || request.headers.authorization) });
       const path = request.url ?? '/';
+      if (apiChecksFixture) {
+        const cors = { 'access-control-allow-origin': 'https://gotchu.invalid', 'access-control-allow-credentials': 'true' };
+        if (request.method === 'OPTIONS') return response.writeHead(204, { ...cors, allow: 'GET, HEAD, OPTIONS', 'access-control-allow-methods': 'GET', 'access-control-allow-headers': 'authorization' }).end();
+        if (request.method === 'HEAD') return response.writeHead(path === '/api/account' ? 401 : 200, cors).end();
+        if (path === '/openapi.json') return response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ openapi: '3.0.3', security: [{ bearer: [] }], paths: { '/api/account': { get: { description: 'API_BODY_MUST_NOT_PERSIST' } } } }));
+        return response.writeHead(404).end('API_BODY_MUST_NOT_PERSIST');
+      }
       const headers = corrected ? { 'content-security-policy': "default-src 'none'", 'strict-transport-security': 'max-age=31536000', 'x-content-type-options': 'nosniff' } : { server: 'Untrusted-Fixture/1.0' };
       if (publicSurfaceFixture) {
         if (path === '/') return response.writeHead(200, { ...headers, 'content-type': 'text/html' }).end('<a href="/public-app">App</a><a href="/redirect">Redirect</a><a href="/search?token=BODY_MUST_NOT_PERSIST">Search</a><a href="https://other.example/private">External</a>');
@@ -218,10 +226,10 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
   async function upload(path: string, snapshot = minimalSource(), client = owner) {
     return json(await client.api(`${path}/sources`, 'POST', { snapshot, authorized: true }), 201, customerSourceSummarySchema);
   }
-  async function target(path: string, scanProfile: 'root' | 'public_surface' = 'root') {
+  async function target(path: string, scanProfile: CustomerScanProfile = 'root') {
     const targetPath = `${path}/targets`;
     await rejected(await owner.api(targetPath, 'POST', { origin: 'https://customer.org', authorized: true }), 400, 'invalid_input');
-    const enrollment = await json(await owner.api(targetPath, 'POST', { origin: 'https://customer.org', ...(scanProfile === 'public_surface' ? { scanProfile } : {}) }), 201, customerEnrollmentSchema);
+    const enrollment = await json(await owner.api(targetPath, 'POST', { origin: 'https://customer.org', scanProfile }), 201, customerEnrollmentSchema);
     const requested = enrollment.target;
     expect(requested.status).toBe('authorized');
     expect(requested.requestedBy).toMatch(/^credentials:/);
@@ -566,4 +574,43 @@ live('customer applications through built Nitro, coordinator main, HMAC scanner 
       await rejected(await stranger.api(`${app.base}/jobs/${queued.jobId}`), 403, 'forbidden');
     } finally { publicSurfaceFixture = false; }
   }, 60_000);
+  it('executes and persists API scenarios for manual and scheduled external jobs without source access', async () => {
+    apiChecksFixture = true;
+    try {
+      const app = await application('API protocol checks');
+      const requested = await target(app.path, 'api_checks');
+      const start = httpsRequests.length;
+      const queued = await queue(app.path, { mode: 'external', sourceSnapshotId: null, targetId: requested.id });
+      const report = present(await finished(app.base, app.path, queued.jobId));
+      const observed = present(report.external);
+      const checks = observed.evidence.map(item => {
+        expect(item.checksum).toBe(hash(item.excerpt));
+        return apiCheckEvidenceSchema.parse(JSON.parse(item.excerpt));
+      });
+      expect(checks).toHaveLength(8);
+      expect(checks.find(item => item.path === '/openapi.json')?.signals.operations).toContainEqual({ path: '/api/account', method: 'GET', authentication: 'declared', probeEligible: true });
+      expect(httpsRequests.slice(start)).toHaveLength(8);
+      expect(httpsRequests.slice(start).every(item => !item.hasCredentials && item.hostname === 'customer.org')).toBe(true);
+      expect(httpsRequests.slice(start)).not.toContainEqual(expect.objectContaining({ method: 'GET', path: '/api/account' }));
+      expect(observed.findings.map(item => item.ruleId)).toEqual(['api.credentialed-probe-origin']);
+      expect(observed.snapshotRef).toContain(':api_checks');
+      expect(JSON.stringify(report)).not.toContain('API_BODY_MUST_NOT_PERSIST');
+      await rejected(await stranger.api(`${app.path}/reports/${report.id}`), 403, 'forbidden');
+      const settings = { enabled: true, intervalSeconds: 21600, sourceSnapshotId: null, targetId: requested.id, repositoryKey: null, providers: [] };
+      try {
+        await json(await owner.api(`${app.path}/monitoring`, 'PUT', settings), 200, monitorConfigSchema);
+        let scheduledJobId: string | null = null;
+        await eventually(async () => {
+          const coverage = await json(await owner.api(`${app.path}/monitoring`), 200, operationCoverageSchema);
+          scheduledJobId = coverage.lastRun?.jobId ?? null;
+          return scheduledJobId !== null && coverage.lastRun?.finishedAt !== null;
+        }, 'scheduled API profile assessment', 60_000);
+        const scheduled = present(await finished(app.base, app.path, present(scheduledJobId)));
+        expect(scheduled.external?.snapshotRef).toBe(observed.snapshotRef);
+        expect(scheduled.external?.evidence.map(item => apiCheckEvidenceSchema.parse(JSON.parse(item.excerpt)))).toHaveLength(8);
+      } finally {
+        await json(await owner.api(`${app.path}/monitoring`, 'PUT', { ...settings, enabled: false }), 200, monitorConfigSchema);
+      }
+    } finally { apiChecksFixture = false; }
+  }, 90_000);
 });
