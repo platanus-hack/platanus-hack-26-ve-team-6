@@ -11,29 +11,54 @@ export type PhaseState = 'pending' | 'running' | 'done' | 'failed' | 'skipped' |
 export type PhaseStates = Record<Phase, PhaseState>;
 
 export const PHASE_RANK: Record<Phase, number> = { queue: 0, validation: 1, internal: 2, external: 2, correlation: 3, report: 4 };
-export const PHASE_EDGES: readonly (readonly [Phase, Phase])[] = [
-  ['queue', 'validation'], ['validation', 'internal'], ['validation', 'external'],
-  ['internal', 'correlation'], ['external', 'correlation'], ['correlation', 'report'],
-];
 const TERMINAL: readonly PhaseState[] = ['done', 'failed', 'skipped', 'not_requested'];
 
 type Mode = NonNullable<CustomerJob['mode']>;
 const requested = (mode: Mode) => ({ internal: mode !== 'external', external: mode !== 'internal' });
 const reached = (progress: CustomerJobProgress, phase: CustomerJobProgress[number]['phase']) => progress.some(entry => entry.phase === phase);
 
-export function jobPhaseStates(job: Pick<CustomerJob, 'state' | 'mode' | 'progress'>): PhaseStates {
-  const lanes = requested(job.mode ?? 'both');
-  const lane = (requestedState: PhaseState, side: 'internal' | 'external'): PhaseState => lanes[side] ? requestedState : 'not_requested';
-  const states = (queue: PhaseState, validation: PhaseState, analysis: PhaseState, correlation: PhaseState, report: PhaseState): PhaseStates =>
-    ({ queue, validation, internal: lane(analysis, 'internal'), external: lane(analysis, 'external'), correlation, report });
+/**
+ * Builds the states for the branches a job actually has. A single analysis has nothing to correlate,
+ * so only internal + external jobs draw the correlation phase.
+ */
+function forMode(mode: Mode, queue: PhaseState, validation: PhaseState, analysis: PhaseState, correlation: PhaseState, report: PhaseState): PhaseStates {
+  const lanes = requested(mode);
+  return {
+    queue, validation,
+    internal: lanes.internal ? analysis : 'not_requested',
+    external: lanes.external ? analysis : 'not_requested',
+    correlation: lanes.internal && lanes.external ? correlation : 'not_requested',
+    report,
+  };
+}
+
+/** The graph of an assessment that has not been requested yet. */
+export const idlePhaseStates = (mode: Mode) => forMode(mode, 'pending', 'pending', 'pending', 'pending', 'pending');
+
+export function jobPhaseStates(job: Pick<CustomerJob, 'state' | 'mode' | 'progress' | 'reportId'>): PhaseStates {
+  const states = (...phases: [PhaseState, PhaseState, PhaseState, PhaseState, PhaseState]) => forMode(job.mode ?? 'both', ...phases);
   const analyzing = reached(job.progress, 'analyzing');
   switch (job.state) {
     case 'queued': return states('running', 'pending', 'pending', 'pending', 'pending');
     case 'running': return analyzing ? states('done', 'done', 'running', 'pending', 'pending') : states('done', 'running', 'pending', 'pending', 'pending');
-    case 'succeeded': return states('done', 'done', 'done', 'done', 'done');
+    // A finished run without a stored report does not count as a delivered report.
+    case 'succeeded': return states('done', 'done', 'done', 'done', job.reportId ? 'done' : 'skipped');
     // The scanner call fails as a whole, so a failure after admission cannot be pinned to one branch.
     case 'failed': return analyzing ? states('done', 'done', 'failed', 'skipped', 'skipped') : states('done', 'failed', 'skipped', 'skipped', 'skipped');
   }
+}
+
+/** Phases drawn for these states, and the lines between them. */
+export const visiblePhases = (states: PhaseStates) => PHASES.filter(phase => states[phase] !== 'not_requested');
+export function phaseEdges(states: PhaseStates): [Phase, Phase][] {
+  const lanes = (['internal', 'external'] as const).filter(phase => states[phase] !== 'not_requested');
+  const join: Phase = states.correlation === 'not_requested' ? 'report' : 'correlation';
+  return [
+    ['queue', 'validation'],
+    ...lanes.map((lane): [Phase, Phase] => ['validation', lane]),
+    ...lanes.map((lane): [Phase, Phase] => [lane, join]),
+    ...(join === 'correlation' ? [['correlation', 'report'] satisfies [Phase, Phase]] : []),
+  ];
 }
 
 /** Server timestamps (ms) for the start and end of each phase that has them. */
@@ -56,7 +81,8 @@ type AnalysisStatus = { status: NonNullable<CustomerAssessmentReport['internal']
 export function reportPhaseStates(report: { internal: AnalysisStatus; external: AnalysisStatus }): PhaseStates {
   const lane = (analysis: AnalysisStatus): PhaseState =>
     analysis === null ? 'not_requested' : analysis.status === 'unavailable' ? 'skipped' : 'done';
-  return { queue: 'done', validation: 'done', internal: lane(report.internal), external: lane(report.external), correlation: 'done', report: 'done' };
+  const both = report.internal !== null && report.external !== null;
+  return { queue: 'done', validation: 'done', internal: lane(report.internal), external: lane(report.external), correlation: both ? 'done' : 'not_requested', report: 'done' };
 }
 export function reportPhaseTimes(report: Pick<CustomerAssessmentReport, 'internal' | 'external' | 'startedAt' | 'finishedAt'>, job?: Pick<CustomerJob, 'createdAt' | 'completedAt' | 'progress'>): PhaseTimes {
   const span = (analysis: CustomerAssessmentReport['internal']) => analysis ? { start: Date.parse(analysis.startedAt), end: Date.parse(analysis.finishedAt) } : undefined;
@@ -64,8 +90,7 @@ export function reportPhaseTimes(report: Pick<CustomerAssessmentReport, 'interna
   const internal = span(report.internal), external = span(report.external);
   if (internal) times.internal = internal;
   if (external) times.external = external;
-  const analysesEnd = Math.max(internal?.end ?? 0, external?.end ?? 0);
-  if (analysesEnd > 0) times.correlation = { start: analysesEnd, end: Date.parse(report.finishedAt) };
+  if (internal && external) times.correlation = { start: Math.max(internal.end, external.end), end: Date.parse(report.finishedAt) };
   return times;
 }
 export function coverageCount(analysis: CustomerAssessmentReport['internal']) {

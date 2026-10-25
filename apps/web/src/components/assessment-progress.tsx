@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import type { CustomerAssessmentReport } from '@gotchu/contracts';
+import type { AssessmentMode, CustomerAssessmentReport } from '@gotchu/contracts';
 import type { CustomerJob } from './customer-client';
 import {
-  PHASES, PHASE_EDGES, applyStep, coverageCount, frontier, isSettled, jobPhaseStates, jobPhaseTimes, phaseSteps,
-  reportPhaseStates, reportPhaseTimes, type Phase, type PhaseState, type PhaseStates, type PhaseStep, type PhaseTimes,
+  PHASES, applyStep, coverageCount, frontier, idlePhaseStates, isSettled, jobPhaseStates, jobPhaseTimes, phaseEdges, phaseSteps,
+  reportPhaseStates, reportPhaseTimes, visiblePhases, type Phase, type PhaseState, type PhaseStates, type PhaseStep, type PhaseTimes,
 } from './assessment-progress-model';
 import './assessment-progress.css';
 
@@ -78,7 +78,9 @@ function PhaseGraph({ states, times, notes, hints, now }: {
   const [instant, setInstant] = useState(true);
   const reduced = useReducedMotion();
 
-  // Anchors move only when the width changes: node heights do not depend on their state.
+  const drawn = visiblePhases(states);
+  const shape = drawn.join();
+  // Anchors move only when the width or the drawn phases change: node heights do not depend on their state.
   useLayoutEffect(() => {
     const element = wrapper.current;
     if (!element) return;
@@ -88,7 +90,7 @@ function PhaseGraph({ states, times, notes, hints, now }: {
       const box = element.getBoundingClientRect();
       const rect = (phase: Phase) => element.querySelector(`[data-phase="${phase}"]`)?.getBoundingClientRect();
       const next: Edge[] = [];
-      for (const [from, to] of PHASE_EDGES) {
+      for (const [from, to] of phaseEdges(states)) {
         const a = rect(from), b = rect(to);
         if (!a || !b) continue;
         const horizontal = b.left >= a.right - 1;
@@ -114,7 +116,8 @@ function PhaseGraph({ states, times, notes, hints, now }: {
     observer.observe(element);
     document.fonts?.ready.then(layout).catch(() => undefined);
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
-  }, []);
+    // Edges depend only on which phases are drawn (`shape`), not on their states.
+  }, [shape]);
 
   const meta = (phase: Phase) => {
     const state = states[phase], span = times[phase];
@@ -129,7 +132,8 @@ function PhaseGraph({ states, times, notes, hints, now }: {
     }
   };
 
-  return <div ref={wrapper} className={`customer-progress-graph${instant ? ' is-instant' : ''}`}>
+  const single = !drawn.includes('correlation');
+  return <div ref={wrapper} className={`customer-progress-graph${single ? ' is-single' : ''}${instant ? ' is-instant' : ''}`}>
     <svg aria-hidden="true">
       {edges.map(edge => {
         const lit = states[edge.from] === 'done' && !inactive(states[edge.to]);
@@ -142,7 +146,7 @@ function PhaseGraph({ states, times, notes, hints, now }: {
       })}
     </svg>
     <ol className="customer-progress-nodes">
-      {PHASES.map(phase => <li key={phase} data-phase={phase} className={`customer-progress-node is-${states[phase]}`} aria-current={states[phase] === 'running' ? 'step' : undefined}>
+      {drawn.map(phase => <li key={phase} data-phase={phase} className={`customer-progress-node is-${states[phase]}`} aria-current={states[phase] === 'running' ? 'step' : undefined}>
         <span className="customer-progress-label"><PhaseIcon state={states[phase]} /><span>{LABELS[phase]}{hints[phase] && <em> · {hints[phase]}</em>}</span></span>
         <span className="customer-progress-meta">{meta(phase)}</span>
       </li>)}
@@ -164,7 +168,13 @@ function PhaseIcon({ state }: { state: PhaseState }) {
 const laneHints = (inputKind: CustomerJob['inputKind'] | 'container_image' | undefined): Partial<Record<Phase, string>> =>
   ({ internal: inputKind === 'container_image' ? 'imagen' : 'código', external: 'HTTPS' });
 
-const PENDING_JOB = { state: 'queued', mode: null, progress: [] } satisfies Pick<CustomerJob, 'state' | 'mode' | 'progress'>;
+/** What the panel shows before a job exists. */
+export type ProgressWaiting = 'idle' | 'submitting' | 'loading';
+const WAITING: Record<ProgressWaiting, { title: string; detail: string }> = {
+  idle: { title: 'Lista para empezar', detail: 'El análisis empieza cuando lo pidas.' },
+  submitting: { title: 'Registrando solicitud', detail: 'Guardando el alcance y la solicitud.' },
+  loading: { title: 'Consultando estado', detail: 'Leyendo el último análisis de este proyecto.' },
+};
 
 function heading(states: PhaseStates, purpose: 'assessment' | 'correction', internalHint: string | undefined) {
   const current = frontier(states);
@@ -186,48 +196,61 @@ function heading(states: PhaseStates, purpose: 'assessment' | 'correction', inte
   return { title, detail: 'Guardando el informe con sus evidencias.' };
 }
 
-/** Live phase graph for the active job; reports `settled` once its last transition has been shown. */
-export function AssessmentProgress({ purpose, job, failure, error, retry, onSettled, onDismiss }: {
+/**
+ * Live phase graph for one job. Before the job exists, `mode` draws its branches and `waiting` says why
+ * nothing has started. It reports `settled` once its last transition has been shown.
+ */
+export function AssessmentProgress({ purpose, job, mode, waiting = 'loading', failure, error, retry, onSettled, onDismiss }: {
   purpose: 'assessment' | 'correction';
   job: CustomerJob | undefined;
+  mode?: AssessmentMode;
+  waiting?: ProgressWaiting;
   /** Why the job failed, shown once the graph has reached the failed phase. */
   failure: string | null;
   error: string | null;
   retry: () => void;
-  onSettled: (job: CustomerJob) => void;
-  onDismiss: () => void;
+  onSettled?: (job: CustomerJob) => void;
+  onDismiss?: () => void;
 }) {
-  const { shown, settled } = useSequencedPhases(jobPhaseStates(job ?? PENDING_JOB), job !== undefined);
+  const layout = job?.mode ?? mode;
+  const target = job ? jobPhaseStates(job) : idlePhaseStates(layout ?? 'both');
+  const { shown, settled } = useSequencedPhases(target, job !== undefined);
   const times = job ? jobPhaseTimes(job) : {};
   const [now, setNow] = useState(() => Date.now());
+  const live = job !== undefined && !settled;
   useEffect(() => {
-    if (settled) return;
+    if (!live) return;
     const interval = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(interval);
-  }, [settled]);
+  }, [live]);
   // Hold the completed graph briefly so the last phase is seen before the report opens.
   const reported = useRef(false);
   useEffect(() => {
-    if (!settled || !job || reported.current) return;
+    if (!settled || !job || !onSettled || reported.current) return;
     const timeout = window.setTimeout(() => { reported.current = true; onSettled(job); }, SETTLED_HOLD_MS);
     return () => window.clearTimeout(timeout);
   }, [settled, job, onSettled]);
 
   const hints = laneHints(job?.inputKind);
-  const { title, detail } = heading(shown, purpose, hints.internal);
   const failedShown = PHASES.some(phase => shown[phase] === 'failed');
+  // Without a job, a failed status read must not look like progress or like a stopped analysis.
+  const { title, detail } = job ? heading(shown, purpose, hints.internal)
+    : error ? { title: 'Estado sin confirmar', detail: 'No se pudo consultar el estado. Esto no confirma que el análisis se haya detenido.' }
+    : WAITING[waiting];
+  const notes: Partial<Record<Phase, string>> = job?.state === 'succeeded' && !job.reportId ? { report: 'Sin informe guardado' } : {};
   const started = job ? Date.parse(job.createdAt) : null;
   const ended = job?.completedAt ? Date.parse(job.completedAt) : null;
-  return <section id="customer-active-job" className="customer-card customer-progress" aria-label="Progreso de la evaluación">
+  const busy = job ? job.state === 'queued' || job.state === 'running' : !error && waiting !== 'idle';
+  return <section id="customer-active-job" className="customer-card customer-progress" aria-label="Progreso de la evaluación" aria-busy={busy}>
     <div className="customer-progress-head">
-      <div><strong>{title}</strong><p>{error ? 'No se pudo actualizar el estado. El trabajo puede continuar en segundo plano.' : failedShown && failure ? failure : detail}</p></div>
+      <div><strong>{title}</strong><p>{job && error ? 'No se pudo actualizar el estado. El trabajo puede continuar en segundo plano.' : failedShown && failure ? failure : detail}</p></div>
       {started !== null && <span className="customer-progress-clock">{elapsed((ended ?? now) - started)}</span>}
     </div>
     <p className="sr-only" role="status" aria-live="polite">{title}</p>
-    {/* The branches depend on the job's mode, so the graph waits for the first poll. */}
-    {job && <PhaseGraph states={shown} times={times} hints={hints} now={now} />}
+    {/* The branches depend on the job's mode, so the graph waits for it unless the caller already knows it. */}
+    {layout && <PhaseGraph states={shown} times={times} notes={notes} hints={hints} now={now} />}
     {error && <button className="customer-link-button" type="button" onClick={retry}>Actualizar estado del análisis</button>}
-    {failedShown && settled && <button className="customer-link-button" type="button" onClick={onDismiss}>Descartar</button>}
+    {failedShown && settled && onDismiss && <button className="customer-link-button" type="button" onClick={onDismiss}>Descartar</button>}
   </section>;
 }
 

@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { CustomerJob } from '../src/components/customer-client';
 import {
-  PHASES, applyStep, isSettled, jobPhaseStates, jobPhaseTimes, phaseSteps, reportPhaseStates, type PhaseStates,
+  PHASES, applyStep, isSettled, jobPhaseStates, jobPhaseTimes, phaseEdges, phaseSteps, reportPhaseStates, visiblePhases, type PhaseStates,
 } from '../src/components/assessment-progress-model';
 
-type JobView = Pick<CustomerJob, 'state' | 'mode' | 'progress' | 'createdAt' | 'completedAt'>;
+type JobView = Pick<CustomerJob, 'state' | 'mode' | 'progress' | 'createdAt' | 'completedAt' | 'reportId'>;
+const REPORT_ID = '6f1b9f0e-6d0c-4a59-9f43-2e1c6c4c2a10';
 const at = (seconds: number) => new Date(Date.UTC(2026, 9, 25, 10, 0, seconds)).toISOString();
-const job = (state: CustomerJob['state'], phases: ('validating' | 'analyzing')[], mode: CustomerJob['mode'] = 'both', completedAt: string | null = null): JobView =>
-  ({ state, mode, progress: phases.map((phase, index) => ({ phase, at: at(10 + index * 5) })), createdAt: at(0), completedAt });
+const job = (state: CustomerJob['state'], phases: ('validating' | 'analyzing')[], mode: CustomerJob['mode'] = 'both', completedAt: string | null = null, reportId: string | null = state === 'succeeded' ? REPORT_ID : null): JobView =>
+  ({ state, mode, progress: phases.map((phase, index) => ({ phase, at: at(10 + index * 5) })), createdAt: at(0), completedAt, reportId });
 
 /** The job states the dashboard actually polls, in order, for one successful and one failed run. */
 const successRun = [job('queued', []), job('running', []), job('running', ['validating']), job('running', ['validating', 'analyzing']), job('succeeded', ['validating', 'analyzing'], 'both', at(40))];
@@ -25,8 +26,24 @@ describe('assessment phase graph', () => {
     expect(jobPhaseStates(job('queued', []))).toMatchObject({ queue: 'running', validation: 'pending', internal: 'pending' });
     expect(jobPhaseStates(job('running', ['validating']))).toMatchObject({ queue: 'done', validation: 'running', internal: 'pending', external: 'pending' });
     expect(jobPhaseStates(job('running', ['validating', 'analyzing']))).toMatchObject({ validation: 'done', internal: 'running', external: 'running', correlation: 'pending' });
-    expect(jobPhaseStates(job('running', ['validating', 'analyzing'], 'external'))).toMatchObject({ internal: 'not_requested', external: 'running' });
-    expect(jobPhaseStates(job('succeeded', ['validating', 'analyzing'], 'internal'))).toMatchObject({ internal: 'done', external: 'not_requested', report: 'done' });
+    expect(jobPhaseStates(job('running', ['validating', 'analyzing'], 'external'))).toMatchObject({ internal: 'not_requested', external: 'running', correlation: 'not_requested' });
+    expect(jobPhaseStates(job('succeeded', ['validating', 'analyzing'], 'internal'))).toMatchObject({ internal: 'done', external: 'not_requested', correlation: 'not_requested', report: 'done' });
+  });
+
+  it('draws one straight line for a single analysis and correlates only code with HTTPS', () => {
+    const external = jobPhaseStates(job('running', ['validating', 'analyzing'], 'external'));
+    expect(visiblePhases(external)).toEqual(['queue', 'validation', 'external', 'report']);
+    expect(phaseEdges(external)).toEqual([['queue', 'validation'], ['validation', 'external'], ['external', 'report']]);
+    const both = jobPhaseStates(job('running', ['validating', 'analyzing'], 'both'));
+    expect(visiblePhases(both)).toEqual(['queue', 'validation', 'internal', 'external', 'correlation', 'report']);
+    expect(phaseEdges(both)).toContainEqual(['external', 'correlation']);
+    expect(reportPhaseStates({ internal: null, external: { status: 'completed' } }).correlation).toBe('not_requested');
+  });
+
+  it('does not count a finished run as a delivered report until the report is stored', () => {
+    const withoutReport = jobPhaseStates(job('succeeded', ['validating', 'analyzing'], 'external', at(30), null));
+    expect(withoutReport).toMatchObject({ external: 'done', report: 'skipped' });
+    expect(isSettled(withoutReport)).toBe(true);
   });
 
   it('places a failure where the job stopped without blaming one opaque scanner branch', () => {
