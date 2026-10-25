@@ -105,7 +105,7 @@ describe('npm lockfile fetch phase (unit)', () => {
     const lock = makeLock({ 'node_modules/fixture': packageEntry('fixture', bytes) });
     let fetchCalls = 0;
     await expect(fetchNpmDependencies(lock, {
-      maxTarballBytes: 128 * 1024 * 1024 + 1,
+      maxTarballBytes: 192 * 1024 * 1024 + 1,
       fetch: async () => { fetchCalls += 1; return new Response(bytes); },
     })).rejects.toMatchObject({ reason: 'size-limit' });
     expect(fetchCalls).toBe(0);

@@ -135,7 +135,7 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
   const packageLock = files.get('package-lock.json');
   if (!packageLock) throw new Error(`${job.profile} requires package-lock.json`);
   const npmDependencies = await fetchNpmDependencies(packageLock, job.profile === 'node24-tsx-selected-v1'
-    ? { targetPlatform: 'linux-x64-glibc', maxTarballBytes: 128 * 1024 * 1024 }
+    ? { targetPlatform: 'linux-x64-glibc', maxTarballBytes: 192 * 1024 * 1024 }
     : {});
   const dependencyEvidence = { lockfileSha256: npmDependencies.lockfileSha256, tarballSetSha256: npmDependencies.tarballSetSha256 };
   const lock = await readImageLock();

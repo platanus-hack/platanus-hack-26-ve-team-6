@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 const DEFAULT_REGISTRY = 'https://registry.npmjs.org/';
 const MAX_TOTAL_BYTES = 256 * 1024 * 1024;
-const MAX_TARBALL_BYTES = 128 * 1024 * 1024;
+const MAX_TARBALL_BYTES = 192 * 1024 * 1024;
 const DEFAULT_TARBALL_BYTES = 16 * 1024 * 1024;
 const selectedPlatform = { os: 'linux', cpu: 'x64', libc: 'glibc' } as const;
 const lockSchema = z.object({
