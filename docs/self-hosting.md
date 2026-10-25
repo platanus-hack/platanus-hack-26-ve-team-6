@@ -102,7 +102,7 @@ En el arranque local, Web, coordinator, worker y gateway se comunican por loopba
 
 `restore` necesita una instalación ya inicializada y detenida. Después de `./gotchu reset`, ejecuta `./gotchu up` y `./gotchu down` antes de restaurar el archivo externo. El comando deja todos los servicios detenidos, congela escrituras de proveedor e incrementa el recovery epoch; luego `./gotchu up` reinicia la aplicación. Los valores locales de Postgres y los puertos permanecen de la instalación destino. Para borrar una copia, elimina su archivo y las demás copias que hayas guardado; la limpieza de una workspace no puede editar respaldos cifrados existentes.
 
-`./gotchu doctor` comprueba requisitos frecuentes. La GitHub App Reader es opcional y sólo necesita permisos de lectura. El executor de PR está desactivado por defecto y requiere una GitHub App Writer, un catálogo de repositorios autorizado y el flujo de aprobación Owner descrito abajo.
+`./gotchu doctor` comprueba requisitos frecuentes. GitHub es opcional. El operador puede configurar la conexión con una App o conservar la integración anterior con dos Apps. La publicación de PR está desactivada por defecto y conserva el flujo de aprobación Owner descrito abajo.
 
 ### Conectar GitHub con una sola App
 
@@ -143,7 +143,7 @@ En `${state_dir}/.env`, configura `AUTH_GOOGLE_ID=<client-id>` y `AUTH_GOOGLE_SE
 
 Si el correo verificado ya pertenece a una cuenta local, Gotchu no vincula Google automáticamente. Inicia sesión con la contraseña local; la vinculación explícita desde ajustes de cuenta queda pendiente porque la aplicación todavía no cuenta con persistencia de identidades enlazadas. Reinicia con `./gotchu up` después de cambiar las variables. No copies el client secret a páginas, capturas ni registros.
 
-### Activar el executor de PR
+### Activar el executor de PR en la integración anterior
 
 El executor de PR está desactivado por defecto. Para habilitarlo en desarrollo local, crea una GitHub App Writer instalada sólo en los repositorios que autorizas. Dale permisos de lectura/escritura de Contents y Pull requests; Gotchu abre PRs draft y no hace merge. Guarda fuera de Git el JSON de la App en `.gotchu/github-writer-app.json`, con campos `id` y `privateKeyPem`, permisos `0600`. Usa una clave RSA de 2048 bits o más. La clave debe pertenecer a una App de escritura; no reutilices el token o la clave del Reader. El Writer App installation ID puede ser distinto del Reader installation ID.
 
