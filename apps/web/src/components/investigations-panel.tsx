@@ -13,6 +13,7 @@ import { customerApi, CustomerApiError } from './customer-client';
 import { ProviderConnectionButton } from './provider-connection';
 import { ProviderCredentialLink } from './provider-credential-links';
 import { InvestigationModelPicker } from './investigation-model-picker';
+import { AiCorrectionPanel } from './ai-correction-panel';
 
 const scopeNames: Record<InvestigationDataScope, string> = {
   application_context: 'Contexto declarado de el proyecto',
@@ -273,8 +274,9 @@ export function InvestigationsTimeline({ organizationId, applicationId, canManag
           {run.candidateSuggestion.risks?.length ? <ul>{run.candidateSuggestion.risks.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p>Los posibles efectos secundarios siguen sin evaluarse.</p>}
           {run.candidateSuggestion.validationPlan?.length ? <ul>{run.candidateSuggestion.validationPlan.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p>Hace falta definir la validación independiente.</p>}
           <p className="customer-field-note">Evidencias: {run.candidateSuggestion.evidenceIds.join(', ')}</p>
-          {run.subject.kind === 'finding' && <a className="customer-button" href={`/w/${organizationId}/p/${applicationId}/informes/${run.subject.reportId}`}>Ver opciones de corrección</a>}
+          {run.subject.kind === 'finding' && <AiCorrectionPanel organizationId={organizationId} applicationId={applicationId} reportId={run.subject.reportId} findingId={run.subject.subjectId} canManage={canManage} />}
         </div>}
+        {run.subject.kind === 'finding' && <a href={`/w/${organizationId}/p/${applicationId}/informes/${run.subject.reportId}`}>Ver hallazgo en el informe</a>}
         <p className="customer-field-note">{run.tokensSpent.toLocaleString('es')} tokens · ${(run.costMicroUsd / 1_000_000).toFixed(6)} USD gastados · ${(run.reservedCostMicroUsd / 1_000_000).toFixed(6)} USD y {run.reservedTokens.toLocaleString('es')} tokens reservados.</p>
         {canManage && (run.state === 'queued' || run.state === 'running') && <button className="customer-button" type="button" disabled={cancel.isPending} onClick={() => cancel.mutate(run.jobId)}>Cancelar</button>}
         {canManage && (['delayed', 'inconclusive'].includes(run.status) || run.state === 'failed') && run.reservedCostMicroUsd === 0 && run.reservedTokens === 0 && <button className="customer-button" type="button" disabled={resume.isPending} onClick={() => resume.mutate(run.jobId)}>Reanudar</button>}
