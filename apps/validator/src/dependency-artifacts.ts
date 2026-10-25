@@ -1,4 +1,4 @@
-import type { CustomerAssessmentReport, DependencyRescanArtifactResult, DependencyRescanPackage } from '@gotchu/contracts';
+import { dependencyArtifactIdentities, type CustomerAssessmentReport, type DependencyRescanArtifactResult, type DependencyRescanPackage } from '@gotchu/contracts';
 import type { NpmArtifactAdapter } from '@gotchu/customer-assessment';
 
 type Change = { name: string; version: string };
@@ -38,7 +38,5 @@ export async function scanFrozenDependencyArtifacts(
   const beforeResults = await scan(before, artifactScope.before);
   const afterResults = await scan(after, artifactScope.after);
   const artifactResults = { before: beforeResults, after: afterResults };
-  const identities = (results: DependencyRescanArtifactResult[]) => results.flatMap(pkg => pkg.analysis.findings.map(finding =>
-    `artifact:${pkg.name}:${finding.tool}:${finding.ruleId}:${finding.location}`));
-  return { artifactScope, artifactResults, beforeIdentities: identities(beforeResults), afterIdentities: identities(afterResults) };
+  return { artifactScope, artifactResults, beforeIdentities: dependencyArtifactIdentities(beforeResults), afterIdentities: dependencyArtifactIdentities(afterResults) };
 }
