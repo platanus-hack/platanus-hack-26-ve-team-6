@@ -158,3 +158,13 @@ Las aplicaciones ficticias vulnerables y corregidas son fixtures de regresión. 
 | [Self-hosting](docs/self-hosting.md) | Instalación en tu propia máquina |
 | [Definición](docs/definition-interview.md) | Alcance acordado y decisiones de producto |
 | [Roadmap](docs/roadmap.md) | Propuestas futuras y verificaciones pendientes |
+
+## Platanus Hack 26
+
+Gotchu es el proyecto del **team-6** para el track **AI Security** de Platanus Hack 26: Caracas ft. Yummy.
+
+- [Repositorio original del equipo](https://github.com/platanus-hack/platanus-hack-26-ve-team-6) (`upstream`).
+- [Repositorio de desarrollo e integraciones](https://github.com/0bkevin/gotchu) (`origin`).
+- Equipo: [Cesar Gutiérrez](https://github.com/caesaralejandro), [Kevin Bravo](https://github.com/0bkevin) y [Jennipher Dolinski Azocar](https://github.com/jenndolinski).
+
+Los metadatos para la entrega están en [platanus-hack-project.jsonc](platanus-hack-project.jsonc), la descripción en [project-description.md](project-description.md) y el logo en [project-logo.png](project-logo.png).
