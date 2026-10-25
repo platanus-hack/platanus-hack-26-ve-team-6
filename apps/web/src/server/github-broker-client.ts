@@ -1,12 +1,12 @@
 import {
-  singleGitHubBrokerRequestSchema,
-  singleGitHubBrokerResponseSchema,
+  githubBrokerRequestSchema,
+  githubBrokerResponseSchema,
 } from '@gotchu/contracts';
 import type { z } from 'zod';
 import { HttpError, readBoundedBody } from './http.js';
 
-type BrokerRequest = z.infer<typeof singleGitHubBrokerRequestSchema>;
-type BrokerResponse = z.infer<typeof singleGitHubBrokerResponseSchema>;
+type BrokerRequest = z.infer<typeof githubBrokerRequestSchema>;
+type BrokerResponse = z.infer<typeof githubBrokerResponseSchema>;
 type AuthorizeResponse = Extract<BrokerResponse, { operation: 'authorize' }>;
 type InstallationStatusResponse = Extract<BrokerResponse, { operation: 'installationStatus' }>;
 type ListRepositoriesResponse = Extract<BrokerResponse, { operation: 'listRepositories' }>;
@@ -26,7 +26,7 @@ function brokerEndpoint(value: string) {
     (base.protocol !== 'https:' && !(base.protocol === 'http:' && isLoopback(base.hostname)))) {
     throw new Error('executor_internal_url_invalid');
   }
-  return new URL('/internal/v1/github', base);
+  return new URL('/internal/github/broker', base);
 }
 
 function brokerUnavailable() {
@@ -56,7 +56,7 @@ export function createSingleAppGitHubBroker(options: {
   const fetcher = options.fetchImplementation ?? fetch;
 
   async function send(input: BrokerRequest): Promise<BrokerResponse> {
-    const request = singleGitHubBrokerRequestSchema.safeParse(input);
+    const request = githubBrokerRequestSchema.safeParse(input);
     if (!request.success) throw new HttpError(400, 'github_broker_request_invalid', 'No se pudo preparar la solicitud de GitHub.');
 
     let response: Response;
@@ -96,7 +96,7 @@ export function createSingleAppGitHubBroker(options: {
     } catch {
       throw new HttpError(502, 'github_broker_response_invalid', 'El servicio de GitHub devolvió una respuesta inesperada.');
     }
-    const result = singleGitHubBrokerResponseSchema.safeParse(raw);
+    const result = githubBrokerResponseSchema.safeParse(raw);
     if (!result.success || result.data.operation !== request.data.operation) {
       throw new HttpError(502, 'github_broker_response_invalid', 'El servicio de GitHub devolvió una respuesta inesperada.');
     }

@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { customerSourceSnapshotSchema, githubOAuthStartSchema, singleGitHubBrokerResponseSchema, singleGitHubPublicAppSchema } from '@gotchu/contracts';
+import { customerSourceSnapshotSchema, githubSingleAppOAuthStartSchema, githubBrokerResponseSchema, singleGitHubPublicAppSchema } from '@gotchu/contracts';
 import type { Backend, Identity } from '@gotchu/backend';
 import { createSingleAppGitHubBroker } from '../src/server/github-broker-client.js';
 import { createGitHubApi } from '../src/server/github-api.js';
@@ -22,12 +22,12 @@ const connection = { installationId: '174788349', accountLogin: 'fixture-owner',
 const source = { organizationId, applicationId, id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', digest, revision: snapshot.revision, fileCount: 1, createdAt: new Date(0).toISOString() };
 const repositoryLink = { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', applicationId, repositoryKey: 'gh-101', fullName: repository.fullName, defaultBranch: repository.defaultBranch, readAccess: 'granted' as const, writeAccess: 'not_granted' as const };
 
-const chooseResult = singleGitHubBrokerResponseSchema.parse({
+const chooseResult = githubBrokerResponseSchema.parse({
   operation: 'authorize',
   result: { kind: 'choose', organizationId, installations: [{ id: 174788349, account: { id: 101, login: 'fixture-owner', type: 'User' } }] },
 });
 if (chooseResult.operation !== 'authorize') throw new Error('Invalid authorize fixture');
-const capturedResult = singleGitHubBrokerResponseSchema.parse({
+const capturedResult = githubBrokerResponseSchema.parse({
   operation: 'readRepository',
   result: { kind: 'snapshot', snapshot, digest, repository, installationId: connection.installationId, appId: app.id, treeSha: '2'.repeat(40) },
 });
@@ -41,7 +41,7 @@ function fixture(options: { purpose?: 'authorize' | 'install' | 'choose'; broker
   const github = {
     workspaceName: vi.fn(async () => 'Espacio de prueba'),
     createState: vi.fn(async (_identity: Identity, rawInput: unknown) => {
-      const input = githubOAuthStartSchema.parse(rawInput);
+      const input = githubSingleAppOAuthStartSchema.parse(rawInput);
       events.push(`state:${input.purpose}`);
       return { state: authorizationState, codeChallenge: challenge };
     }),

@@ -203,7 +203,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   if (configuredOrigin.username || configuredOrigin.password || configuredOrigin.pathname !== '/' || configuredOrigin.search || configuredOrigin.hash
     || (configuredOrigin.protocol !== 'https:' && !(configuredOrigin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(configuredOrigin.hostname)))) throw new Error('PUBLIC_APP_URL must be an HTTPS origin (localhost is allowed for development)');
   const origin = configuredOrigin.origin;
-  if (env.GOTCHU_GITHUB_CONNECTION_MODE !== undefined && env.GOTCHU_GITHUB_CONNECTION_MODE !== 'single_app') throw new Error('github_connection_mode_invalid');
+  if (env.GOTCHU_GITHUB_CONNECTION_MODE && !['single_app', 'legacy_two_app'].includes(env.GOTCHU_GITHUB_CONNECTION_MODE)) throw new Error('github_connection_mode_invalid');
   const singleAppMode = env.GOTCHU_GITHUB_CONNECTION_MODE === 'single_app';
   const singleAppPublicGitHubApp = singleAppMode ? singleAppGitHubPublicApp(env) : undefined;
   if (singleAppPublicGitHubApp && env.AUTH_GITHUB_ID === singleAppPublicGitHubApp.clientId) throw new Error('github_sign_in_app_must_be_separate');
@@ -230,12 +230,20 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const modelProbeClient = gatewayModelProbeClient(env);
   const validationService = apiDatabase ? createValidationService({ database: apiDatabase }) : undefined;
   const loadBoundSingleAppRepository = singleAppPublicGitHubApp && apiDatabase ? async (scope: {
-    organizationId: string; applicationId: string; repositoryLinkId: string; repositoryKey: string;
+    organizationId: string; applicationId: string; repositoryLinkId?: string; repositoryKey: string;
   }) => {
+    const repositoryLinkId = scope.repositoryLinkId ?? await apiDatabase.tenant(scope.organizationId, async tx => {
+      const result = await tx.query<{ id: string }>(`SELECT id FROM gotchu.application_repository_links
+        WHERE organization_id=$1 AND application_id=$2 AND repository_key=$3 AND NOT revoked AND read_access='granted'`,
+      [scope.organizationId, scope.applicationId, scope.repositoryKey]);
+      if (result.rows.length !== 1) throw new BackendError('repository_link_unavailable', 'A single active repository link is required', 409);
+      return result.rows[0]?.id;
+    });
+    if (!repositoryLinkId) throw new BackendError('repository_link_unavailable', 'The active GitHub repository link is unavailable', 409);
     const linked = await apiDatabase.tenant(scope.organizationId, tx => loadSingleAppRepository(tx, {
       organizationId: scope.organizationId,
       applicationId: scope.applicationId,
-      repositoryLinkId: scope.repositoryLinkId,
+      repositoryLinkId,
     }, singleAppPublicGitHubApp.id));
     if (linked.repositoryKey !== scope.repositoryKey) throw new BackendError('repository_link_unavailable', 'The active GitHub repository link is unavailable', 409);
     return linked;
@@ -249,7 +257,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
         if (linked.defaultBranch !== scope.branch) throw new BackendError('repository_branch_mismatch', 'The requested branch is not the linked repository default branch', 409);
         const response = await singleAppGitHubBroker.readRepository({
           organizationId: scope.organizationId, applicationId: scope.applicationId,
-          repositoryLinkId: scope.repositoryLinkId, read: 'head',
+          repositoryLinkId: linked.repositoryLinkId, read: 'head',
         });
         if (response.result.kind !== 'head') throw new BackendError('repository_reader_unavailable', 'The GitHub broker did not return a branch head', 503);
         return response.result.sha;
@@ -269,10 +277,10 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
     },
     async readTree(scope) {
       if (loadBoundSingleAppRepository && singleAppGitHubBroker) {
-        await loadBoundSingleAppRepository(scope);
+        const linked = await loadBoundSingleAppRepository(scope);
         const response = await singleAppGitHubBroker.readRepository({
           organizationId: scope.organizationId, applicationId: scope.applicationId,
-          repositoryLinkId: scope.repositoryLinkId, read: 'tree', commitSha: scope.commitSha,
+          repositoryLinkId: linked.repositoryLinkId, read: 'tree', commitSha: scope.commitSha,
         });
         if (response.result.kind !== 'tree') throw new BackendError('repository_reader_unavailable', 'The GitHub broker did not return a repository tree', 503);
         return response.result.tree;
@@ -290,10 +298,10 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
     },
     async inspectAutomation(scope) {
       if (loadBoundSingleAppRepository && singleAppGitHubBroker) {
-        await loadBoundSingleAppRepository(scope);
+        const linked = await loadBoundSingleAppRepository(scope);
         const response = await singleAppGitHubBroker.readRepository({
           organizationId: scope.organizationId, applicationId: scope.applicationId,
-          repositoryLinkId: scope.repositoryLinkId, read: 'automation', commitSha: scope.baseCommit,
+          repositoryLinkId: linked.repositoryLinkId, read: 'automation', commitSha: scope.baseCommit,
         });
         if (response.result.kind !== 'automation') throw new BackendError('repository_reader_unavailable', 'The GitHub broker did not return automation findings', 503);
         return response.result.violations.map(({ path, rule }) => ({ path, rule }));
