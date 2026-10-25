@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { z } from 'zod';
 import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
@@ -18,7 +18,6 @@ import {
   type CustomerSourceSummary,
   type CustomerContainerImageSummary,
   type CustomerTarget,
-  type CustomerWorkspace,
 } from '@gotchu/contracts';
 import { CustomerApiError, customerApi, type CustomerJob, type CustomerScanProfile, type CustomerSession } from './customer-client';
 import { readSavedCustomerScope } from './customer-scope-storage';
@@ -42,13 +41,14 @@ import { WorkspacePages } from './workspace-pages';
 import { AssessmentProgress, ReportProgress } from './assessment-progress';
 import { CopyFindingPrompt } from './copy-finding-prompt';
 import { findingPrompt } from './finding-prompt';
-import { ProjectOverview } from './project-overview';
+import { ProjectOverview, type ProjectRisk } from './project-overview';
+import { coverageState, examineSources, nextAction, openFindings, projectSources, type ProjectSource } from './project-risk';
 import { ProjectSources } from './project-sources';
 import { ProjectReports } from './project-reports';
 import { ProjectVigilance } from './project-vigilance';
 import { DashboardShell } from './dashboard-shell';
+import { PageHeader, ScopeSwitcher, SidebarNameForm } from './dashboard-sidebar';
 import { ProjectHttpsAudit } from './project-https-audit';
-import { ChoiceSelect } from './choice-select';
 import { DashboardSectionContext, routePageFromPath } from './dashboard-route-view';
 import './customer-shell.css';
 import './customer-report.css';
@@ -74,15 +74,15 @@ const pages: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'https-audit', label: 'Auditoría HTTPS', icon: GlobeIcon },
   { id: 'operations', label: 'Vigilancia', icon: RadarIcon },
   { id: 'reports', label: 'Informes', icon: FileTextIcon },
-  { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
-  { id: 'retention-policy', label: 'Retención', icon: ArchiveIcon },
   { id: 'members', label: 'Equipo', icon: UsersIcon },
   { id: 'decision-records', label: 'Decisiones', icon: GavelIcon },
+  { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
+  { id: 'retention-policy', label: 'Retención', icon: ArchiveIcon },
 ];
 
-function DashboardNavLink({ page, organizationId, applicationId, onNavigate }: { page: Page; organizationId: string | null; applicationId: string | null; onNavigate: () => void }) {
+function DashboardNavLink({ page, organizationId, applicationId, count, onNavigate }: { page: Page; organizationId: string | null; applicationId: string | null; count?: number | undefined; onNavigate: () => void }) {
   const Icon = pages.find(item => item.id === page)?.icon ?? HouseIcon;
-  const content = <><Icon aria-hidden="true" />{pages.find(item => item.id === page)?.label}</>;
+  const content = <><Icon aria-hidden="true" /><span>{pages.find(item => item.id === page)?.label}</span>{count !== undefined && count > 0 && <span className="customer-nav-count">{count}</span>}</>;
   const common = { className: 'customer-nav-item', activeOptions: { exact: page !== 'reports' }, activeProps: { className: 'customer-nav-item is-active', 'aria-current': 'page' as const }, onClick: onNavigate };
   if (!organizationId) return null;
   if (page !== 'members' && page !== 'decision-records' && page !== 'license-policy' && page !== 'retention-policy' && !applicationId) return null;
@@ -99,6 +99,13 @@ function DashboardNavLink({ page, organizationId, applicationId, onNavigate }: {
   }
 }
 
+const pageDescriptions: Partial<Record<Page, string>> = {
+  applications: 'Código, imágenes y orígenes HTTPS que Gotchu puede evaluar en este proyecto.',
+  'https-audit': 'Revisa cómo responde tu web sin conectar su código fuente.',
+  operations: 'Revisiones periódicas de las fuentes de este proyecto y las alertas que generan.',
+  reports: 'Cada informe guarda su evidencia, su cobertura y sus límites.',
+};
+const roleLabels = { owner: 'Propietario', operator: 'Operador', viewer: 'Sólo lectura' } as const;
 const modeLabels: Record<AssessmentMode, string> = {
   internal: 'Código fuente',
   external: 'HTTPS externo',
@@ -309,41 +316,6 @@ function AuthPanel({ session, onAuthenticated, initialRegistering = false }: { s
       {!session.localAuthEnabled && oauthProviders.length === 0 && <div className="customer-inline-error" role="status">El inicio de sesión todavía no está configurado para este entorno.</div>}
       <nav className="customer-auth-legal" aria-label="Información legal">Consulta los <a href="/terms">Términos de uso</a> y el <a href="/privacy">Aviso de privacidad</a>.</nav>
   </AuthShell>;
-}
-
-function WorkspaceCreate({ onCreated, disabled }: { onCreated: (workspace: CustomerWorkspace) => void; disabled: boolean }) {
-  const [name, setName] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const create = useMutation({
-    mutationFn: () => customerApi.createWorkspace(name),
-    onSuccess: workspace => { setName(''); setError(null); onCreated(workspace); },
-    onError: caught => setError(readableError(caught)),
-  });
-  return <form className="customer-inline-create" onSubmit={event => { event.preventDefault(); setError(null); create.mutate(); }}>
-    <label htmlFor="new-workspace">Nuevo espacio de trabajo</label>
-    <div className="customer-inline-control"><input id="new-workspace" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre del espacio de trabajo" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Crear espacio de trabajo"><PlusIcon aria-hidden="true" /></button></div>
-    {error && <p className="customer-form-error" role="alert">{error}</p>}
-  </form>;
-}
-
-function WorkspaceSettings({ organizationId, name, canManage, onSaved }: { organizationId: string; name: string; canManage: boolean; onSaved: () => void }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(name);
-  const [error, setError] = useState<string | null>(null);
-  const update = useMutation({
-    mutationFn: () => customerApi.updateWorkspace(organizationId, draft.trim()),
-    onSuccess: () => { setError(null); setEditing(false); onSaved(); },
-    onError: caught => setError(readableError(caught)),
-  });
-  useEffect(() => setDraft(name), [name]);
-  if (!canManage) return null;
-  if (!editing) return <button className="customer-link-button" onClick={() => setEditing(true)}>Cambiar nombre del espacio</button>;
-  return <form className="customer-inline-create" onSubmit={event => { event.preventDefault(); setError(null); update.mutate(); }}>
-    <label htmlFor="workspace-name">Nombre del espacio</label>
-    <div className="customer-inline-control"><input id="workspace-name" value={draft} onChange={event => setDraft(event.target.value)} maxLength={200} required disabled={update.isPending} /><button className="customer-button customer-button-small" disabled={update.isPending || !draft.trim() || draft.trim() === name}>Guardar</button></div>
-    <button type="button" className="customer-link-button" onClick={() => { setDraft(name); setEditing(false); setError(null); }}>Cancelar</button>
-    {error && <p className="customer-form-error" role="alert">{error}</p>}
-  </form>;
 }
 
 function ApplicationCreate({ organizationId, onCreated, disabled }: { organizationId: string; onCreated: (id: string) => void; disabled: boolean }) {
@@ -756,6 +728,7 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const [notice, setNotice] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarForm, setSidebarForm] = useState<'workspace-create' | 'workspace-rename' | 'project-create' | null>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -899,6 +872,41 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     if (!organizationId || !applicationId || !visibleReportId) throw new Error('Selecciona un informe.');
     return customerApi.report(organizationId, applicationId, visibleReportId);
   }, retry: false });
+  // Risk overview: the latest report of each source, fetched in full for severities and coverage.
+  const riskSources = projectSources({ sources: sources.data ?? [], images: images.data ?? [], targets: targets.data ?? [] });
+  const examination = examineSources(riskSources, reports.data ?? []);
+  const riskReports = useQueries({ queries: examination.reportIds.map(reportId => ({
+    queryKey: ['customer-data', userId, 'report', organizationId, applicationId, reportId],
+    enabled: page === 'overview' && organizationId !== null && applicationId !== null,
+    queryFn: () => {
+      if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
+      return customerApi.report(organizationId, applicationId, reportId);
+    },
+    retry: false,
+  })) });
+  const riskReportData = riskReports.flatMap(query => query.data ? [query.data] : []);
+  const riskCoverage = coverageState({ sources: riskSources, pending: examination.pending, reports: riskReportData });
+  const findings = openFindings(riskReportData);
+  const risk: ProjectRisk = {
+    state: riskReports.some(query => query.error) || reports.error ? 'error' : riskReports.some(query => query.isPending) || reports.isPending ? 'loading' : 'ready',
+    sources: riskSources,
+    examined: examination.examined.map(item => ({ source: item.source, reportDate: date(item.report.finishedAt) })),
+    pending: examination.pending,
+    counts: findings.counts, total: findings.total, coverage: riskCoverage,
+    next: nextAction({ sources: riskSources, pending: examination.pending, reports: riskReportData, coverage: riskCoverage }),
+  };
+  const examine = useMutation({
+    mutationFn: (source: ProjectSource) => {
+      if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
+      return customerApi.queue(source.kind === 'target'
+        ? { organizationId, applicationId, mode: 'external', sourceSnapshotId: null, targetId: source.id }
+        : { organizationId, applicationId, mode: 'internal', sourceSnapshotId: source.id, targetId: null });
+    },
+    onSuccess: result => {
+      if (!organizationId || !applicationId) return;
+      setActiveJob({ organizationId, applicationId, jobId: result.jobId, purpose: 'assessment' }); setPageError(null);
+    },
+  });
   const job = useQuery({
     queryKey: ['customer-data', userId, 'job', activeJob?.organizationId, activeJob?.applicationId, activeJob?.jobId],
     enabled: activeJob !== null,
@@ -982,13 +990,22 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     : organizationId && applications.error ? <ErrorNotice message={readableError(applications.error)} retry={() => { applications.refetch().catch(caught => setPageError(readableError(caught))); }} />
     : !organizationId || !selectedApplication ? <FirstProjectEmptyState canManage={canManage || !organizationId} onCreateProject={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId } : {} }); }} onAnalyzeWeb={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId, fuente: 'web' } : { fuente: 'web' } }); }} />
     : <>
-      <div className="customer-page-heading"><div><h1>{page === 'overview' ? selectedApplication.name : pageTitle}</h1></div>{selectedApplication.archived && <span className="customer-status customer-status-muted">Proyecto archivado</span>}</div>
+      <PageHeader
+        title={page === 'overview' ? selectedApplication.name : pageTitle}
+        description={pageDescriptions[page] ?? (applicationReports[0] ? <>Último informe <strong>{date(applicationReports[0].finishedAt)}</strong> · {modeLabels[applicationReports[0].mode]}</> : 'Todavía no hay informes en este proyecto.')}
+        status={selectedApplication.archived ? <span className="customer-status customer-status-muted">Proyecto archivado</span> : null}
+        actions={page === 'overview' && canManage && !selectedApplication.archived ? <button className="customer-button" type="button" onClick={() => setPage('applications')}><PlusIcon aria-hidden="true" />Añadir fuente</button> : null}
+      />
       {targets.isPending || (needsSourceData && (sources.isPending || images.isPending)) || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance del proyecto…" /> : (targets.error || (needsSourceData && (sources.error || images.error)) || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? images.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
         {page === 'overview' && <ProjectOverview
-          snapshotCount={sources.data?.length ?? 0}
-          activeDomainCount={targets.data?.filter(target => target.status === 'authorized').length ?? 0}
-          reportCount={applicationReports.length}
+          risk={risk}
           onAddSource={() => setPage('applications')}
+          onOpenSources={() => setPage('applications')}
+          onExamine={source => { examine.mutate(source); }}
+          examining={examine.isPending}
+          examineError={examine.error ? readableError(examine.error) : null}
+          onOpenReport={reportId => { void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: selectedApplication.applicationId, reportId } }); }}
+          onRetry={() => refreshApplicationData()}
           onViewReports={() => setPage('reports')}
           assessmentForm={<AssessmentForm key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} images={images.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} onAddSource={() => setPage('applications')} />}
           recentReports={applicationReports.length === 0 ? <div className="customer-empty-inline">Este proyecto aún no tiene informes.</div> : <ReportList reports={applicationReports.slice(0, 4)} selectedId={visibleReportId} organizationId={organizationId} applicationId={selectedApplication.applicationId} />}
@@ -1031,14 +1048,42 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
 
   return <DashboardSectionContext.Provider value={renderRouteSection}><DashboardShell brand={<Brand />} menuOpen={menuOpen} onToggleMenu={() => setMenuOpen(value => !value)} onCloseMenu={() => setMenuOpen(false)} sidebar={
     <>
-      <div className="customer-workspace-select"><label htmlFor="workspace-select">ESPACIO DE TRABAJO</label><ChoiceSelect id="workspace-select" value={organizationId ?? ''} options={[{ value: '', label: 'Selecciona un espacio', disabled: true }, ...(workspaces.data ?? []).map(item => ({ value: item.id, label: item.name }))]} onChange={value => { setNotice(null); void navigate({ to: '/w/$workspaceId', params: { workspaceId: value } }); }} />{workspace && <span>{workspace.role === 'owner' ? 'Propietario' : workspace.role === 'operator' ? 'Operador' : 'Sólo lectura'}</span>}{workspace && <WorkspaceSettings key={workspace.id} organizationId={workspace.id} name={workspace.name} canManage={canManage} onSaved={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); setNotice('El espacio de trabajo se actualizó.'); }} />}</div>
-      {workspace && <div className="customer-application-select"><label htmlFor="application-select">PROYECTO</label><ChoiceSelect id="application-select" value={applicationId ?? ''} options={[{ value: '', label: 'Selecciona un proyecto', disabled: true }, ...(applications.data ?? []).map(item => ({ value: item.applicationId, label: `${item.name}${item.archived ? ' · archivada' : ''}` }))]} onChange={value => { setNotice(null); void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: workspace.id, projectId: value } }); }} /></div>}
-      <nav className="customer-nav" aria-label="Proyecto">{pages.slice(0, 5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
-      <nav className="customer-nav" aria-label="Espacio de trabajo">{pages.slice(5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
+      {workspace ? <div className="customer-scope">
+        <ScopeSwitcher kind="Espacio de trabajo" title={workspace.name} subtitle={roleLabels[workspace.role]}
+          options={(workspaces.data ?? []).map(item => ({ id: item.id, label: item.name, meta: roleLabels[item.role] }))} currentId={workspace.id}
+          onSelect={value => { setNotice(null); setSidebarForm(null); void navigate({ to: '/w/$workspaceId', params: { workspaceId: value } }); }}
+          actions={[{ id: 'workspace-create', label: 'Nuevo espacio de trabajo', icon: 'plus' }, ...(canManage ? [{ id: 'workspace-rename', label: 'Cambiar nombre', icon: 'rename' as const }] : [])]}
+          onAction={id => setSidebarForm(id === 'workspace-create' ? 'workspace-create' : 'workspace-rename')} />
+        {sidebarForm === 'workspace-create' && <SidebarNameForm id="new-workspace" label="Nuevo espacio de trabajo" submitLabel="Crear" onCancel={() => setSidebarForm(null)} onSubmit={async name => {
+          const created = await customerApi.createWorkspace(name);
+          setSidebarForm(null); await queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] });
+          setNotice(`Espacio «${created.name}» creado.`); void navigate({ to: '/w/$workspaceId', params: { workspaceId: created.id } });
+        }} />}
+        {sidebarForm === 'workspace-rename' && <SidebarNameForm key={workspace.id} id="workspace-name" label="Nombre del espacio" initial={workspace.name} submitLabel="Guardar" onCancel={() => setSidebarForm(null)} onSubmit={async name => {
+          await customerApi.updateWorkspace(workspace.id, name);
+          setSidebarForm(null); await workspaces.refetch(); setNotice('El espacio de trabajo se actualizó.');
+        }} />}
+      </div> : null}
+      {workspace && <nav className="customer-nav" aria-labelledby="nav-project">
+        <h2 id="nav-project" className="customer-nav-label">Proyecto</h2>
+        {(applications.data?.length ?? 0) > 0 && <ScopeSwitcher compact kind="Proyecto" title={selectedApplication?.name ?? 'Selecciona un proyecto'}
+          options={(applications.data ?? []).map(item => ({ id: item.applicationId, label: item.name, ...(item.archived ? { meta: 'Archivado' } : {}) }))} currentId={applicationId}
+          onSelect={value => { setNotice(null); setSidebarForm(null); void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: workspace.id, projectId: value } }); }}
+          actions={canManage ? [{ id: 'project-create', label: 'Nuevo proyecto', icon: 'plus' }] : []}
+          onAction={() => setSidebarForm('project-create')} />}
+        {sidebarForm === 'project-create' && <SidebarNameForm id="new-application" label="Nuevo proyecto" submitLabel="Crear" onCancel={() => setSidebarForm(null)} onSubmit={async name => {
+          const created = await customerApi.createApplication(workspace.id, name);
+          setSidebarForm(null); await applications.refetch();
+          void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: workspace.id, projectId: created.applicationId } });
+        }} />}
+        {pages.slice(0, 5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} count={item.id === 'reports' ? reports.data?.length : item.id === 'applications' && sources.data && targets.data ? sources.data.length + targets.data.filter(target => target.status === 'authorized').length : undefined} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}
+      </nav>}
+      {workspace && <nav className="customer-nav" aria-labelledby="nav-workspace">
+        <h2 id="nav-workspace" className="customer-nav-label">Espacio de trabajo</h2>
+        {pages.slice(5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}
+      </nav>}
       <div className="customer-sidebar-bottom">
-        {Boolean(workspaces.data?.length) && <WorkspaceCreate disabled={false} onCreated={created => { queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); void navigate({ to: '/w/$workspaceId', params: { workspaceId: created.id } }); }} />}
-        <div className="customer-user-row"><span className="customer-user-avatar" aria-hidden="true">{(session.user?.displayName?.trim()[0] ?? 'U').toUpperCase()}</span><span title={session.user?.displayName}>{session.user?.displayName ?? 'Sesión activa'}</span><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOutIcon aria-hidden="true" /></button></div>
-        <ThemeSwitch />
+        <div className="customer-user-row"><span className="customer-user-avatar" aria-hidden="true">{(session.user?.displayName?.trim()[0] ?? 'U').toUpperCase()}</span><span title={session.user?.displayName}><strong>{session.user?.displayName ?? 'Sesión activa'}</strong>{workspace && <small>{roleLabels[workspace.role]}</small>}</span><ThemeSwitch /><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOutIcon aria-hidden="true" /></button></div>
       </div>
     </>
   }>
