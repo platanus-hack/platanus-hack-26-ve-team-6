@@ -27,6 +27,9 @@ Acordado el 24 de octubre de 2026: no bloquean el cierre del núcleo.
 
 Se encontraron durante la integración del 24 de octubre de 2026 y quedan para resolver después.
 
+- **Escáner bloqueado tras un fallo de limpieza.** Al arrancar un entorno nuevo, el escáner quedó en `fault` tras un error de limpieza y respondió 503 a todas las evaluaciones, sin escribir nada en su log, hasta reiniciarlo. El coordinator solo registra `assessment_reconciliation_required`, sin la causa. Falta registrar la causa en ambos y recuperarse sin reinicio manual.
+- **Vigilancia de repositorios por push.** Las revisiones son periódicas (mínimo cada hora); falta un receptor de webhooks de GitHub para revisar al hacer push, con verificación de firma y protección contra repetición. Necesita una URL pública.
+- **Detección de cambios de GitHub en vivo.** La lectura, OSV y CISA KEV se probaron en vivo con el repositorio sandbox; el diff entre dos commits reales de GitHub solo está cubierto por pruebas con repositorios Git locales.
 - **WebAuthn en vivo.** El circuito "Aprobar PR" se probó con aserciones WebAuthn de fixture. Falta registrar una llave real y aprobar con ella.
 - **Proveedores LLM con clave API.** Claude Code y Codex con suscripción ya funcionan en vivo de punta a punta (ver [validación](validation.md)). Los presets con clave API, OpenRouter incluido, sólo se verificaron con un servidor HTTPS simulado. xAI documenta Chat Completions como legado y la capa OpenAI-compatible de Gemini sigue en beta.
 - **Renovación de la sesión de Codex.** El gateway guarda el `auth.json` que Codex rota y serializa las llamadas que comparten sesión; está cubierto con un CLI simulado, pero aún no se observó una rotación real (Codex renueva cada ~8 días).
