@@ -96,9 +96,10 @@ body:has(.gl-page) [data-base-ui-focus-guard]:focus-visible { outline: none !imp
   /* Large phrases: a magenta band behind porcelain type. The band (outer span) and the type colour (inner span)
      are two single-layer backgrounds with the same hard-edged gradient sliding in lock-step, so the type is never
      transparent and no multi-value `background-clip` is needed (Firefox and Safari painted the unclipped layer as
-     a solid block). Position 100% = band not yet swept, 0% = swept. */
+     a solid block). Position 100% = band not yet swept, 0% = swept. Above and below the band (0.65em to 1.43em of the
+     padded ink box) a fixed layer keeps the ink colour, so accents and descenders never turn porcelain on a white ground. */
   .gl .gl-mark--big { margin: 0 -.06em; background: linear-gradient(90deg, var(--brand) 50%, transparent 50%) no-repeat 0% 52% / 200% .78em; transition: background-position 700ms var(--sweep) var(--gl-delay, 0ms); }
-  .gl .gl-mark-ink { padding: 0 .06em; -webkit-box-decoration-break: clone; box-decoration-break: clone; color: var(--foreground); background: linear-gradient(90deg, var(--on-brand) 50%, var(--foreground) 50%) no-repeat 0% 0 / 200% 100%; transition: background-position 700ms var(--sweep) var(--gl-delay, 0ms); }
+  .gl .gl-mark-ink { padding: .24em .06em .08em; -webkit-box-decoration-break: clone; box-decoration-break: clone; color: var(--foreground); background: linear-gradient(var(--foreground) .65em, transparent .65em 1.43em, var(--foreground) 1.43em) no-repeat 0 0 / 100% 100%, linear-gradient(90deg, var(--on-brand) 50%, var(--foreground) 50%) no-repeat 0% 0 / 200% 100%; transition: background-position 700ms var(--sweep) var(--gl-delay, 0ms); }
   @supports ((-webkit-background-clip: text) or (background-clip: text)) {
     .gl .gl-mark-ink { color: transparent; -webkit-background-clip: text; background-clip: text; }
   }
