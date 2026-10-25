@@ -66,18 +66,27 @@ function createHttpsRequester(options: HttpsOptions = {}) {
     return new Promise((resolve,reject) => {
       const req = request({ hostname: selected.address, family: selected.family, port: scopedFixture?.port ?? 443, servername: url.hostname, checkServerIdentity: (_host, certificate) => checkServerIdentity(url.hostname, certificate), rejectUnauthorized: true, ...(scopedFixture ? { ca: scopedFixture.ca } : {}), method:probe.method, path:pathname, agent:false, signal, maxHeaderSize:8192, headers:{host:url.hostname,accept:'text/html, application/json;q=0.8','accept-encoding':'identity','user-agent':'Gotchu-Observation/2',...probe.headers} }, res => {
         const status = res.statusCode ?? 0;
+        if (status < 100 || status > 599) {
+          res.destroy(); req.destroy(); reject(new Error('invalid_http_status')); return;
+        }
         const headers: Record<string,string> = {};
+        let invalidApiHeaders = false;
         for (const name of ['content-type','content-security-policy','strict-transport-security','x-content-type-options','x-frame-options','server','x-powered-by']) {
           const value = res.headers[name]; if (typeof value === 'string') headers[name] = value.slice(0,256).replace(/[\x00-\x1f\x7f]/g,'');
         }
         if (kind !== 'observe') for (const name of ['allow','access-control-allow-origin','access-control-allow-credentials','access-control-allow-methods','access-control-allow-headers']) {
-          const value = res.headers[name]; if (typeof value === 'string') headers[name] = value.slice(0,256).replace(/[\x00-\x1f\x7f]/g,'');
+          const value = res.headers[name];
+          // Never turn malformed/oversized policy data into a different valid policy.
+          if (typeof value === 'string') {
+            if (value.length > 256 || /[\x00-\x1f\x7f]/.test(value)) invalidApiHeaders = true;
+            else headers[name] = value;
+          }
         }
         let bodyBytes = 0; let done = false; const bodyChunks: Buffer[] = [];
         const finish = (incomplete: string | null) => {
           if (done) return;
           done = true; signal.removeEventListener('abort',onAbort);
-          resolve({status,headers,bodyBytes,tlsVerified:true,incomplete,body:Buffer.concat(bodyChunks).toString('utf8')});
+          resolve({status,headers,bodyBytes,tlsVerified:true,incomplete:incomplete ?? (invalidApiHeaders ? 'invalid_api_headers' : null),body:Buffer.concat(bodyChunks).toString('utf8')});
           res.destroy(); req.destroy();
         };
         const onAbort=()=>finish('deadline_exceeded');

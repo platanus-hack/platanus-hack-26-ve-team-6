@@ -57,7 +57,7 @@ export async function assessApiChecks(raw: ApiTarget, signal: AbortSignal, optio
     attempts++;
     let page: HttpsPageObservation;
     try { page = await probe(target.origin, path, kind, signal, target.expiresAt, Math.min(maxBytes, API_CHECKS_MAX_RESPONSE_BYTES - responseBytes)); }
-    catch { item.incomplete = signal.aborted ? 'deadline_exceeded' : 'transport_unavailable'; observations.push(item); return; }
+    catch (error) { item.incomplete = signal.aborted ? 'deadline_exceeded' : error instanceof Error && error.message === 'invalid_http_status' ? 'invalid_http_status' : 'transport_unavailable'; observations.push(item); return; }
     responseBytes += page.bodyBytes;
     Object.assign(item, { status: page.status, tlsVerified: page.tlsVerified, bodyBytes: page.bodyBytes, incomplete: page.incomplete, signals: signals(page, scenarioId) });
     // API evidence retains a normalized MIME category, never arbitrary header values or body text.
