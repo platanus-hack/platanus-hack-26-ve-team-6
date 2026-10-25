@@ -28,6 +28,25 @@ function operationPorts() {
   return { ...result, operations };
 }
 describe('authenticated customer HTTP adapter (injected services)', () => {
+  it('starts and polls ChatGPT connection only through authenticated same-origin mutations', async () => {
+    const { services, auth } = ports(); const id = randomUUID();
+    const start = vi.fn(async () => ({ id, status: 'pending' as const, verificationUrl: 'https://auth.openai.com/codex/device' as const, userCode: 'ABCD-1234', acceptsCode: false, expiresAt: new Date(Date.now() + 60_000).toISOString() }));
+    const get = vi.fn(async () => ({ id, status: 'connected' as const }));
+    const handle = createCustomerApi({ auth, origin, services, registrationEnabled: false, providers: [], providerConnections: { start, get } });
+    const prefix = `workspaces/${organizationId}/investigation-model/codex/connections`;
+    expect((await handle(request(prefix, {}, { origin: 'https://other.invalid' }))).status).toBe(403);
+    expect(start).not.toHaveBeenCalled();
+    expect((await handle(request(prefix, { command: 'arbitrary' }))).status).toBe(400);
+    expect((await handle(request(prefix))).status).toBe(405);
+    const response = await handle(request(prefix, {}));
+    expect(response.status).toBe(201); expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(start).toHaveBeenCalledExactlyOnceWith({ userId }, organizationId, 'codex');
+    expect((await handle(request(`${prefix}/${id}`, {}))).status).toBe(200);
+    expect(get).toHaveBeenCalledExactlyOnceWith({ userId }, organizationId, id, false, 'codex', undefined);
+    auth.identity = async () => null;
+    expect((await handle(request(prefix, {}))).status).toBe(401); expect(start).toHaveBeenCalledTimes(1);
+  });
+
   it('downloads CycloneDX only through the authenticated report scope', async () => {
     const { services, auth } = ports();
     const reportId = randomUUID();

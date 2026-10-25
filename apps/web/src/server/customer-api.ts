@@ -17,7 +17,7 @@ import {
   type DependencyFixPreparationRequest, type DependencyFixPreparationResponse,
   licensePolicySchema, workspaceLicensePolicySchema,
   configureInvestigationModelSchema, investigationModelProbeResultSchema, investigationModelSettingsSchema,
-  investigationActionSchema, investigationRunSchema, investigationSubjectSchema,
+  providerConnectionSchema, investigationActionSchema, investigationRunSchema, investigationSubjectSchema,
   workspaceRetentionPolicyInputSchema, workspaceRetentionPolicySchema,
 } from '@gotchu/contracts';
 import { type Identity, type Backend } from '@gotchu/backend';
@@ -34,6 +34,8 @@ import { createGitHubApi } from './github-api.js';
 import { handleWorkflowExceptionsApi } from './workflow-exceptions-api.js';
 import { handleProtectionApi } from './protection-api.js';
 import { handleNotificationsApi } from './notifications-api.js';
+import type { createProviderConnections } from './provider-connections.js';
+import type { createOpenRouterLogins } from './openrouter-login.js';
 
 export interface CustomerServices {
   stepUp?: NonNullable<Backend['stepUp']>;
@@ -103,6 +105,8 @@ export function createCustomerApi(options: {
   selfHostSetup?: boolean;
   providers: readonly { id: string; name: string; type: string }[];
   githubAppFile?: string; githubAppSlug?: string;
+  providerConnections?: ReturnType<typeof createProviderConnections>;
+  openRouterLogins?: ReturnType<typeof createOpenRouterLogins>;
 }) {
   const handleGitHub = createGitHubApi({ origin: options.origin, ...(options.githubAppFile ? { appFile: options.githubAppFile } : {}), ...(options.githubAppSlug ? { appSlug: options.githubAppSlug } : {}),
     services: options.services?.github ? { github: options.services.github, uploadSource: options.services.uploadSource, queue: options.services.queue } : null });
@@ -145,6 +149,13 @@ export function createCustomerApi(options: {
       const headers = new Headers();
       for (const cookie of session.cookies) headers.append('set-cookie', cookie);
       const send = (value: unknown, status = 200) => json(value, status, headers);
+      if (url.pathname === '/api/customer/model-provider/openrouter/callback' && request.method === 'GET') {
+        if (!options.openRouterLogins) throw new HttpError(503, 'provider_login_not_configured', 'La conexión no está configurada.');
+        await options.openRouterLogins.complete(identity, url);
+        headers.set('Content-Type', 'text/html; charset=utf-8'); headers.set('Cache-Control', 'private, no-store');
+        headers.set('Referrer-Policy', 'no-referrer'); headers.set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+        return new Response('<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Autorización recibida · Gotchu</title><main><h1>Autorización recibida</h1><p>Vuelve a la pestaña de Gotchu. La conexión se completará automáticamente.</p><a href="/dashboard">Volver a Gotchu</a></main></html>', { headers });
+      }
       const retentionParts=url.pathname.split('/').filter(Boolean);
       if(retentionParts.length===5&&retentionParts[0]==='api'&&retentionParts[1]==='customer'&&retentionParts[2]==='workspaces'&&retentionParts[4]==='retention'){
         if(!services.retention)throw new HttpError(503,'retention_not_configured','La retención no está configurada.');
@@ -237,6 +248,19 @@ export function createCustomerApi(options: {
       }
       if (parts[0] !== 'api' || parts[1] !== 'customer' || parts[2] !== 'workspaces') throw new HttpError(404, 'not_found', 'Ruta no encontrada.');
       const organizationId = parse(uuid, parts[3]);
+      if (parts[4] === 'investigation-model' && (parts[5] === 'codex' || parts[5] === 'claude_code' || parts[5] === 'openrouter') && parts[6] === 'connections') {
+        if (!options.providerConnections) throw new HttpError(503, 'provider_login_not_configured', 'La autorización desde el navegador está disponible en instalaciones locales de Gotchu. Los proveedores de suscripción necesitan su CLI oficial instalado.');
+        if (parts.length === 7 && request.method === 'POST') {
+          parse(z.object({}).strict(), await body(request));
+          return send(providerConnectionSchema.parse(await options.providerConnections.start(identity, organizationId, parts[5])), 201);
+        }
+        if (parts.length === 8 && (request.method === 'POST' || request.method === 'DELETE')) {
+          const input = parse(z.object({ authorizationCode: z.string().min(16).max(513).optional() }).strict(), await body(request));
+          if (request.method === 'DELETE' && input.authorizationCode) throw new HttpError(400, 'invalid_input', 'Cancelar no requiere código.');
+          return send(providerConnectionSchema.parse(await options.providerConnections.get(identity, organizationId, parse(uuid, parts[7]), request.method === 'DELETE', parts[5], input.authorizationCode)));
+        }
+        throw new HttpError(405, 'method_not_allowed', 'Método no permitido.');
+      }
       if (parts.length === 5 && parts[4] === 'investigation-model') {
         const modelSettings = services.investigationModels;
         if (!modelSettings) throw new HttpError(503, 'investigation_model_not_configured', 'La configuración del modelo no está disponible.');

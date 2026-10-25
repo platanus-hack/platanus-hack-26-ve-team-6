@@ -9,6 +9,10 @@ import { HttpError } from './http.js';
 import { bindDemoAssessmentServices, createDemoAssessmentApi } from './demo.js';
 import { createLocalAccounts } from './local-accounts.js';
 import { createCustomerApi } from './customer-api.js';
+import { createProviderConnections } from './provider-connections.js';
+import { startCodexDeviceLogin } from './codex-device-login.js';
+import { startClaudeTokenLogin } from './claude-token-login.js';
+import { createOpenRouterLogins } from './openrouter-login.js';
 import { createFileEventCredentials } from './event-credentials.js';
 import { createNotificationWebhookValidator } from './notification-dns.js';
 import { resolve } from 'node:path';
@@ -250,6 +254,7 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
   const intake = ingestDatabase ? createBackend({ database: ingestDatabase, ...(credentials ? { credentials } : {}) }) : null;
   const handle = createBackendApi({ auth, origin, web, intake });
   const handleDemo = createDemoAssessmentApi({ enabled: env.GOTCHU_DEMO_ENABLED === 'true', origin, services: web ? bindDemoAssessmentServices(web) : null });
+  const openRouterLogins = web ? createOpenRouterLogins(origin, web.investigationModels) : undefined;
   const handleCustomer = createCustomerApi({ auth, origin, services: web ? { ...web.customers, ...(web.stepUp ? { stepUp: web.stepUp } : {}), telemetry: web.telemetry, protection: web.protection, operations: web.operations, decisionRecords: web.decisionRecords, corrections: web.corrections, context: web.context, triage: web.triage, investigationModels: web.investigationModels, investigations: web.investigations,
     members: web.members,
     github: web.github,
@@ -265,6 +270,8 @@ export function createWebRuntime(env: NodeJS.ProcessEnv = process.env) {
       return catalog.listAllowedRepositoryOptions(scope).map(entry => ({ key: entry.repositoryKey, label: entry.displayName }));
     },
     job: (identity, value) => web.web.getJob(identity, value) } : null,
+    ...(web && openRouterLogins && selfHostMode && ['localhost', '127.0.0.1', '[::1]'].includes(configuredOrigin.hostname) && modelSecrets
+      ? { providerConnections: createProviderConnections(web.investigationModels, (provider, scope) => provider === 'codex' ? startCodexDeviceLogin(env.GOTCHU_CODEX_BIN || 'codex') : provider === 'claude_code' ? startClaudeTokenLogin(env.GOTCHU_CLAUDE_CODE_BIN || 'claude') : openRouterLogins.start(scope)), openRouterLogins } : {}),
     ...(accounts ? { localAccounts: accounts } : {}),
     registrationEnabled: Boolean(accounts) && auth.enabled && (publicSignup || (!selfHostMode && env.NODE_ENV === 'development' && env.GOTCHU_ALLOW_LOCAL_REGISTRATION === 'true')),
     selfHostSetup: selfHostMode,

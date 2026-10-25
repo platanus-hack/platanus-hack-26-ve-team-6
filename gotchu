@@ -342,7 +342,8 @@ start_app() {
         "GOTCHU_EVENT_CREDENTIAL_DIRECTORY=$state_dir/event-credentials" \
         "GOTCHU_MONITORING_CONFIG_FILE=$state_dir/monitoring-repositories.json" \
         "GOTCHU_GATEWAY_URL=https://127.0.0.1:$(gateway_port)" "GOTCHU_GATEWAY_MODEL_PROBE_SECRET=$(cat "$state_dir/model-probe.secret")" \
-        "GOTCHU_MODEL_SECRET_DIRECTORY=$state_dir/model-secrets" "NODE_EXTRA_CA_CERTS=$state_dir/internal.crt")
+        "GOTCHU_MODEL_SECRET_DIRECTORY=$state_dir/model-secrets" "NODE_EXTRA_CA_CERTS=$state_dir/internal.crt" \
+        "GOTCHU_CODEX_BIN=$(optional_env_value GOTCHU_CODEX_BIN)" "GOTCHU_CLAUDE_CODE_BIN=$(optional_env_value GOTCHU_CLAUDE_CODE_BIN)")
       if [[ -n "$executor_token" ]]; then
         environment+=("GOTCHU_EXECUTOR_INTERNAL_URL=http://127.0.0.1:${executor_port}" "GOTCHU_EXECUTOR_INTERNAL_TOKEN=$executor_token")
       fi
