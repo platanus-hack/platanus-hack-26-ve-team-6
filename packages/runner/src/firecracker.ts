@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { runnerJobSchema, runnerResultSchema, type RunnerJob, type RunnerResult } from './contracts.js';
 import { checkRunnerGate, recordRunnerSelfTest, runnerPackageRoot } from './gate.js';
-import { parseGuestFrame, validateGuestPayload } from './protocol.js';
+import { makeOutput, parseGuestFrame, validateGuestPayload } from './protocol.js';
 import { readArchiveFiles, validateInputArchive } from './archive.js';
 import { fetchNpmDependencies } from './npm-cache.js';
 import { isolationEvidence, readImageLock, sha256 } from './images.js';
@@ -224,7 +224,9 @@ async function runMicroVm(job: RunnerJob, input: Buffer, cacheDir: string, signa
     if (timedOut) {
       outcome = runnerResultSchema.parse({
         status: 'timed_out', durationMs: Date.now() - started,
-        isolation: isolationEvidence(job, lock, true, false, dependencyEvidence), stdout: emptyOutput(job.limits.outputBytes), stderr: emptyOutput(job.limits.outputBytes),
+        isolation: isolationEvidence(job, lock, true, false, dependencyEvidence), stdout: emptyOutput(job.limits.outputBytes),
+        // Diagnostic bytes are untrusted and never count as a completed result.
+        stderr: makeOutput(`Untrusted guest serial output before timeout:\n${Buffer.from(serial).toString('utf8')}`, job.limits.outputBytes),
       });
     } else if (signal?.aborted) {
       outcome = runnerResultSchema.parse({
