@@ -38,7 +38,7 @@ Semgrep está fijado en 1.182.0 por digest. La validación local Linux/amd64 cub
 
 ## Investigación con IA
 
-`./gotchu up` arranca el gateway y el worker de investigación junto al resto de servicios. Una persona Owner abre **Modelos de IA** en el menú del espacio, elige un proveedor, conecta su cuenta o introduce su clave y marca las categorías de datos que autoriza. La página está disponible aunque todavía no haya proyectos. El modelo sugerido puede cambiarse o escribirse como texto libre. La credencial se almacena sólo en el servidor (`.gotchu/model-secrets`); Gotchu exige consentimiento explícito por categoría y conserva los límites de gasto y tokens. **Probar conexión** envía una solicitud mínima por el gateway y muestra un resultado breve.
+`./gotchu up` arranca el gateway y el worker de investigación junto al resto de servicios. Una persona Owner abre **Modelos de IA** en el menú del espacio, elige un proveedor, conecta su cuenta o introduce su clave y marca las categorías de datos que autoriza. La página está disponible aunque todavía no haya proyectos. El modelo sugerido puede cambiarse o escribirse como texto libre. La credencial se almacena sólo en el servidor (`.gotchu/model-secrets`); Gotchu exige consentimiento explícito por categoría. Los proveedores con clave API conservan los presupuestos de gasto y tokens; las suscripciones registran su consumo sin un tope fijo de tokens. **Probar conexión** envía una solicitud mínima por el gateway y muestra un resultado breve.
 
 ### Con tu suscripción de Claude o ChatGPT
 
@@ -189,7 +189,9 @@ The source regression persists a synthetic assessment, admits its automatic inve
 
 This regression uses synthetic scan observations and a fixture executable in place of the Codex service. It proves pipeline integration, not a live provider response or customer-repository finding. A live Codex check requires a dedicated account connection through **Modelos de IA → Conectar ChatGPT**, followed by **Guardar y probar conexión** and an authorized investigation. When accessing a remote development environment, use its shared preview or a configured port forward; `localhost` in a browser on another computer refers to that computer. The public device-authorization page can be opened in the account owner's own browser while Gotchu waits for completion.
 
-## Subscription model providers, live end to end — 2026-10-25
+## Earlier subscription-provider validation — 2026-10-25
+
+This historical run predates the device-authorization interface, private correction agents and removal of subscription token limits. Its automated results apply to that earlier revision, not the current HEAD.
 
 Claude Code and Codex now run investigations on the Owner's own subscription. Everything below ran against a fresh `./gotchu up` in this worktree (isolated ports, disposable state) with this machine's real Claude Max and ChatGPT logins; no API keys were used. OpenRouter and the other API-key presets were **not** run live.
 
@@ -205,14 +207,30 @@ Claude Code and Codex now run investigations on the Owner's own subscription. Ev
 
 The live run found two defects that fixtures had hidden, both fixed: the probe locked the settings row with `FOR UPDATE`, which the gateway role is not granted (every UI probe answered "no disponible"), and the gateway's fixed instruction never described the reply shape the worker enforces (the first live investigation ended `invalid_model_output`). Not measured: a real Codex token rotation, OpenRouter or any API-key provider live, the AWS runtime, and explanation quality beyond this single `eval` fixture.
 
-### Adversarial review — 2026-10-25
+### Earlier adversarial review — 2026-10-25
 
 My own review pass plus two independent read-only reviews (Codex `gpt-6-luna`, high effort) of the gateway path and the self-host wiring. Fixed:
 
 - Provably unbilled failures (CLI missing, rejected login, unknown model) left reservations stuck; a few Codex probes with an expired login could exhaust a 100k token budget. They now settle at zero.
-- Output caps now subtract a conservative input estimate (three characters per token; measured ≈3.7) for every provider, so a late call is refused cleanly instead of overrunning its reservation. Codex 0.163 ignores `model_max_output_tokens`, so its replies rely on that estimate.
+- At that revision, output caps subtracted a conservative input estimate for every provider. Subscription token limits have since been removed; the current Codex and Claude subscription paths omit output-token limits.
 - A rotated Codex login written back after the Owner replaced or disabled it could recreate the deleted file; leftover CLI scratch directories after a crash are now swept at gateway start.
 - The money budget stays visible for subscriptions, since earlier API-key spending can still block them.
 - Existing installs get free gateway and worker ports on upgrade, and every service now receives its environment through a private `--env-file` instead of process arguments (previously `AUTH_SECRET`, database passwords and the new keys were readable in `/proc/<pid>/cmdline`).
 
 Re-verified live after the fixes: all services started through the new launcher, no secret appeared in any process's arguments, the Claude Code probe and a new investigation succeeded (Spanish explanation, both calls settled, 0 tokens left reserved), and the gateway (51) and backend investigation/budget (8) suites passed. Open: the Codex lock covers one gateway process only (see pendientes).
+
+## Current source and correction workflow, observed locally — 2026-10-25
+
+This run used an isolated local stack with real PostgreSQL, Redis, scanner, coordinator, worker, LangGraph and Codex. The Owner completed a fresh official ChatGPT device authorization from another browser. The source was an uploaded three-file synthetic snapshot containing a scanner-detectable `eval` call; it was never executed. This was not a GitHub OAuth capture or evidence about a customer repository.
+
+| User action | Observed persisted result |
+| --- | --- |
+| Upload the snapshot and start an assessment with automatic investigation enabled | Scanner produced one medium indication. The durable worker ran the investigation graph with `gpt-6-luna`: two model calls, two evidence reads and 31,908 tokens. One call alone consumed 23,697 tokens, exceeding the former fixed limit. The report saved the explanation, evidence references, implications, risks and validation plan. |
+| Choose `gpt-6.1-sol` and save/test the connection | The real Codex probe completed with 5,832 tokens. |
+| Choose **Corregir con IA** and confirm the scoped consent | The correction graph made one real Sol call, consuming 8,174 tokens. It produced a private replacement snapshot and a saved one-file diff. An independent static rescan completed with zero indications. |
+| Reload the report and repeat the same correction request | The saved correction and rescan link remained available. Concurrent repeated requests returned the existing correction ID without another model invocation. |
+| Choose **Preparar propuesta de PR** | The interface explained the missing verified repository binding and preserved the private correction. No provider write or PR was performed. |
+
+Subscription reservations in this run settled with their actual token usage and zero reserved tokens. Two older, uncertain investigations from before the fix retain their historical holds; they were not silently cleared. A zero-indication rescan does not establish behavioral correctness. Independent behavioral validation remained inconclusive because no validation suite or VM runner was configured. GitHub write binding, VM validation, human exact approval and actual PR publication therefore remain unverified here.
+
+No test suites, lint, standalone checks or CI waits were run for these changes after the Owner requested functional verification only. Runtime packages were built to operate the local product. The newly committed regression sources remain unexecuted. API-key providers and a fresh Claude connection were not exercised in this current run.
