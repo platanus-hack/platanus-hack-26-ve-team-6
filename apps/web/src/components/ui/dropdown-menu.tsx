@@ -65,8 +65,38 @@ function DropdownMenuRadioItemIndicator({ className, ...props }: MenuPrimitive.R
   )
 }
 
+function DropdownMenuItem({ className, ...props }: MenuPrimitive.Item.Props) {
+  return (
+    <MenuPrimitive.Item
+      data-slot="dropdown-menu-item"
+      className={cn(
+        "relative flex min-h-[34px] cursor-default items-center gap-2 rounded-md border border-transparent py-1.5 pr-2.5 pl-2.5 text-sm font-medium select-none data-highlighted:border-brand-ink data-highlighted:bg-muted data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuSeparator({ className, ...props }: MenuPrimitive.Separator.Props) {
+  return <MenuPrimitive.Separator data-slot="dropdown-menu-separator" className={cn("-mx-1 my-1 h-px bg-border", className)} {...props} />
+}
+
+function DropdownMenuGroup({ ...props }: MenuPrimitive.Group.Props) {
+  return <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
+}
+
+/** Mono uppercase label over a group, the same voice as the sidebar section labels. */
+function DropdownMenuGroupLabel({ className, ...props }: MenuPrimitive.GroupLabel.Props) {
+  return <MenuPrimitive.GroupLabel data-slot="dropdown-menu-group-label" className={cn("px-2.5 pt-2 pb-1 font-mono text-[11px] font-medium tracking-[.14em] text-muted-foreground uppercase", className)} {...props} />
+}
+
 export {
   DropdownMenu,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuGroup,
+  DropdownMenuGroupLabel,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
