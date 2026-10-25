@@ -51,6 +51,103 @@ live('real Postgres approval/execution ledger; injected test-only eligibility ve
     // Test-only eligibility facts exercise the ledger, not scanner or provider readiness.
     return createBackend({ database:f.databases.gotchu_api,clock:{now:()=>now},actionVerifier:{verify:async()=>actionFacts} });
   }
+  async function failedUnclaimedApproval() {
+    await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=true WHERE kind='source_patch_pull_request'");
+    const proposal = await createV2();
+    const input = { organizationId:f.a.organizationId, applicationId:f.a.applicationId, proposalId:proposal.proposalId, actionHash:proposal.actionHash };
+    const approval = await api.actions.approve(identity(), input);
+    await f.admin.query("UPDATE gotchu.jobs SET state='failed',result='{}'::jsonb,completed_at=clock_timestamp() WHERE organization_id=$1 AND kind='execution' AND payload->>'approvalId'=$2", [input.organizationId,approval.approvalId]);
+    return { input, approval };
+  }
+  it('requires expiry and fresh exact Owner confirmation after a preclaim failure, preserving old history', async () => {
+    const { input, approval } = await failedUnclaimedApproval();
+    const scope = { organizationId:input.organizationId, applicationId:input.applicationId, proposalId:input.proposalId };
+    const oldApproval = await f.admin.query('SELECT * FROM gotchu.approvals WHERE id=$1', [approval.approvalId]);
+    const oldJob = await f.admin.query("SELECT * FROM gotchu.jobs WHERE organization_id=$1 AND payload->>'approvalId'=$2", [input.organizationId,approval.approvalId]);
+    await expect(api.actions.getEligibility(identity(), scope)).resolves.toMatchObject({ status:'ineligible' });
+    now = new Date(approval.expiresAt);
+    await expect(api.actions.get(identity(), scope)).resolves.toMatchObject({ state:'expired' });
+    expect((await api.actions.list(identity(), { organizationId:scope.organizationId, applicationId:scope.applicationId })).find(row => row.id === scope.proposalId)?.state).toBe('expired');
+    await expect(api.actions.approve(identity(), input)).rejects.toMatchObject({ code:'proposal_ineligible' });
+    await expect(api.actions.getEligibility(identity(), scope)).resolves.toMatchObject({ status:'eligible' });
+    await expect(api.actions.get(identity(), scope)).resolves.toMatchObject({ state:'eligible' });
+    await expect(api.actions.approve(identity(), { ...input, actionHash:'0'.repeat(64) })).rejects.toMatchObject({ code:'hash_mismatch' });
+    const confirmations = await Promise.allSettled([api.actions.approve(identity(), input), api.actions.approve(identity(), input)]);
+    expect(confirmations.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    const fresh = confirmations.find(result => result.status === 'fulfilled');
+    if (!fresh || fresh.status !== 'fulfilled') throw new Error('Missing fresh Owner confirmation');
+    expect(fresh.value.approvalId).not.toBe(approval.approvalId);
+    expect(fresh.value.expiresAt.getTime()).toBe(now.getTime() + 300_000);
+    expect((await f.admin.query('SELECT * FROM gotchu.approvals WHERE id=$1', [approval.approvalId])).rows).toEqual(oldApproval.rows);
+    expect((await f.admin.query("SELECT * FROM gotchu.jobs WHERE organization_id=$1 AND payload->>'approvalId'=$2", [input.organizationId,approval.approvalId])).rows).toEqual(oldJob.rows);
+    expect((await f.admin.query("SELECT state,payload->>'expectedActionHash' AS hash FROM gotchu.jobs WHERE organization_id=$1 AND payload->>'approvalId'=$2", [input.organizationId,fresh.value.approvalId])).rows).toEqual([{ state:'queued', hash:input.actionHash }]);
+    expect((await f.admin.query('SELECT id FROM gotchu.executions WHERE proposal_id=$1', [input.proposalId])).rowCount).toBe(0);
+    await expect(executor.executions.claim({ organizationId:input.organizationId, approvalId:approval.approvalId })).rejects.toMatchObject({ code:'approval_expired' });
+  });
+  it.each(['queued','running','succeeded'])('does not reset an expired approval with a %s execution job', async state => {
+    const { input, approval } = await failedUnclaimedApproval();
+    await f.admin.query("UPDATE gotchu.jobs SET state=$3 WHERE organization_id=$1 AND payload->>'approvalId'=$2", [input.organizationId,approval.approvalId,state]);
+    now = new Date(approval.expiresAt);
+    const scope = { organizationId:input.organizationId, applicationId:input.applicationId, proposalId:input.proposalId };
+    await expect(api.actions.getEligibility(identity(), scope)).resolves.toMatchObject({ status:'ineligible' });
+    await expect(api.actions.get(identity(), scope)).resolves.toMatchObject({ state:'approved' });
+  });
+  it.each(['consumed','claimed','failed','uncertain'])('never resets expired %s authority or execution history', async state => {
+    const { input, approval } = await failedUnclaimedApproval();
+    if (state === 'consumed') {
+      await f.admin.query('UPDATE gotchu.approvals SET consumed_at=clock_timestamp() WHERE id=$1', [approval.approvalId]);
+    } else {
+      const claim = await executor.executions.claim({ organizationId:input.organizationId, approvalId:approval.approvalId });
+      await executor.executions.recordAttempt({ organizationId:input.organizationId, executionId:claim.executionId, attempt:1, step:'claim', state:'claimed' });
+      if (state === 'failed' || state === 'uncertain') await executor.executions.finish({ organizationId:input.organizationId, executionId:claim.executionId, claimToken:claim.claimToken, outcome:state });
+      // Exercise the independent ledger guard even with inconsistent proposal/approval projections.
+      await f.admin.query('UPDATE gotchu.approvals SET consumed_at=NULL WHERE id=$1', [approval.approvalId]);
+      await f.admin.query("UPDATE gotchu.proposals SET state='approved' WHERE id=$1", [input.proposalId]);
+    }
+    now = new Date(approval.expiresAt);
+    const scope = { organizationId:input.organizationId, applicationId:input.applicationId, proposalId:input.proposalId };
+    await expect(api.actions.getEligibility(identity(), scope)).resolves.toMatchObject({ status:'ineligible' });
+    await expect(api.actions.get(identity(), scope)).resolves.toMatchObject({ state:'approved' });
+  });
+  it('rechecks consumption after waiting for the executor approval lock', async () => {
+    const { input, approval } = await failedUnclaimedApproval();
+    now = new Date(approval.expiresAt);
+    const scope = { organizationId:input.organizationId, applicationId:input.applicationId, proposalId:input.proposalId };
+    let release = () => {};
+    let locked = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const ready = new Promise<void>(resolve => { locked = resolve; });
+    const claim = f.databases.gotchu_executor.tenant(input.organizationId, async tx => {
+      await tx.query('SELECT id FROM gotchu.approvals WHERE organization_id=$1 AND id=$2 FOR UPDATE', [input.organizationId,approval.approvalId]);
+      locked();
+      await gate;
+      await tx.query('UPDATE gotchu.approvals SET consumed_at=$3 WHERE organization_id=$1 AND id=$2', [input.organizationId,approval.approvalId,now]);
+    });
+    await ready;
+    const retry = api.actions.getEligibility(identity(), scope);
+    release();
+    await claim;
+    await expect(retry).resolves.toMatchObject({ status:'ineligible' });
+    await expect(api.actions.get(identity(), scope)).resolves.toMatchObject({ state:'approved' });
+  });
+  it('rechecks verifier, Owner authority, and tenant scope before preparing a fresh confirmation', async () => {
+    const { input, approval } = await failedUnclaimedApproval();
+    now = new Date(approval.expiresAt);
+    const scope = { organizationId:input.organizationId, applicationId:input.applicationId, proposalId:input.proposalId };
+    await expect(api.actions.getEligibility({ userId:f.b.userId }, scope)).rejects.toMatchObject({ code:'forbidden' });
+    await expect(api.actions.getEligibility({ userId:f.b.userId }, { ...scope, organizationId:f.b.organizationId, applicationId:f.b.applicationId })).rejects.toMatchObject({ code:'not_found' });
+    const operator = `retry-operator:${randomUUID()}`;
+    await f.admin.query("INSERT INTO gotchu.memberships(organization_id,user_id,role) VALUES($1,$2,'operator')", [input.organizationId,operator]);
+    try {
+      await expect(api.actions.getEligibility({ userId:operator }, scope)).rejects.toMatchObject({ code:'forbidden' });
+    } finally { await f.admin.query('DELETE FROM gotchu.memberships WHERE organization_id=$1 AND user_id=$2', [input.organizationId,operator]); }
+    actionFacts = { eligible:false, blockingReasons:['validation no longer current'] };
+    await expect(api.actions.getEligibility(identity(), scope)).resolves.toMatchObject({ status:'ineligible', blockingReasons:['validation no longer current'] });
+    actionFacts = { eligible:true, blockingReasons:[], baseChanged:true };
+    await expect(api.actions.getEligibility(identity(), scope)).resolves.toMatchObject({ status:'ineligible' });
+    await expect(api.actions.get(identity(), scope)).resolves.toMatchObject({ state:'invalidated' });
+    expect((await f.admin.query('SELECT id FROM gotchu.approvals WHERE proposal_id=$1', [input.proposalId])).rows).toEqual([{ id:approval.approvalId }]);
+  });
   it('records exact Owner session approval once for both PR kinds, with audit and outbox but no step-up row', async () => {
     await f.admin.query("UPDATE gotchu.action_capabilities SET adapter_available=true WHERE kind='source_patch_pull_request'");
     const withoutMfa = sessionApi();
