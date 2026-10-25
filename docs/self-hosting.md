@@ -38,7 +38,18 @@ Semgrep está fijado en 1.182.0 por digest. La validación local Linux/amd64 cub
 
 ## Investigación con IA
 
-En un despliegue con el investigador y el gateway D11 habilitados, una persona Owner abre la configuración de investigación del workspace, elige un proveedor, pega su clave API y guarda. El modelo sugerido puede cambiarse o escribirse como texto libre. La clave se almacena sólo en el servidor; Gotchu exige consentimiento explícito por categoría y conserva los límites de gasto y tokens. **Probar conexión** envía una solicitud mínima de hasta 64 tokens por el gateway y muestra un resultado breve.
+`./gotchu up` arranca el gateway y el worker de investigación junto al resto de servicios. Una persona Owner abre **Aplicaciones → Modelo y consentimiento**, elige un proveedor, pega su credencial, marca las categorías de datos que autoriza y guarda. El modelo sugerido puede cambiarse o escribirse como texto libre. La credencial se almacena sólo en el servidor (`.gotchu/model-secrets`); Gotchu exige consentimiento explícito por categoría y conserva los límites de gasto y tokens. **Probar conexión** envía una solicitud mínima por el gateway y muestra un resultado breve.
+
+### Con tu suscripción de Claude o ChatGPT
+
+Claude Code y Codex usan tu suscripción en lugar de una clave API: el gateway ejecuta el CLI oficial sin herramientas, en un directorio temporal vacío y con un `HOME` propio. El host que ejecuta `./gotchu up` necesita el CLI instalado y en el `PATH` (o `GOTCHU_CLAUDE_CODE_BIN` / `GOTCHU_CODEX_BIN` en `.gotchu/.env`); `./gotchu doctor` indica si los encuentra.
+
+- **Claude Code (Pro o Max).** Ejecuta `claude setup-token`, inicia sesión y pega el token `sk-ant-oat01-…`. Dura un año y se revoca desde claude.ai.
+- **Codex (ChatGPT).** Crea una sesión sólo para Gotchu con `CODEX_HOME=~/.codex-gotchu codex login` (o `codex login --device-auth` sin navegador) y pega el contenido de `~/.codex-gotchu/auth.json`. No reutilices la sesión de tu terminal: Codex rota su token de renovación y dos copias de la misma sesión se invalidan entre sí. El gateway guarda la sesión renovada en el mismo almacén.
+
+No hay precio por token: el uso se descuenta de los límites de tu suscripción y Gotchu sólo aplica el presupuesto de tokens. La prueba de conexión reserva más tokens que con una clave API porque cada CLI añade su propio prompt (unos 0,4 k en Claude Code y unos 6 k en Codex); una investigación con Codex suele usar unos 14 k de los 20 k permitidos por ejecución.
+
+### Con clave API
 
 | Proveedor | Modelo inicial o sugerencias | Documentación oficial |
 | --- | --- | --- |
@@ -51,12 +62,12 @@ En un despliegue con el investigador y el gateway D11 habilitados, una persona O
 | Mistral | `mistral-large-latest`, `mistral-small-latest` | [chat](https://docs.mistral.ai/api/endpoint/chat) · [modelos](https://docs.mistral.ai/api/endpoint/models) |
 | xAI Grok | `grok-4.7` | [API](https://docs.x.ai/developers/rest-api-reference/inference) · [modelo](https://docs.x.ai/developers/models/grok-4.7) |
 | Groq | `openai/gpt-oss-120b`, `openai/gpt-oss-20b` | [API](https://console.groq.com/docs/overview) · [modelos](https://console.groq.com/docs/models) |
-| OpenRouter | Escribe un ID del catálogo de OpenRouter | [API](https://openrouter.ai/docs/api_reference/overview) · [catálogo](https://openrouter.ai/models) |
+| OpenRouter | `anthropic/claude-sonnet-5.5`, `openai/gpt-6.1-sol`, `google/gemini-3.8-flash`, `deepseek/deepseek-v4.1-flash`, `moonshotai/kimi-k3.1-pro`, `z-ai/glm-5.3`, o cualquier ID del catálogo; indica sus precios por token | [API](https://openrouter.ai/docs/api_reference/overview) · [catálogo](https://openrouter.ai/models) |
 | Custom OpenAI-compatible | Escribe el ID y endpoint | [formato de chat](https://developers.openai.com/api/reference/chat/completions/overview) |
 
 Los proveedores alojados usan sus endpoints HTTPS oficiales. Custom OpenAI-compatible requiere HTTPS y DNS público; para permitir un endpoint autohospedado, el operador debe establecer `GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT=true` tanto en Web como en Gateway. En despliegues separados, configura `GOTCHU_GATEWAY_URL` en Web, comparte el mismo secreto aleatorio base64url de al menos 32 bytes mediante `GOTCHU_GATEWAY_MODEL_PROBE_SECRET` entre Web y Gateway, y proporciona al Gateway acceso al almacén de claves de modelo configurado. No pongas claves de proveedor en variables del navegador ni en logs.
 
-El arranque local de esta guía mantiene Agent y Gateway deshabilitados; en esa topología, la prueba de conexión informa que no está disponible. Los proveedores quedan utilizables cuando el operador habilita y configura esos servicios con sus credenciales y transporte privado.
+En el arranque local, Web, coordinator, worker y gateway se comunican por loopback con TLS (`.gotchu/internal.crt`), y el coordinator firma las capacidades de cada ejecución con `.gotchu/run-capability.key`. Las credenciales de modelo no forman parte de `./gotchu backup`; tras restaurar, vuelve a pegarlas.
 
 ## Comandos
 

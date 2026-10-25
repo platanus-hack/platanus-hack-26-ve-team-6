@@ -1,5 +1,21 @@
 # Verification record
 
+## Subscription model providers, live end to end — 2026-10-25
+
+Claude Code and Codex now run investigations on the Owner's own subscription. Everything below ran against a fresh `./gotchu up` in this worktree (isolated ports, disposable state) with this machine's real Claude Max and ChatGPT logins; no API keys were used. OpenRouter and the other API-key presets were **not** run live.
+
+| Check | Observed result |
+| --- | --- |
+| Self-host startup | `./gotchu up` applied gateway migrations and started web, coordinator, worker, gateway and scanner; `./gotchu status` reported all running. |
+| UI connection test, Claude Code (`claude-sonnet-5-5`) | Owner pasted the OAuth token in **Aplicaciones → Modelo y consentimiento**; "Conexión correcta · 416 tokens de entrada y 9 de salida". |
+| UI connection test, Codex (`gpt-6-luna`) | Owner pasted a Codex `auth.json`; "Conexión correcta · 5795 tokens de entrada y 9 de salida". |
+| Investigation from the report, Claude Code | Coordinator → worker → gateway → `claude -p`: `investigated`, `candidate_issue`, cited the uploaded `eval` evidence, 2 model calls + 2 additional reads, reservations settled (1,539/400 and 2,461/674 tokens), $0 charged. |
+| Investigation from the report, Codex | Same path through `codex exec`: `investigated`, `candidate_issue`, 2 model calls, 14,051 tokens settled, $0 charged. The terminal's own `auth.json` was unchanged (`last_refresh` 2026-10-19). |
+| Contract check | With the gateway's instruction, both CLIs returned replies that pass the worker's `modelOutputSchema`, in Spanish. |
+| Automated | Gateway suite 46 passed (Postgres-backed suite on a disposable PostgreSQL 17.11), backend investigation and budget suites 8 passed, worker 6 passed, `scripts/gotchu.test.mjs` passed, typecheck clean for gateway and worker. |
+
+The live run found two defects that fixtures had hidden, both fixed: the probe locked the settings row with `FOR UPDATE`, which the gateway role is not granted (every UI probe answered "no disponible"), and the gateway's fixed instruction never described the reply shape the worker enforces (the first live investigation ended `invalid_model_output`). Not measured: a real Codex token rotation, OpenRouter or any API-key provider live, the AWS runtime, and explanation quality beyond this single `eval` fixture.
+
 ## Real-app triage measurement — 2026-10-24
 
 This is a local evaluation of the deterministic evidence path, not a production-accuracy or capacity claim. The separate `apps/demo-target` process uses the Gotchu SDK and runtime guard; it sends signed events to the HTTP intake and coordinator backed by disposable PostgreSQL and Redis/BullMQ. Provider availability and target HTTPS results come from explicitly marked local fixtures.
