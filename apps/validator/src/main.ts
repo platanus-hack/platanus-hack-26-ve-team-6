@@ -28,6 +28,7 @@ export async function main() {
     return checkRunnerGate(gateOptions);
   };
   const worker = createValidationWorker({ database, key, concurrency: 1, shutdownSignal: shutdown.signal, runnerCacheDir, runnerGate,
+    executionEnabled: process.env.GOTCHU_VALIDATOR_FORCE_GATE_CLOSED !== '1',
     ...(executionKind === 'docker' && dockerImageDigest ? { dockerImageDigest } : {}) });
   let stopping = false;
   const server = createServer(async (request, response) => {

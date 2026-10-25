@@ -57,6 +57,7 @@ export interface ValidationWorkerOptions {
   readonly key: ValidatorKey;
   readonly runnerCacheDir?: string;
   readonly dockerImageDigest?: string;
+  readonly executionEnabled?: boolean;
   readonly runnerGate?: typeof checkRunnerGate;
   readonly scanner?: typeof scanner;
   readonly runnerJobAdapter?: (
@@ -144,6 +145,7 @@ export function createValidationWorker(options: ValidationWorkerOptions) {
     const admission = { suiteConfigured: Boolean(run.suiteDefinitionId && row.suite_name && row.script_name && row.required_count), baseDigestMatches: row.base_source_digest === run.baseSnapshotDigest, candidateDigestMatches: row.candidate_source_digest === run.candidateTreeDigest, scriptName: typeof row.script_name === 'string' ? row.script_name : null, gateOpen: true };
     const preflightReason = validationAdmissionReason(admission);
     if (preflightReason) return inconclusive(preflightReason);
+    if (options.executionEnabled === false) return inconclusive('runner_gate_closed');
     if (run.sandboxKind === 'docker' && (validationMode !== 'dependency' || run.runnerProfile !== 'node24-tsx-selected-v1' || !options.dockerImageDigest || !dockerRunner)) return inconclusive('runner_configuration_unavailable');
     const gate = run.sandboxKind === 'docker'
       ? await checkDockerRunnerGate({ imageDigest: options.dockerImageDigest ?? '' })
