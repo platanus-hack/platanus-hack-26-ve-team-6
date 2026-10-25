@@ -520,3 +520,8 @@
 /* The sidebar is sticky at viewport height; its column runs the full page length behind it. */
 /* Desktop: the app is one screen tall; the sidebar stays put and only the main column scrolls. */
 @media (min-width: 900px) { .customer-app-shell { height: 100vh; min-height: 0; overflow: hidden; } .customer-main-column { height: 100vh; overflow-y: auto; } }
+/* An opened settings row frames its content like every other panel. */
+.customer-settings-row[open] > :not(summary) { border: 1px solid var(--hair); border-radius: 12px; padding: 20px; }
+.customer-settings-row[open] > summary:not(:hover) { background: none; }
+.customer-tile-body { align-content: start; }
+.customer-source-list > div > span { overflow-wrap: anywhere; }

@@ -1,4 +1,7 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
+// Linked from the route so the server-rendered page is styled before hydration.
+import '../components/customer-shell.css';
+import '../components/onboarding.css';
 import { z } from 'zod';
 import { customerApi } from '../components/customer-client';
 import { Onboarding } from '../components/onboarding';

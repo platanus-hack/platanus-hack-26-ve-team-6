@@ -323,7 +323,7 @@ export function OperationsPanel({ userId, organizationId, applicationId, sources
         <select id="monitor-interval" value={intervalSeconds} onChange={event => setIntervalSeconds(Number(event.target.value))} disabled={!canManage || configure.isPending}>
           {intervals.map(hours => <option key={hours} value={hours * 3600}>{hours === 1 ? 'Cada hora' : `Cada ${hours} horas`}</option>)}
         </select>
-        <label htmlFor="monitor-basis">Instantánea o repositorio <span>(elige una)</span></label>
+        <label htmlFor="monitor-basis">Instantánea o repositorio</label>
         <select id="monitor-basis" value={basis} onChange={event => setBasis(event.target.value)} disabled={!canManage || configure.isPending}>
           <option value="">Sin fuente de código o repositorio</option>
           {selectedBasisIsMissing && <option value={basis} disabled>{currentConfig?.repositoryKey ? 'Repositorio configurado, ya no disponible' : 'Instantánea configurada, ya no disponible'}</option>}

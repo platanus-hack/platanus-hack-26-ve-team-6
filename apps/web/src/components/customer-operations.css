@@ -360,3 +360,11 @@
 .customer-panel ul.customer-ops-alert-rows { padding: 0; }
 .customer-ops-card > .customer-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .customer-ops-heading-actions { margin-left: auto; }
+@media (max-width: 620px) { .customer-ops-card > .customer-card-heading { align-items: flex-start; } .customer-ops-heading-actions { margin-left: 0; } }
+.customer-ops-heading-actions .customer-status { display: inline-flex; min-height: 34px; align-items: center; }
+.customer-ops-heading-actions .customer-button { min-height: 34px; padding: 6px 14px; }
+.customer-ops-config .customer-ops-providers { margin: 0; border: 0; padding: 0; }
+.customer-ops-config .customer-ops-providers legend { margin-bottom: 8px; padding: 0; color: var(--foreground); font-family: 'Gotchu Text', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.customer-ops-config .customer-checkbox { display: flex; min-height: 34px; align-items: center; gap: 10px; margin: 0; }
+.customer-ops-config .customer-checkbox input { margin: 0; }
+.customer-ops-config .customer-ops-providers { gap: 2px; }
