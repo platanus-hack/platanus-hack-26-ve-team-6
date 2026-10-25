@@ -1,6 +1,7 @@
-import { createServer, type IncomingMessage, type RequestListener, type ServerResponse } from 'node:http';
-import { createServer as createTlsServer } from 'node:https';
-import type { Server } from 'node:net';
+import { createServer, type IncomingMessage, type RequestListener, type Server as HttpServer, type ServerResponse } from 'node:http';
+import { createServer as createTlsServer, type Server as HttpsServer } from 'node:https';
+
+type Server = HttpServer | HttpsServer;
 import { WorkerConfigError, type WorkerConfig } from './config.js';
 import { WorkerServiceError, type InvestigationWorkerService } from './worker.js';
 
