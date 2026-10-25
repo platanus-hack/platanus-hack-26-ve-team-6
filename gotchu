@@ -173,6 +173,9 @@ NODE
       )" || fail "No se pudo elegir un puerto para ${key}."
     fi
     chmod 600 "$env_file"
+    if [[ -s "$env_file" && "$(tail -c 1 "$env_file"; printf '.')" != $'\n.' ]]; then
+      printf '\n' >>"$env_file"
+    fi
     printf '%s=%s\n' "$key" "$port" >>"$env_file"
   done
 }
@@ -264,7 +267,7 @@ process.stdout.write(`redis://:${encodeURIComponent(password)}@127.0.0.1:${port}
 NODE
 }
 start_app() {
-  local service="$1" port="$2" pidfile="$state_dir/$1.pid" logfile="$state_dir/$1.log" entry
+  local service="$1" port="$2" pidfile="$state_dir/$1.pid" logfile="$state_dir/$1.log" service_env_file="$state_dir/$1.env" entry tmp_env key value quote item
   entry="$(app_entry "$service")"
   if app_running "$service"; then return 0; fi
   if app_process_matches "$service"; then stop_app "$service"; fi
@@ -347,8 +350,32 @@ start_app() {
       ;;
   esac
   node -e 'process.exit(Number(process.versions.node.split(".")[0])===24?0:1)' || fail 'Gotchu requiere Node.js 24.' 2
-  setsid env -i "PATH=${PATH:-/usr/local/bin:/usr/bin:/bin}" "HOME=$state_dir" "LANG=${LANG:-C.UTF-8}" "${environment[@]}" \
-    nohup node "$entry" "--gotchu-instance=$project" >>"$logfile" 2>&1 </dev/null &
+  if [[ -e "$service_env_file" || -L "$service_env_file" ]]; then
+    [[ -f "$service_env_file" && ! -L "$service_env_file" ]] || fail 'El archivo de entorno del servicio debe ser un archivo regular privado.' 2
+  fi
+  local -a env_lines=() launch_environment=("PATH=${PATH:-/usr/local/bin:/usr/bin:/bin}" "HOME=$state_dir" "LANG=${LANG:-C.UTF-8}")
+  for item in "${environment[@]}"; do
+    key="${item%%=*}"; value="${item#*=}"
+    if [[ "$key" == NODE_EXTRA_CA_CERTS ]]; then
+      launch_environment+=("$item")
+      continue
+    fi
+    if [[ "$value" == *\'* && "$value" == *\"* ]]; then
+      fail "No se puede guardar ${key} en el archivo privado del servicio: el valor contiene comillas simples y dobles." 2
+    fi
+    if [[ "$value" == *\'* ]]; then quote='"'; else quote="'"; fi
+    env_lines+=("${key}=${quote}${value}${quote}")
+  done
+  tmp_env="$(umask 077; mktemp "$state_dir/.${service}.env.XXXXXX")" || fail 'No se pudo crear el archivo temporal privado del servicio.'
+  if ! printf '%s\n' "${env_lines[@]}" >"$tmp_env"; then
+    rm -f -- "$tmp_env"
+    fail 'No se pudo escribir el archivo privado del servicio.'
+  fi
+  chmod 600 "$tmp_env"
+  mv -f -- "$tmp_env" "$service_env_file"
+  chmod 600 "$service_env_file"
+  setsid env -i "${launch_environment[@]}" \
+    nohup node "--env-file=$service_env_file" "$entry" "--gotchu-instance=$project" >>"$logfile" 2>&1 </dev/null &
   printf '%s\n' "$!" >"$pidfile"; chmod 600 "$pidfile"
   for _ in $(seq 1 20); do app_running "$service" && return 0; kill -0 "$(app_pid "$service")" 2>/dev/null || break; sleep .1; done
   fail "No se pudo iniciar ${service}. Revisa ./gotchu logs ${service}."
