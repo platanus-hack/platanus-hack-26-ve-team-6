@@ -179,6 +179,7 @@ export function ReportRecommendations(props: Props) {
     <div className="customer-dependency-fixes">
       <h4>Actualizaciones de dependencias npm</h4>
       <p>Solo se preparan cambios patch o minor directos cuando todos los avisos tienen rangos verificables y la resolución queda limitada a package.json y package-lock.json.</p>
+      <p>Preparar la corrección ejecutará las pruebas configuradas dentro de una VM aislada y repetirá el análisis. Revisa su cobertura: superar una selección de pruebas no equivale a superar la suite completa. La PR requiere una aprobación posterior del propietario.</p>
       {data.dependencyFixes.length === 0
         ? <div className="customer-empty-inline">Este informe no contiene coincidencias exactas de OSV con evidencia de npm suficiente para evaluar una actualización.</div>
         : <div className="customer-dependency-fix-list">{data.dependencyFixes.map(item => <DependencyFixCard key={`${item.packageName}:${item.fromVersion}:${item.findingIds.join(',')}`}
