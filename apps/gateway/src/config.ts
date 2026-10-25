@@ -15,6 +15,9 @@ export interface GatewayConfig {
   readonly modelSecretDirectory?: string;
   readonly modelProbeSecret?: Uint8Array;
   readonly allowSelfHostedModelEndpoints: boolean;
+  /** Official CLIs used for subscription providers; resolved on PATH when unset. */
+  readonly claudeCodeBinary?: string;
+  readonly codexBinary?: string;
 }
 
 export function assertTransport(host: string, transport: GatewayTransport): void {
@@ -55,7 +58,11 @@ export async function loadGatewayConfig(env: NodeJS.ProcessEnv = process.env): P
   if (modelProbeSecret && (modelProbeSecret.byteLength < 32 || modelProbeSecret.toString('base64url') !== encodedProbeSecret)) {
     throw new Error('Model probe secret must be at least 32 bytes encoded as unpadded base64url');
   }
+  const binary = z.string().min(1).max(4_096).refine(value => !/[\x00-\x1f]/.test(value)).optional();
+  const claudeCodeBinary = binary.parse(env.GOTCHU_CLAUDE_CODE_BIN || undefined);
+  const codexBinary = binary.parse(env.GOTCHU_CODEX_BIN || undefined);
   return { host, port, databaseUrl, capabilityPublicKey, transport,
     allowSelfHostedModelEndpoints: env.GOTCHU_ALLOW_SELF_HOSTED_LLM_ENDPOINT === 'true',
+    ...(claudeCodeBinary ? { claudeCodeBinary } : {}), ...(codexBinary ? { codexBinary } : {}),
     ...(modelSecretDirectory ? { modelSecretDirectory } : {}), ...(modelProbeSecret ? { modelProbeSecret } : {}) };
 }

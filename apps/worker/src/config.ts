@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { importSPKI, type CryptoKey } from 'jose';
 import { z } from 'zod';
 
@@ -7,10 +8,12 @@ export interface WorkerConfig {
   readonly nodeEnv: 'development' | 'test' | 'production';
   readonly capabilityPublicKey: CryptoKey;
   readonly gatewayBaseUrl?: URL;
+  /** Serves HTTPS when set; plain HTTP is only accepted by callers for loopback development. */
+  readonly tls?: { readonly certificate: string; readonly privateKey: string };
 }
 
 export class WorkerConfigError extends Error {
-  constructor(readonly code: 'capability_public_key_missing' | 'capability_public_key_invalid' | 'gateway_url_invalid' | 'port_invalid' | 'host_invalid' | 'node_env_invalid') {
+  constructor(readonly code: 'capability_public_key_missing' | 'capability_public_key_invalid' | 'gateway_url_invalid' | 'tls_invalid' | 'port_invalid' | 'host_invalid' | 'node_env_invalid') {
     super(code);
     this.name = 'WorkerConfigError';
   }
@@ -66,11 +69,22 @@ export async function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): Pr
   }
 
   const gatewayBaseUrl = parseGatewayUrl(env.GOTCHU_GATEWAY_URL, nodeEnv);
+  const certificatePath = env.GOTCHU_WORKER_TLS_CERT_FILE;
+  const privateKeyPath = env.GOTCHU_WORKER_TLS_KEY_FILE;
+  if (Boolean(certificatePath) !== Boolean(privateKeyPath)) throw new WorkerConfigError('tls_invalid');
+  let tls: WorkerConfig['tls'];
+  if (certificatePath && privateKeyPath) {
+    try {
+      const [certificate, privateKey] = await Promise.all([readFile(certificatePath, 'utf8'), readFile(privateKeyPath, 'utf8')]);
+      tls = { certificate, privateKey };
+    } catch { throw new WorkerConfigError('tls_invalid'); }
+  }
   return {
     host,
     port,
     nodeEnv,
     capabilityPublicKey,
     ...(gatewayBaseUrl ? { gatewayBaseUrl } : {}),
+    ...(tls ? { tls } : {}),
   };
 }
