@@ -1,9 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { actionV2Schema } from '@gotchu/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { computeGitTreeSha } from '@gotchu/git-adapters';
 import { canonicalJson, createActionVerifier, createBackend, createValidationService, readPinnedRootfsDigest, sha256 } from '../src/index.js';
 import { fixture, liveUrl } from '../../database/test/support.js';
+import { hashActionV2 } from '../src/actions.js';
 
 const live = liveUrl ? describe : describe.skip;
 
@@ -103,19 +104,20 @@ live('dependency candidate action persistence on real PostgreSQL (synthetic vali
       organizationId, applicationId, candidateSourceId, reportId, findingId, JSON.stringify([findingId]), baseSourceId, repositoryLinkId, baseCommit,
       packageName, fromVersion, toVersion, JSON.stringify([advisoryId]), baseDigest, candidateDigest, lockfileSha256, patchSha256, validationRunId,
     ]);
-    const keyId = sha256(randomUUID());
+    const keys = generateKeyPairSync('ed25519');
+    const keyId = sha256(keys.publicKey.export({ type: 'spki', format: 'der' }));
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
     const attestations = [
       { kind: 'independent_rescan', evidence: { kind: 'independent_rescan', result: 'passed', before: { identities: [advisoryIdentity], coverage: 'complete' }, after: { identities: [], coverage: 'complete' }, targetedIdentities: [advisoryIdentity] } },
       { kind: 'functional_suite', evidence: { kind: 'functional_suite', suiteName: 'synthetic', result: 'passed', counts: { passed: 1, failed: 0, skipped: 0 }, requiredCounts: 1 } },
     ] as const;
-    await f.admin.query('INSERT INTO gotchu.validation_keys(id,public_key) VALUES($1,$2)', [keyId, 'synthetic test key; signature verification is outside this persistence test']);
+    await f.admin.query('INSERT INTO gotchu.validation_keys(id,public_key) VALUES($1,$2)', [keyId, keys.publicKey.export({ type: 'spki', format: 'pem' }).toString()]);
     for (const attestation of attestations) {
       const id = randomUUID();
       const body = { id, organizationId, applicationId, runId: validationRunId, actionRef: candidateSourceId, evidence: attestation.evidence, createdAt: now, expiresAt };
       await f.admin.query(`INSERT INTO gotchu.validation_attestations(organization_id,application_id,run_id,id,kind,body,key_id,signature,expires_at)
-        VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [organizationId, applicationId, validationRunId, id, attestation.kind, JSON.stringify(body), keyId, 'A'.repeat(86), expiresAt]);
+        VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`, [organizationId, applicationId, validationRunId, id, attestation.kind, JSON.stringify(body), keyId, sign(null, Buffer.from(JSON.stringify(body)), keys.privateKey).toString('base64url'), expiresAt]);
     }
 
     const proposal = await api.actions.propose({ userId: f.a.userId }, { organizationId, applicationId, kind: 'dependency_pull_request', sourceRef: { type: 'dependency_candidate', candidateId: candidateSourceId } });
@@ -131,6 +133,45 @@ live('dependency candidate action persistence on real PostgreSQL (synthetic vali
     expect(hiddenCandidate.rowCount).toBe(0);
     expect(hiddenProposal.rowCount).toBe(0);
     expect(hiddenArtifact.rowCount).toBe(0);
+
+    const scope = { organizationId, applicationId, proposalId: proposal.proposalId };
+    const identity = { userId: f.a.userId };
+    const action = actionV2Schema.parse(stored.rows[0]?.body);
+    if (action.kind !== 'dependency_pull_request') throw new Error('dependency_action_expected');
+    const epoch = await f.admin.query<{ recovery_epoch: string }>('SELECT recovery_epoch FROM gotchu.proposals WHERE organization_id=$1 AND id=$2', [organizationId, proposal.proposalId]);
+    const recoveryEpoch = String(epoch.rows[0]?.recovery_epoch);
+    const saveProjectionFixture = async (body: typeof action, state: string) => {
+      await f.admin.query(`UPDATE gotchu.proposals SET body=$3::jsonb,action_hash=$4,state=$5,blocking_reasons=$6::jsonb WHERE organization_id=$1 AND id=$2`,
+        [organizationId, proposal.proposalId, JSON.stringify(body), hashActionV2(body, recoveryEpoch), state, JSON.stringify(['repository_write_access_not_granted'])]);
+    };
+    const expectResults = async (rescan: string, suite: string) => {
+      const detail = await api.actions.get(identity, scope);
+      const listed = (await api.actions.list(identity, { organizationId, applicationId })).find(item => item.id === proposal.proposalId);
+      const validations = [{ label: 'reanálisis objetivo', state: rescan }, { label: 'suite configurada', state: suite }];
+      expect(detail.validations).toEqual(validations);
+      expect(listed?.validations).toEqual(validations);
+      expect(detail.blockingReasons).toContain('Concede permiso de escritura al repositorio en la configuración de la aplicación para continuar con la propuesta.');
+    };
+    for (const state of ['ineligible', 'approved', 'succeeded']) {
+      await saveProjectionFixture(action, state);
+      await expectResults('passed', 'passed');
+    }
+    await saveProjectionFixture({ ...action, suiteAttestationId: randomUUID() }, 'eligible');
+    await expectResults('passed', 'pending');
+    await saveProjectionFixture({ ...action, evidence: action.evidence.map(item => ({ ...item, sha256: '0'.repeat(64) })) }, 'eligible');
+    await expectResults('pending', 'pending');
+    await saveProjectionFixture({ ...action, applicationId: f.b.applicationId }, 'eligible');
+    await expectResults('pending', 'pending');
+    await saveProjectionFixture(action, 'ineligible');
+    await expect(api.actions.get({ userId: f.b.userId }, scope)).rejects.toMatchObject({ code: 'forbidden' });
+    await f.admin.query('UPDATE gotchu.validation_runs SET action_ref=$3 WHERE organization_id=$1 AND id=$2', [organizationId, validationRunId, randomUUID()]);
+    await expectResults('pending', 'pending');
+    await f.admin.query('UPDATE gotchu.validation_runs SET action_ref=$3 WHERE organization_id=$1 AND id=$2', [organizationId, validationRunId, candidateSourceId]);
+
+    // A changed public key cannot turn an unverified signature into a displayed pass.
+    await f.admin.query('UPDATE gotchu.validation_keys SET public_key=$2 WHERE id=$1', [keyId, generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }).toString()]);
+    await expectResults('pending', 'pending');
+    await f.admin.query('UPDATE gotchu.validation_keys SET public_key=$2 WHERE id=$1', [keyId, keys.publicKey.export({ type: 'spki', format: 'pem' }).toString()]);
 
     const validations = createValidationService({ database: f.databases.gotchu_api });
     const verifier = createActionVerifier({

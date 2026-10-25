@@ -36,16 +36,53 @@ function forMode(mode: Mode, queue: PhaseState, validation: PhaseState, analysis
 export const idlePhaseStates = (mode: Mode) => forMode(mode, 'pending', 'pending', 'pending', 'pending', 'pending');
 
 export function jobPhaseStates(job: Pick<CustomerJob, 'state' | 'mode' | 'progress' | 'reportId'>): PhaseStates {
-  const states = (...phases: [PhaseState, PhaseState, PhaseState, PhaseState, PhaseState]) => forMode(job.mode ?? 'both', ...phases);
+  const mode = job.mode ?? 'both';
+  const states = (...phases: [PhaseState, PhaseState, PhaseState, PhaseState, PhaseState]) => forMode(mode, ...phases);
   const analyzing = reached(job.progress, 'analyzing');
+  // Each branch's end is known when the scanner reported it; older scanners report none.
+  const lanes = (['internal', 'external'] as const).filter(lane => requested(mode)[lane]);
+  const finished = (lane: 'internal' | 'external') => reached(job.progress, `${lane}_finished`);
+  const withLanes = (base: PhaseStates, open: PhaseState) => {
+    for (const lane of lanes) base[lane] = finished(lane) ? 'done' : open;
+    return base;
+  };
   switch (job.state) {
     case 'queued': return states('running', 'pending', 'pending', 'pending', 'pending');
-    case 'running': return analyzing ? states('done', 'done', 'running', 'pending', 'pending') : states('done', 'running', 'pending', 'pending', 'pending');
+    case 'running': {
+      if (!analyzing) return states('done', 'running', 'pending', 'pending', 'pending');
+      return withLanes(states('done', 'done', 'running', reached(job.progress, 'correlating') ? 'running' : 'pending', 'pending'), 'running');
+    }
     // A finished run without a stored report does not count as a delivered report.
     case 'succeeded': return states('done', 'done', 'done', 'done', job.reportId ? 'done' : 'skipped');
-    // The scanner call fails as a whole, so a failure after admission cannot be pinned to one branch.
-    case 'failed': return analyzing ? states('done', 'done', 'failed', 'skipped', 'skipped') : states('done', 'failed', 'skipped', 'skipped', 'skipped');
+    case 'failed': {
+      if (!analyzing) return states('done', 'failed', 'skipped', 'skipped', 'skipped');
+      // Blame the branches that never reported finishing; without branch reports that is all of them.
+      if (lanes.some(lane => !finished(lane))) return withLanes(states('done', 'done', 'failed', 'skipped', 'skipped'), 'failed');
+      return states('done', 'done', 'done', 'failed', mode === 'both' ? 'skipped' : 'failed');
+    }
   }
+}
+export function jobPhaseTimes(job: Pick<CustomerJob, 'createdAt' | 'completedAt' | 'progress'>): PhaseTimes {
+  const at = (phase: CustomerJobProgress[number]['phase']) => {
+    const entry = job.progress.find(item => item.phase === phase);
+    return entry ? Date.parse(entry.at) : null;
+  };
+  const created = Date.parse(job.createdAt), validating = at('validating'), analyzing = at('analyzing');
+  const completed = job.completedAt ? Date.parse(job.completedAt) : null;
+  const times: PhaseTimes = { queue: { start: created, end: validating ?? analyzing ?? completed } };
+  if (validating !== null) times.validation = { start: validating, end: analyzing ?? completed };
+  if (analyzing !== null) {
+    times.internal = { start: analyzing, end: at('internal_finished') ?? completed };
+    times.external = { start: analyzing, end: at('external_finished') ?? completed };
+  }
+  const correlating = at('correlating');
+  if (correlating !== null) times.correlation = { start: correlating, end: completed };
+  return times;
+}
+
+/** Last time the job showed signs of life, used to tell a silent scanner from a slow one. */
+export function lastProgressAt(job: Pick<CustomerJob, 'createdAt' | 'progress'>) {
+  return Math.max(Date.parse(job.createdAt), ...job.progress.map(entry => Date.parse(entry.at)));
 }
 
 /** Phases drawn for these states, and the lines between them. */
@@ -63,18 +100,6 @@ export function phaseEdges(states: PhaseStates): [Phase, Phase][] {
 
 /** Server timestamps (ms) for the start and end of each phase that has them. */
 export type PhaseTimes = Partial<Record<Phase, { start: number; end: number | null }>>;
-export function jobPhaseTimes(job: Pick<CustomerJob, 'createdAt' | 'completedAt' | 'progress'>): PhaseTimes {
-  const at = (phase: CustomerJobProgress[number]['phase']) => {
-    const entry = job.progress.find(item => item.phase === phase);
-    return entry ? Date.parse(entry.at) : null;
-  };
-  const created = Date.parse(job.createdAt), validating = at('validating'), analyzing = at('analyzing');
-  const completed = job.completedAt ? Date.parse(job.completedAt) : null;
-  const times: PhaseTimes = { queue: { start: created, end: validating ?? analyzing ?? completed } };
-  if (validating !== null) times.validation = { start: validating, end: analyzing ?? completed };
-  if (analyzing !== null) times.internal = times.external = { start: analyzing, end: completed };
-  return times;
-}
 
 /** Report-side truth: each analysis records its own start, end and coverage. */
 type AnalysisStatus = { status: NonNullable<CustomerAssessmentReport['internal']>['status'] } | null;

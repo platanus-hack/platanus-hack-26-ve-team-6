@@ -1,6 +1,6 @@
 import { isScannerCleanupError } from './common.js';
 import { createDockerScanners, type ScannerAdapter } from './docker.js';
-import type { CustomerRunInput, CustomerAssessmentReport } from '@gotchu/contracts';
+import type { CustomerRunInput, CustomerAssessmentReport, CustomerScannerPhase } from '@gotchu/contracts';
 import type { HttpsOptions } from './https.js';
 import type { AdvisoryAdapter } from './advisory.js';
 import { createNpmLicenseAdapter, evaluateLicensePolicy, normalizeLicenseExpression, normalizeLicensePolicy } from './licenses.js';
@@ -28,6 +28,8 @@ export type { HttpsOptions, HttpsObservation, HttpsPageObservation } from './htt
 export { assessPublicSurface, createPublicSurfaceProbe, publicSurfaceTargetSchema } from './public-surface.js';
 export type { PublicSurfaceTarget, PublicSurfaceInventory, PublicSurfaceEntrypoint, PublicSurfaceDiscoverySource, PublicSurfaceStopReason, PublicSurfaceCoverageGap } from './public-surface.js';
 export interface CustomerAssessmentOptions { scanners?: ScannerAdapter; advisory?: AdvisoryAdapter; licenses?: LicenseAdapter; artifacts?: NpmArtifactAdapter; https?: HttpsOptions; deadlineMs?: number }
+/** Per-run hooks; `onProgress` hears each analysis branch finish and correlation start. */
+export interface CustomerRunOptions { onProgress?: (phase: CustomerScannerPhase) => void }
 export function createCustomerAssessmentRunner(options: CustomerAssessmentOptions = {}) {
   const scanners = options.scanners ?? createDockerScanners();
   const deadlineMs = options.deadlineMs ?? 55000;
@@ -56,10 +58,11 @@ export function createCustomerAssessmentRunner(options: CustomerAssessmentOption
       })();
       try { return await readinessPending; } finally { readinessPending=undefined; }
     },
-    async run(raw: CustomerRunInput): Promise<CustomerAssessmentReport> {
+    async run(raw: CustomerRunInput, run: CustomerRunOptions = {}): Promise<CustomerAssessmentReport> {
       if (fault) throw fault;
       try {
         const { report } = await runCustomerAssessmentPipeline(raw, {
+          ...(run.onProgress ? { onProgress: run.onProgress } : {}),
           scanners,
           ...(options.advisory ? { advisory: options.advisory } : {}),
           ...(options.licenses ? { licenses: options.licenses } : {}),

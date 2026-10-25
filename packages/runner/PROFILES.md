@@ -1,3 +1,10 @@
+# Execution profiles
+
+- `node24-npm-test`: legacy offline install followed by the project npm test script.
+- `node24-tsx-selected-v1`: fixed Node/tsx selected compatibility tests with a runner-owned structured report. See [exact job/report contracts and reviewed-build handoff](SELECTED-NODE.md).
+
+The selected profile needs a rebuilt, measured and pinned guest image plus a fresh isolation canary. Source changes and test sources alone do not establish readiness or test success.
+
 # Runner profile maintenance research
 
 This is a version and validation proposal only. It does not change `@gotchu/customer-assessment`, enable production Semgrep readiness, or claim that the replacement has passed corpus validation.

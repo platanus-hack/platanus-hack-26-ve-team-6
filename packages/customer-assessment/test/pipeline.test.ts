@@ -43,6 +43,22 @@ it.each(['internal', 'external', 'both'] as const)('traverses each real StateGra
   expect(limitations.includes('static source')).toBe(mode !== 'external');
 });
 
+it.each([
+  ['internal', ['internal_finished']],
+  ['external', ['external_finished']],
+  ['both', ['internal_finished', 'external_finished', 'correlating']],
+] as const)('reports each finished branch of a %s assessment before the report exists', async (mode, expected) => {
+  const phases: string[] = [];
+  const result = await runCustomerAssessmentPipeline(request(mode), {
+    scanners: absentScanners, https: offlineHttps, deadlineMs: 1_000,
+    onProgress: phase => phases.push(phase),
+  });
+  // Branches run in parallel, so only membership is fixed; correlation always comes last.
+  expect([...phases].sort()).toEqual([...expected].sort());
+  if (mode === 'both') expect(phases.at(-1)).toBe('correlating');
+  expect(result.report.mode).toBe(mode);
+});
+
 it('keeps concurrent assessment inputs and results in their own invocation closures', async () => {
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });

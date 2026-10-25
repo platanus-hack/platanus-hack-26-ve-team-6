@@ -10,7 +10,7 @@ const operationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('coverage.get'), ...scope }).strict(),
   z.object({ kind: z.literal('proposals.list'), ...scope }).strict(),
   z.object({ kind: z.literal('job.get'), organizationId: idSchema, jobId: idSchema }).strict(),
-  z.object({ kind: z.literal('proposal.approve'), organizationId: idSchema, proposalId: idSchema, actionHash: z.string().regex(/^[a-f0-9]{64}$/), stepUpProof: z.string().min(1).max(4096) }).strict(),
+  z.object({ kind: z.literal('proposal.approve'), organizationId: idSchema, proposalId: idSchema, actionHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
 ]);
 export type ApiOperation = z.infer<typeof operationSchema>;
 export interface ApiServices {
@@ -21,7 +21,7 @@ export interface ApiServices {
   execute(identity: { userId: string }, operation: ApiOperation): Promise<unknown>;
 }
 
-const approvalBody = z.object({ actionHash: z.string().regex(/^[a-f0-9]{64}$/), stepUpProof: z.string().min(1).max(4096) }).strict();
+const approvalBody = z.object({ actionHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 function validated<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success) throw new HttpError(400, 'invalid_input', 'Input does not match the required contract');

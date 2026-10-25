@@ -61,6 +61,7 @@ live('action verifier on real PostgreSQL', () => {
     cleanupVerified?: boolean;
     rootfsDigest?: string;
     expiresAt?: Date;
+    lockApplicationDuringRepositoryRead?: boolean;
   } = {}) {
     await f.admin.query('UPDATE gotchu.application_repository_links SET revoked=true WHERE organization_id=$1 AND application_id=$2 AND NOT revoked', [f.a.organizationId, f.a.applicationId]);
     const repo = await repositoryFixture();
@@ -105,7 +106,13 @@ live('action verifier on real PostgreSQL', () => {
         database,
         pinnedRootfsDigest: readPinnedRootfsDigest(),
         repository: {
-          readHead: async input => repo.adapter.readHead(input.branch),
+          readHead: async input => {
+            if (options.lockApplicationDuringRepositoryRead) await database.tenant(input.organizationId, async tx => {
+              await tx.query("SET LOCAL lock_timeout='250ms'");
+              await tx.query('SELECT gotchu.lock_customer_application($1,$2)', [input.organizationId,input.applicationId]);
+            });
+            return repo.adapter.readHead(input.branch);
+          },
           readTree: async input => repo.adapter.readTree(input.commitSha),
           isPolicyCurrent: async () => true,
           inspectAutomation: async () => workflowViolations,
@@ -122,7 +129,6 @@ live('action verifier on real PostgreSQL', () => {
     const api = createBackend({
       database: f.databases.gotchu_api,
       actionVerifier: verifier,
-      stepUpVerifier: { verify: async ({ proof, userId, organizationId, actionHash }) => ({ proofId: proof, userId, organizationId, actionHash, authenticatedAt: new Date(), expiresAt: new Date(Date.now() + 300_000), method: 'webauthn' }) },
     });
     const proposed = await api.actions.propose(identity(), { organizationId: f.a.organizationId, applicationId: f.a.applicationId, kind: 'source_patch_pull_request', sourceRef: { type: 'correction_candidate', candidateId: candidateSourceId } });
     return { api, verifier, verifierFor, proposed, candidateSourceId, repositoryLinkId, runId, repositoryKey, keyPair, publicKeyPem, publicKeyDer,
@@ -140,6 +146,17 @@ live('action verifier on real PostgreSQL', () => {
     const proposal = await f.databases.gotchu_executor.tenant(f.a.organizationId, tx => tx.query<{ body: unknown }>('SELECT body FROM gotchu.proposals WHERE organization_id=$1 AND application_id=$2 AND id=$3', [f.a.organizationId, f.a.applicationId, prepared.proposed.proposalId]));
     const verifier = prepared.verifierFor(f.databases.gotchu_executor);
     await expect(verifier.verify(actionV2Schema.parse(proposal.rows[0]?.body), { phase: 'execution' })).resolves.toMatchObject({ eligible: true, workflowExceptions: [] });
+  });
+
+  it('allows broker application locking during exact approval and records session authorization', async () => {
+    const prepared = await prepare({ lockApplicationDuringRepositoryRead: true });
+    await expect(eligibility(prepared)).resolves.toMatchObject({ status: 'eligible' });
+    const approved = await prepared.api.actions.approve(identity(), {
+      organizationId: f.a.organizationId, applicationId: f.a.applicationId,
+      proposalId: prepared.proposed.proposalId, actionHash: prepared.proposed.actionHash,
+    });
+    const stored = await f.admin.query('SELECT authorization_method,proof_id FROM gotchu.approvals WHERE organization_id=$1 AND id=$2', [f.a.organizationId,approved.approvalId]);
+    expect(stored.rows).toEqual([{ authorization_method: 'owner_session', proof_id: null }]);
   });
 
   it('returns specific blockers for missing, unsigned, inconclusive, and failed validations', async () => {
@@ -194,7 +211,7 @@ live('action verifier on real PostgreSQL', () => {
     const exception = { organizationId: f.a.organizationId, applicationId: f.a.applicationId, repositoryLinkId: prepared.repositoryLinkId,
       workflowPath: violation.path, rule: violation.rule, justification: 'This workflow is reviewed and constrained.' };
     const { actionHash } = await prepared.api.workflowExceptions.getHash(identity(), exception);
-    await prepared.api.workflowExceptions.create(identity(), { ...exception, stepUpProof: actionHash });
+    await prepared.api.workflowExceptions.create(identity(), { ...exception, actionHash });
     await expect(eligibility(prepared)).resolves.toMatchObject({ status: 'eligible', blockingReasons: [] });
     prepared.setWorkflowViolations([{ ...violation, rule: 'push_without_branch_filter' }]);
     expect((await eligibility(prepared)).blockingReasons).toContain('workflow_policy_rule:push_without_branch_filter');

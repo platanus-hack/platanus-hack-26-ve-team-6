@@ -5,8 +5,12 @@ import { spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 
+import { SELECTED_NODE_PROFILE, SELECTED_NODE_REPORT_PATH, MAX_REPORT_BYTES, emptySelectedReport, selectedNodeArgs, readSelectedReport } from './selected-node.mjs';
+
 const run = promisify(execFile);
 const job = JSON.parse(await readFile('/input/job.json', 'utf8'));
+const selected = job.profile === SELECTED_NODE_PROFILE;
+let selectedReport = emptySelectedReport();
 const work = '/scratch/work';
 await mkdir(work, { recursive: true });
 const cacheManifest = JSON.parse(await readFile('/npm-cache-source/manifest.json', 'utf8'));
@@ -34,16 +38,34 @@ function collect(stream, name) {
   });
 }
 
-function execute(args) {
+function execute(args, structured = false) {
   return new Promise((resolve, reject) => {
     const child = spawn('/usr/bin/setpriv', [
       '--reuid=1000', '--regid=1000', '--clear-groups',
       '/bin/bash', '-c', 'ulimit -u "$1"; shift; exec "$@"', 'runner', String(job.limits.pids), ...args,
-    ], { cwd: work, env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/scratch/home' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    ], { cwd: work, env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/scratch/home' }, stdio: structured ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'] });
     collect(child.stdout, 'stdout');
     collect(child.stderr, 'stderr');
+    const reportChunks = [];
+    let reportBytes = 0;
+    let reportError = false;
+    if (structured) {
+      const channel = child.stdio[3];
+      channel.on('data', (chunk) => {
+        reportBytes += chunk.length;
+        if (reportBytes <= MAX_REPORT_BYTES) reportChunks.push(Buffer.from(chunk));
+        else reportError = true;
+      });
+      channel.once('error', () => { reportError = true; });
+    }
     child.once('error', reject);
-    child.once('close', (code, signal) => resolve({ code: code ?? (signal ? 128 : 1), signal }));
+    child.once('close', (code, signal) => {
+      if (structured) {
+        selectedReport = reportError ? emptySelectedReport() : readSelectedReport(Buffer.concat(reportChunks));
+        selectedReport.success &&= code === 0 && signal === null && !exceededOutput;
+      }
+      resolve({ code: code ?? (signal ? 128 : 1), signal });
+    });
   });
 }
 
@@ -58,8 +80,11 @@ try {
     if (result.code !== 0) break;
   }
   if (result.code === 0) result = await execute(['npm', 'ci', '--ignore-scripts', '--offline', '--cache', '/scratch/npm-cache']);
-  if (result.code === 0) result = await execute(['npm', 'test']);
+  if (result.code === 0) result = selected
+    ? await execute(selectedNodeArgs(job.testSelection), true)
+    : await execute(['npm', 'test']);
   exitCode = result.code;
+  if (selected && !selectedReport.success && exitCode === 0) exitCode = 1;
   const combined = Buffer.concat([...outputs.stdout, ...outputs.stderr]).toString('utf8');
   if (/Resource temporarily unavailable|EAGAIN/.test(combined)) {
     status = 'resource_exceeded';
@@ -85,6 +110,12 @@ const stderr = Buffer.concat(outputs.stderr).toString('utf8');
 const artifactPolicy = { roots: ['test-results', 'coverage'], maxCount: 10, maxBytes: 256 * 1024 };
 const artifacts = [];
 let artifactBytes = 0;
+function addArtifact(path, bytes) {
+  artifactBytes += bytes.length;
+  artifacts.push({ path, sizeBytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), contentBase64: bytes.toString('base64') });
+}
+if (selected) addArtifact(SELECTED_NODE_REPORT_PATH, Buffer.from(JSON.stringify(selectedReport)));
+
 async function readArtifact(path, maximum) {
   const chunks = [];
   let size = 0;
@@ -102,6 +133,7 @@ async function readArtifact(path, maximum) {
 async function collectArtifacts(directory, relative = '') {
   for (const entry of (await readdir(directory)).sort()) {
     const path = relative ? `${relative}/${entry}` : entry;
+    if (selected && path === SELECTED_NODE_REPORT_PATH) continue;
     if (entry === '.' || entry === '..' || path.includes('\\')) throw new Error('Unsafe artifact path');
     const fullPath = `${directory}/${entry}`;
     const stat = await lstat(fullPath);
@@ -115,8 +147,7 @@ async function collectArtifacts(directory, relative = '') {
         throw error;
       }
       const bytes = await readArtifact(fullPath, remainingBytes);
-      artifactBytes += bytes.length;
-      artifacts.push({ path, sizeBytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), contentBase64: bytes.toString('base64') });
+      addArtifact(path, bytes);
     }
   }
 }

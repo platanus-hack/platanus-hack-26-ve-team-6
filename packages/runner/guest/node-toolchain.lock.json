@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "architecture": "linux-x64",
+  "packages": [
+    {
+      "directory": "tsx",
+      "url": "https://registry.npmjs.org/tsx/-/tsx-4.23.15.tgz",
+      "integrity": "sha512-Yiex1Ovn8z2xPpOWckIiysV1SSyRMY9BkLF++q0yKiDxCqRhosKfMg3janKkiLBwZ5c/YryloKwGZcrEmtwxKw=="
+    },
+    {
+      "directory": "esbuild",
+      "url": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz",
+      "integrity": "sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA=="
+    },
+    {
+      "directory": "@esbuild/linux-x64",
+      "url": "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.2.tgz",
+      "integrity": "sha512-4xTZr1FUmSoQW4XIWmit3tzQrUTZM+N3P0XV8xROKYF50XfI7xeO90+1bZvNwxIufQ9hDQVRJH5YhgPVF8A/HQ=="
+    }
+  ]
+}

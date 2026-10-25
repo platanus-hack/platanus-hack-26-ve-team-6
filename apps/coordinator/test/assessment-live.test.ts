@@ -51,15 +51,16 @@ live('live Postgres/Redis assessment delivery', () => {
     let calls = 0;
     let progressAtAdmission: unknown;
     const readJob = () => c.customerApi.web.getJob(c.identity, { organizationId: c.customerScope.organizationId, jobId: c.envelope.id });
-    await processDurableJob({ ...dependencies(), customerAssessmentRunner: { run: async () => {
+    await processDurableJob({ ...dependencies(), customerAssessmentRunner: { run: async (_input, options) => {
       calls++; progressAtAdmission = (await readJob()).progress;
+      options?.onProgress?.('external_finished');
       throw new Error('Synthetic transport failure after remote admission');
     } } }, c.envelope);
     expect(calls).toBe(1);
-    // Members can see the job reached the scanner before the uncertain failure.
+    // Members can see the job reached the scanner, and which branch it reported, before the uncertain failure.
     const phases = [expect.objectContaining({ phase: 'validating' }), expect.objectContaining({ phase: 'analyzing' })];
     expect(progressAtAdmission).toEqual(phases);
-    expect((await readJob()).progress).toEqual(phases);
+    expect((await readJob()).progress).toEqual([...phases, expect.objectContaining({ phase: 'external_finished' })]);
     expect(await c.customerApi.web.getJob(c.identity, { organizationId: c.customerScope.organizationId, jobId: c.envelope.id })).toMatchObject({ state: 'failed', reasonCode: 'assessment_reconciliation_required', reportId: null });
     await expect(c.customerApi.customers.revokeTarget(c.identity, { ...c.customerScope, targetId: c.targetId })).rejects.toMatchObject({ code: 'target_assessment_in_progress' });
     expect(await processDurableJob(dependencies(), c.envelope)).toEqual({ status: 'already_terminal' });

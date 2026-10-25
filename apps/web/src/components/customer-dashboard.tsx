@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { z } from 'zod';
-import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlusIcon, RadarIcon, ScaleIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
+import { AppWindowIcon, ArchiveIcon, ChevronRightIcon, EyeIcon, EyeOffIcon, FileTextIcon, GavelIcon, GlobeIcon, HouseIcon, LogOutIcon, PlayIcon, PlusIcon, RadarIcon, ScaleIcon, SparklesIcon, UsersIcon, XIcon, type LucideIcon } from 'lucide-react';
 import {
   CUSTOMER_MAX_SOURCE_BYTES,
   CUSTOMER_MAX_CONTAINER_IMAGE_BYTES,
@@ -18,7 +18,6 @@ import {
   type CustomerSourceSummary,
   type CustomerContainerImageSummary,
   type CustomerTarget,
-  type CustomerWorkspace,
 } from '@gotchu/contracts';
 import { CustomerApiError, customerApi, type CustomerJob, type CustomerScanProfile, type CustomerSession } from './customer-client';
 import { readSavedCustomerScope } from './customer-scope-storage';
@@ -26,12 +25,12 @@ import { ReportRecommendations } from './report-recommendations';
 import { ComparisonPresence, ComparisonSummary, ComparisonVerification, ExternalHttpsEvidence } from './customer-report-components';
 import { coverageCapabilitiesLabel, exploitabilityLabel, groupCoverage, reportInputLabel } from './customer-report-model';
 import { ContextPanel } from './context-panel';
-import { StepUpPanel } from './step-up-panel';
 import { membersApi } from './members-client';
 import { ApprovalPanel } from './approval-panel';
 import { GitHubRepositoryPanel } from './onboarding';
 import { WorkflowExceptions } from './workflow-exceptions';
-import { InvestigationActionButton, InvestigationModelSettings } from './investigations-panel';
+import { InvestigationActionButton, InvestigationsTimeline } from './investigations-panel';
+import { AiCorrectionPanel } from './ai-correction-panel';
 import { DependencyInventoryPanel } from './customer-supply-chain';
 import { GotchuMark } from './gotchu-mark';
 import { DotPlate } from './dot-field/dot-plate';
@@ -40,25 +39,29 @@ import { FilePicker } from './file-picker';
 import { FirstProjectEmptyState } from './empty-state';
 import { WorkspacePages } from './workspace-pages';
 import { AssessmentProgress, ReportProgress } from './assessment-progress';
-import { ProjectOverview } from './project-overview';
-import { ProjectSources } from './project-sources';
+import { CopyFindingPrompt } from './copy-finding-prompt';
+import { findingPrompt } from './finding-prompt';
+import { ProjectOverview, type ProjectHistory, type ProjectRisk, type ProjectWatch, type RecentReportRow } from './project-overview';
+import { coverageState, examineSources, nextAction, openFindings, projectSources, type ProjectSource } from './project-risk';
 import { ProjectReports } from './project-reports';
 import { ProjectVigilance } from './project-vigilance';
 import { DashboardShell } from './dashboard-shell';
+import { PageHeader, ScopeSwitcher, SidebarNameForm } from './dashboard-sidebar';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
+import { operationsApi } from './operations-client';
 import { ProjectHttpsAudit } from './project-https-audit';
-import { ChoiceSelect } from './choice-select';
 import { DashboardSectionContext, routePageFromPath } from './dashboard-route-view';
 import './customer-shell.css';
 import './customer-report.css';
 import './customer-operations.css';
 
-export type DashboardPage = 'overview' | 'applications' | 'https-audit' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy';
+export type DashboardPage = 'overview' | 'applications' | 'https-audit' | 'operations' | 'reports' | 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model';
 type Page = DashboardPage;
-type WorkspacePage = Extract<Page, 'members' | 'decision-records' | 'license-policy' | 'retention-policy'>;
+type WorkspacePage = Extract<Page, 'members' | 'decision-records' | 'license-policy' | 'retention-policy' | 'investigation-model'>;
 type ActiveJob = { organizationId: string; applicationId: string; jobId: string; purpose: 'assessment' | 'correction' };
 
 function isWorkspacePage(page: Page): page is WorkspacePage {
-  return page === 'members' || page === 'decision-records' || page === 'license-policy' || page === 'retention-policy';
+  return page === 'members' || page === 'decision-records' || page === 'license-policy' || page === 'retention-policy' || page === 'investigation-model';
 }
 
 function readLastProjectPath() {
@@ -72,24 +75,26 @@ const pages: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: 'https-audit', label: 'Auditoría HTTPS', icon: GlobeIcon },
   { id: 'operations', label: 'Vigilancia', icon: RadarIcon },
   { id: 'reports', label: 'Informes', icon: FileTextIcon },
-  { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
-  { id: 'retention-policy', label: 'Retención', icon: ArchiveIcon },
   { id: 'members', label: 'Equipo', icon: UsersIcon },
   { id: 'decision-records', label: 'Decisiones', icon: GavelIcon },
+  { id: 'investigation-model', label: 'Modelos de IA', icon: SparklesIcon },
+  { id: 'license-policy', label: 'Licencias', icon: ScaleIcon },
+  { id: 'retention-policy', label: 'Retención', icon: ArchiveIcon },
 ];
 
-function DashboardNavLink({ page, organizationId, applicationId, onNavigate }: { page: Page; organizationId: string | null; applicationId: string | null; onNavigate: () => void }) {
+function DashboardNavLink({ page, organizationId, applicationId, count, onNavigate }: { page: Page; organizationId: string | null; applicationId: string | null; count?: number | undefined; onNavigate: () => void }) {
   const Icon = pages.find(item => item.id === page)?.icon ?? HouseIcon;
-  const content = <><Icon aria-hidden="true" />{pages.find(item => item.id === page)?.label}</>;
+  const content = <><Icon aria-hidden="true" /><span>{pages.find(item => item.id === page)?.label}</span>{count !== undefined && count > 0 && <span className="customer-nav-count">{count}</span>}</>;
   const common = { className: 'customer-nav-item', activeOptions: { exact: page !== 'reports' }, activeProps: { className: 'customer-nav-item is-active', 'aria-current': 'page' as const }, onClick: onNavigate };
   if (!organizationId) return null;
-  if (page !== 'members' && page !== 'decision-records' && page !== 'license-policy' && page !== 'retention-policy' && !applicationId) return null;
+  if (!isWorkspacePage(page) && !applicationId) return null;
   switch (page) {
     case 'overview': return <Link {...common} to="/w/$workspaceId/p/$projectId" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'applications': return <Link {...common} to="/w/$workspaceId/p/$projectId/fuentes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'https-audit': return <Link {...common} to="/w/$workspaceId/p/$projectId/https" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'operations': return <Link {...common} to="/w/$workspaceId/p/$projectId/vigilancia" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
     case 'reports': return <Link {...common} to="/w/$workspaceId/p/$projectId/informes" params={{ workspaceId: organizationId, projectId: applicationId ?? '' }}>{content}</Link>;
+    case 'investigation-model': return <Link {...common} to="/w/$workspaceId/modelos" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'license-policy': return <Link {...common} to="/w/$workspaceId/licencias" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'retention-policy': return <Link {...common} to="/w/$workspaceId/retencion" params={{ workspaceId: organizationId }}>{content}</Link>;
     case 'members': return <Link {...common} to="/w/$workspaceId/equipo" params={{ workspaceId: organizationId }}>{content}</Link>;
@@ -97,6 +102,13 @@ function DashboardNavLink({ page, organizationId, applicationId, onNavigate }: {
   }
 }
 
+const pageDescriptions: Partial<Record<Page, string>> = {
+  applications: 'Código, imágenes y orígenes HTTPS que Gotchu puede evaluar en este proyecto.',
+  'https-audit': 'Revisa cómo responde tu web sin conectar su código fuente.',
+  operations: 'Revisiones periódicas de las fuentes de este proyecto y las alertas que generan.',
+  reports: 'Cada informe guarda su evidencia, su cobertura y sus límites.',
+};
+const roleLabels = { owner: 'Propietario', operator: 'Operador', viewer: 'Sólo lectura' } as const;
 const modeLabels: Record<AssessmentMode, string> = {
   internal: 'Código fuente',
   external: 'HTTPS externo',
@@ -112,6 +124,14 @@ const rememberedSignInKey = 'gotchu.sign-in-preference';
 const rememberedSignInSchema = z.object({ email: z.string().max(254), method: z.string().min(1).max(128) }).strict();
 const authCsrfResponseSchema = z.object({ csrfToken: z.string().min(1).max(256) }).strict();
 const authRedirectResponseSchema = z.object({ url: z.url() }).strict();
+
+function relativeTime(value: string) {
+  const minutes = Math.round((Date.parse(value) - Date.now()) / 60_000);
+  const format = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
+  if (Math.abs(minutes) < 60) return format.format(minutes, 'minute');
+  if (Math.abs(minutes) < 60 * 24) return format.format(Math.round(minutes / 60), 'hour');
+  return format.format(Math.round(minutes / 1440), 'day');
+}
 
 function date(value: string) {
   return new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
@@ -309,56 +329,6 @@ function AuthPanel({ session, onAuthenticated, initialRegistering = false }: { s
   </AuthShell>;
 }
 
-function WorkspaceCreate({ onCreated, disabled }: { onCreated: (workspace: CustomerWorkspace) => void; disabled: boolean }) {
-  const [name, setName] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const create = useMutation({
-    mutationFn: () => customerApi.createWorkspace(name),
-    onSuccess: workspace => { setName(''); setError(null); onCreated(workspace); },
-    onError: caught => setError(readableError(caught)),
-  });
-  return <form className="customer-inline-create" onSubmit={event => { event.preventDefault(); setError(null); create.mutate(); }}>
-    <label htmlFor="new-workspace">Nuevo espacio de trabajo</label>
-    <div className="customer-inline-control"><input id="new-workspace" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre del espacio de trabajo" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Crear espacio de trabajo"><PlusIcon aria-hidden="true" /></button></div>
-    {error && <p className="customer-form-error" role="alert">{error}</p>}
-  </form>;
-}
-
-function WorkspaceSettings({ organizationId, name, canManage, onSaved }: { organizationId: string; name: string; canManage: boolean; onSaved: () => void }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(name);
-  const [error, setError] = useState<string | null>(null);
-  const update = useMutation({
-    mutationFn: () => customerApi.updateWorkspace(organizationId, draft.trim()),
-    onSuccess: () => { setError(null); setEditing(false); onSaved(); },
-    onError: caught => setError(readableError(caught)),
-  });
-  useEffect(() => setDraft(name), [name]);
-  if (!canManage) return null;
-  if (!editing) return <button className="customer-link-button" onClick={() => setEditing(true)}>Cambiar nombre del espacio</button>;
-  return <form className="customer-inline-create" onSubmit={event => { event.preventDefault(); setError(null); update.mutate(); }}>
-    <label htmlFor="workspace-name">Nombre del espacio</label>
-    <div className="customer-inline-control"><input id="workspace-name" value={draft} onChange={event => setDraft(event.target.value)} maxLength={200} required disabled={update.isPending} /><button className="customer-button customer-button-small" disabled={update.isPending || !draft.trim() || draft.trim() === name}>Guardar</button></div>
-    <button type="button" className="customer-link-button" onClick={() => { setDraft(name); setEditing(false); setError(null); }}>Cancelar</button>
-    {error && <p className="customer-form-error" role="alert">{error}</p>}
-  </form>;
-}
-
-function ApplicationCreate({ organizationId, onCreated, disabled }: { organizationId: string; onCreated: (id: string) => void; disabled: boolean }) {
-  const [name, setName] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const create = useMutation({
-    mutationFn: () => customerApi.createApplication(organizationId, name),
-    onSuccess: application => { setName(''); setError(null); onCreated(application.applicationId); },
-    onError: caught => setError(readableError(caught)),
-  });
-  return <form className="customer-inline-create" onSubmit={event => { event.preventDefault(); setError(null); create.mutate(); }}>
-    <label htmlFor="new-application">Nuevo proyecto</label>
-    <div className="customer-inline-control"><input id="new-application" value={name} onChange={event => setName(event.target.value)} maxLength={200} required placeholder="Nombre del proyecto" /><button className="customer-button customer-button-small" disabled={disabled || create.isPending || !name.trim()} aria-label="Nuevo proyecto"><PlusIcon aria-hidden="true" /></button></div>
-    {error && <p className="customer-form-error" role="alert">{error}</p>}
-  </form>;
-}
-
 function ApplicationSettings({ organizationId, applicationId, name, archived, canManage, onSaved }: { organizationId: string; applicationId: string; name: string; archived: boolean; canManage: boolean; onSaved: () => void }) {
   const [draft, setDraft] = useState(name);
   const [error, setError] = useState<string | null>(null);
@@ -369,7 +339,7 @@ function ApplicationSettings({ organizationId, applicationId, name, archived, ca
   });
   useEffect(() => setDraft(name), [name]);
   return <section className="customer-card customer-settings-card">
-    <div className="customer-card-heading"><div><h2>Datos del proyecto</h2></div><span className={archived ? 'customer-status customer-status-muted' : 'customer-status customer-status-ready'}>{archived ? 'Archivada' : 'Activa'}</span></div>
+    <div className="customer-card-heading"><div /><span className={archived ? 'customer-status customer-status-muted' : 'customer-status customer-status-ready'}>{archived ? 'Archivada' : 'Activa'}</span></div>
     <form className="customer-form customer-application-edit" onSubmit={event => { event.preventDefault(); setError(null); update.mutate({ name: draft.trim() }); }}>
       <label htmlFor="application-name">Nombre del proyecto</label><div className="customer-inline-control"><input id="application-name" value={draft} onChange={event => setDraft(event.target.value)} maxLength={200} required disabled={!canManage || update.isPending} /><button className="customer-button customer-button-small" disabled={!canManage || update.isPending || !draft.trim() || draft.trim() === name}>Guardar</button></div>
     </form>
@@ -492,7 +462,7 @@ function SourceEnrollment({ organizationId, applicationId, sources, canManage, o
   return <section className="customer-card">
     <div className="customer-card-heading"><div><h2>Código fuente</h2></div></div>
     <p className="customer-card-copy">Para buscar avisos, solo se envían nombres y versiones de paquetes npm.</p>
-    {sources.length > 0 && <div className="customer-source-list"><strong>Instantáneas disponibles</strong>{sources.map(source => <div key={source.id}><span><code>{source.revision}</code> · {source.fileCount} archivos · SHA-256 <code>{source.digest.slice(0, 12)}…</code><small>{date(source.createdAt)}</small></span>{canManage && <button className="customer-link-button customer-danger-link" disabled={remove.isPending} onClick={() => { if (window.confirm(`¿Eliminar la instantánea «${source.revision}»? Esta acción no se puede deshacer.`)) { setError(null); remove.mutate(source.id); } }}>Eliminar instantánea</button>}</div>)}</div>}
+    {sources.length > 0 && <div className="customer-source-list"><strong>Instantáneas disponibles</strong>{sources.map(source => <div key={source.id}><span><code>{source.revision}</code><small>{source.fileCount} {source.fileCount === 1 ? 'archivo' : 'archivos'} · SHA-256 {source.digest.slice(0, 12)}… · {date(source.createdAt)}</small></span>{canManage && <button className="customer-link-button customer-danger-link" disabled={remove.isPending} onClick={() => { if (window.confirm(`¿Eliminar la instantánea «${source.revision}»? Esta acción no se puede deshacer.`)) { setError(null); remove.mutate(source.id); } }}>Eliminar instantánea</button>}</div>)}</div>}
     {canManage && <form className="customer-form customer-source-form" onSubmit={event => { event.preventDefault(); setError(null); upload.mutate(); }}>
       <label htmlFor="source-revision">Versión</label><input id="source-revision" value={revision} onChange={event => setRevision(event.target.value)} maxLength={200} required placeholder="main, release/1.2, commit…" />
       <FilePicker id="source-files" directory buttonLabel="Elegir carpeta" summary={selected.length ? `${included.length} archivos compatibles` : 'Ninguna carpeta elegida'} onFiles={chooseFiles} />
@@ -537,13 +507,14 @@ function ContainerImageEnrollment({ organizationId, applicationId, images, canMa
   </section>;
 }
 
-function ReportView({ report, summary, userId, organizationId, applicationId, canManage, archived, activeReportTab, onReportTabChange, onCorrectionQueued }: {
+function ReportView({ report, summary, userId, organizationId, applicationId, canManage, isOwner, archived, activeReportTab, onReportTabChange, onCorrectionQueued }: {
   report: CustomerAssessmentReport;
   summary?: CustomerReportSummary;
   userId: string;
   organizationId: string;
   applicationId: string;
   canManage: boolean;
+  isOwner: boolean;
   archived: boolean;
   activeReportTab: 'findings' | 'dependencies';
   onReportTabChange: (tab: 'findings' | 'dependencies') => void;
@@ -580,6 +551,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
     <div className="customer-report-callout"><strong>{count(entries.length, 'observación registrada', 'observaciones registradas')}</strong><p>La cobertura parcial o no solicitada no confirma seguridad. No se hicieron cambios en el proyecto.</p></div>
     <ComparisonSummary comparisons={report.comparison} internal={report.internal} external={report.external} />
     <ExternalHttpsEvidence analysis={report.external} />
+    <InvestigationsTimeline key={`${organizationId}:${applicationId}:${report.id}`} organizationId={organizationId} applicationId={applicationId} reportId={report.id} canManage={canManage && !archived} />
     <div className="customer-report-tabs" role="tablist" aria-label="Contenido del informe" onKeyDown={event => {
       if (event.key === 'ArrowRight' || event.key === 'ArrowLeft' || event.key === 'Home' || event.key === 'End') {
         event.preventDefault();
@@ -601,7 +573,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
         const linked = [...item.internalFindingIds, ...item.externalFindingIds].map(id => byId.get(id)).filter((finding): finding is NonNullable<typeof finding> => finding !== undefined);
         return <details className="customer-finding" key={item.key}><summary><span><strong>{linked[0]?.title ?? 'Aspecto no verificable'}</strong><small>{linked[0]?.location ?? item.explanation}</small></span><span className="customer-finding-badges"><ComparisonPresence item={item} /><ComparisonVerification item={item} />{linked.map(finding => <span className="customer-finding-risk" key={finding.id}><span className={`customer-severity customer-severity-${finding.severity}`}>{severityLabels[finding.severity]}</span><span className="customer-status customer-status-muted">Confianza: {confidenceLabels[finding.confidence]}</span><span className="customer-status customer-status-muted">Explotabilidad: {exploitabilityLabel(finding.exploitability)}</span></span>)}</span></summary>
           <p>{item.explanation}</p>
-          {linked.map(finding => <section className="customer-finding-body" key={finding.id}><div className="customer-tag-row"><span className="customer-status customer-status-muted">{sourceLabels[finding.origin]}</span><span className={`customer-severity customer-severity-${finding.severity}`}>{severityLabels[finding.severity]}</span><span className="customer-status customer-status-muted">Confianza: {confidenceLabels[finding.confidence]}</span><span className="customer-status customer-status-muted">Explotabilidad: {exploitabilityLabel(finding.exploitability)}</span></div><p>{finding.description}</p><InvestigationActionButton organizationId={organizationId} applicationId={applicationId} subject={{ kind: 'finding', subjectId: finding.id, reportId: report.id }} canManage={canManage && !archived && ['medium', 'high', 'critical'].includes(finding.severity)} /><h4>Impacto posible</h4><p>{finding.impact}</p><h4>Recomendación</h4><p>{finding.recommendation}</p>{finding.limitations.length > 0 && <><h4>Límites de esta observación</h4><ul>{finding.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></>}{finding.evidenceIds.map(id => {
+          {linked.map(finding => <section className="customer-finding-body" key={finding.id}><div className="customer-tag-row"><span className="customer-status customer-status-muted">{sourceLabels[finding.origin]}</span><span className={`customer-severity customer-severity-${finding.severity}`}>{severityLabels[finding.severity]}</span><span className="customer-status customer-status-muted">Confianza: {confidenceLabels[finding.confidence]}</span><span className="customer-status customer-status-muted">Explotabilidad: {exploitabilityLabel(finding.exploitability)}</span><CopyFindingPrompt prompt={() => findingPrompt({ applicationName: report.applicationName, origin: report.subject.origin, finding, evidence: finding.evidenceIds.flatMap(id => evidenceById.get(id) ?? []) })} /></div><p>{finding.description}</p><InvestigationActionButton organizationId={organizationId} applicationId={applicationId} subject={{ kind: 'finding', subjectId: finding.id, reportId: report.id }} canManage={canManage && !archived && ['medium', 'high', 'critical'].includes(finding.severity)} />{finding.origin === 'internal' && report.subject.sourceSnapshotId && report.subject.sourceDigest && <AiCorrectionPanel organizationId={organizationId} applicationId={applicationId} reportId={report.id} findingId={finding.id} expectedSourceDigest={report.subject.sourceDigest} canManage={canManage && !archived} />}<h4>Impacto posible</h4><p>{finding.impact}</p><h4>Recomendación</h4><p>{finding.recommendation}</p>{finding.limitations.length > 0 && <><h4>Límites de esta observación</h4><ul>{finding.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></>}{finding.evidenceIds.map(id => {
             const itemEvidence = evidenceById.get(id);
             return itemEvidence ? <details className="customer-evidence" key={id}><summary>{itemEvidence.locator}</summary><p>{itemEvidence.tool.name} · v{itemEvidence.tool.version} · {date(itemEvidence.collectedAt)}</p><pre>{itemEvidence.excerpt}</pre><p className="customer-evidence-meta">SHA-256: {itemEvidence.checksum}</p><p className="customer-evidence-meta">Instantánea: {itemEvidence.snapshotRef}</p></details> : null;
           })}</section>)}
@@ -622,6 +594,7 @@ function ReportView({ report, summary, userId, organizationId, applicationId, ca
       archived={archived}
       onQueued={onCorrectionQueued}
     />}
+    <ApprovalPanel userId={userId} organizationId={organizationId} applicationId={applicationId} canManage={canManage && !archived} isOwner={isOwner} />
     </div>}
     <section className="customer-report-section customer-coverage"><div className="customer-section-heading"><div><h3>Qué se evaluó</h3></div></div>
       <div className="customer-analysis-grid">{originSections.map(({ origin, analysis }) => <article className="customer-analysis-card" key={origin}><div className="customer-card-heading"><h4>{report.subject.containerImageDigest && origin === 'internal' ? 'Imagen' : sourceLabels[origin]}</h4><span className="customer-status customer-status-muted">{analysis ? analysisLabels[analysis.status] : 'No solicitado'}</span></div>{analysis ? <><p>{analysis.tool.name} · v{analysis.tool.version}</p><ul>{groupCoverage(analysis.coverage).map(item => <li key={`${item.state}:${item.detail}`}><span><strong>{coverageCapabilitiesLabel(item.capabilities)}</strong><small>{item.detail}</small></span><span className="customer-status customer-status-muted">{coverageLabels[item.state]}</span></li>)}</ul>{analysis.limitations.length > 0 && <details className="customer-analysis-limits"><summary>Límites del perfil ({analysis.limitations.length})</summary><ul>{analysis.limitations.map(limit => <li key={limit}>{limit}</li>)}</ul></details>}</> : <p>Esta perspectiva no se solicitó para este informe.</p>}</article>)}</div>
@@ -689,10 +662,10 @@ function AssessmentForm({ organizationId, applicationId, sources, images, target
   return <section className="customer-card customer-assessment-card">
     <div className="customer-card-heading"><div><h2>Nueva evaluación</h2></div></div>
     <form className="customer-form customer-assessment-form" onSubmit={event => { event.preventDefault(); setError(null); queue.mutate(); }}>
-      <label htmlFor="assessment-mode">Perspectiva</label><select id="assessment-mode" value={mode} onChange={event => { const nextMode = event.target.value as AssessmentMode; setMode(nextMode); if (nextMode !== 'internal') setInputKind('source_snapshot'); setError(null); }} disabled={queue.isPending}><option value="internal">Código o imagen</option><option value="external">Dominio HTTPS</option><option value="both">Código + dominio HTTPS</option></select>
+      <div className="customer-segmented" role="radiogroup" aria-label="Qué evaluar">{([['internal', 'Código'], ['external', 'HTTPS'], ['both', 'Ambos']] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={mode === value} className={mode === value ? 'is-on' : undefined} disabled={queue.isPending} onClick={() => { setMode(value); if (value !== 'internal') setInputKind('source_snapshot'); setError(null); }}>{label}</button>)}</div>
       {mode === 'internal' && images.length > 0 && <><label htmlFor="assessment-input-kind">Qué analizar</label><select id="assessment-input-kind" value={inputKind} onChange={event => setInputKind(event.target.value as 'source_snapshot' | 'container_image')} disabled={queue.isPending}><option value="source_snapshot">Código fuente</option><option value="container_image">Imagen de contenedor</option></select></>}
       {usesImage && <><label htmlFor="assessment-image-source">Origen de la imagen</label><select id="assessment-image-source" value={imageSource} onChange={event => setImageSource(event.target.value as 'archive' | 'registry')} disabled={queue.isPending}><option value="archive">Archivo Docker/OCI guardado</option><option value="registry">Referencia de registro público</option></select>{imageSource === 'archive' ? <><label htmlFor="assessment-image-archive">Archivo guardado</label><select id="assessment-image-archive" value={imageId} onChange={event => setImageId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una imagen subida</option>{images.map(image => <option key={image.id} value={image.id}>{image.label} · {image.digest.slice(0, 12)}…</option>)}</select></> : <><label htmlFor="assessment-image-reference">Referencia pública con digest</label><input id="assessment-image-reference" value={registryReference} onChange={event => setRegistryReference(event.target.value)} disabled={queue.isPending} maxLength={512} placeholder="docker.io/library/alpine@sha256:…" /><p className="customer-field-note">docker.io, ghcr.io, quay.io, public.ecr.aws o gcr.io, fijada con digest SHA-256.</p>{registryReference && !parsedRegistryReference.success && <p className="customer-form-error" role="alert">Usa un registro público admitido y una referencia completa fijada por digest.</p>}</>}</>}
-      {needsSource && <><label htmlFor="assessment-source">Instantánea de código</label><select id="assessment-source" value={sourceSnapshotId} onChange={event => setSourceSnapshotId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una instantánea</option>{sources.map(source => <option key={source.id} value={source.id}>{source.revision} · {source.fileCount} archivos · {date(source.createdAt)}</option>)}</select></>}
+      {needsSource && <><label htmlFor="assessment-source">Instantánea de código</label><select id="assessment-source" value={sourceSnapshotId} onChange={event => setSourceSnapshotId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona una instantánea</option>{sources.map(source => <option key={source.id} value={source.id}>{/^[0-9a-f]{40}$/.test(source.revision) ? source.revision.slice(0, 7) : source.revision} · {source.fileCount} archivos · {date(source.createdAt)}</option>)}</select></>}
       {needsTarget && <><label htmlFor="assessment-target">Origen HTTPS disponible</label><select id="assessment-target" value={targetId} onChange={event => setTargetId(event.target.value)} disabled={queue.isPending}><option value="">Selecciona un origen HTTPS</option>{availableTargets.map(target => <option key={target.id} value={target.id}>{target.origin} · {scanProfileLabels[target.scanProfile ?? 'root']}{(target.scanProfile ?? 'root') === 'public_surface' ? ' · máx. 10 GET' : ''} · vence {target.expiresAt ? date(target.expiresAt) : '—'}</option>)}</select></>}
       {!ready && <p className="customer-field-note">{needsTarget && !hasTarget ? (availableTargets.length ? 'Elige un origen HTTPS. ' : 'Añade o renueva un origen HTTPS desde Fuentes. ') : ''}{needsSource && !hasSource ? (sources.length ? 'Elige una instantánea. ' : 'Sube primero código. ') : ''}{usesImage && !hasImage ? imageSource === 'archive' ? 'Sube primero un archivo de imagen.' : 'Escribe una referencia pública fijada por digest.' : ''}</p>}
       {error && <p className="customer-form-error" role="alert">{error}</p>}
@@ -754,6 +727,8 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   const [notice, setNotice] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarForm, setSidebarForm] = useState<'workspace-create' | 'workspace-rename' | 'project-create' | null>(null);
+  const pendingGithubNavigation = useRef<string | null>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -782,18 +757,30 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     ?? null;
   const applicationId = selectedApplication?.applicationId ?? null;
   useEffect(() => {
-    if (!routeEntry || location.pathname !== '/dashboard') return;
+    if (!routeEntry) return;
+    const pendingGithubScope = readSavedCustomerScope(sessionStorage, 'gotchu-pending-github-scope', userId);
+    if (location.pathname !== '/dashboard') {
+      if (pendingGithubScope && location.pathname === `/w/${pendingGithubScope.organizationId}/p/${pendingGithubScope.applicationId}/fuentes`) {
+        sessionStorage.removeItem('gotchu-pending-github-scope');
+        pendingGithubNavigation.current = null;
+      }
+      return;
+    }
     const onboardingScope = readSavedCustomerScope(sessionStorage, 'gotchu-onboarding-scope', userId);
     if (onboardingScope) {
       void navigate({ to: '/primeros-pasos', search: { espacio: onboardingScope.organizationId, fuente: 'github' } });
       return;
     }
-    const pendingGithubScope = readSavedCustomerScope(sessionStorage, 'gotchu-pending-github-scope', userId);
     if (pendingGithubScope) {
-      sessionStorage.removeItem('gotchu-pending-github-scope');
-      void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: pendingGithubScope.organizationId, projectId: pendingGithubScope.applicationId } });
+      const destination = `/w/${pendingGithubScope.organizationId}/p/${pendingGithubScope.applicationId}/fuentes`;
+      if (pendingGithubNavigation.current !== destination) {
+        pendingGithubNavigation.current = destination;
+        // Keep the validated scope until navigation commits so github=connected cannot race to the default project.
+        void navigate({ to: '/w/$workspaceId/p/$projectId/fuentes', params: { workspaceId: pendingGithubScope.organizationId, projectId: pendingGithubScope.applicationId } });
+      }
       return;
     }
+    pendingGithubNavigation.current = null;
     const params = new URLSearchParams(window.location.search);
     const legacyScope = customerScopeSchema.safeParse({ organizationId: params.get('organizationId'), applicationId: params.get('applicationId') });
     if (legacyScope.success) {
@@ -897,6 +884,74 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
     if (!organizationId || !applicationId || !visibleReportId) throw new Error('Selecciona un informe.');
     return customerApi.report(organizationId, applicationId, visibleReportId);
   }, retry: false });
+  // Risk overview: the latest report of each source, fetched in full for severities and coverage.
+  const riskSources = projectSources({ sources: sources.data ?? [], images: images.data ?? [], targets: targets.data ?? [] });
+  const examination = examineSources(riskSources, reports.data ?? []);
+  const riskReports = useQueries({ queries: examination.reportIds.map(reportId => ({
+    queryKey: ['customer-data', userId, 'report', organizationId, applicationId, reportId],
+    enabled: page === 'overview' && organizationId !== null && applicationId !== null,
+    queryFn: () => {
+      if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
+      return customerApi.report(organizationId, applicationId, reportId);
+    },
+    retry: false,
+  })) });
+  const riskReportData = riskReports.flatMap(query => query.data ? [query.data] : []);
+  // Until every latest report has loaded, nothing may read as complete or clear.
+  const riskLoaded = riskReportData.length === examination.reportIds.length;
+  const riskCoverage = riskLoaded ? coverageState({ sources: riskSources, pending: examination.pending, reports: riskReportData }) : riskSources.length === 0 ? 'none' : 'partial';
+  const findings = openFindings(riskReportData);
+  const risk: ProjectRisk = {
+    state: riskReports.some(query => query.error) || reports.error ? 'error' : riskReports.some(query => query.isPending) || reports.isPending ? 'loading' : 'ready',
+    sources: riskSources,
+    examined: examination.examined.map(item => ({ source: item.source, reportDate: date(item.report.finishedAt) })),
+    pending: examination.pending,
+    counts: findings.counts, total: findings.total, coverage: riskCoverage,
+    next: nextAction({ sources: riskSources, pending: examination.pending, reports: riskReportData, coverage: riskCoverage }),
+  };
+  // Overview: recent report rows (full reports for their severities), history and the watch.
+  const recentSummaries = (reports.data ?? []).slice(0, 4);
+  const recentFull = useQueries({ queries: recentSummaries.map(summary => ({
+    queryKey: ['customer-data', userId, 'report', organizationId, applicationId, summary.id],
+    enabled: page === 'overview' && organizationId !== null && applicationId !== null,
+    queryFn: () => {
+      if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
+      return customerApi.report(organizationId, applicationId, summary.id);
+    },
+    retry: false,
+  })) });
+  const sourceLabel = (summary: CustomerReportSummary) => riskSources.filter(source => source.kind === 'snapshot' ? summary.subject.sourceSnapshotId === source.id : source.kind === 'image' ? summary.subject.containerImageId === source.id : summary.subject.targetId === source.id).map(source => source.label).join(' · ');
+  const recentRows: RecentReportRow[] = recentSummaries.map((summary, index) => {
+    const full = recentFull[index]?.data;
+    const previous = (reports.data ?? [])[index + 1];
+    const order = ['critical', 'high', 'medium', 'low', 'informational', 'unknown'];
+    return {
+      id: summary.id, title: modeLabels[summary.mode], findingCount: summary.findingCount,
+      detail: [date(summary.finishedAt), sourceLabel(summary)].filter(Boolean).join(' · '),
+      delta: previous ? summary.findingCount - previous.findingCount : null,
+      severities: full ? [...full.internal?.findings ?? [], ...full.external?.findings ?? []].map(finding => finding.severity).sort((a, b) => order.indexOf(a) - order.indexOf(b)) : null,
+    };
+  });
+  const history: ProjectHistory = { reportCount: reports.data?.length ?? 0, findingCounts: (reports.data ?? []).map(summary => summary.findingCount) };
+  const watchScope = organizationId && applicationId ? { organizationId, applicationId } : null;
+  const watchCoverage = useQuery({ queryKey: ['customer-data', userId, 'operations', organizationId, applicationId, 'coverage'], enabled: page === 'overview' && watchScope !== null, queryFn: () => { if (!watchScope) throw new Error('Selecciona un proyecto.'); return operationsApi.coverage(watchScope); }, retry: false });
+  const watchAlerts = useQuery({ queryKey: ['customer-data', userId, 'operations', organizationId, applicationId, 'alerts'], enabled: page === 'overview' && watchScope !== null, queryFn: () => { if (!watchScope) throw new Error('Selecciona un proyecto.'); return operationsApi.alerts(watchScope); }, retry: false });
+  const watchConfig = watchCoverage.data?.config;
+  const watch: ProjectWatch = watchCoverage.error ? { state: 'error' } : !watchCoverage.data ? { state: 'loading' }
+    : watchConfig?.enabled ? { state: 'on', intervalHours: Math.round(watchConfig.intervalSeconds / 3600), nextDueAt: watchConfig.nextDueAt, openAlerts: (watchAlerts.data ?? []).filter(alert => alert.state !== 'resolved' && alert.observation.fresh).length }
+    : { state: 'off' };
+  const examine = useMutation({
+    mutationFn: (source: ProjectSource) => {
+      if (!organizationId || !applicationId) throw new Error('Selecciona un proyecto.');
+      return customerApi.queue(source.kind === 'target'
+        ? { organizationId, applicationId, mode: 'external', sourceSnapshotId: null, targetId: source.id }
+        : { organizationId, applicationId, mode: 'internal', sourceSnapshotId: source.id, targetId: null });
+    },
+    onSuccess: result => {
+      if (!organizationId || !applicationId) return;
+      setActiveJob({ organizationId, applicationId, jobId: result.jobId, purpose: 'assessment' }); setPageError(null);
+    },
+  });
   const job = useQuery({
     queryKey: ['customer-data', userId, 'job', activeJob?.organizationId, activeJob?.applicationId, activeJob?.jobId],
     enabled: activeJob !== null,
@@ -970,44 +1025,51 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
   if (workspaces.isPending) return <main className="gl customer-app-shell"><Loading label="Cargando tus espacios de trabajo…" /></main>;
   if (workspaces.error) return <main className="gl customer-app-shell"><ErrorNotice message={readableError(workspaces.error)} retry={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} /></main>;
 
+  const progress = progressVisible && activeJob && <AssessmentProgress key={activeJob.jobId} purpose={activeJob.purpose} job={jobResult} failure={jobResult?.state === 'failed' ? jobFailureMessage(activeJob.purpose, jobResult) : null} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} onSettled={settleVisibleJob} onDismiss={() => setActiveJob(null)} />;
   const renderRouteSection = () => <>
     {invitationMessage && <div className="customer-success" role="status">{invitationMessage}</div>}
     {notice && <div className="customer-success" role="status"><span>{notice}</span><button className="customer-icon-button" aria-label="Descartar aviso" onClick={() => setNotice(null)}><XIcon aria-hidden="true" /></button></div>}
-    {progressVisible && activeJob && <AssessmentProgress key={activeJob.jobId} purpose={activeJob.purpose} job={jobResult} failure={jobResult?.state === 'failed' ? jobFailureMessage(activeJob.purpose, jobResult) : null} error={job.error ? readableError(job.error) : null} retry={() => { job.refetch().catch(caught => setPageError(readableError(caught))); }} onSettled={settleVisibleJob} onDismiss={() => setActiveJob(null)} />}
+    {workspacePage && progress}
     {operationError && <ErrorNotice message={operationError} retry={() => { setPageError(null); refreshApplicationData(); workspaces.refetch().catch(caught => setPageError(readableError(caught))); }} />}
     {workspacePage && organizationId && workspace ? <WorkspacePages page={page} userId={userId} organizationId={organizationId} role={workspace.role} canManage={canManage} />
     : organizationId && applications.isPending ? <Loading label="Cargando proyectos…" />
     : organizationId && applications.error ? <ErrorNotice message={readableError(applications.error)} retry={() => { applications.refetch().catch(caught => setPageError(readableError(caught))); }} />
     : !organizationId || !selectedApplication ? <FirstProjectEmptyState canManage={canManage || !organizationId} onCreateProject={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId } : {} }); }} onAnalyzeWeb={() => { void navigate({ to: '/primeros-pasos', search: organizationId ? { espacio: organizationId, fuente: 'web' } : { fuente: 'web' } }); }} />
     : <>
-      <div className="customer-page-heading"><div><h1>{page === 'overview' ? selectedApplication.name : pageTitle}</h1></div>{selectedApplication.archived && <span className="customer-status customer-status-muted">Proyecto archivado</span>}</div>
+      <PageHeader
+        title={page === 'overview' ? selectedApplication.name : pageTitle}
+        description={pageDescriptions[page] ?? (applicationReports[0] ? <>Última evaluación <strong>{relativeTime(applicationReports[0].finishedAt)}</strong> · {modeLabels[applicationReports[0].mode].toLowerCase()} {sourceLabel(applicationReports[0]) && <strong>{sourceLabel(applicationReports[0])}</strong>}</> : 'Todavía no hay informes en este proyecto.')}
+        status={selectedApplication.archived ? <span className="customer-status customer-status-muted">Proyecto archivado</span> : null}
+        actions={page === 'overview' && canManage && !selectedApplication.archived ? <>
+          <button className="customer-button" type="button" onClick={() => setPage('applications')}><PlusIcon aria-hidden="true" />Añadir fuente</button>
+          <button className="customer-button customer-button-primary" type="button" onClick={() => { const field = document.querySelector<HTMLElement>('.customer-assessment-card button, .customer-assessment-card select'); field?.scrollIntoView({ block: 'center' }); field?.focus(); }}><PlayIcon aria-hidden="true" />Nueva evaluación</button>
+        </> : null}
+      />
+      {progress}
       {targets.isPending || (needsSourceData && (sources.isPending || images.isPending)) || (needsReportData && reports.isPending) ? <Loading label="Cargando el alcance del proyecto…" /> : (targets.error || (needsSourceData && (sources.error || images.error)) || (needsReportData && reports.error)) ? <ErrorNotice message={readableError(targets.error ?? sources.error ?? images.error ?? reports.error)} retry={() => refreshApplicationData()} /> : <>
         {page === 'overview' && <ProjectOverview
-          snapshotCount={sources.data?.length ?? 0}
-          activeDomainCount={targets.data?.filter(target => target.status === 'authorized').length ?? 0}
-          reportCount={applicationReports.length}
-          onAddSource={() => setPage('applications')}
-          onViewReports={() => setPage('reports')}
+          risk={risk} history={history} watch={watch} recentReports={recentRows}
+          onOpenReport={reportId => { void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: selectedApplication.applicationId, reportId } }); }}
+          onOpenSources={() => setPage('applications')}
+          onOpenReports={() => setPage('reports')}
+          onOpenWatch={() => setPage('operations')}
+          onExamine={source => { examine.mutate(source); }}
+          examining={examine.isPending}
+          examineError={examine.error ? readableError(examine.error) : null}
           assessmentForm={<AssessmentForm key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} images={images.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} onQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPageError(null); setNotice('La evaluación se guardó y se ejecutará en segundo plano.'); }} onAddSource={() => setPage('applications')} />}
-          recentReports={applicationReports.length === 0 ? <div className="customer-empty-inline">Este proyecto aún no tiene informes.</div> : <ReportList reports={applicationReports.slice(0, 4)} selectedId={visibleReportId} organizationId={organizationId} applicationId={selectedApplication.applicationId} />}
         />}
-        {page === 'applications' && <ProjectSources
-          {...(workspace?.name ? { workspaceName: workspace.name } : {})}
-          projects={applications.data ?? []}
-          selectedProjectId={selectedApplication.applicationId}
-          dateLabel={date}
-          createControl={canManage && <ApplicationCreate organizationId={organizationId} disabled={false} onCreated={id => { applications.refetch().catch(caught => setPageError(readableError(caught))); void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: organizationId, projectId: id } }); }} />}
-          onSelect={id => { void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: organizationId, projectId: id } }); }}
-        >
-          <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><ContainerImageEnrollment key={`${organizationId}:${selectedApplication.applicationId}:images`} organizationId={organizationId} applicationId={selectedApplication.applicationId} images={images.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /></div>
-          <GitHubRepositoryPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:github`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} onScanQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPage('overview'); setNotice('La instantánea de GitHub está guardada y la primera evaluación se ejecuta en segundo plano.'); refreshApplicationData(); }} />
-          <ContextPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} isOwner={workspace?.role === 'owner'} archived={selectedApplication.archived} analyzedDigest={applicationReports[0]?.subject.sourceDigest ?? null} />
-          <InvestigationModelSettings key={`${organizationId}:investigation-model`} organizationId={organizationId} isOwner={workspace?.role === 'owner'} />
-          <ApprovalPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:actions`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} isOwner={workspace?.role === 'owner'} />
-          <WorkflowExceptions userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} isOwner={workspace?.role === 'owner'} />
-          <ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('El proyecto se actualizó.'); }} />
-          {canManage && <StepUpPanel key={`${userId}:${organizationId}`} organizationId={organizationId} />}
-        </ProjectSources>}
+        {page === 'applications' && <>
+          <section aria-label="Añadir o actualizar fuentes">
+            <div className="customer-asset-grid"><TargetEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><SourceEnrollment key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} sources={sources.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} /><ContainerImageEnrollment key={`${organizationId}:${selectedApplication.applicationId}:images`} organizationId={organizationId} applicationId={selectedApplication.applicationId} images={images.data ?? []} canManage={canManage && !selectedApplication.archived} onChanged={() => { setPageError(null); refreshApplicationData(); }} />
+            <GitHubRepositoryPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}:github`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage && !selectedApplication.archived} onScanQueued={(jobId, monitoringEnabled) => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'assessment' }); setPage('overview'); setNotice(monitoringEnabled ? 'La primera evaluación del repositorio se ejecuta en segundo plano. La vigilancia quedó activada: Gotchu lo revisará cada 6 horas.' : 'La instantánea de GitHub está guardada y la primera evaluación se ejecuta en segundo plano.'); refreshApplicationData(); }} /></div>
+          </section>
+          <section className="customer-settings" aria-labelledby="project-settings-title">
+            <div className="customer-section-head"><div><h2 id="project-settings-title">Ajustes del proyecto</h2><p>Ábrelos cuando los necesites.</p></div></div>
+            <details className="customer-settings-row"><summary><strong>Entornos y recursos vinculados</strong><small>Servicios, despliegues, repositorios y orígenes declarados.</small></summary><ContextPanel key={`${userId}:${organizationId}:${selectedApplication.applicationId}`} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} isOwner={workspace?.role === 'owner'} archived={selectedApplication.archived} analyzedDigest={applicationReports[0]?.subject.sourceDigest ?? null} /></details>
+            <details className="customer-settings-row"><summary><strong>Excepciones de GitHub Actions</strong><small>Reglas de flujos de trabajo aceptadas con justificación.</small></summary><WorkflowExceptions userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} isOwner={workspace?.role === 'owner'} /></details>
+            <details className="customer-settings-row"><summary><strong>Datos del proyecto</strong><small>Nombre y archivo del proyecto.</small></summary><ApplicationSettings key={`${organizationId}:${selectedApplication.applicationId}`} organizationId={organizationId} applicationId={selectedApplication.applicationId} name={selectedApplication.name} archived={selectedApplication.archived} canManage={canManage} onSaved={() => { refreshApplicationData(); setNotice('El proyecto se actualizó.'); }} /></details>
+          </section>
+        </>}
         {page === 'https-audit' && <ProjectHttpsAudit
           key={`${organizationId}:${selectedApplication.applicationId}:https`}
           organizationId={organizationId} applicationId={selectedApplication.applicationId} targets={targets.data ?? []} reports={applicationReports}
@@ -1022,21 +1084,60 @@ function CustomerWorkspace({ session, userId, acceptedInvitationId, invitationMe
           onViewReport={reportId => { void navigate({ to: '/w/$workspaceId/p/$projectId/informes/$reportId', params: { workspaceId: organizationId, projectId: selectedApplication.applicationId, reportId } }); }}
         />}
         {page === 'operations' && <ProjectVigilance userId={userId} organizationId={organizationId} projectId={selectedApplication.applicationId} sources={sources.data ?? []} targets={targets.data ?? []} canManage={canManage} archived={selectedApplication.archived} />}
-        {page === 'reports' && <ProjectReports title="Detalle del informe" reportCount={count(applicationReports.length, 'informe', 'informes')} reportList={applicationReports.length === 0 ? <div className="customer-empty-inline">Este proyecto aún no tiene informes.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} organizationId={organizationId} applicationId={selectedApplication.applicationId} />} detail={report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} archived={selectedApplication.archived} activeReportTab={currentReportTab === 'dependencias' ? 'dependencies' : 'findings'} onReportTabChange={setReportTab} onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>} />}
+        {page === 'reports' && <ProjectReports title="Detalle del informe" reportCount={count(applicationReports.length, 'informe', 'informes')} reportList={applicationReports.length === 0 ? <div className="customer-empty-inline">Este proyecto aún no tiene informes.</div> : <ReportList reports={applicationReports} selectedId={visibleReportId} organizationId={organizationId} applicationId={selectedApplication.applicationId} />} detail={report.isPending ? <Loading label="Cargando informe…" /> : report.error ? <ErrorNotice message={readableError(report.error)} retry={() => { report.refetch().catch(caught => setPageError(readableError(caught))); }} /> : report.data ? <ReportView key={`${userId}:${organizationId}:${selectedApplication.applicationId}:${report.data.id}`} report={report.data} {...(selectedSummary ? { summary: selectedSummary } : {})} userId={userId} organizationId={organizationId} applicationId={selectedApplication.applicationId} canManage={canManage} isOwner={workspace?.role === 'owner'} archived={selectedApplication.archived} activeReportTab={currentReportTab === 'dependencias' ? 'dependencies' : 'findings'} onReportTabChange={setReportTab} onCorrectionQueued={jobId => { setActiveJob({ organizationId, applicationId: selectedApplication.applicationId, jobId, purpose: 'correction' }); setPageError(null); }} /> : <div className="customer-empty-inline">Selecciona un informe para revisar sus observaciones y evidencias.</div>} />}
       </>}
     </>}
   </>;
 
   return <DashboardSectionContext.Provider value={renderRouteSection}><DashboardShell brand={<Brand />} menuOpen={menuOpen} onToggleMenu={() => setMenuOpen(value => !value)} onCloseMenu={() => setMenuOpen(false)} sidebar={
     <>
-      <div className="customer-workspace-select"><label htmlFor="workspace-select">ESPACIO DE TRABAJO</label><ChoiceSelect id="workspace-select" value={organizationId ?? ''} options={[{ value: '', label: 'Selecciona un espacio', disabled: true }, ...(workspaces.data ?? []).map(item => ({ value: item.id, label: item.name }))]} onChange={value => { setNotice(null); void navigate({ to: '/w/$workspaceId', params: { workspaceId: value } }); }} />{workspace && <span>{workspace.role === 'owner' ? 'Propietario' : workspace.role === 'operator' ? 'Operador' : 'Sólo lectura'}</span>}{workspace && <WorkspaceSettings key={workspace.id} organizationId={workspace.id} name={workspace.name} canManage={canManage} onSaved={() => { workspaces.refetch().catch(caught => setPageError(readableError(caught))); setNotice('El espacio de trabajo se actualizó.'); }} />}</div>
-      {workspace && <div className="customer-application-select"><label htmlFor="application-select">PROYECTO</label><ChoiceSelect id="application-select" value={applicationId ?? ''} options={[{ value: '', label: 'Selecciona un proyecto', disabled: true }, ...(applications.data ?? []).map(item => ({ value: item.applicationId, label: `${item.name}${item.archived ? ' · archivada' : ''}` }))]} onChange={value => { setNotice(null); void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: workspace.id, projectId: value } }); }} /></div>}
-      <nav className="customer-nav" aria-label="Proyecto">{pages.slice(0, 5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
-      <nav className="customer-nav" aria-label="Espacio de trabajo">{pages.slice(5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}</nav>
+      {workspace ? <div className="customer-scope">
+        <ScopeSwitcher kind="Espacio de trabajo" title={workspace.name} subtitle={applications.data ? `${roleLabels[workspace.role]} · ${applications.data.length} ${applications.data.length === 1 ? "proyecto" : "proyectos"}` : roleLabels[workspace.role]}
+          options={(workspaces.data ?? []).map(item => ({ id: item.id, label: item.name, meta: roleLabels[item.role] }))} currentId={workspace.id}
+          onSelect={value => { setNotice(null); setSidebarForm(null); void navigate({ to: '/w/$workspaceId', params: { workspaceId: value } }); }}
+          actions={[{ id: 'workspace-create', label: 'Nuevo espacio de trabajo', icon: 'plus' }, ...(canManage ? [{ id: 'workspace-rename', label: 'Cambiar nombre', icon: 'rename' as const }] : [])]}
+          onAction={id => setSidebarForm(id === 'workspace-create' ? 'workspace-create' : 'workspace-rename')} />
+        {sidebarForm === 'workspace-create' && <SidebarNameForm id="new-workspace" label="Nuevo espacio de trabajo" submitLabel="Crear" onCancel={() => setSidebarForm(null)} onSubmit={async name => {
+          const created = await customerApi.createWorkspace(name);
+          setSidebarForm(null); await queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] });
+          setNotice(`Espacio «${created.name}» creado.`); void navigate({ to: '/w/$workspaceId', params: { workspaceId: created.id } });
+        }} />}
+        {sidebarForm === 'workspace-rename' && <SidebarNameForm key={workspace.id} id="workspace-name" label="Nombre del espacio" initial={workspace.name} submitLabel="Guardar" onCancel={() => setSidebarForm(null)} onSubmit={async name => {
+          await customerApi.updateWorkspace(workspace.id, name);
+          setSidebarForm(null); await workspaces.refetch(); setNotice('El espacio de trabajo se actualizó.');
+        }} />}
+      </div> : null}
+      {workspace && <nav className="customer-nav" aria-labelledby="nav-project">
+        <h2 id="nav-project" className="customer-nav-label">Proyecto</h2>
+        {(applications.data?.length ?? 0) > 0 && <ScopeSwitcher compact kind="Proyecto" title={selectedApplication?.name ?? 'Selecciona un proyecto'}
+          options={(applications.data ?? []).map(item => ({ id: item.applicationId, label: item.name, ...(item.archived ? { meta: 'Archivado' } : {}) }))} currentId={applicationId}
+          onSelect={value => { setNotice(null); setSidebarForm(null); void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: workspace.id, projectId: value } }); }}
+          actions={canManage ? [{ id: 'project-create', label: 'Nuevo proyecto', icon: 'plus' }] : []}
+          onAction={() => setSidebarForm('project-create')} />}
+        {sidebarForm === 'project-create' && <SidebarNameForm id="new-application" label="Nuevo proyecto" submitLabel="Crear" onCancel={() => setSidebarForm(null)} onSubmit={async name => {
+          const created = await customerApi.createApplication(workspace.id, name);
+          setSidebarForm(null); await applications.refetch();
+          void navigate({ to: '/w/$workspaceId/p/$projectId', params: { workspaceId: workspace.id, projectId: created.applicationId } });
+        }} />}
+        {pages.slice(0, 5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} count={item.id === 'reports' ? reports.data?.length : item.id === 'applications' && sources.data && images.data && targets.data ? riskSources.length : undefined} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}
+      </nav>}
+      {workspace && <nav className="customer-nav" aria-labelledby="nav-workspace">
+        <h2 id="nav-workspace" className="customer-nav-label">Espacio de trabajo</h2>
+        {pages.slice(5).map(item => <DashboardNavLink key={item.id} page={item.id} organizationId={organizationId} applicationId={applicationId} onNavigate={() => { setMenuOpen(false); setNotice(null); }} />)}
+      </nav>}
       <div className="customer-sidebar-bottom">
-        {Boolean(workspaces.data?.length) && <WorkspaceCreate disabled={false} onCreated={created => { queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'workspaces'] }).catch(caught => setPageError(readableError(caught))); setNotice(`Espacio «${created.name}» creado.`); void navigate({ to: '/w/$workspaceId', params: { workspaceId: created.id } }); }} />}
-        <div className="customer-user-row"><span className="customer-user-avatar" aria-hidden="true">{(session.user?.displayName?.trim()[0] ?? 'U').toUpperCase()}</span><span title={session.user?.displayName}>{session.user?.displayName ?? 'Sesión activa'}</span><button className="customer-icon-button" aria-label="Cerrar sesión" title="Cerrar sesión" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOutIcon aria-hidden="true" /></button></div>
-        <ThemeSwitch />
+        <div className="customer-user-row">
+          <DropdownMenu>
+            <DropdownMenuTrigger className="customer-user-trigger" aria-label="Cuenta">
+              <span className="customer-user-avatar" aria-hidden="true">{(session.user?.displayName?.trim()[0] ?? 'U').toUpperCase()}</span>
+              <span className="customer-user-text"><strong>{session.user?.displayName?.split('@')[0] ?? 'Sesión activa'}</strong><small>{session.user?.displayName?.includes('@') ? session.user.displayName : workspace ? roleLabels[workspace.role] : ''}</small></span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="customer-switcher-menu">
+              <DropdownMenuItem disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOutIcon aria-hidden="true" />Cerrar sesión</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <ThemeSwitch />
+        </div>
       </div>
     </>
   }>

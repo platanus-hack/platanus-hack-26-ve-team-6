@@ -15,7 +15,7 @@ const updateEnvironmentBodySchema = z.object({
   name: environmentSchema.shape.name.optional(), kind: environmentSchema.shape.kind.optional(),
 }).strict().refine(value => value.name !== undefined || value.kind !== undefined);
 const writeAccessChallengeBodySchema = z.object({ grant:z.boolean() }).strict();
-const writeAccessChangeBodySchema = z.object({ grant:z.boolean(),actionHash:z.string().regex(/^[a-f0-9]{64}$/),stepUpProof:z.string().min(1).max(512) }).strict();
+const writeAccessChangeBodySchema = z.object({ grant:z.boolean(),actionHash:z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 async function readBody(request: Request): Promise<unknown> {
   if (request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') throw new HttpError(415, 'content_type', 'Utiliza application/json.');
   try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await readBoundedBody(request, 16_384))); }

@@ -7,11 +7,12 @@ import {
 type JobView = Pick<CustomerJob, 'state' | 'mode' | 'progress' | 'createdAt' | 'completedAt' | 'reportId'>;
 const REPORT_ID = '6f1b9f0e-6d0c-4a59-9f43-2e1c6c4c2a10';
 const at = (seconds: number) => new Date(Date.UTC(2026, 9, 25, 10, 0, seconds)).toISOString();
-const job = (state: CustomerJob['state'], phases: ('validating' | 'analyzing')[], mode: CustomerJob['mode'] = 'both', completedAt: string | null = null, reportId: string | null = state === 'succeeded' ? REPORT_ID : null): JobView =>
+const job = (state: CustomerJob['state'], phases: CustomerJob['progress'][number]['phase'][], mode: CustomerJob['mode'] = 'both', completedAt: string | null = null, reportId: string | null = state === 'succeeded' ? REPORT_ID : null): JobView =>
   ({ state, mode, progress: phases.map((phase, index) => ({ phase, at: at(10 + index * 5) })), createdAt: at(0), completedAt, reportId });
 
 /** The job states the dashboard actually polls, in order, for one successful and one failed run. */
 const successRun = [job('queued', []), job('running', []), job('running', ['validating']), job('running', ['validating', 'analyzing']), job('succeeded', ['validating', 'analyzing'], 'both', at(40))];
+const branchRun = [job('queued', []), job('running', ['validating', 'analyzing']), job('running', ['validating', 'analyzing', 'external_finished']), job('running', ['validating', 'analyzing', 'external_finished', 'internal_finished', 'correlating']), job('succeeded', ['validating', 'analyzing', 'external_finished', 'internal_finished', 'correlating'], 'both', at(40))];
 const failedRun = [job('queued', []), job('running', ['validating', 'analyzing']), job('failed', ['validating', 'analyzing'], 'both', at(30))];
 const ORDER = { pending: 0, not_requested: 0, running: 1, done: 2, failed: 2, skipped: 2 } as const;
 
@@ -51,8 +52,20 @@ describe('assessment phase graph', () => {
     expect(jobPhaseStates(job('failed', ['validating', 'analyzing']))).toMatchObject({ validation: 'done', internal: 'failed', external: 'failed', correlation: 'skipped' });
   });
 
+  it('finishes each branch when the scanner reports it and blames only the branch that never finished', () => {
+    const internalDone = jobPhaseStates(job('running', ['validating', 'analyzing', 'internal_finished']));
+    expect(internalDone).toMatchObject({ internal: 'done', external: 'running', correlation: 'pending' });
+    expect(jobPhaseStates(job('running', ['validating', 'analyzing', 'internal_finished', 'external_finished', 'correlating']))).toMatchObject({ internal: 'done', external: 'done', correlation: 'running' });
+    expect(jobPhaseStates(job('failed', ['validating', 'analyzing', 'internal_finished']))).toMatchObject({ internal: 'done', external: 'failed', correlation: 'skipped' });
+    expect(jobPhaseStates(job('failed', ['validating', 'analyzing', 'internal_finished', 'external_finished', 'correlating']))).toMatchObject({ internal: 'done', external: 'done', correlation: 'failed', report: 'skipped' });
+    expect(jobPhaseStates(job('failed', ['validating', 'analyzing', 'external_finished'], 'external'))).toMatchObject({ external: 'done', report: 'failed' });
+    const times = jobPhaseTimes(job('running', ['validating', 'analyzing', 'internal_finished']));
+    expect(times.internal).toEqual({ start: Date.parse(at(15)), end: Date.parse(at(20)) });
+    expect(times.external).toEqual({ start: Date.parse(at(15)), end: null });
+  });
+
   it('replays every missed transition in order, without regressions, and ends on the server state', () => {
-    for (const run of [successRun, failedRun]) {
+    for (const run of [successRun, branchRun, failedRun]) {
       // Every pair of polls, including ones that skip intermediate states.
       for (let from = 0; from < run.length; from++) for (let to = from; to < run.length; to++) {
         const start = jobPhaseStates(present(run[from])), target = jobPhaseStates(present(run[to]));

@@ -4,7 +4,7 @@ import { inviteRoleSchema, workspaceRoleSchema, type WorkspaceRole } from '@gotc
 import { CustomerApiError } from './customer-client.js';
 import { membersApi } from './members-client.js';
 
-const roleLabels: Record<WorkspaceRole, string> = { owner: 'Owner', operator: 'Operador', viewer: 'Lector' };
+const roleLabels: Record<WorkspaceRole, string> = { owner: 'Propietario', operator: 'Operador', viewer: 'Lector' };
 function errorMessage(error: unknown) {
   return error instanceof CustomerApiError ? error.message : 'No se pudo completar la operación. Inténtalo de nuevo.';
 }
@@ -50,8 +50,7 @@ export function MembersPanel({ organizationId, userId, role }: { organizationId:
     if (action.kind === 'leave') leave.mutate(); else remove.mutate(action.userId);
   }
 
-  return <section className="customer-card customer-panel" aria-labelledby="workspace-members-title">
-    <div className="customer-card-heading"><div><h2 id="workspace-members-title">Miembros y roles</h2></div><span className="customer-status customer-status-muted">{roleLabels[role]}</span></div>
+  return <section className="customer-card customer-panel" aria-label="Miembros y roles">
     {message && <p role="status" className="customer-success">{message}</p>}
     {members.isPending ? <div role="status" className="customer-loading">Cargando miembros…</div>
       : members.error ? <div role="alert" className="customer-form-error">{errorMessage(members.error)} <button type="button" className="customer-link-button" onClick={() => { members.refetch().catch(() => undefined); }}>Reintentar</button></div>
@@ -59,7 +58,7 @@ export function MembersPanel({ organizationId, userId, role }: { organizationId:
       : <ul className="customer-ruled-list">{members.data?.map(member => <li key={member.userId}>
         <div className="customer-member-row"><span className="customer-ruled-title"><strong>{member.email ?? member.userId}</strong><small>{member.userId === userId ? 'Tú · ' : ''}Se unió {friendlyDate(member.joinedAt)}</small></span>
           <span className="customer-status customer-status-muted">{roleLabels[member.role]}</span>
-          {role === 'owner' && member.userId !== userId && <label className="customer-member-role"> <span className="sr-only">Rol de {member.email ?? member.userId}</span><select value={member.role} disabled={busy} onChange={event => { const nextRole = workspaceRoleSchema.safeParse(event.target.value); if (nextRole.success) changeRole.mutate({ userId: member.userId, role: nextRole.data }); }}><option value="owner">Owner</option><option value="operator">Operador</option><option value="viewer">Lector</option></select></label>}
+          {role === 'owner' && member.userId !== userId && <label className="customer-member-role"> <span className="sr-only">Rol de {member.email ?? member.userId}</span><select value={member.role} disabled={busy} onChange={event => { const nextRole = workspaceRoleSchema.safeParse(event.target.value); if (nextRole.success) changeRole.mutate({ userId: member.userId, role: nextRole.data }); }}><option value="owner">Propietario</option><option value="operator">Operador</option><option value="viewer">Lector</option></select></label>}
           {role === 'owner' && member.userId !== userId && <button type="button" className="customer-link-button" disabled={busy} onClick={() => setAction({ kind: 'remove', userId: member.userId })}>Quitar</button>}
         </div></li>)}</ul>}
 

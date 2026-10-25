@@ -62,6 +62,8 @@ export const investigationInputSchema = z.object({
   scope: scopeSchema,
   requiredChecks: requiredChecksSchema,
   modelEnabled: z.boolean().default(true),
+  /** Selected by the trusted gateway; null removes token caps without removing usage accounting. */
+  modelTokenLimit: z.number().int().min(1).max(MAX_TOKENS).nullable().optional(),
 }).strict();
 export type InvestigationInput = z.infer<typeof investigationInputSchema>;
 
@@ -95,6 +97,9 @@ export const modelOutputSchema = z.object({
     summary: z.string().min(1).max(500),
     path: z.string().max(512).nullable(),
     evidenceIds: evidenceIdsSchema,
+    implications: z.array(z.string().min(1).max(500)).max(5).optional(),
+    risks: z.array(z.string().min(1).max(500)).max(5).optional(),
+    validationPlan: z.array(z.string().min(1).max(500)).max(5).optional(),
     validationRequired: z.literal('D05').default('D05'),
   }).strict().nullable().default(null),
   requestedReads: z.array(modelToolRequestSchema).max(MAX_ADDITIONAL_READ_TOOL_CALLS),
@@ -122,6 +127,9 @@ export const investigationResultSchema = z.object({
     kind: z.enum(['source_change', 'dependency_change', 'configuration_change']),
     summary: z.string().min(1).max(500), path: z.string().max(512).nullable(),
     evidenceIds: evidenceIdsSchema,
+    implications: z.array(z.string().min(1).max(500)).max(5).optional(),
+    risks: z.array(z.string().min(1).max(500)).max(5).optional(),
+    validationPlan: z.array(z.string().min(1).max(500)).max(5).optional(),
     validationRequired: z.literal('D05'),
   }).strict().nullable(),
   reasonCode: z.enum([
@@ -158,7 +166,7 @@ export const investigationLimitsSchema = z.object({
   maxModelCalls: z.number().int().min(1).max(MAX_MODEL_CALLS),
   maxAdditionalReadToolCalls: z.number().int().min(0).max(MAX_ADDITIONAL_READ_TOOL_CALLS),
   maxActiveMs: z.number().int().min(1).max(MAX_ACTIVE_INVESTIGATION_MS),
-  maxTokens: z.number().int().min(1).max(MAX_TOKENS),
+  maxTokens: z.number().int().min(1).max(MAX_TOKENS).nullable().default(MAX_TOKENS),
   maxSpendMicroUsd: z.number().int().min(1).max(MAX_SPEND_MICRO_USD),
 }).strict();
 export type InvestigationLimits = z.infer<typeof investigationLimitsSchema>;
@@ -203,8 +211,8 @@ export interface ModelCallRequest {
   readonly callId: string;
   readonly systemInstruction: string;
   readonly userContext: string;
-  readonly maxOutputTokens: number;
-  readonly remainingTokens: number;
+  readonly maxOutputTokens?: number;
+  readonly remainingTokens?: number;
   readonly remainingSpendMicroUsd: number;
   readonly signal: AbortSignal;
 }
@@ -299,6 +307,9 @@ function result(
     candidateSuggestion: candidateSuggestion ? {
       ...candidateSuggestion, summary: sanitizeText(candidateSuggestion.summary).slice(0, 500),
       path: candidateSuggestion.path === null ? null : sanitizeText(candidateSuggestion.path).slice(0, 512),
+      ...(candidateSuggestion.implications ? { implications: candidateSuggestion.implications.map(item => sanitizeText(item).slice(0, 500)) } : {}),
+      ...(candidateSuggestion.risks ? { risks: candidateSuggestion.risks.map(item => sanitizeText(item).slice(0, 500)) } : {}),
+      ...(candidateSuggestion.validationPlan ? { validationPlan: candidateSuggestion.validationPlan.map(item => sanitizeText(item).slice(0, 500)) } : {}),
       validationRequired: 'D05',
     } : null,
     reasonCode,
@@ -435,6 +446,7 @@ export async function runBoundedInvestigation(
   } catch {
     return result('inconclusive', 'invalid_required_checks', { modelCalls: 0, readCalls: 0, tokens: 0, spend: 0, activeMs: Math.max(0, Math.floor(currentTime() - startedAt)) });
   }
+  if (input.modelTokenLimit !== undefined) limits.maxTokens = input.modelTokenLimit;
   try {
     assertCapabilityScope(dependencies.capability, input.scope);
     const refs = getEvidenceReferences(input.requiredChecks);
@@ -463,6 +475,12 @@ export async function runBoundedInvestigation(
         || checkpoint.scope.runId !== input.scope.runId
       ) throw new Error('checkpoint_scope_mismatch');
       if (checkpoint.stage === 'completed' && checkpoint.result) {
+        const references = [
+          ...checkpoint.result.citedEvidenceIds,
+          ...checkpoint.result.hypotheses.flatMap(item => item.evidenceIds),
+          ...(checkpoint.result.candidateSuggestion?.evidenceIds ?? []),
+        ];
+        if (references.some(id => !dependencies.capability.claims.evidenceIds.includes(id))) throw new Error('checkpoint_evidence_out_of_scope');
         return result(
           checkpoint.result.status,
           'run_already_completed',
@@ -476,6 +494,8 @@ export async function runBoundedInvestigation(
           checkpoint.result.assessment,
           checkpoint.result.summary,
           checkpoint.result.citedEvidenceIds,
+          checkpoint.result.hypotheses,
+          checkpoint.result.candidateSuggestion,
         );
       }
       baseCounters.modelCalls = checkpoint.modelCalls;
@@ -602,9 +622,9 @@ export async function runBoundedInvestigation(
       return { terminalStatus: 'delayed' as const, terminalReason: 'model_budget_exhausted' as const };
     }
     if (remainingMs() <= 0) return { terminalStatus: 'delayed' as const, terminalReason: 'time_budget_exhausted' as const };
-    const remainingTokens = limits.maxTokens - state.tokensUsed;
+    const remainingTokens = limits.maxTokens === null ? null : limits.maxTokens - state.tokensUsed;
     const remainingSpendMicroUsd = limits.maxSpendMicroUsd - state.spendMicroUsd;
-    if (remainingTokens <= 0 || remainingSpendMicroUsd <= 0) {
+    if ((remainingTokens !== null && remainingTokens <= 0) || remainingSpendMicroUsd <= 0) {
       return { terminalStatus: 'delayed' as const, terminalReason: 'model_budget_exhausted' as const };
     }
 
@@ -631,7 +651,7 @@ export async function runBoundedInvestigation(
         summary: 'string <= 2000 chars',
         citedEvidenceIds: 'IDs from evidence already supplied',
         hypotheses: 'array of {statement, evidenceIds}',
-        candidateSuggestion: 'null or {kind, summary, path, evidenceIds, validationRequired:"D05"}; a private D05 candidate only',
+        candidateSuggestion: 'null or {kind, summary, path, evidenceIds, implications:string[], risks:string[], validationPlan:string[], validationRequired:"D05"}; explain behavior changes, tradeoffs and validation before human approval',
         requestedReads: 'array of {name, evidenceId}, max 8 total across the run',
       },
     });
@@ -645,8 +665,7 @@ export async function runBoundedInvestigation(
         callId: stableCallId(state.scope.runId, 'model', String(nextCall)),
         systemInstruction,
         userContext,
-        maxOutputTokens: Math.min(2_048, remainingTokens),
-        remainingTokens,
+        ...(remainingTokens === null ? {} : { maxOutputTokens: Math.min(2_048, remainingTokens), remainingTokens }),
         remainingSpendMicroUsd,
         signal,
       }),
@@ -657,7 +676,6 @@ export async function runBoundedInvestigation(
     let modelOutput: ModelOutput;
     try {
       reply = z.object({ output: z.unknown(), usage: modelUsageSchema }).strict().parse(replyUnknown);
-      modelOutput = modelOutputSchema.parse(reply.output);
     } catch {
       throw new InvalidModelOutputError();
     }
@@ -665,7 +683,10 @@ export async function runBoundedInvestigation(
     const spendMicroUsd = state.spendMicroUsd + reply.usage.spendMicroUsd;
     observedCounters.tokens = tokensUsed;
     observedCounters.spend = spendMicroUsd;
-    if (tokensUsed > limits.maxTokens || spendMicroUsd > limits.maxSpendMicroUsd) {
+    try { modelOutput = modelOutputSchema.parse(reply.output); }
+    catch { throw new InvalidModelOutputError(); }
+    if ((limits.maxTokens !== null && (tokensUsed > limits.maxTokens || reply.usage.outputTokens > 2_048))
+      || spendMicroUsd > limits.maxSpendMicroUsd) {
       return {
         modelCalls: nextCall,
         tokensUsed,

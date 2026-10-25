@@ -30,8 +30,8 @@ export const contextClient = {
   repositoryWriteAccessChallenge(input:{organizationId:string;applicationId:string;repositoryLinkId:string;grant:boolean}) {
     return call(`${root(input.organizationId,input.applicationId)}/repositories/${encodeURIComponent(input.repositoryLinkId)}/write-access/challenge`,z.object({actionHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),'POST',{grant:input.grant});
   },
-  setRepositoryWriteAccess(input:{organizationId:string;applicationId:string;repositoryLinkId:string;grant:boolean;actionHash:string;stepUpProof:string}) {
-    return call(`${root(input.organizationId,input.applicationId)}/repositories/${encodeURIComponent(input.repositoryLinkId)}/write-access`,contextInventorySchema.shape.repositoryLinks.element,'POST',{grant:input.grant,actionHash:input.actionHash,stepUpProof:input.stepUpProof});
+  setRepositoryWriteAccess(input:{organizationId:string;applicationId:string;repositoryLinkId:string;grant:boolean;actionHash:string}) {
+    return call(`${root(input.organizationId,input.applicationId)}/repositories/${encodeURIComponent(input.repositoryLinkId)}/write-access`,contextInventorySchema.shape.repositoryLinks.element,'POST',{grant:input.grant,actionHash:input.actionHash});
   },
 };
 export type { ContextInventory };

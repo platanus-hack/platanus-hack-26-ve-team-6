@@ -39,7 +39,7 @@ function httpsOrigin(value: string) {
   return parsed.success ? parsed.data : null;
 }
 
-export function Onboarding({ userId, displayName, organizationId, initialSource = 'carpeta', canManage = true, onWorkspaceCreated, onDone, onSkip }: {
+export function Onboarding({ userId, displayName, organizationId, initialSource = 'web', canManage = true, onWorkspaceCreated, onDone, onSkip }: {
   userId: string; displayName?: string; organizationId?: string; initialSource?: 'github' | 'carpeta' | 'web'; canManage?: boolean;
   onWorkspaceCreated: (workspace: CustomerWorkspace) => void;
   onDone: (result: { organizationId: string; applicationId: string; jobId: string | null; mode?: 'external' }) => void;
@@ -190,24 +190,30 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
         : !repositories.error && <p role="status">No hay repositorios disponibles. Concede acceso desde GitHub y vuelve a intentarlo.</p>}
       {canManage && <button className="customer-link-button customer-danger-link" onClick={() => void disconnectGitHub()} disabled={locked}>Desconectar GitHub</button>}</>;
 
-  return <section className="customer-onboarding" aria-labelledby="onboarding-title">
-    <div className="customer-onboarding-header"><h1 id="onboarding-title">Tu primera revisión</h1></div>
+  return <main className="gl customer-onboarding-page"><section className="customer-onboarding" aria-labelledby="onboarding-title">
+    <div className="customer-onboarding-header">
+      <h1 id="onboarding-title">Tu primera revisión</h1>
+      <p>Elige qué revisar y Gotchu empieza en segundos. GitHub es opcional: puedes revisar solo tu web desde fuera.</p>
+      <ol className="customer-onboarding-steps" aria-label="Pasos">
+        <li className="is-current">Elige qué revisar</li><li>Revisión en curso</li><li>Informe con evidencia</li>
+      </ol>
+    </div>
     {!canManage && <p className="customer-inline-error" role="status">Solo una persona propietaria u operadora puede añadir fuentes y lanzar revisiones.</p>}
     <form className="customer-onboarding-card" onSubmit={event => { event.preventDefault(); if (source === 'web') void enrollDomain(); }}>
-      <label className="customer-project-name"><span>Nombre del proyecto</span><input id="onboarding-project" value={projectName} onChange={event => { setProjectName(event.target.value); setProjectNameEdited(true); }} required maxLength={200} disabled={locked} /></label>
       <fieldset className="customer-source-choice" disabled={locked}>
-        <legend>¿Desde dónde quieres revisarlo?</legend>
+        <legend>¿Qué quieres revisar?</legend>
         <div className="customer-source-cards" role="radiogroup" aria-label="Fuente del proyecto">
           {([
-            { id: 'github', title: 'GitHub', icon: <GitBranchIcon aria-hidden="true" /> },
-            { id: 'carpeta', title: 'Carpeta', icon: <FolderIcon aria-hidden="true" /> },
-            { id: 'web', title: 'Web por URL', icon: <GlobeIcon aria-hidden="true" /> },
+            { id: 'web', title: 'Mi web', detail: 'Sin código ni GitHub. Revisa cómo responde desde fuera.', icon: <GlobeIcon aria-hidden="true" /> },
+            { id: 'carpeta', title: 'Una carpeta', detail: 'Sube el código desde tu equipo.', icon: <FolderIcon aria-hidden="true" /> },
+            { id: 'github', title: 'GitHub', detail: 'Opcional. Conecta un repositorio y se vigila cada 6 h.', icon: <GitBranchIcon aria-hidden="true" /> },
           ] as const).map(option => <label className="customer-source-card" data-selected={source === option.id} key={option.id}>
             <input type="radio" name="onboarding-source" value={option.id} checked={source === option.id} onChange={() => { setSource(option.id); setError(null); }} />
-            <span className="customer-source-option-icon">{option.icon}</span><span>{option.title}</span>
+            <span className="customer-source-option-icon">{option.icon}</span><span className="customer-source-card-text"><strong>{option.title}</strong><small>{option.detail}</small></span>
           </label>)}
         </div>
       </fieldset>
+      <label className="customer-project-name"><span>Nombre del proyecto</span><input id="onboarding-project" value={projectName} onChange={event => { setProjectName(event.target.value); setProjectNameEdited(true); }} required maxLength={200} disabled={locked} /></label>
       <div className="customer-source-panel" aria-live="polite">
         {source === 'github' && <div className="customer-source-option-body">{githubBody}{sourceError('github') && <p className="customer-form-error" role="alert">{sourceError('github')}</p>}</div>}
         {source === 'carpeta' && <div className="customer-source-option-body">
@@ -218,24 +224,24 @@ export function Onboarding({ userId, displayName, organizationId, initialSource 
         </div>}
         {source === 'web' && <div className="customer-source-option-body">
           <label className="customer-web-url" htmlFor="onboarding-domain"><span>URL de la web</span><input id="onboarding-domain" type="text" inputMode="url" autoComplete="url" spellCheck={false} value={domain} onChange={event => setDomain(event.target.value)} placeholder="ejemplo.com" required disabled={locked} /></label>
-          <label htmlFor="onboarding-scan-profile">Perfil de evaluación</label>
+          <label className="customer-web-url" htmlFor="onboarding-scan-profile"><span>Perfil de evaluación</span></label>
           <select id="onboarding-scan-profile" value={domainScanProfile} onChange={event => setDomainScanProfile(customerScanProfileSchema.parse(event.target.value))} disabled={locked}>
             <option value="root">Raíz del sitio · una solicitud GET a /</option>
             <option value="public_surface">Superficie pública limitada · hasta 10 solicitudes GET</option>
             <option value="api_checks">Web y API · hasta 16 GET/HEAD/OPTIONS</option>
           </select>
-          <p>La evaluación se limita al origen y al perfil elegido.</p>
+          <p>Solo se consulta este origen con el perfil elegido. No hace falta código ni GitHub.</p>
           {sourceError('web') && <p className="customer-form-error" role="alert">{sourceError('web')}</p>}
-          <button className="customer-button customer-button-primary" disabled={locked || !domain.trim()}>{busy === 'domain' ? 'Encolando evaluación…' : 'Analizar origen'}</button>
+          <button className="customer-button customer-button-primary" disabled={locked || !domain.trim()}>{busy === 'domain' ? 'Iniciando…' : 'Analizar mi web'}</button>
         </div>}
       </div>
       <button className="customer-link-button customer-onboarding-skip" type="button" onClick={onSkip} disabled={busy !== null}>Saltar por ahora</button>
     </form>
-  </section>;
+  </section></main>;
 }
 
 export function GitHubRepositoryPanel({ userId, organizationId, applicationId, canManage, onScanQueued }: {
-  userId: string; organizationId: string; applicationId: string; canManage: boolean; onScanQueued: (jobId: string) => void;
+  userId: string; organizationId: string; applicationId: string; canManage: boolean; onScanQueued: (jobId: string, monitoringEnabled: boolean) => void;
 }) {
   const [installationId, setInstallationId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -265,12 +271,12 @@ export function GitHubRepositoryPanel({ userId, organizationId, applicationId, c
     setBusy(true); setError(null);
     try {
       const result = await customerApi.githubSelectRepository({ organizationId, applicationId, installationId: activeInstallation.installationId, repositoryId: repository.id, fullName: repository.fullName, defaultBranch: repository.defaultBranch });
-      onScanQueued(result.jobId);
+      onScanQueued(result.jobId, result.monitoringEnabled);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'No se pudo iniciar la evaluación del repositorio.'); }
     finally { setBusy(false); }
   }
   return <section className="customer-card customer-panel customer-github-panel" aria-labelledby="github-panel-title"><div className="customer-card-heading"><div><h2 id="github-panel-title">GitHub</h2></div>{activeInstallation && <span className="customer-status customer-status-ready">GitHub conectado</span>}</div>
-    {connections.isPending ? <p role="status">Comprobando conexión…</p> : connections.error ? <p role="alert">{connections.error.message} <button className="customer-link-button" onClick={() => connections.refetch().catch(() => undefined)}>Reintentar</button></p> : !activeInstallation ? <><p>Conecta una GitHub App con permisos de lectura para iniciar evaluaciones desde una rama.</p>{connections.data?.some(item => item.state === 'revoked') && <p role="status">La conexión anterior fue revocada o perdió acceso. Sus enlaces de repositorio también están revocados.</p>}<button className="customer-button customer-button-primary" onClick={() => void connect()} disabled={!canManage || busy}>{busy ? 'Abriendo GitHub…' : 'Conectar GitHub'}</button>{!canManage && <p>Un Owner u Operator puede administrar conexiones y repositorios.</p>}</> : <><p><strong>{activeInstallation.accountLogin}</strong> · acceso de lectura · sin permisos de escritura.</p>{repositories.error && <p role="alert">{repositories.error.message} <button className="customer-link-button" onClick={() => repositories.refetch().catch(() => undefined)}>Reintentar</button></p>}{repositories.isPending ? <p role="status">Cargando repositorios…</p> : repositories.data?.filter(repo => !repo.archived).length ? <ul className="customer-onboarding-repositories">{repositories.data.filter(repo => !repo.archived).map(repo => <li key={repo.id}><span><strong>{repo.fullName}</strong><small>Rama {repo.defaultBranch}</small></span><button className="customer-button customer-button-primary" aria-label={`Analizar ${repo.fullName}`} onClick={() => void selectRepository(repo)} disabled={!canManage || busy}>Analizar</button></li>)}</ul> : !repositories.error && <p role="status">La instalación no tiene repositorios disponibles.</p>}<button className="customer-link-button customer-danger-link" onClick={() => void disconnect()} disabled={!canManage || busy}>Desconectar y revocar sus repositorios</button></>}
+    {connections.isPending ? <p role="status">Comprobando conexión…</p> : connections.error ? <p role="alert">{connections.error.message} <button className="customer-link-button" onClick={() => connections.refetch().catch(() => undefined)}>Reintentar</button></p> : !activeInstallation ? <><p>Conecta GitHub y elige los repositorios que Gotchu puede revisar. Publicar cambios requiere tu autorización.</p>{connections.data?.some(item => item.state === 'revoked') && <p role="status">La conexión anterior fue revocada o perdió acceso. Sus enlaces de repositorio también están revocados.</p>}<button className="customer-button customer-button-primary" onClick={() => void connect()} disabled={!canManage || busy}>{busy ? 'Abriendo GitHub…' : 'Conectar GitHub'}</button>{!canManage && <p>Un Owner u Operator puede administrar conexiones y repositorios.</p>}</> : <><p><strong>{activeInstallation.accountLogin}</strong> · lectura para evaluaciones. Publicar cambios requiere tu autorización.</p>{repositories.error && <p role="alert">{repositories.error.message} <button className="customer-link-button" onClick={() => repositories.refetch().catch(() => undefined)}>Reintentar</button></p>}{repositories.isPending ? <p role="status">Cargando repositorios…</p> : repositories.data?.filter(repo => !repo.archived).length ? <ul className="customer-onboarding-repositories">{repositories.data.filter(repo => !repo.archived).map(repo => <li key={repo.id}><span><strong>{repo.fullName}</strong><small>Rama {repo.defaultBranch}</small></span><button className="customer-button customer-button-primary" aria-label={`Analizar ${repo.fullName}`} onClick={() => void selectRepository(repo)} disabled={!canManage || busy}>Analizar</button></li>)}</ul> : !repositories.error && <p role="status">La instalación no tiene repositorios disponibles.</p>}<button className="customer-link-button customer-danger-link" onClick={() => void disconnect()} disabled={!canManage || busy}>Desconectar y revocar sus repositorios</button></>}
     {error && <p className="customer-form-error" role="alert">{error}</p>}
   </section>;
 }

@@ -24,6 +24,17 @@ const lockfileSchema = z.object({
   packages: z.record(z.string(), packageEntrySchema),
   dependencies: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();
+const installScriptsSchema = z.object({
+  preinstall: z.string().optional(),
+  install: z.string().optional(),
+  postinstall: z.string().optional(),
+});
+const legacyDependencySchema = z.object({
+  version: z.string(),
+  resolved: z.string(),
+  integrity: z.string(),
+  requires: z.record(z.string(), z.string()).optional(),
+}).passthrough();
 export type NpmFixResolution =
   | { status: 'guidance_only'; reason: NpmFixReason }
   | { status: 'ready'; packageName: string; fromVersion: string; toVersion: string; relationship: 'direct'; section: 'dependencies' | 'devDependencies' | 'optionalDependencies'; packageJsonPath: string; packageLockPath: string; files: readonly { path: string; content: string }[]; lockfileSha256: string; patchSha256: string };
@@ -148,13 +159,6 @@ export function prepareNpmDependencyPatch(input: {
   const lockedPackage = lockfile.packages[path];
   const root = lockfile.packages[''];
   if (!lockedPackage || !root || lockedPackage.link || lockedPackage.version !== input.fromVersion || (lockedPackage.name !== undefined && lockedPackage.name !== input.name)) return { status: 'guidance_only', reason: 'lockfile_unsupported' };
-  if (Object.keys(lockfile.packages).some(packagePath => packagePath.startsWith(`${path}/node_modules/`))) {
-    return { status: 'guidance_only', reason: 'package_tree_change_required' };
-  }
-  if (lockedPackage.dependencies && Object.keys(lockedPackage.dependencies).length || lockedPackage.optionalDependencies && Object.keys(lockedPackage.optionalDependencies).length
-    || lockedPackage.peerDependencies && Object.keys(lockedPackage.peerDependencies).length || lockedPackage.peerDependenciesMeta && Object.keys(lockedPackage.peerDependenciesMeta).length) {
-    return { status: 'guidance_only', reason: 'package_tree_change_required' };
-  }
   const section = directSection(manifest, root, input.name);
   if (!section) {
     const hasTransitive = Object.keys(lockfile.packages).some(packagePath => packagePath.endsWith(`/node_modules/${input.name}`));
@@ -167,14 +171,16 @@ export function prepareNpmDependencyPatch(input: {
   const release = packument.versions[resolution.toVersion];
   if (!previousRelease || previousRelease.version !== input.fromVersion || !release || release.version !== resolution.toVersion
     || lockedPackage.resolved !== previousRelease.dist.tarball || lockedPackage.integrity !== previousRelease.dist.integrity
-    || !isSha512Integrity(previousRelease.dist.integrity)
-    || (release.dependencies && Object.keys(release.dependencies).length)
-    || (release.optionalDependencies && Object.keys(release.optionalDependencies).length)
-    || (release.peerDependencies && Object.keys(release.peerDependencies).length)
-    || (release.peerDependenciesMeta && Object.keys(release.peerDependenciesMeta).length)
-    || release.bundleDependencies?.length || release.bundledDependencies?.length) return { status: 'guidance_only', reason: 'package_tree_change_required' };
-  const metadataKeys = ['dependencies', 'optionalDependencies', 'peerDependencies', 'peerDependenciesMeta', 'engines', 'os', 'cpu', 'bin', 'license', 'hasInstallScript', 'bundleDependencies', 'bundledDependencies'] as const;
+    || !isSha512Integrity(previousRelease.dist.integrity)) return { status: 'guidance_only', reason: 'package_tree_change_required' };
+  // An unchanged graph keeps the existing hoisted and nested resolutions intact.
+  const metadataKeys = ['dependencies', 'optionalDependencies', 'peerDependencies', 'peerDependenciesMeta', 'engines', 'os', 'cpu', 'libc', 'bin', 'license', 'hasInstallScript', 'bundleDependencies', 'bundledDependencies'] as const;
   if (metadataKeys.some(key => !equalRecord(previousRelease[key], release[key]) || !equalRecord(lockedPackage[key], previousRelease[key]))) {
+    return { status: 'guidance_only', reason: 'package_tree_change_required' };
+  }
+  const previousScripts = installScriptsSchema.safeParse(previousRelease.scripts ?? {});
+  const nextScripts = installScriptsSchema.safeParse(release.scripts ?? {});
+  if (!previousScripts.success || !nextScripts.success || !equalRecord(previousScripts.data, nextScripts.data)
+    || Object.keys(nextScripts.data).length > 0 && lockedPackage.hasInstallScript !== true) {
     return { status: 'guidance_only', reason: 'package_tree_change_required' };
   }
   const tarball = new URL(release.dist.tarball);
@@ -189,8 +195,13 @@ export function prepareNpmDependencyPatch(input: {
     nextLock = nextLock && replaceJsonPath(nextLock, ['packages', path, key], value);
   }
   if (lockfile.lockfileVersion === 2) {
-    const oldMirror = lockfile.dependencies?.[input.name];
-    if (typeof oldMirror !== 'object' || oldMirror === null || Array.isArray(oldMirror)) return { status: 'guidance_only', reason: 'lockfile_unsupported' };
+    const oldMirror = legacyDependencySchema.safeParse(lockfile.dependencies?.[input.name]);
+    if (!oldMirror.success) return { status: 'guidance_only', reason: 'lockfile_unsupported' };
+    if (oldMirror.data.version !== lockedPackage.version || oldMirror.data.resolved !== lockedPackage.resolved
+      || oldMirror.data.integrity !== lockedPackage.integrity
+      || !equalRecord(oldMirror.data.requires, { ...lockedPackage.dependencies, ...lockedPackage.optionalDependencies })) {
+      return { status: 'guidance_only', reason: 'package_tree_change_required' };
+    }
     for (const [key, value] of [['version', resolution.toVersion], ['resolved', tarball.href], ['integrity', release.dist.integrity]] as const) {
       nextLock = nextLock && replaceJsonPath(nextLock, ['dependencies', input.name, key], value);
     }

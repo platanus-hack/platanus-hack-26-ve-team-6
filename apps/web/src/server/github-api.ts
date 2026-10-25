@@ -7,12 +7,18 @@ import { githubConnectResponseSchema, githubConnectionSchema, githubRepositorySc
 import type { CustomerServices } from './customer-api.js';
 import { errorResponse, HttpError, json, readBoundedBody, requireSameOrigin } from './http.js';
 import { githubConsentPage, githubUserInstallations, requireGitHubInstallationOwner } from './github-authorization.js';
+import { createSingleAppGitHubApi, type SingleGitHubPublicApp } from './github-single-app.js';
+import type { SingleAppGitHubBroker } from './github-broker-client.js';
 
 const appFileSchema = z.object({ id: z.preprocess(value => typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : value, z.string().regex(/^\d+$/)), slug: z.string().regex(/^[a-z0-9-]+$/i).optional(), clientId: z.string().min(1), clientSecret: z.string().min(1), privateKeyPem: z.string().min(1), webhookSecret: z.string().min(1) }).passthrough();
 const repositoryListSchema = z.object({ repositories: z.array(z.object({ id: z.number().int().positive(), full_name: z.string().min(3).max(200), default_branch: z.string().min(1).max(200), private: z.boolean(), archived: z.boolean() }).passthrough()).max(1000), total_count: z.number().int().nonnegative() }).passthrough();
 const accessTokenSchema = z.object({ token: z.string().min(1), expires_at: z.iso.datetime() }).passthrough();
 const oauthTokenSchema = z.object({ access_token: z.string().min(1), token_type: z.literal('bearer'), scope: z.string().optional() }).passthrough();
-type GithubServices = { github: Backend['github']; enableDefaultMonitoring: Backend['operations']['enableDefault'] } & Pick<NonNullable<CustomerServices>, 'uploadSource' | 'queue'>;
+type GithubServices = {
+  github: Pick<Backend['github'], 'workspaceName' | 'createState' | 'consumeState' | 'bind' | 'list' | 'revoke' | 'createRepositoryLink' | 'importCapturedSource'>;
+  /** Absent when monitoring is not configured; connecting a repository then never turns a watch on. */
+  enableDefaultMonitoring?: Backend['operations']['enableDefault'];
+} & Pick<NonNullable<CustomerServices>, 'uploadSource' | 'uploadCapturedSource' | 'queue'>;
 type AppCredentials = z.infer<typeof appFileSchema>;
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
@@ -102,9 +108,16 @@ export async function mintGitHubInstallationToken(installationId: string, appFil
   return installationToken(installationId, await readApp(appFile));
 }
 
-export function createGitHubApi(options: { origin: string; appFile?: string; appSlug?: string; services: GithubServices | null; fetchImplementation?: typeof fetch }) {
+export function createGitHubApi(options: { origin: string; appFile?: string; appSlug?: string; services: GithubServices | null; fetchImplementation?: typeof fetch; singleApp?: { publicApp: SingleGitHubPublicApp; broker: SingleAppGitHubBroker } }) {
   const fetcher = options.fetchImplementation ?? fetch;
+  const singleAppHandler = options.singleApp ? createSingleAppGitHubApi({
+    origin: options.origin,
+    publicApp: options.singleApp.publicApp,
+    broker: options.singleApp.broker,
+    services: options.services,
+  }) : null;
   return async (request: Request, identity: Identity | null, cookies: readonly string[] = []): Promise<Response | null> => {
+    if (singleAppHandler) return singleAppHandler(request, identity, cookies);
     const url = new URL(request.url);
     const path = url.pathname.split('/').filter(Boolean);
     const isConnect = url.pathname === '/api/customer/github/connect';
@@ -236,7 +249,7 @@ export function createGitHubApi(options: { origin: string; appFile?: string; app
           const source = await services.uploadSource(identity, { organizationId, applicationId, authorized: true, snapshot: observation.snapshot });
           const link = await services.github.createRepositoryLink(identity, { organizationId, applicationId, installationId, repositoryId, fullName: repository.full_name, defaultBranch: repository.default_branch });
           const queued = await services.queue(identity, { organizationId, applicationId, mode: 'internal', sourceSnapshotId: source.id, targetId: null, idempotencyKey: `github-first-scan:${installationId}:${repository.id}:${observation.commit.sha}` });
-          const monitoringEnabled = await services.enableDefaultMonitoring(identity, { organizationId, applicationId, repositoryKey: link.repositoryKey });
+          const monitoringEnabled = services.enableDefaultMonitoring ? await services.enableDefaultMonitoring(identity, { organizationId, applicationId, repositoryKey: link.repositoryKey }) : false;
           return send({ repository: githubRepositorySchema.parse({ id: repository.id, fullName: repository.full_name, defaultBranch: repository.default_branch, private: repository.private, archived: repository.archived }), link, source, jobId: queued.jobId, monitoringEnabled }, 201);
         } catch (error) {
           if (error instanceof HttpError && [401, 403, 404].includes(error.status)) await services.github.revoke(identity, organizationId, installationId);

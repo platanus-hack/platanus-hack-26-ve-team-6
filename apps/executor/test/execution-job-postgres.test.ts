@@ -5,7 +5,7 @@ import type { ActionV2, JobEnvelope } from '@gotchu/contracts';
 import { setRecoveryState } from '@gotchu/database';
 import { computeGitTreeSha, computeGitTreeShaAfterPatch, GitAdapterError, type PullRequest } from '@gotchu/git-adapters';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { actionPolicyVersion, BackendError, canonicalJson, createBackend, hashActionV2, sha256, type VerifiedStepUp } from '@gotchu/backend';
+import { actionPolicyVersion, canonicalJson, createBackend, hashActionV2, sha256 } from '@gotchu/backend';
 import { fixture, liveUrl, present } from '../../../packages/database/test/support.js';
 import { createBackendActionExecutionLedger, createExecutionJobProcessor, type ActionProvider } from '../src/index.js';
 
@@ -13,24 +13,17 @@ const redisUrl = process.env.GOTCHU_TEST_REDIS_URL;
 const live = liveUrl && redisUrl ? describe : describe.skip;
 type CrashStage = 'branch' | 'pull_request' | 'verify';
 
-live('durable v2 execution jobs on real Postgres and Redis; injected validation, WebAuthn, and provider outcomes', () => {
+live('durable v2 execution jobs on real Postgres and Redis; injected validation and provider outcomes', () => {
   let f: Awaited<ReturnType<typeof fixture>>;
   let api: ReturnType<typeof createBackend>;
   let backend: ReturnType<typeof createBackend>;
-  const proofs = new Map<string, VerifiedStepUp>();
   const executorInstanceId = randomUUID();
-  const now = new Date();
 
   beforeAll(async () => {
     f = await fixture({ max: 4 });
     await f.admin.query("INSERT INTO gotchu.action_executor_instances(instance_id,capability_id) VALUES($1,'repository.source_patch_pr')", [executorInstanceId]);
     const dependencies = {
       actionVerifier: { verify: async () => ({ eligible: true, blockingReasons: [], policyCurrent: true }) },
-      stepUpVerifier: { verify: async ({ proof }: { proof: string }) => {
-        const issued = proofs.get(proof);
-        if (!issued) throw new BackendError('step_up_required', 'TEST ONLY: unissued fixture proof', 403);
-        return issued;
-      } },
     };
     api = createBackend({ ...dependencies, database: f.databases.gotchu_api });
     backend = createBackend({ ...dependencies, database: f.databases.gotchu_executor });
@@ -79,9 +72,7 @@ live('durable v2 execution jobs on real Postgres and Redis; injected validation,
       JSON.stringify([{ path:'src/fix.ts',mode:'100644',contentBase64:Buffer.from(content).toString('base64'),sha256:sha256(content) }]),
       candidateTreeSha,expectedTreeSha,snapshotSha256,patchSha256,Buffer.byteLength('src/fix.ts')+Buffer.byteLength(content),
     ]);
-    const stepUpProof = randomUUID();
-    proofs.set(stepUpProof, { proofId: stepUpProof,userId:f.a.userId,organizationId:f.a.organizationId,actionHash,authenticatedAt:now,expiresAt:new Date(now.getTime()+300_000),method:'webauthn' });
-    const approval = await api.actions.approve({ userId:f.a.userId }, { organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId,actionHash,stepUpProof });
+    const approval = await api.actions.approve({ userId:f.a.userId }, { organizationId:f.a.organizationId,applicationId:f.a.applicationId,proposalId,actionHash });
     const job = await f.admin.query<{ id:string; organization_id:string; application_id:string }>("SELECT id,organization_id,application_id FROM gotchu.jobs WHERE kind='execution' AND payload->>'approvalId'=$1", [approval.approvalId]);
     const row = present(job.rows[0]);
     return {

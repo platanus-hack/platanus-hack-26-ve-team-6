@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createWebRuntime, resolveWebAuthnConfiguration } from '../src/server/runtime.js';
+import { createWebRuntime } from '../src/server/runtime.js';
 
-describe('web runtime origin and WebAuthn configuration', () => {
+describe('web runtime registration', () => {
   it.each([
     { NODE_ENV: 'production', GOTCHU_AUTH_MODE: 'public', expected: true },
     { NODE_ENV: 'production', GOTCHU_AUTH_MODE: 'self_host', GOTCHU_LOCAL_AUTH_ENABLED: 'true', GOTCHU_ALLOW_LOCAL_REGISTRATION: 'true', expected: false },
@@ -25,16 +25,4 @@ describe('web runtime origin and WebAuthn configuration', () => {
     } finally { await runtime.close(); }
   });
 
-  it('accepts HTTPS origins with a matching host or parent RP ID', () => {
-    const appOrigin = new URL('https://console.example.com');
-    expect(resolveWebAuthnConfiguration(appOrigin, undefined)).toMatchObject({ rpID: 'console.example.com', origin: appOrigin.origin });
-    expect(resolveWebAuthnConfiguration(appOrigin, 'example.com')).toMatchObject({ rpID: 'example.com', origin: appOrigin.origin });
-  });
-
-  it('rejects explicit RP IDs that are invalid or do not match the configured origin', () => {
-    const appOrigin = new URL('https://console.example.com');
-    expect(() => resolveWebAuthnConfiguration(appOrigin, 'other.example.net')).toThrow(/must match/);
-    expect(() => resolveWebAuthnConfiguration(appOrigin, '127.0.0.1')).toThrow(/must match/);
-    expect(() => resolveWebAuthnConfiguration(appOrigin, 'not a host')).toThrow();
-  });
 });

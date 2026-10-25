@@ -11,7 +11,10 @@ if (process.env.GOTCHU_TEST_VM !== '1') {
   console.log('VM suite skipped; set GOTCHU_TEST_VM=1 to run real Firecracker jobs.');
   process.exit(0);
 }
-const gate = await checkRunnerGate();
+const runnerCacheDir = process.env.GOTCHU_VALIDATOR_RUNNER_CACHE_DIR;
+if (runnerCacheDir === '') throw new Error('GOTCHU_VALIDATOR_RUNNER_CACHE_DIR must not be empty');
+const runnerOptions = runnerCacheDir === undefined ? {} : { cacheDir: runnerCacheDir };
+const gate = await checkRunnerGate(runnerOptions);
 if (gate.status !== 'open') throw new Error(`Runner gate is closed: ${gate.reason}`);
 const root = fileURLToPath(new URL('./fixtures/node-regression/', import.meta.url));
 async function source() {
@@ -32,7 +35,7 @@ files.set('src/feature.js', 'exports.isAuthorized = () => true;\n');
 const baseSnapshot = { revision: 'fixture-base', files: baseFiles };
 function changedSnapshot(path, content) { const changed = new Map(baseFiles.map(file => [file.path, file.content])); changed.set(path, content); return { revision: 'fixture-candidate', files: [...changed].map(([path, content]) => ({ path, content })) }; }
 function withFile(path, content) { const changed = new Map(baseFiles.map(file => [file.path, file.content])); changed.set(path, content); return [...changed].map(([path, content]) => ({ path, content })); }
-const runner = createFirecrackerRunner({ maxConcurrent: 1, resolveInput: async (_reference, scope) => inputs.get(`${scope.organizationId}:${_reference.objectId}`) });
+const runner = createFirecrackerRunner({ ...runnerOptions, maxConcurrent: 1, resolveInput: async (_reference, scope) => inputs.get(`${scope.organizationId}:${_reference.objectId}`) });
 const inputs = new Map();
 async function run(filesForRun) {
   const bytes = sourceArchive({ revision: 'validator-vm-fixture', files: filesForRun }).bytes;

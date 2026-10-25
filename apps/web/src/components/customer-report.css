@@ -38,9 +38,12 @@
 .customer-report-row-title strong { overflow: hidden; color: var(--foreground); font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .customer-report-row-title small { overflow: hidden; color: var(--muted-foreground); font: 12px/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .customer-report-detail { min-width: 0; padding: 0; }
+.customer-ai-correction { min-width: 0; margin-top: 12px; overflow-wrap: anywhere; }
+.customer-ai-corrections { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; }
+.customer-ai-corrections > li { min-width: 0; padding-top: 12px; border-top: 1px solid var(--border); }
 .customer-report-title { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; padding-bottom: 18px; }
 .customer-report-title > div { display: flex; min-width: 0; flex-direction: column; }
-.customer-report-title h2 { order: 1; margin: 0; font: 700 clamp(22px, 2.2vw, 28px)/1.1 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.015em; overflow-wrap: anywhere; }
+.customer-report-title h2 { order: 1; margin: 0; font: 700 22px/1.1 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.015em; overflow-wrap: anywhere; }
 .customer-report-title .customer-eyebrow { order: 2; margin: 8px 0 0; }
 .customer-report-title p { order: 3; margin: 8px 0 0; color: var(--muted-foreground); font: 12.5px/1.5 var(--mono); }
 .customer-report-subject { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin: 0; }
@@ -56,7 +59,7 @@
 .customer-report-section { margin-top: 28px; }
 .customer-section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding-bottom: 12px; }
 .customer-section-heading > div { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
-.customer-section-heading h3 { order: 1; margin: 0; font: 700 clamp(18px, 1.9vw, 24px)/1.1 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.005em; text-transform: uppercase; }
+.customer-section-heading h3 { order: 1; margin: 0; font: 700 16px/1.2 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.005em; text-transform: uppercase; }
 .customer-section-heading .customer-eyebrow { order: 2; margin: 0; font-size: 12px; }
 .customer-report-section > p, .customer-report-limitations { max-width: 62ch; color: var(--muted-foreground); font-size: 15px; line-height: 1.65; }
 .customer-report-limitations { margin: 12px 0 0; padding-left: 20px; }
@@ -112,7 +115,7 @@
 .customer-http-headers span { min-width: 0; overflow-wrap: anywhere; }
 
 /* Coverage / analysis */
-.customer-analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px clamp(24px, 3vw, 48px); margin-top: 18px; }
+.customer-analysis-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 24px clamp(24px, 3vw, 48px); margin-top: 18px; }
 .customer-analysis-card { min-width: 0; }
 .customer-analysis-card .customer-card-heading { align-items: center; }
 .customer-analysis-card h4 { margin: 0; font: 700 18px/1.1 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.005em; text-transform: uppercase; }
@@ -145,7 +148,7 @@
 .customer-recommendation-card code, .customer-recommendation-coverage code, .customer-correction-result code, .customer-dependency-fix code { overflow-wrap: anywhere; font: 13px/1.6 var(--mono); }
 .customer-dependency-advisory { display: inline-block; margin: 0 6px 0 0; border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; }
 .customer-dependency-fixes { margin-top: 40px; }
-.customer-dependency-fixes > h4 { margin: 0; font: 700 clamp(18px, 1.9vw, 24px)/1.1 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.005em; text-transform: uppercase; }
+.customer-dependency-fixes > h4 { margin: 0; font: 700 16px/1.2 'Gotchu Display', 'Gotchu Text', sans-serif; letter-spacing: -.005em; text-transform: uppercase; }
 .customer-dependency-fixes > p { max-width: 62ch; margin: 10px 0; color: var(--muted-foreground); font-size: 15px; line-height: 1.65; }
 .customer-dependency-validation { margin-top: 14px; font-size: 14px; }
 .customer-dependency-validation p { margin: 6px 0; color: var(--muted-foreground); line-height: 1.65; }
@@ -233,3 +236,8 @@
 .customer-dependency-table td details { margin-top: 6px; }
 .customer-dependency-table td summary { cursor: pointer; font: 600 12.5px/1.5 var(--mono); }
 .customer-dependency-table td details p { margin: 6px 0; font-size: 14px; line-height: 1.6; }
+/* Finding actions (copy, investigate, correct with AI) read as one row of equal controls; hints are quiet links. */
+.customer-finding-body .customer-investigation-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.customer-finding-body :is(.customer-investigation-action, .customer-ai-correction) button[data-slot='button'] { min-height: 34px; height: 34px; padding: 0 14px; font-size: 14px; font-weight: 600; }
+.customer-finding-body :is(.customer-investigation-action, .customer-ai-correction) :is(small, a:not([data-slot])) { color: var(--muted-foreground); font-size: 13px; }
+.customer-finding-body :is(.customer-investigation-action, .customer-ai-correction) a:not([data-slot]) { color: var(--foreground); text-decoration: underline; text-decoration-color: var(--brand); text-underline-offset: 3px; }

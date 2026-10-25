@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PACKAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CACHE_DIR="${HOME}/.cache/gotchu-runner"
+CACHE_DIR="${GOTCHU_RUNNER_CACHE_DIR:-${HOME}/.cache/gotchu-runner}"
 LOCK_FILE="${PACKAGE_DIR}/images.lock.json"
 PIN_IMAGES="${1:-}"
 if [[ -n "${PIN_IMAGES}" && "${PIN_IMAGES}" != "--pin" ]]; then echo "Usage: prepare-images.sh [--pin]" >&2; exit 2; fi
@@ -55,8 +55,15 @@ mkdir -p "${WORK_DIR}/rootfs"
 docker export "${CONTAINER}" | tar -xf - -C "${WORK_DIR}/rootfs"
 docker rm "${CONTAINER}" >/dev/null
 mkdir -p "${WORK_DIR}/rootfs/sbin" "${WORK_DIR}/rootfs/usr/local/lib"
+# Maintainer compiler only; the guest needs neither a compiler nor shared libraries.
+cc -std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -Werror -static -Wl,--build-id=none \
+  -o "${WORK_DIR}/rootfs/sbin/gotchu-loopback-up" "${PACKAGE_DIR}/guest/loopback-up.c"
+chmod 0755 "${WORK_DIR}/rootfs/sbin/gotchu-loopback-up"
 install -m 0755 "${PACKAGE_DIR}/guest/init.sh" "${WORK_DIR}/rootfs/sbin/init"
 install -m 0644 "${PACKAGE_DIR}/guest/agent.mjs" "${WORK_DIR}/rootfs/usr/local/lib/gotchu-guest-agent.mjs"
+install -m 0644 "${PACKAGE_DIR}/guest/selected-node.mjs" "${WORK_DIR}/rootfs/usr/local/lib/selected-node.mjs"
+install -m 0644 "${PACKAGE_DIR}/guest/node-selected-reporter.mjs" "${WORK_DIR}/rootfs/usr/local/lib/gotchu-node-selected-reporter.mjs"
+node "${PACKAGE_DIR}/scripts/prepare-node-toolchain.mjs" "${WORK_DIR}/rootfs"
 
 # Repack into a sorted, metadata-normalized archive, then extract into a clean
 # tree so mkfs sees stable directory-entry order and timestamps.

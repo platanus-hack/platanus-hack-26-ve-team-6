@@ -28,6 +28,7 @@ import { Route as WWorkspaceIdIndexRouteImport } from './routes/w.$workspaceId.i
 import { Route as WWorkspaceIdDecisionesRouteImport } from './routes/w.$workspaceId.decisiones'
 import { Route as WWorkspaceIdEquipoRouteImport } from './routes/w.$workspaceId.equipo'
 import { Route as WWorkspaceIdLicenciasRouteImport } from './routes/w.$workspaceId.licencias'
+import { Route as WWorkspaceIdModelosRouteImport } from './routes/w.$workspaceId.modelos'
 import { Route as WWorkspaceIdRetencionRouteImport } from './routes/w.$workspaceId.retencion'
 import { Route as WWorkspaceIdPProjectIdRouteImport } from './routes/w.$workspaceId.p.$projectId'
 import { Route as WWorkspaceIdPProjectIdIndexRouteImport } from './routes/w.$workspaceId.p.$projectId.index'
@@ -132,6 +133,11 @@ const WWorkspaceIdLicenciasRoute = WWorkspaceIdLicenciasRouteImport.update({
   path: '/licencias',
   getParentRoute: () => WWorkspaceIdRoute,
 } as any)
+const WWorkspaceIdModelosRoute = WWorkspaceIdModelosRouteImport.update({
+  id: '/modelos',
+  path: '/modelos',
+  getParentRoute: () => WWorkspaceIdRoute,
+} as any)
 const WWorkspaceIdRetencionRoute = WWorkspaceIdRetencionRouteImport.update({
   id: '/retencion',
   path: '/retencion',
@@ -198,6 +204,7 @@ export interface FileRoutesByFullPath {
   '/w/$workspaceId/decisiones': typeof WWorkspaceIdDecisionesRoute
   '/w/$workspaceId/equipo': typeof WWorkspaceIdEquipoRoute
   '/w/$workspaceId/licencias': typeof WWorkspaceIdLicenciasRoute
+  '/w/$workspaceId/modelos': typeof WWorkspaceIdModelosRoute
   '/w/$workspaceId/retencion': typeof WWorkspaceIdRetencionRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
@@ -226,6 +233,7 @@ export interface FileRoutesByTo {
   '/w/$workspaceId/decisiones': typeof WWorkspaceIdDecisionesRoute
   '/w/$workspaceId/equipo': typeof WWorkspaceIdEquipoRoute
   '/w/$workspaceId/licencias': typeof WWorkspaceIdLicenciasRoute
+  '/w/$workspaceId/modelos': typeof WWorkspaceIdModelosRoute
   '/w/$workspaceId/retencion': typeof WWorkspaceIdRetencionRoute
   '/w/$workspaceId': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId/fuentes': typeof WWorkspaceIdPProjectIdFuentesRoute
@@ -255,6 +263,7 @@ export interface FileRoutesById {
   '/w/$workspaceId/decisiones': typeof WWorkspaceIdDecisionesRoute
   '/w/$workspaceId/equipo': typeof WWorkspaceIdEquipoRoute
   '/w/$workspaceId/licencias': typeof WWorkspaceIdLicenciasRoute
+  '/w/$workspaceId/modelos': typeof WWorkspaceIdModelosRoute
   '/w/$workspaceId/retencion': typeof WWorkspaceIdRetencionRoute
   '/w/$workspaceId/': typeof WWorkspaceIdIndexRoute
   '/w/$workspaceId/p/$projectId': typeof WWorkspaceIdPProjectIdRouteWithChildren
@@ -286,6 +295,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/decisiones'
     | '/w/$workspaceId/equipo'
     | '/w/$workspaceId/licencias'
+    | '/w/$workspaceId/modelos'
     | '/w/$workspaceId/retencion'
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
@@ -314,6 +324,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/decisiones'
     | '/w/$workspaceId/equipo'
     | '/w/$workspaceId/licencias'
+    | '/w/$workspaceId/modelos'
     | '/w/$workspaceId/retencion'
     | '/w/$workspaceId'
     | '/w/$workspaceId/p/$projectId/fuentes'
@@ -342,6 +353,7 @@ export interface FileRouteTypes {
     | '/w/$workspaceId/decisiones'
     | '/w/$workspaceId/equipo'
     | '/w/$workspaceId/licencias'
+    | '/w/$workspaceId/modelos'
     | '/w/$workspaceId/retencion'
     | '/w/$workspaceId/'
     | '/w/$workspaceId/p/$projectId'
@@ -506,6 +518,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceIdLicenciasRouteImport
       parentRoute: typeof WWorkspaceIdRoute
     }
+    '/w/$workspaceId/modelos': {
+      id: '/w/$workspaceId/modelos'
+      path: '/modelos'
+      fullPath: '/w/$workspaceId/modelos'
+      preLoaderRoute: typeof WWorkspaceIdModelosRouteImport
+      parentRoute: typeof WWorkspaceIdRoute
+    }
     '/w/$workspaceId/retencion': {
       id: '/w/$workspaceId/retencion'
       path: '/retencion'
@@ -608,6 +627,7 @@ interface WWorkspaceIdRouteChildren {
   WWorkspaceIdDecisionesRoute: typeof WWorkspaceIdDecisionesRoute
   WWorkspaceIdEquipoRoute: typeof WWorkspaceIdEquipoRoute
   WWorkspaceIdLicenciasRoute: typeof WWorkspaceIdLicenciasRoute
+  WWorkspaceIdModelosRoute: typeof WWorkspaceIdModelosRoute
   WWorkspaceIdRetencionRoute: typeof WWorkspaceIdRetencionRoute
   WWorkspaceIdIndexRoute: typeof WWorkspaceIdIndexRoute
   WWorkspaceIdPProjectIdRoute: typeof WWorkspaceIdPProjectIdRouteWithChildren
@@ -617,6 +637,7 @@ const WWorkspaceIdRouteChildren: WWorkspaceIdRouteChildren = {
   WWorkspaceIdDecisionesRoute: WWorkspaceIdDecisionesRoute,
   WWorkspaceIdEquipoRoute: WWorkspaceIdEquipoRoute,
   WWorkspaceIdLicenciasRoute: WWorkspaceIdLicenciasRoute,
+  WWorkspaceIdModelosRoute: WWorkspaceIdModelosRoute,
   WWorkspaceIdRetencionRoute: WWorkspaceIdRetencionRoute,
   WWorkspaceIdIndexRoute: WWorkspaceIdIndexRoute,
   WWorkspaceIdPProjectIdRoute: WWorkspaceIdPProjectIdRouteWithChildren,

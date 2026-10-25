@@ -9,7 +9,9 @@ export interface ModelCompletionRequest {
   readonly apiKey?: string;
   readonly systemInstruction: string;
   readonly userContext: string;
-  readonly maxOutputTokens: number;
+  readonly maxOutputTokens?: number;
+  /** Server-selected JSON schema; subscription CLIs can enforce the response shape. */
+  readonly outputSchema?: Readonly<Record<string, unknown>>;
   readonly signal: AbortSignal;
   /** Called when a CLI login rotated its own tokens during the call, whether or not the call succeeded. */
   readonly persistCredential?: (credential: string) => Promise<void>;

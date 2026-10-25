@@ -1,4 +1,5 @@
 import {
+  providerConnectionSchema,
   assessmentModeSchema,
   customerApplicationSchema,
   customerJobProgressSchema,
@@ -36,12 +37,19 @@ import {
   dependencyFixPreparationRequestSchema,
   dependencyFixPreparationResponseSchema,
   validationPublicProjectionSchema,
+  validationRetryResponseSchema,
+  validationSuiteConfigSchema,
+  validationSuiteDefinitionSchema,
+  validationTestSelectionSchema,
   configureInvestigationModelSchema,
   investigationModelSettingsSchema,
   investigationModelProbeResultSchema,
   investigationRunSchema,
   investigationSubjectSchema,
   investigationActionSchema,
+  aiCorrectionSchema,
+  aiCorrectionRequestSchema,
+  type AiCorrectionRequest,
   type DependencyFixPreparationRequest,
   type DependencyFixPreparationResponse,
   type InvestigationSubject,
@@ -271,6 +279,9 @@ export const customerApi = {
   licensePolicy: (organizationId: string) => request(`${organizationPath(organizationId)}/license-policy`, workspaceLicensePolicySchema),
   updateLicensePolicy: (organizationId: string, policy: unknown) => request(`${organizationPath(organizationId)}/license-policy`, workspaceLicensePolicySchema, { method: 'PUT', ...jsonBody(licensePolicySchema.parse(policy)) }),
   investigationModel: (organizationId: string) => request(`${organizationPath(organizationId)}/investigation-model`, investigationModelSettingsSchema),
+  startProviderConnection: (organizationId: string, provider: 'codex' | 'claude_code' | 'openrouter') => request(`${organizationPath(organizationId)}/investigation-model/${provider}/connections`, providerConnectionSchema, { method: 'POST', ...jsonBody({}) }, 201, 40_000),
+  providerConnection: (organizationId: string, provider: 'codex' | 'claude_code' | 'openrouter', id: string, authorizationCode?: string) => request(`${organizationPath(organizationId)}/investigation-model/${provider}/connections/${encodeURIComponent(z.uuid().parse(id))}`, providerConnectionSchema, { method: 'POST', ...jsonBody({ ...(authorizationCode ? { authorizationCode } : {}) }) }),
+  cancelProviderConnection: (organizationId: string, provider: 'codex' | 'claude_code' | 'openrouter', id: string) => request(`${organizationPath(organizationId)}/investigation-model/${provider}/connections/${encodeURIComponent(z.uuid().parse(id))}`, providerConnectionSchema, { method: 'DELETE', ...jsonBody({}) }),
   configureInvestigationModel: (organizationId: string, config: unknown) => {
     const input = configureInvestigationModelSchema.extend({ clearApiKey: z.boolean().optional() }).strict().parse(config);
     return request(`${organizationPath(organizationId)}/investigation-model`, investigationModelSettingsSchema, { method: 'PUT', ...jsonBody(input) });
@@ -357,6 +368,16 @@ export const customerApi = {
       201,
     );
   },
+  aiCorrections(organizationId: string, applicationId: string, reportId: string) {
+    return request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(z.uuid().parse(reportId))}/ai-corrections`, z.array(aiCorrectionSchema).max(50));
+  },
+  prepareAiCorrection(input: { organizationId: string; applicationId: string; reportId: string; request: AiCorrectionRequest }) {
+    const body = aiCorrectionRequestSchema.parse(input.request);
+    return request(`${applicationPath(input.organizationId, input.applicationId)}/reports/${encodeURIComponent(z.uuid().parse(input.reportId))}/ai-corrections`, aiCorrectionSchema, { method: 'POST', ...jsonBody(body) }, 201);
+  },
+  cancelAiCorrection(organizationId: string, applicationId: string, reportId: string, correctionId: string) {
+    return request(`${applicationPath(organizationId, applicationId)}/reports/${encodeURIComponent(z.uuid().parse(reportId))}/ai-corrections/${encodeURIComponent(z.uuid().parse(correctionId))}`, aiCorrectionSchema, { method: 'DELETE' });
+  },
   prepareDependencyFix(input: { organizationId: string; applicationId: string; reportId: string; request: DependencyFixPreparationRequest }): Promise<DependencyFixPreparationResponse> {
     const params = reportRecommendationsParamsSchema.parse({ reportId: input.reportId });
     const body = dependencyFixPreparationRequestSchema.parse(input.request);
@@ -371,6 +392,29 @@ export const customerApi = {
     const sourceId = z.uuid().parse(candidateSourceId);
     return request(`${applicationPath(organizationId, applicationId)}/corrections/${encodeURIComponent(sourceId)}`, validationPublicProjectionSchema.nullable());
   },
+  retryDependencyValidation(organizationId: string, applicationId: string, candidateSourceId: string) {
+    return request(`${applicationPath(organizationId, applicationId)}/corrections/${encodeURIComponent(z.uuid().parse(candidateSourceId))}/retry-validation`,
+      validationRetryResponseSchema, { method: 'POST', ...jsonBody({}) }, 201);
+  },
+  configureValidationSuite(input: {
+    organizationId: string;
+    applicationId: string;
+    repositoryLinkId: string;
+    suiteName: string;
+    testSelection: z.infer<typeof validationTestSelectionSchema>;
+    requiredCount: number;
+  }) {
+    const validated = validationSuiteConfigSchema.parse({
+      ...input,
+      profile: 'node24-tsx-selected-v1',
+      scriptName: 'test',
+      regressionTestPath: null,
+    });
+    const { organizationId, applicationId, ...body } = validated;
+    return request(`${applicationPath(organizationId, applicationId)}/validation-suites`, validationSuiteDefinitionSchema, {
+      method: 'POST', ...jsonBody(body),
+    });
+  },
   actionProposals(organizationId: string, applicationId: string) {
     return request(`${applicationPath(organizationId, applicationId)}/actions`, actionListSchema);
   },
@@ -383,8 +427,8 @@ export const customerApi = {
   getActionEligibility(organizationId: string, applicationId: string, proposalId: string) {
     return request(`${applicationPath(organizationId, applicationId)}/actions/${encodeURIComponent(proposalId)}/eligibility`, actionEligibilitySchema, { method: 'POST', ...jsonBody({}) });
   },
-  approveAction(input: { organizationId: string; applicationId: string; proposalId: string; actionHash: string; stepUpProof: string }) {
-    return request(`${applicationPath(input.organizationId, input.applicationId)}/actions/${encodeURIComponent(input.proposalId)}/approve`, z.object({ approvalId: z.uuid(), expiresAt: z.iso.datetime() }).strict(), { method: 'POST', ...jsonBody({ proposalId: input.proposalId, actionHash: input.actionHash, stepUpProof: input.stepUpProof }) });
+  approveAction(input: { organizationId: string; applicationId: string; proposalId: string; actionHash: string }) {
+    return request(`${applicationPath(input.organizationId, input.applicationId)}/actions/${encodeURIComponent(input.proposalId)}/approve`, z.object({ approvalId: z.uuid(), expiresAt: z.iso.datetime() }).strict(), { method: 'POST', ...jsonBody({ proposalId: input.proposalId, actionHash: input.actionHash }) });
   },
   cancelAction(input: { organizationId: string; applicationId: string; proposalId: string; reject?: boolean }) {
     const suffix = input.reject ? 'reject' : 'cancel';
@@ -396,7 +440,7 @@ export const customerApi = {
   workflowExceptionHash(input:{organizationId:string;applicationId:string;repositoryLinkId:string;workflowPath:string;rule:string;justification:string}) {
     return request(`${applicationPath(input.organizationId,input.applicationId)}/workflow-exceptions/hash`,z.object({actionHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict(),{method:'POST',...jsonBody(input)});
   },
-  createWorkflowException(input:{organizationId:string;applicationId:string;repositoryLinkId:string;workflowPath:string;rule:string;justification:string;stepUpProof:string}) {
+  createWorkflowException(input:{organizationId:string;applicationId:string;repositoryLinkId:string;workflowPath:string;rule:string;justification:string;actionHash:string}) {
     return request(`${applicationPath(input.organizationId,input.applicationId)}/workflow-exceptions`,z.object({id:z.uuid(),version:z.number().int().positive(),workflowPath:z.string(),rule:z.string(),justification:z.string(),createdBy:z.string(),createdAt:z.iso.datetime()}).strict(),{method:'POST',...jsonBody(input)},201);
   },
   removeWorkflowException(input:{organizationId:string;applicationId:string;repositoryLinkId:string;id:string;version:number}) {
@@ -420,7 +464,7 @@ export const customerApi = {
   githubRepositories: (organizationId: string, applicationId: string, installationId: string) => request(`${applicationPath(organizationId, applicationId)}/github/installations/${encodeURIComponent(installationId)}/repositories`, z.array(githubRepositorySchema).max(1000)),
   githubSelectRepository: (input: { organizationId: string; applicationId: string; installationId: string; repositoryId: number; fullName: string; defaultBranch: string }) => request(
     `${applicationPath(input.organizationId, input.applicationId)}/github/installations/${encodeURIComponent(input.installationId)}/repositories/${input.repositoryId}/select`,
-    githubSelectSchema, { method: 'POST', ...jsonBody({ fullName: input.fullName, defaultBranch: input.defaultBranch }) }, 201,
+    githubSelectSchema, { method: 'POST', ...jsonBody({ fullName: input.fullName, defaultBranch: input.defaultBranch }) }, 201, 110_000,
   ),
   githubDisconnect: (organizationId: string, installationId: string) => request(`${organizationPath(organizationId)}/github/connections/${encodeURIComponent(installationId)}`, z.undefined(), { method: 'DELETE' }),
 };

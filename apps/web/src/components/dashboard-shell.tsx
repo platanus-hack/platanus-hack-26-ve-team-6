@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+import { useRouterState } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { MenuIcon, XIcon } from 'lucide-react';
 
@@ -9,6 +11,10 @@ export function DashboardShell({ brand, menuOpen, onToggleMenu, onCloseMenu, sid
   sidebar: ReactNode;
   children: ReactNode;
 }) {
+  // The main column scrolls on its own at desktop widths; start each page at its top.
+  const column = useRef<HTMLDivElement>(null);
+  const pathname = useRouterState({ select: state => state.location.pathname });
+  useEffect(() => { column.current?.scrollTo({ top: 0 }); }, [pathname]);
   return <div className="gl customer-app-shell">
     <aside className="customer-sidebar">
       <div className="customer-sidebar-head">
@@ -20,7 +26,7 @@ export function DashboardShell({ brand, menuOpen, onToggleMenu, onCloseMenu, sid
       <div className="customer-sidebar-body" id="customer-sidebar-body" data-open={menuOpen || undefined}>{sidebar}</div>
     </aside>
     {menuOpen && <button type="button" className="customer-menu-backdrop" tabIndex={-1} aria-label="Cerrar menú" onClick={onCloseMenu} />}
-    <div className="customer-main-column">
+    <div className="customer-main-column" ref={column}>
       <main className="customer-main">{children}</main>
     </div>
   </div>;

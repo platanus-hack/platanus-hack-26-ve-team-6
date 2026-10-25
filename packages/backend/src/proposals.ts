@@ -45,7 +45,7 @@ export type VerifiedStepUp = z.infer<typeof verifiedStepUpSchema>;
 /** Validate a server-issued second-factor ceremony bound to the supplied expected identity/action.
  * The opaque proof must not be a caller-provided timestamp. Return facts from trusted verifier state. */
 export interface StepUpVerifier { verify(input: { proof: string; userId: string; organizationId: string; actionHash: string }): Promise<VerifiedStepUp> }
-export interface ApprovalDependencies extends BaseDependencies { proposalVerifier?: ProposalVerifier; stepUpVerifier?: StepUpVerifier }
+export interface ApprovalDependencies extends BaseDependencies { proposalVerifier?: ProposalVerifier }
 export const APPROVAL_TTL_MS = 5 * 60_000;
 export const STEP_UP_MAX_AGE_MS = 5 * 60_000;
 export const ELIGIBILITY_MAX_AGE_MS = 60_000;
@@ -132,10 +132,8 @@ export function createProposalService(deps: ApprovalDependencies) {
         return { proposalId, actionHash, recoveryEpoch: state.recoveryEpoch };
       });
     },
-    async approve(identity: Identity, input: { organizationId: string; proposalId: string; actionHash: string; stepUpProof: string }): Promise<{ approvalId: string; expiresAt: Date }> {
-      const value = parse(z.object({ organizationId: z.uuid(), proposalId: z.uuid(), actionHash: digest, stepUpProof: z.string().min(1).max(4096) }).strict(), input);
-      const stepUpVerifier = deps.stepUpVerifier;
-      if (!stepUpVerifier) throw new BackendError('step_up_unavailable', 'A trusted second-factor verifier must be configured before approvals can be issued', 503);
+    async approve(identity: Identity, input: { organizationId: string; proposalId: string; actionHash: string }): Promise<{ approvalId: string; expiresAt: Date }> {
+      const value = parse(z.object({ organizationId: z.uuid(), proposalId: z.uuid(), actionHash: digest }).strict(), input);
       const result = await deps.database.tenant(value.organizationId, async tx => {
         const state = await authorizationState(tx);
         await authorize(tx, value.organizationId, identity, ['owner']);
@@ -144,15 +142,13 @@ export function createProposalService(deps: ApprovalDependencies) {
         if (stored.recoveryEpoch !== state.recoveryEpoch) throw new BackendError('stale_epoch', 'A new post-recovery proposal is required', 409);
         const rejected = await verifyStoredProposal(tx, deps, stored.proposal, value.proposalId, 'approval');
         if (rejected) return rejected;
-        const expected = { userId: identity.userId, organizationId: value.organizationId, actionHash: value.actionHash };
-        const proof = parse(verifiedStepUpSchema, await stepUpVerifier.verify({ ...expected, proof: value.stepUpProof }));
-        const now = clock.now();
-        assertStepUp(proof, expected, now);
-        const expiresAt = new Date(Math.min(now.getTime() + APPROVAL_TTL_MS, proof.authenticatedAt.getTime() + STEP_UP_MAX_AGE_MS, proof.expiresAt.getTime()));
+        const prior = await tx.query('SELECT id FROM gotchu.approvals WHERE organization_id=$1 AND proposal_id=$2', [value.organizationId, value.proposalId]);
+        if (prior.rowCount) throw new BackendError('approval_used', 'This proposal already has an approval; prepare a new proposal', 409);
+        const expiresAt = new Date(clock.now().getTime() + APPROVAL_TTL_MS);
         const approvalId = randomUUID();
-        const inserted = await tx.query('INSERT INTO gotchu.approvals(organization_id,id,proposal_id,action_hash,user_id,proof_id,recovery_epoch,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (proof_id) DO NOTHING RETURNING id', [value.organizationId, approvalId, value.proposalId, value.actionHash, identity.userId, proof.proofId, state.recoveryEpoch, expiresAt]);
-        if (!inserted.rowCount) throw new BackendError('proof_replayed', 'Second-factor proof has already been used', 409);
-        await audit(tx, value.organizationId, identity.userId, 'proposal.approved', approvalId, { proposalId: value.proposalId, actionHash: value.actionHash });
+        await tx.query("INSERT INTO gotchu.approvals(organization_id,id,proposal_id,action_hash,user_id,proof_id,recovery_epoch,expires_at,authorization_method) VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,'owner_session')", [value.organizationId, approvalId, value.proposalId, value.actionHash, identity.userId, state.recoveryEpoch, expiresAt]);
+        await tx.query("UPDATE gotchu.proposals SET state='approved' WHERE organization_id=$1 AND id=$2", [value.organizationId, value.proposalId]);
+        await audit(tx, value.organizationId, identity.userId, 'proposal.approved', approvalId, { proposalId: value.proposalId, actionHash: value.actionHash, authorizationMethod: 'owner_session' });
         return { approvalId, expiresAt };
       });
       if (result instanceof BackendError) throw result;

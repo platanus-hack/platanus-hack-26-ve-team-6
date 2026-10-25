@@ -97,12 +97,16 @@ async function withScratchDirectory<T>(run: (directory: string) => Promise<T>): 
 }
 
 /** CLIs sometimes wrap the requested JSON in a Markdown fence; accept exactly one fenced block. */
-function parseJsonReply(text: string): unknown {
+function parseJsonReply(text: string | undefined): unknown {
+  if (!text) return null;
   const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n?```$/.exec(text.trim());
   try {
     const parsed: unknown = JSON.parse(fenced?.[1] ?? text);
     return parsed;
-  } catch { throw new ModelProviderError('invalid_response'); }
+  } catch {
+    // Payload validation must not discard authoritative usage; callers settle it before validation.
+    return null;
+  }
 }
 
 function assertPreset(request: ModelCompletionRequest, adapterKind: 'claude_code_cli' | 'codex_cli') {
@@ -146,7 +150,7 @@ function claudeCodeAdapter(binary: string, path: string): ModelPort {
           env: {
             PATH: path, HOME: home, CLAUDE_CONFIG_DIR: join(home, '.claude'), CLAUDE_CODE_OAUTH_TOKEN: token,
             // Claude Code fails rather than truncates above this cap, so leave room for a short JSON reply.
-            CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(Math.max(256, request.maxOutputTokens)),
+            ...(request.maxOutputTokens === undefined ? {} : { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(Math.max(256, request.maxOutputTokens)) }),
             DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
           },
         });
@@ -155,12 +159,14 @@ function claudeCodeAdapter(binary: string, path: string): ModelPort {
         catch { throw new ModelProviderError(run.exitCode === 0 ? 'invalid_response' : 'request_failed'); }
         const result = claudeResultSchema.safeParse(raw);
         if (!result.success) throw new ModelProviderError('invalid_response');
-        if (result.data.is_error) throw new ModelProviderError('request_failed', result.data.api_error_status ?? undefined);
         const usage = result.data.usage;
+        if (result.data.is_error && (result.data.api_error_status != null || !usage)) {
+          throw new ModelProviderError('request_failed', result.data.api_error_status ?? undefined);
+        }
         if (!usage) throw new ModelProviderError('missing_usage');
-        if (!result.data.result) throw new ModelProviderError('invalid_response');
         return {
-          output: parseJsonReply(result.data.result),
+          // A terminal generation error can carry usage, but its result is never a usable reply.
+          output: result.data.is_error ? null : parseJsonReply(result.data.result),
           inputTokens: usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
           outputTokens: usage.output_tokens,
         } satisfies ModelCompletion;
@@ -197,9 +203,11 @@ function codexAdapter(binary: string, path: string): ModelPort {
         await Promise.all([mkdir(home, { mode: 0o700 }), mkdir(codexHome, { mode: 0o700 }), mkdir(work, { mode: 0o700 })]);
         const authFile = join(codexHome, 'auth.json');
         const instructionsFile = join(codexHome, 'instructions.md');
+        const schemaFile = join(codexHome, 'response-schema.json');
         await Promise.all([
           writeFile(authFile, credential, { mode: 0o600, flag: 'wx' }),
           writeFile(instructionsFile, request.systemInstruction, { mode: 0o600, flag: 'wx' }),
+          ...(request.outputSchema ? [writeFile(schemaFile, JSON.stringify(request.outputSchema), { mode: 0o600, flag: 'wx' })] : []),
         ]);
         let run: CliOutput;
         try {
@@ -207,6 +215,7 @@ function codexAdapter(binary: string, path: string): ModelPort {
           run = await runCli(binary, [
             'exec', '--json', '--ephemeral', '--skip-git-repo-check', '--ignore-user-config', '--ignore-rules',
             '--sandbox', 'read-only', '--color', 'never', '-C', work, '-m', request.modelId,
+            ...(request.outputSchema ? ['--output-schema', schemaFile] : []),
             ...codexDisabledFeatures.flatMap(feature => ['--disable', feature]),
             '-c', 'web_search="disabled"', '-c', 'approval_policy="never"',
             '-c', `model_instructions_file=${JSON.stringify(instructionsFile)}`,
@@ -224,6 +233,7 @@ function codexAdapter(binary: string, path: string): ModelPort {
         let outputTokens = 0;
         let completedTurns = 0;
         let failure: string | undefined;
+        const completedItems: Record<string, number> = {};
         for (const line of run.stdout.split('\n')) {
           if (!line.trim()) continue;
           let raw: unknown;
@@ -233,6 +243,7 @@ function codexAdapter(binary: string, path: string): ModelPort {
           const event = codexEventSchema.safeParse(raw);
           if (!event.success) continue;
           if (event.data.type === 'item.completed') {
+            completedItems[event.data.item.type] = (completedItems[event.data.item.type] ?? 0) + 1;
             if (event.data.item.type === 'agent_message' && event.data.item.text) reply = event.data.item.text;
           } else if (event.data.type === 'turn.completed') {
             completedTurns += 1;
@@ -245,7 +256,9 @@ function codexAdapter(binary: string, path: string): ModelPort {
         if (failure !== undefined) throw new ModelProviderError('request_failed', codexFailureStatus(failure));
         if (run.exitCode !== 0) throw new ModelProviderError('request_failed');
         if (completedTurns === 0) throw new ModelProviderError('missing_usage');
-        if (!reply) throw new ModelProviderError('invalid_response');
+        console.error(JSON.stringify({ event: 'codex_completion', completedTurns, inputTokens, outputTokens,
+          // Only protocol item categories are logged, never their contents.
+          completedItems: Object.fromEntries(Object.entries(completedItems).filter(([name]) => /^[a-z_]{1,40}$/.test(name))) }));
         return { output: parseJsonReply(reply), inputTokens, outputTokens } satisfies ModelCompletion;
       });
     },

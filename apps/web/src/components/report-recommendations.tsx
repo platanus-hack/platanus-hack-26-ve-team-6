@@ -64,7 +64,7 @@ const dependencyReasonLabels: Record<NonNullable<DependencyFixRecommendation['re
   lockfile_change_out_of_scope: 'La actualización modificaría otras entradas del lockfile.',
 };
 const validationStateLabels: Record<NonNullable<DependencyFixRecommendation['validationState']>, string> = {
-  queued: 'En cola', running: 'Validando en el entorno aislado', passed: 'Validación aprobada', failed: 'La validación encontró una regresión',
+  queued: 'En cola', running: 'Validando en el entorno aislado', passed: 'Validación aprobada', failed: 'La validación no pasó',
   inconclusive: 'Validación inconclusa', quarantined: 'Ejecución en cuarentena', expired: 'Validación vencida',
 };
 
@@ -179,6 +179,7 @@ export function ReportRecommendations(props: Props) {
     <div className="customer-dependency-fixes">
       <h4>Actualizaciones de dependencias npm</h4>
       <p>Solo se preparan cambios patch o minor directos cuando todos los avisos tienen rangos verificables y la resolución queda limitada a package.json y package-lock.json.</p>
+      <p>Preparar la corrección ejecutará las pruebas configuradas en un entorno aislado y repetirá el análisis. Revisa su cobertura: superar una selección de pruebas no equivale a superar la suite completa. La PR requiere una aprobación posterior del propietario.</p>
       {data.dependencyFixes.length === 0
         ? <div className="customer-empty-inline">Este informe no contiene coincidencias exactas de OSV con evidencia de npm suficiente para evaluar una actualización.</div>
         : <div className="customer-dependency-fix-list">{data.dependencyFixes.map(item => <DependencyFixCard key={`${item.packageName}:${item.fromVersion}:${item.findingIds.join(',')}`}
@@ -207,6 +208,13 @@ function DependencyFixCard({ userId, organizationId, applicationId, reportId, re
     onSuccess: () => queryClient.invalidateQueries({ queryKey: reportKey }),
   });
   const candidateSourceId = prepare.data?.candidateSourceId ?? recommendation.candidateSourceId;
+  const retryValidation = useMutation({
+    mutationFn: (candidateId: string) => customerApi.retryDependencyValidation(organizationId, applicationId, candidateId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'dependency-validation', organizationId, applicationId, candidateSourceId] });
+      await queryClient.invalidateQueries({ queryKey: reportKey });
+    },
+  });
   const validation = useQuery({
     queryKey: ['customer-data', userId, 'dependency-validation', organizationId, applicationId, candidateSourceId],
     queryFn: () => customerApi.validationStatus(organizationId, applicationId, candidateSourceId ?? ''),
@@ -220,6 +228,8 @@ function DependencyFixCard({ userId, organizationId, applicationId, reportId, re
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['customer-data', userId, 'action-proposals', organizationId, applicationId] }),
   });
   const validationState = validation.data?.run.state ?? recommendation.validationState;
+  const functionalEvidence = validation.data?.attestations.find(item => item.evidence.kind === 'functional_suite')?.evidence;
+  const rescanEvidence = validation.data?.attestations.find(item => item.evidence.kind === 'independent_rescan')?.evidence;
   useEffect(() => {
     if (!candidateSourceId || validation.data?.run.state !== 'passed' || proposal.isPending || proposal.data || proposal.error
       || attemptedCandidate.current === candidateSourceId) return;
@@ -250,8 +260,26 @@ function DependencyFixCard({ userId, organizationId, applicationId, reportId, re
       {validation.isPending && <p role="status">Consultando el estado de la validación…</p>}
       {validation.error && <p className="customer-field-note" role="alert">No se pudo cargar el estado de la validación. <button className="customer-link-button" type="button" onClick={() => { validation.refetch().catch(() => undefined); }}>Reintentar</button></p>}
       {!validation.error && validationState && <p role="status">{validationStateLabels[validationState]}</p>}
-      {validationState === 'failed' && <p className="customer-field-note">No se creó una propuesta de PR porque la validación detectó una regresión.</p>}
+      {functionalEvidence?.kind === 'functional_suite' && <>
+        <p className="customer-field-note">{functionalEvidence.suiteName}</p>
+        {functionalEvidence.baseCounts && <p>Base: {functionalEvidence.baseCounts.passed} aprobadas, {functionalEvidence.baseCounts.failed} fallidas, {functionalEvidence.baseCounts.skipped} omitidas.</p>}
+        {functionalEvidence.result !== 'inconclusive' && <p>Candidato: {functionalEvidence.counts.passed} aprobadas, {functionalEvidence.counts.failed} fallidas, {functionalEvidence.counts.skipped} omitidas. Mínimo requerido: {functionalEvidence.requiredCounts}.</p>}
+        {functionalEvidence.suiteBinding && <p className="customer-field-note">Compatibilidad de la selección configurada, versión {functionalEvidence.suiteBinding.suiteVersion}; no representa la suite completa.</p>}
+      </>}
+      {rescanEvidence?.kind === 'independent_rescan' && <p>Reanálisis objetivo: {rescanEvidence.result === 'passed' ? 'aprobado' : rescanEvidence.result === 'failed' ? 'no pasó' : 'inconcluso'}.</p>}
+      {validationState === 'failed' && <p className="customer-field-note">La validación no pasó. Revisa la evidencia antes de volver a intentarlo; la propuesta de PR sigue bloqueada.</p>}
       {validationState === 'inconclusive' && <p className="customer-field-note">No se creó una propuesta de PR porque faltan pruebas independientes concluyentes.</p>}
+      {validationState === 'quarantined' && <>
+        <p className="customer-field-note">Un operador debe verificar la limpieza del entorno antes de permitir otro intento.</p>
+        <button className="customer-link-button" type="button" disabled={validation.isFetching}
+          onClick={() => { validation.refetch().catch(() => undefined); }}>Actualizar estado</button>
+      </>}
+      {canPrepare && (validationState === 'failed' || validationState === 'inconclusive') && <>
+        <p className="customer-field-note">El reintento conserva el historial y valida la misma corrección con la configuración vigente.</p>
+        <button className="customer-button customer-button-secondary" type="button" disabled={retryValidation.isPending}
+          onClick={() => retryValidation.mutate(candidateSourceId)}>{retryValidation.isPending ? 'Solicitando validación…' : 'Reintentar validación'}</button>
+      </>}
+      {retryValidation.error && <p className="customer-field-note" role="alert">No se pudo reintentar: {recommendationError(retryValidation.error)}</p>}
       {proposal.isPending && <p role="status">Guardando la propuesta validada para su revisión…</p>}
       {proposal.data && <p role="status">La propuesta exacta quedó en «Propuestas de cambio» para revisión y aprobación del propietario.</p>}
       {proposal.error && <p className="customer-field-note" role="alert">No se pudo guardar la propuesta: {recommendationError(proposal.error)} <button className="customer-link-button" type="button" onClick={() => { proposal.reset(); attemptedCandidate.current = null; }}>Reintentar</button></p>}

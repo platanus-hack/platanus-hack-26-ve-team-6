@@ -2,6 +2,7 @@
   "name": "@gotchu/gateway", "version": "0.1.0", "private": true, "type": "module",
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./recovery": { "types": "./dist/model-recovery.d.ts", "import": "./dist/model-recovery.js" },
     "./migrate": { "types": "./dist/migrate.d.ts", "import": "./dist/migrate.js" }
   },
   "files": ["dist", "migrations", "README.md"],

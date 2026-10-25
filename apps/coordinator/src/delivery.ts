@@ -32,6 +32,9 @@ export async function reconcileDurableDeliveries(database: Database, organizatio
           || (row.tokens_reserved !== null && BigInt(row.tokens_reserved) > 0n))) {
           await tx.query(`UPDATE gotchu.jobs SET state='failed',result='{"reasonCode":"investigation_reconciliation_required"}'::jsonb,completed_at=clock_timestamp(),lease_until=NULL
           WHERE organization_id=$1 AND id=$2 AND (state='queued' OR (state='running' AND lease_until<=clock_timestamp()))`, [organizationId, row.id]);
+          await tx.query(`UPDATE gotchu.ai_correction_requests SET state='reconciliation_required',
+            reason_code='investigation_reconciliation_required',updated_at=clock_timestamp()
+            WHERE organization_id=$1 AND job_id=$2 AND state IN ('queued','running')`, [organizationId, row.id]);
           continue;
         }
         envelopes.push(jobEnvelopeSchema.parse({ version: 1, id: row.id, organizationId, applicationId: row.application_id, kind: row.kind }));

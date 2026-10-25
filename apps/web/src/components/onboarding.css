@@ -1,3 +1,5 @@
+/* Declare the cascade order here too: route stylesheets can load before the root one. */
+@layer theme, base, components, utilities;
 @layer components {
   .customer-onboarding { width: min(100%, 680px); margin: 0 auto; padding: clamp(28px, 7vh, 64px) 0 56px; }
   .customer-onboarding-header { margin: 0 0 28px; }
@@ -48,4 +50,21 @@
     .customer-first-project-actions { width: 100%; flex-direction: column; }
     .customer-first-project-actions > .customer-button { width: 100%; }
   }
+  .customer-onboarding-page { min-height: 100vh; padding: 0 20px; background: var(--background); color: var(--foreground); }
+  .customer-onboarding-header p { max-width: 56ch; margin: 12px 0 0; color: var(--muted-foreground); font-size: 15px; line-height: 1.55; }
+  .customer-onboarding-steps { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 22px 0 0; padding: 0; list-style: none; counter-reset: step; }
+  .customer-onboarding-steps li { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 13px; counter-increment: step; }
+  .customer-onboarding-steps li::before { display: grid; width: 22px; height: 22px; place-items: center; border: 1px solid var(--border); border-radius: 6px; content: counter(step); font-family: var(--mono); font-size: 11.5px; }
+  .customer-onboarding-steps li.is-current { color: var(--foreground); font-weight: 600; }
+  .customer-onboarding-steps li.is-current::before { border-color: var(--brand); color: var(--brand-ink); }
+  .customer-source-card { align-items: flex-start; padding: 14px; }
+  .customer-source-card-text { display: grid; gap: 4px; min-width: 0; }
+  .customer-source-card-text strong { font-size: 14px; font-weight: 600; }
+  .customer-source-card-text small { color: var(--muted-foreground); font-size: 12.5px; font-weight: 400; line-height: 1.45; }
+  @media (max-width: 640px) { .customer-source-cards { grid-template-columns: 1fr; } .customer-source-card { min-height: 0; } }
+  /* Inputs carry the app's control frame; the source panel stretches them to the card width. */
+  .customer-onboarding-card input:not([type='radio']), .customer-onboarding-card select { border: 1px solid var(--border); border-radius: 8px; background: var(--background); padding: 0 12px; color: var(--foreground); font: inherit; font-size: 15px; }
+  .customer-onboarding-card input:not([type='radio']):focus-visible, .customer-onboarding-card select:focus-visible { border-color: var(--brand-ink); outline: none; }
+  .customer-onboarding-card input:not([type='radio']):hover:not(:disabled), .customer-onboarding-card select:hover:not(:disabled) { border-color: var(--foreground); }
+  .customer-source-option-body > .customer-web-url, .customer-source-option-body > select { width: 100%; }
 }

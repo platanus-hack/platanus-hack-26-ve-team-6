@@ -139,12 +139,16 @@ export const customerAssessmentIntentSchema = z.object({
     context.addIssue({ code: 'custom', message: 'Container image assessments require only an image input and the internal mode' });
   }
 });
+/** Phases the scanner reports while it runs: each analysis branch finishing, then correlation. */
+export const customerScannerPhaseSchema = z.enum(['internal_finished', 'external_finished', 'correlating']);
+export const customerScannerProgressSchema = z.object({ type: z.literal('progress'), phase: customerScannerPhaseSchema }).strict();
 /**
- * Phases the coordinator records while it runs a customer assessment. The scanner call is one opaque
- * phase; the report is recorded in the same transaction that completes the job.
+ * Phases recorded on a customer assessment job: the coordinator's own steps plus the scanner's
+ * reported ones. The report is recorded in the same transaction that completes the job.
  */
-export const customerJobPhaseSchema = z.enum(['validating', 'analyzing']);
+export const customerJobPhaseSchema = z.enum(['validating', 'analyzing', ...customerScannerPhaseSchema.options]);
 export const customerJobProgressSchema = z.array(z.object({ phase: customerJobPhaseSchema, at: timestamp }).strict()).max(8);
+export type CustomerScannerPhase = z.infer<typeof customerScannerPhaseSchema>;
 export type CustomerJobPhase = z.infer<typeof customerJobPhaseSchema>;
 export type CustomerJobProgress = z.infer<typeof customerJobProgressSchema>;
 export const customerReportSubjectSchema = z.object({

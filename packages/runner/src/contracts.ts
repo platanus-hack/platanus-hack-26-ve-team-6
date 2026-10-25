@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const RUNNER_VERSION = '0.1.0';
 
-export const runnerProfileSchema = z.enum(['node24-npm-test']);
+export const runnerProfileSchema = z.enum(['node24-npm-test', 'node24-tsx-selected-v1']);
 export const networkPolicySchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('deny') }).strict(),
   z.object({
@@ -17,10 +17,37 @@ export const inputReferenceSchema = z.object({
   sizeBytes: z.number().int().positive().max(8 * 1024 * 1024),
 }).strict();
 
-export const runnerJobSchema = z.object({
+export const selectedTestFileSchema = z.string().min(1).max(512).regex(
+  /^(?:[A-Za-z0-9_@][A-Za-z0-9_@.-]*\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.(?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/,
+).refine((path) => !path.split('/').includes('node_modules'), 'Select repository tests, not installed dependencies');
+
+export const runnerTestSelectionSchema = z.object({
+  files: z.array(selectedTestFileSchema).min(1).max(20)
+    .refine((files) => new Set(files).size === files.length, 'Duplicate test files are forbidden'),
+  namePattern: z.string().min(1).max(256).refine((pattern) => {
+    if (/[\x00-\x1f\x7f]/.test(pattern)) return false;
+    try { new RegExp(pattern); return true; } catch { return false; }
+  }, 'Expected a bounded valid test name regular expression').optional(),
+}).strict();
+
+export const selectedNodeTestReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  profile: z.literal('node24-tsx-selected-v1'),
+  complete: z.boolean(),
+  success: z.boolean(),
+  counts: z.object({
+    passed: z.number().int().nonnegative().max(1_000_000),
+    failed: z.number().int().nonnegative().max(1_000_000),
+    skipped: z.number().int().nonnegative().max(1_000_000),
+    cancelled: z.number().int().nonnegative().max(1_000_000),
+    total: z.number().int().nonnegative().max(1_000_000),
+  }).strict(),
+}).strict().refine(({ counts }) => counts.total === counts.passed + counts.failed + counts.skipped + counts.cancelled,
+  'Test counts must sum to total');
+
+const runnerJobBaseSchema = z.object({
   jobId: z.uuid(),
   organizationId: z.uuid(),
-  profile: runnerProfileSchema,
   input: inputReferenceSchema,
   limits: z.object({
     vcpu: z.number().int().min(1).max(2),
@@ -32,6 +59,14 @@ export const runnerJobSchema = z.object({
   }).strict(),
   networkPolicy: networkPolicySchema,
 }).strict();
+
+export const runnerJobSchema = z.discriminatedUnion('profile', [
+  runnerJobBaseSchema.extend({ profile: z.literal('node24-npm-test'), testSelection: z.never().optional() }),
+  runnerJobBaseSchema.extend({ profile: z.literal('node24-tsx-selected-v1'), testSelection: runnerTestSelectionSchema }),
+]);
+
+export type RunnerTestSelection = z.infer<typeof runnerTestSelectionSchema>;
+export type SelectedNodeTestReport = z.infer<typeof selectedNodeTestReportSchema>;
 
 const outputSchema = z.object({
   text: z.string().max(1024 * 1024),
@@ -47,18 +82,35 @@ export const runnerArtifactSchema = z.object({
   contentBase64: z.string().max(350_000),
 }).strict();
 
-const isolationSchema = z.object({
-  sandbox: z.object({ kind: z.literal('bwrap+systemd-scope'), memoryMaxMiB: z.number().int().positive(), tasksMax: z.number().int().positive(), cpuQuotaPercent: z.number().int().positive() }).strict(),
+const sandboxLimits = {
+  memoryMaxMiB: z.number().int().positive(),
+  tasksMax: z.number().int().positive(),
+  cpuQuotaPercent: z.number().int().positive(),
+};
+const isolationBaseSchema = z.object({
   runnerVersion: z.string().min(1).max(64),
-  firecrackerVersion: z.string().min(1).max(64),
-  kernelDigest: z.string().regex(/^[a-f0-9]{64}$/),
-  rootfsDigest: z.string().regex(/^[a-f0-9]{64}$/),
   profile: runnerProfileSchema,
   networkPolicy: networkPolicySchema,
   lockfileSha256: z.string().regex(/^[a-f0-9]{64}$/),
   tarballSetSha256: z.string().regex(/^[a-f0-9]{64}$/),
   cleanupVerified: z.boolean(),
 }).strict();
+
+const isolationSchema = z.union([
+  isolationBaseSchema.extend({
+    sandbox: z.object({ kind: z.literal('bwrap+systemd-scope'), ...sandboxLimits }).strict(),
+    firecrackerVersion: z.string().min(1).max(64),
+    kernelDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    rootfsDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+  isolationBaseSchema.extend({
+    sandbox: z.object({ kind: z.literal('docker'), ...sandboxLimits }).strict(),
+    containerImageDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    firecrackerVersion: z.null(),
+    kernelDigest: z.null(),
+    rootfsDigest: z.null(),
+  }),
+]);
 
 const timed = z.object({
   durationMs: z.number().int().nonnegative().max(300_000),

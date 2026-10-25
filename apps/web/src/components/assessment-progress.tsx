@@ -2,13 +2,15 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import type { AssessmentMode, CustomerAssessmentReport } from '@gotchu/contracts';
 import type { CustomerJob } from './customer-client';
 import {
-  PHASES, applyStep, coverageCount, frontier, idlePhaseStates, isSettled, jobPhaseStates, jobPhaseTimes, phaseEdges, phaseSteps,
+  PHASES, applyStep, coverageCount, frontier, idlePhaseStates, isSettled, jobPhaseStates, jobPhaseTimes, lastProgressAt, phaseEdges, phaseSteps,
   reportPhaseStates, reportPhaseTimes, visiblePhases, type Phase, type PhaseState, type PhaseStates, type PhaseStep, type PhaseTimes,
 } from './assessment-progress-model';
 import './assessment-progress.css';
 
 const STEP_MS = 350;
 const SETTLED_HOLD_MS = 900;
+// Past the engine deadline (55 s) and the coordinator bound (60 s), silence means the scanner may have stopped.
+const STALE_MS = 90_000;
 const LABELS: Record<Phase, string> = { queue: 'Cola', validation: 'Validación', internal: 'Interno', external: 'Externo', correlation: 'Correlación', report: 'Informe' };
 const inactive = (state: PhaseState) => state === 'skipped' || state === 'not_requested';
 const stateKey = (states: PhaseStates) => PHASES.map(phase => states[phase]).join();
@@ -66,8 +68,10 @@ function useSequencedPhases(target: PhaseStates, known: boolean) {
 
 type Edge = { from: Phase; to: Phase; d: string; length: number };
 
-function PhaseGraph({ states, times, notes, hints, now }: {
+function PhaseGraph({ states, times, notes, hints, now, stalled = false }: {
   states: PhaseStates;
+  /** No news from the scanner: running phases stop animating. */
+  stalled?: boolean;
   times: PhaseTimes;
   notes?: Partial<Record<Phase, string>>;
   hints: Partial<Record<Phase, string>>;
@@ -121,7 +125,8 @@ function PhaseGraph({ states, times, notes, hints, now }: {
 
   const meta = (phase: Phase) => {
     const state = states[phase], span = times[phase];
-    if (notes?.[phase] && state !== 'running') return notes[phase];
+    const note = notes?.[phase];
+    if (note) return note;
     switch (state) {
       case 'pending': return 'Pendiente';
       case 'not_requested': return 'No solicitado';
@@ -133,7 +138,7 @@ function PhaseGraph({ states, times, notes, hints, now }: {
   };
 
   const single = !drawn.includes('correlation');
-  return <div ref={wrapper} className={`customer-progress-graph${single ? ' is-single' : ''}${instant ? ' is-instant' : ''}`}>
+  return <div ref={wrapper} className={`customer-progress-graph${single ? ' is-single' : ''}${stalled ? ' is-stalled' : ''}${instant ? ' is-instant' : ''}`}>
     <svg aria-hidden="true">
       {edges.map(edge => {
         const lit = states[edge.from] === 'done' && !inactive(states[edge.to]);
@@ -141,7 +146,7 @@ function PhaseGraph({ states, times, notes, hints, now }: {
         return <g key={`${edge.from}-${edge.to}`}>
           <path className={`customer-progress-edge${off ? ' is-off' : ''}`} d={edge.d} />
           <path className="customer-progress-edge is-lit" d={edge.d} style={{ strokeDasharray: edge.length, strokeDashoffset: lit ? 0 : edge.length }} />
-          {lit && states[edge.to] === 'running' && !reduced && <circle className="customer-progress-dot" r={3}><animateMotion dur="1.4s" repeatCount="indefinite" path={edge.d} /></circle>}
+          {lit && states[edge.to] === 'running' && !reduced && !stalled && <circle className="customer-progress-dot" r={3}><animateMotion dur="1.4s" repeatCount="indefinite" path={edge.d} /></circle>}
         </g>;
       })}
     </svg>
@@ -233,11 +238,18 @@ export function AssessmentProgress({ purpose, job, mode, waiting = 'loading', fa
 
   const hints = laneHints(job?.inputKind);
   const failedShown = PHASES.some(phase => shown[phase] === 'failed');
+  const silentFor = job?.state === 'running' && job.progress.some(entry => entry.phase === 'analyzing') ? now - lastProgressAt(job) : 0;
+  const stalled = silentFor > STALE_MS;
   // Without a job, a failed status read must not look like progress or like a stopped analysis.
-  const { title, detail } = job ? heading(shown, purpose, hints.internal)
+  const { title, detail } = stalled ? { title: 'Sin noticias del analizador', detail: `No hay avances desde hace ${elapsed(silentFor)}. Puede haberse detenido; el estado se sigue consultando.` }
+    : job ? heading(shown, purpose, hints.internal)
     : error ? { title: 'Estado sin confirmar', detail: 'No se pudo consultar el estado. Esto no confirma que el análisis se haya detenido.' }
     : WAITING[waiting];
-  const notes: Partial<Record<Phase, string>> = job?.state === 'succeeded' && !job.reportId ? { report: 'Sin informe guardado' } : {};
+  const notes: Partial<Record<Phase, string>> = {};
+  if (job?.state === 'succeeded' && !job.reportId) notes.report = 'Sin informe guardado';
+  const runningLanes = (['internal', 'external'] as const).filter(lane => shown[lane] === 'running');
+  if (shown.correlation === 'pending' && runningLanes.length === 1 && (shown.internal === 'done' || shown.external === 'done')) notes.correlation = `Esperando ${runningLanes[0] === 'internal' ? 'interno' : 'externo'}`;
+  if (stalled) for (const lane of runningLanes) notes[lane] = 'Sin respuesta';
   const started = job ? Date.parse(job.createdAt) : null;
   const ended = job?.completedAt ? Date.parse(job.completedAt) : null;
   const busy = job ? job.state === 'queued' || job.state === 'running' : !error && waiting !== 'idle';
@@ -248,7 +260,7 @@ export function AssessmentProgress({ purpose, job, mode, waiting = 'loading', fa
     </div>
     <p className="sr-only" role="status" aria-live="polite">{title}</p>
     {/* The branches depend on the job's mode, so the graph waits for it unless the caller already knows it. */}
-    {layout && <PhaseGraph states={shown} times={times} notes={notes} hints={hints} now={now} />}
+    {layout && <PhaseGraph states={shown} times={times} notes={notes} hints={hints} now={now} stalled={stalled} />}
     {error && <button className="customer-link-button" type="button" onClick={retry}>Actualizar estado del análisis</button>}
     {failedShown && settled && onDismiss && <button className="customer-link-button" type="button" onClick={onDismiss}>Descartar</button>}
   </section>;

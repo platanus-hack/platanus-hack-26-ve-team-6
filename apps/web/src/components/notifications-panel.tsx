@@ -76,9 +76,8 @@ export function NotificationsPanel({userId,organizationId,applicationId,canManag
     catch{setNotice('No se pudo copiar automáticamente. Selecciona y copia el secreto antes de cerrar esta vista.');}
   }
 
-  return <section className="customer-card customer-panel customer-notifications-card" aria-labelledby="notifications-title">
-    <div className="customer-card-heading"><div><h2 id="notifications-title">Notificaciones</h2></div><span className="customer-status customer-status-muted">Correo · Webhook</span></div>
-    <p className="customer-field-note">Los avisos envían título, mensaje, tipo y gravedad. Los webhooks también reciben los identificadores del espacio y el proyecto.</p>
+  return <section className="customer-card customer-panel customer-notifications-card" aria-label="Notificaciones">
+    <div className="customer-card-heading"><div><p className="customer-field-note">Los avisos envían título, mensaje, tipo y gravedad. Los webhooks también reciben los identificadores del espacio y el proyecto.</p></div><span className="customer-status customer-status-muted">Correo · Webhook</span></div>
 
     {coverage.isPending?<div className="customer-loading" role="status">Cargando el estado de vigilancia…</div>
       :coverage.isError?<div className="customer-form-error" role="alert">No se pudo cargar el estado de vigilancia. <button type="button" className="customer-link-button" onClick={()=>{coverage.refetch().catch(()=>undefined);}}>Reintentar</button></div>

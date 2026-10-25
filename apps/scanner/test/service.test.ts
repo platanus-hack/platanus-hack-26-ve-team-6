@@ -25,6 +25,16 @@ describe('service authentication and client',()=>{
   const client=createScannerClient({origin,secret,allowDevelopmentHttp:true});const report=await client.run(request);expect(run).toHaveBeenCalledWith(request);expect(report.subject.sourceDigest).toBe(request.source?.digest);expect(report.internal?.status).toBe('unavailable');
   await expect(client.run(request)).rejects.toThrow('scanner_http_409');
  });
+ it('streams each finished branch before the report and reports a failed run as unavailable',async()=>{
+  const origin=await listen(createScannerServer({secret,runner:runner()}));
+  const client=createScannerClient({origin,secret,allowDevelopmentHttp:true});const phases:string[]=[];
+  const report=await client.run(input(),{onProgress:phase=>phases.push(phase)});
+  expect(phases).toEqual(['internal_finished']);expect(report.internal?.status).toBe('unavailable');
+  const failing=await listen(createScannerServer({secret,runner:{run:async(_input,options)=>{options?.onProgress?.('internal_finished');throw new Error('fixture-failure');},readiness:runner().readiness}}));
+  const heard:string[]=[];
+  await expect(createScannerClient({origin:failing,secret,allowDevelopmentHttp:true}).run(input(),{onProgress:phase=>heard.push(phase)})).rejects.toThrow('scanner_assessment_unavailable');
+  expect(heard).toEqual(['internal_finished']);
+ });
  it('rejects unauthorized/tampered requests before executing the runner',async()=>{
   const run=vi.fn(runner().run);const origin=await listen(createScannerServer({secret,runner:{run,readiness:runner().readiness}}));const bytes=Buffer.from(JSON.stringify(input()));
   expect(await post(origin,bytes,undefined,'a'.repeat(64))).toBe(401);expect(run).not.toHaveBeenCalled();

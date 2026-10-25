@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { CheckIcon, MonitorIcon, MoonIcon, SunIcon, type LucideIcon } from 'lucide-react';
+import { CheckIcon, ContrastIcon, MonitorIcon, MoonIcon, SunIcon, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuRadioItemIndicator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -84,13 +84,12 @@ const OPTIONS = [
   { value: 'system', label: 'Sistema', Icon: MonitorIcon },
 ] as const satisfies readonly { value: ThemePreference; label: string; Icon: LucideIcon }[];
 
-/** Theme control: one icon button showing the current preference that opens a Claro / Oscuro / Sistema menu. */
+/** Theme control: one contrast icon button that opens a Claro / Oscuro / Sistema menu. */
 export function ThemeSwitch({ className }: { className?: string }) {
   const [preference, choose] = useThemePreference();
-  const current = OPTIONS.find(option => option.value === preference) ?? OPTIONS[2];
   return <DropdownMenu>
     <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label="Tema" title="Tema" className={cn('gl-theme size-[34px]', className)} />}>
-      <current.Icon aria-hidden="true" />
+      <ContrastIcon aria-hidden="true" />
     </DropdownMenuTrigger>
     <DropdownMenuContent>
       <DropdownMenuRadioGroup value={preference} onValueChange={next => { if (isPreference(next)) choose(next); }}>
