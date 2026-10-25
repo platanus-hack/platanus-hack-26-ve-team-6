@@ -13,6 +13,15 @@ usermod -aG docker gotchu-scanner
 getent group gotchu-scanner-client >/dev/null || groupadd --system gotchu-scanner-client
 usermod -aG gotchu-scanner-client gotchu-scanner
 usermod -aG gotchu-scanner-client gotchu-coordinator
+# Web connects repositories and the coordinator monitors them with the same read-only GitHub App.
+getent group gotchu-github-reader >/dev/null || groupadd --system gotchu-github-reader
+usermod -aG gotchu-github-reader gotchu-web
+usermod -aG gotchu-github-reader gotchu-coordinator
+if [[ -d /etc/gotchu/github ]]; then
+  chown -R root:gotchu-github-reader /etc/gotchu/github
+  chmod 750 /etc/gotchu/github
+  find /etc/gotchu/github -type f -exec chmod 640 {} +
+fi
 install -d -m 755 /etc/gotchu
 install -m 640 -o root -g gotchu-scanner-client "$state/scanner.secret" /etc/gotchu/scanner.secret
 install -m 640 -o root -g gotchu-scanner "$state/scanner.key" /etc/gotchu/scanner.key
@@ -45,7 +54,7 @@ function database(prefix) {
   return url.href;
 }
 const common = { NODE_ENV: 'production', GOTCHU_DEMO_ENABLED: 'false', GOTCHU_MONITORING_CONFIG_FILE: '/etc/gotchu/repositories.json' };
-// Optional integrations belong only to web; keep operator settings across reinstalls.
+// Optional sign-in integrations belong only to web; keep operator settings across reinstalls.
 const webIntegrations = Object.fromEntries([
   'AUTH_GITHUB_ID', 'AUTH_GITHUB_SECRET', 'AUTH_GOOGLE_ID', 'AUTH_GOOGLE_SECRET',
   'AUTH_OIDC_ISSUER', 'AUTH_OIDC_CLIENT_ID', 'AUTH_OIDC_CLIENT_SECRET', 'AUTH_OIDC_NAME',
@@ -67,6 +76,9 @@ const services = {
     GOTCHU_REDIS_URL: `redis://:${encodeURIComponent(required('REDIS_PASSWORD'))}@127.0.0.1:${required('REDIS_HOST_PORT')}`,
     GOTCHU_SCANNER_ORIGIN: 'https://127.0.0.1:4400', GOTCHU_SCANNER_SECRET_FILE: '/etc/gotchu/scanner.secret',
     GOTCHU_SCANNER_CA_FILE: '/etc/gotchu/scanner.crt',
+    // Scheduled checks, OSV dependency advisories and CISA KEV correlation.
+    GOTCHU_MONITORING_ENABLED: 'true', GOTCHU_MONITORING_OSV: 'true',
+    ...(config.GOTCHU_GITHUB_READER_APP_FILE ? { GOTCHU_GITHUB_READER_APP_FILE: config.GOTCHU_GITHUB_READER_APP_FILE } : {}),
   },
   scanner: {
     NODE_ENV: 'production', GOTCHU_SERVICE_ENTRY: '/opt/gotchu/app/apps/scanner/dist/main.js',
