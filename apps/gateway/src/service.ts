@@ -562,11 +562,13 @@ async function invokeModelProbe(options: {
       const saved = investigationModelProbeResultSchema.safeParse(previous.result);
       return { kind: 'existing' as const, result: saved.success ? saved.data : probeUnavailable() };
     }
+    // Locking the organization row suffices: every settings change also updates it in the same transaction,
+    // and row locks on the settings table would need an UPDATE grant the gateway must not have.
     const currentResult = await tx.query(`SELECT s.provider,s.provider_preset_id,s.endpoint,s.model_id,s.secret_ref,s.consent_to_external_processing,s.data_scopes,
       s.input_price_micro_usd_per_million_tokens,s.output_price_micro_usd_per_million_tokens,
       o.model_budget_micros,o.model_spent_micros,o.model_reserved_micros,o.model_token_budget,o.model_tokens_spent,o.model_tokens_reserved
       FROM gotchu.investigation_model_settings s JOIN gotchu.organizations o ON o.id=s.organization_id
-      WHERE s.organization_id=$1 AND o.model_opt_in=true FOR UPDATE OF s,o`, [organizationId]);
+      WHERE s.organization_id=$1 AND o.model_opt_in=true FOR UPDATE OF o`, [organizationId]);
     const row = currentResult.rows[0];
     const current = modelSettingsSchema.safeParse(row ? {
       provider: row.provider, provider_preset_id: row.provider_preset_id, endpoint: row.endpoint, model_id: row.model_id,
