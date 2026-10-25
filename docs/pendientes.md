@@ -1,6 +1,6 @@
 # Pendientes
 
-Estado al 24 de octubre de 2026. Lista viva de lo que falta, ordenada por prioridad. El detalle de cada entrega D01–D16 está en el [plan de defensa autónoma](plan-defensa-autonoma.md); la comparación con competidores, en [paridad Snyk/Aikido](paridad-snyk-aikido.md). Al cerrar un punto, muévelo al plan o al registro de [validación](validation.md) con su evidencia y bórralo de aquí.
+Estado al 24 de octubre de 2026. Lista viva de lo que falta, ordenada por prioridad. El detalle de cada entrega D01–D16 está en el [plan de defensa autónoma](plan-defensa-autonoma.md); la comparación con competidores, en [paridad Snyk/Aikido](paridad-snyk-aikido.md). Al cerrar un punto, muévelo al plan con su evidencia y bórralo de aquí.
 
 ## 1. Núcleo
 
