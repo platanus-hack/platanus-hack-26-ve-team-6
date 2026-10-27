@@ -1,7 +1,0 @@
-name: gotchu-infra
-runtime:
-  name: nodejs
-  options:
-    typescript: true
-description: AWS-first two-EC2 pilot foundation with a private scanner and S3 artifact storage.
-main: .
