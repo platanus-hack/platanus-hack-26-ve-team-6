@@ -1,12 +1,12 @@
-# Local runtime and AWS pilot foundation
+# Local runtime
 
-For the operator-selected single $24/month AWS host, see the [Lightsail deployment runbook](aws/README.md). The older Pulumi foundation below remains a separate, unapplied topology.
+The AWS deployment and GitHub CI/CD have been retired. See the [retirement record](aws/README.md). Development and self-hosting remain local.
 
 Compose provides persistent local Postgres and Redis. `./gotchu up` runs web, coordinator, scanner, gateway and the investigation worker as loopback host processes. The scanner uses digest-pinned parser containers and loopback HTTPS. In `single_app` mode the independent executor also owns the GitHub broker, even with publication disabled; optional publication requires `GOTCHU_EXECUTOR_ENABLED=true`. The legacy Reader/Writer integration retains its private Writer App file, installation ID and operator catalog. Private GitHub credentials stay outside web in single-App mode. Candidate validation needs its separately configured runner. See [self-hosting](../docs/self-hosting.md) for exact setup and [development](../docs/development.md) for the development launcher.
 
 Self-host uses a private `.gotchu/.env`, its own Compose project name, and the one-time Owner bootstrap described in [self-hosting](../docs/self-hosting.md). The legacy `infra-local-*` scripts continue using `infra/.env` by default.
 
-The customer application is the product: authenticated workspaces, authorized source and HTTPS assessment, evidence-backed reports, and a usable interface. The fictional vulnerable/corrected application remains a regression fixture. Core assessment uses deterministic local checks and attributed advisory data, without a model or paid API. The active hosted topology and operational procedures are in the [AWS runbook](aws/README.md).
+The customer application is the product: authenticated workspaces, authorized source and HTTPS assessment, evidence-backed reports, and a usable interface. The fictional vulnerable/corrected application remains a regression fixture. Core assessment uses deterministic local checks and attributed advisory data, without a model or paid API.
 
 ## Start locally
 
@@ -60,13 +60,3 @@ docker compose --profile '*' --env-file infra/.env -f infra/compose.yaml config 
 ```
 
 The live check uses a unique Compose project, random loopback ports, mode-0600 temporary credentials, and isolated named volumes. It verifies persistent Postgres/Redis state, invokes database bootstrap twice to check role idempotency and safety, builds and probes the real web/coordinator images, and confirms the four gated profiles still exit 78. Its cleanup removes only that test project's containers, local images, volumes, and temporary credentials. Normal `infra-local-down.sh` retains the local persistent volumes.
-
-## AWS pilot foundation
-
-Pulumi provisions a configurable AWS region with a public control EC2 host, a private scanner EC2 host, scoped VPC security groups, IMDSv2 enforcement, encrypted EBS root volumes, instance roles, and a private encrypted/versioned S3 bucket. It does not install the application, Postgres, Redis, or a runner service. The scanner receives S3-only egress through a gateway endpoint and has no public IP. Its EC2 host is not a per-job disposable VM boundary and does not enable customer-code execution.
-
-The application remains portable: Postgres and Redis are open-source runtime choices, and object storage and identity are replaceable adapters. This Pulumi package contains the AWS-specific resources only. The first demo service binds to loopback/private port `4100`; that port is not open in the AWS security groups, and the seeded vulnerable demo target must never be exposed publicly. AWS hosting, storage, and egress can incur charges; the infrastructure has not been deployed or priced. This model is separate from the deployed Lightsail topology documented in the [AWS runbook](aws/README.md).
-
-The unapplied Pulumi package reads configuration from [its example](pulumi/Pulumi.example.yaml): region, private bucket name, SSH public key/CIDRs, instance types and a disabled customer-execution flag. Replace the example values before any separately authorized infrastructure operation. Use the normal AWS SDK credential chain and a protected Pulumi state backend; never store AWS keys in stack YAML or application environment files. The two-EC2 model does not install services, provide TLS ingress, or implement database backup/restore. It rejects customer execution without reviewed isolation evidence.
-
-Local `pnpm --filter @gotchu/infra typecheck` and `pnpm --filter @gotchu/infra test` check configuration/resource policy with Pulumi mocks; they make no cloud deployment or availability claim.

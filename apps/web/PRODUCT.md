@@ -47,4 +47,4 @@ Spanish interface with visible keyboard focus, semantic landmarks, native disclo
 
 ## Open Decisions
 
-Primary buyer specialization and commercial AIRNT licensing remain open. The discovery interview timed out; the user then explicitly narrowed and authorized the landing-first iteration. The AWS installation has a separate runbook in infra/aws/README.md. Runtime services and optional integrations must be configured per installation; implementation is not proof of hosted availability. Future scope is kept in docs/roadmap.md.
+Primary buyer specialization and commercial AIRNT licensing remain open. The discovery interview timed out; the user then explicitly narrowed and authorized the landing-first iteration. AWS hosting and GitHub CI/CD were retired at the operator's request; infra/aws/README.md records the retirement. Runtime services and optional integrations must be configured per installation; implementation is not proof of hosted availability. Future scope is kept in docs/roadmap.md.

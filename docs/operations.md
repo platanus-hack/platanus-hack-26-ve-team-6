@@ -85,7 +85,7 @@ The **Vigilancia** page shows current run, observation, daily-observation and pl
 
 When alert storage is full, accepted event processing and mandatory authentication detection continue while operational projection becomes visibly degraded. Expired/archived assessment projections settle with explicit durable failure reasons rather than retrying forever or renewing old evidence. Reports remain readable until their workspace retention age expires. Review coverage and reconcile storage or incomplete work before treating the application as monitored.
 
-The local signing credential and notification-secret stores use private filesystem files. Optional services require installation-specific configuration; the existing AWS host is documented in its [runbook](../infra/aws/README.md). Additional operational work is tracked in [Roadmap](roadmap.md).
+The local signing credential and notification-secret stores use private filesystem files. Optional services require installation-specific configuration. The AWS deployment and GitHub CI/CD have been [retired](../infra/aws/README.md). Additional operational work is tracked in [Roadmap](roadmap.md).
 
 ## Local backup and restore
 

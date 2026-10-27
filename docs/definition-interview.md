@@ -35,4 +35,4 @@ La aprobación de PR usa la sesión autenticada del Owner y el hash del cambio e
 
 La corrección del 24 de octubre de 2026 establece que Gotchu es la aplicación real del cliente y que el demo es solo un fixture. Se conserva este encabezado para los enlaces históricos. El alcance actual lo fija la revisión de `main` y del PR 25 descrita arriba; las hipótesis de piloto y las ampliaciones anteriores están en el roadmap.
 
-Esta revisión es documental y de presentación. No autoriza operaciones cloud, publicación ni cambios en las aplicaciones de los clientes. El estado de la instalación AWS existente se documenta por separado en su [runbook](../infra/aws/README.md).
+Esta revisión es documental y de presentación. No autoriza operaciones cloud, publicación ni cambios en las aplicaciones de los clientes. El despliegue AWS y la CI/CD de GitHub se retiraron posteriormente por petición del operador; véase el [registro de retirada](../infra/aws/README.md).
