@@ -17,8 +17,12 @@ No CodePipeline or CodeBuild project existed in the deployment region. An invent
 
 CI, production promotion and deployment workflows, their setup action and affected-package selector were removed. AWS installers, CloudFormation and the unapplied Pulumi provisioner were removed, including its workspace entry and dependencies. Local Compose, the development launcher, self-hosting and local checks remain available.
 
-GitHub Actions is disabled for `0bkevin/gotchu`; its `production` environment and AWS variables were deleted, required CI checks were removed from `prod`, and the custom OIDC subject template was reset. The three workflows in the Platanus mirror were already manually disabled. There were no repository Actions secrets or self-hosted runners in the primary repository.
+GitHub Actions is disabled for `0bkevin/gotchu`; its `production` environment and AWS variables were deleted, the retired `prod` release-branch protection was removed, and the custom OIDC subject template was reset. The three workflows in the Platanus mirror were already manually disabled. Workflow definitions and AWS generators were removed from both repositories' `main` branches and the primary repository's `prod` branch. Seven workflow artifacts and 20 caches were deleted from the primary repository, plus one cache from the mirror; no runs were queued, running or waiting. There were no repository Actions secrets or self-hosted runners in the primary repository.
 
 ## Outside AWS and GitHub automation
 
 The previously documented Cloudflare DNS record `gotchu.kevinbravo.com` pointed to `54.81.195.116`. The operator removed the DNS record during retirement. Direct queries to both authoritative Cloudflare nameservers confirmed `NXDOMAIN` for A, AAAA and CNAME records after removal; recursive caches can retain the previous address until its TTL expires. Google OAuth clients and the customer-facing GitHub App are application integrations, not deployment automation, and were not deleted.
+
+## Local verification
+
+`pnpm build`, `pnpm typecheck`, `node scripts/gotchu.test.mjs`, frozen/offline lockfile validation and `git diff --check` passed. These local checks are separate from the live AWS/GitHub API and authoritative DNS verification above.
